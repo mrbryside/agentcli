@@ -4,6 +4,9 @@
 the runtime, tool workers, conversation storage, permissions, confirmations,
 skills, and subagents manually.
 
+Read the [AgentCLI documentation](https://mrbryside.github.io/agentcli/) for
+guides, examples, HTTP API details, and the SSE event reference.
+
 It includes two ready-to-use integration surfaces:
 
 - `agent.RunTerminal(...)` for an interactive local playground.
@@ -111,7 +114,8 @@ Run these commands from the repository root:
 
 ## Documentation
 
-Detailed guides and API documentation are in [documentation](documentation/).
+Read the [published documentation](https://mrbryside.github.io/agentcli/) or
+browse its [source](documentation/).
 
 ```sh
 make docs
