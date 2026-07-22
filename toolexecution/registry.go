@@ -15,6 +15,15 @@ import (
 // Handler executes a tool call with its JSON arguments.
 type Handler func(context.Context, json.RawMessage) (json.RawMessage, error)
 
+// TurnBehavior controls whether the runtime asks the model to continue after
+// a successful tool result. ContinueTurn is the backwards-compatible default.
+type TurnBehavior = agentruntime.ToolTurnBehavior
+
+const (
+	ContinueTurn TurnBehavior = agentruntime.ToolTurnContinue
+	EndTurn      TurnBehavior = agentruntime.ToolTurnEnd
+)
+
 // Tool combines a provider-neutral definition with its implementation.
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
@@ -22,9 +31,11 @@ type Handler func(context.Context, json.RawMessage) (json.RawMessage, error)
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
+	TurnBehavior         TurnBehavior
 	Permission           PermissionDescriptor
 	PermissionWithPolicy PermissionPolicyDescriptor
 	Confirmation         ConfirmationDescriptor
+	resultTurnBehavior   func(json.RawMessage) TurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -52,9 +63,11 @@ type Registry struct {
 type registeredTool struct {
 	definition           agentruntime.ToolDefinition
 	handler              Handler
+	turnBehavior         TurnBehavior
 	permission           PermissionDescriptor
 	permissionWithPolicy PermissionPolicyDescriptor
 	confirmation         ConfirmationDescriptor
+	resultTurnBehavior   func(json.RawMessage) TurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -71,6 +84,9 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.Handler == nil {
 		return fmt.Errorf("tool %q handler is required", tool.Definition.Name)
 	}
+	if tool.TurnBehavior != ContinueTurn && tool.TurnBehavior != EndTurn {
+		return fmt.Errorf("tool %q has unsupported turn behavior %q", tool.Definition.Name, tool.TurnBehavior)
+	}
 	if err := validateInputSchema(tool.Definition.InputSchema); err != nil {
 		return fmt.Errorf("tool %q input schema: %w", tool.Definition.Name, err)
 	}
@@ -81,7 +97,7 @@ func (r *Registry) Register(tool Tool) error {
 	if _, exists := r.tools[definition.Name]; exists {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
-	r.tools[definition.Name] = registeredTool{definition: definition, handler: tool.Handler, permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy, confirmation: tool.Confirmation}
+	r.tools[definition.Name] = registeredTool{definition: definition, handler: tool.Handler, turnBehavior: tool.TurnBehavior, permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy, confirmation: tool.Confirmation, resultTurnBehavior: tool.resultTurnBehavior}
 	r.order = append(r.order, definition.Name)
 	return nil
 }
@@ -118,6 +134,19 @@ func (r *Registry) lookup(name string) (Handler, bool) {
 	defer r.mu.RUnlock()
 	tool, ok := r.tools[name]
 	return tool.handler, ok
+}
+
+func (r *Registry) turnBehaviorFor(name string, output json.RawMessage) (TurnBehavior, bool) {
+	r.mu.RLock()
+	tool, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return ContinueTurn, false
+	}
+	if tool.resultTurnBehavior != nil {
+		return tool.resultTurnBehavior(cloneRawJSON(output)), true
+	}
+	return tool.turnBehavior, true
 }
 
 func (r *Registry) permissionFor(name string, arguments json.RawMessage, policy permission.Policy) (permission.Description, error, bool) {

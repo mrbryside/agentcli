@@ -59,6 +59,46 @@ The framework:
 5. encodes `weatherOutput` as the tool result;
 6. returns handler errors as failed tool results so the model can respond.
 
+## Continue or end the turn
+
+Tools continue the normal agent loop by default: after a successful result is
+stored, the provider receives the updated transcript and may produce text or
+request more tools.
+
+For asynchronous dispatch tools, the follow-up provider step can be wrong. It
+may speculate about work that has only been queued or duplicate a later
+callback. Configure `EndTurn` to store the successful result and complete the
+current turn without another provider call:
+
+```go
+agentcli.WithCustomTool(
+    "enqueue_report",
+    "Queue a report for asynchronous generation.",
+    enqueueReport,
+    agentcli.ToolTurnBehavior(agentcli.EndTurn),
+)
+```
+
+The available values are:
+
+| Behavior | Result |
+| --- | --- |
+| `agentcli.ContinueTurn` | Default. Store the result and call the provider again. |
+| `agentcli.EndTurn` | Store a successful result and complete the turn immediately. |
+
+The runtime always waits for every result in the current parallel tool-call
+batch before deciding. If any successful tool in that batch uses `EndTurn`, it
+stores the entire ordered batch and completes the turn. Failed, interrupted,
+denied, or declined results continue to the provider so it can explain or
+recover from the error.
+
+`start_subagent` and `send_subagent_message` use `EndTurn` because their
+successful results confirm asynchronous dispatch, not child completion. The
+authoritative child answer arrives later through a callback turn. If
+`start_subagent` returns `selection_required`, it temporarily continues the
+turn because no child work was dispatched and the model must ask which existing
+child the user means.
+
 ## Dynamic permission metadata
 
 Use typed arguments when the capability details depend on the request:
@@ -131,6 +171,7 @@ agentcli.WithTool(toolexecution.Tool{
     Handler: func(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
         return json.RawMessage(`{"ok":true}`), nil
     },
+    TurnBehavior: toolexecution.EndTurn,
 })
 ```
 
@@ -159,4 +200,3 @@ spawn nested subagents.
 - Never trust paths, URLs, or commands simply because a model supplied them.
 - Avoid including secrets in tool output, errors, permission details, or
   confirmation details because those values may be stored or shown to users.
-

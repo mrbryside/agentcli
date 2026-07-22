@@ -23,6 +23,7 @@ type CustomToolOption func(*customToolConfig) error
 
 type customToolConfig struct {
 	schema               json.RawMessage
+	turnBehavior         toolexecution.TurnBehavior
 	permission           toolexecution.PermissionDescriptor
 	permissionWithPolicy toolexecution.PermissionPolicyDescriptor
 	confirmation         toolexecution.ConfirmationDescriptor
@@ -84,11 +85,32 @@ func NewCustomTool[Input, Output any](name, description string, handler func(con
 			}
 			return encoded, nil
 		},
+		TurnBehavior:         configuration.turnBehavior,
 		Permission:           configuration.permission,
 		PermissionWithPolicy: configuration.permissionWithPolicy,
 		Confirmation:         configuration.confirmation,
 	}, nil
 }
+
+// ToolTurnBehavior controls what happens after a successful custom-tool
+// result is stored. ContinueTurn is the default; EndTurn completes the current
+// agent turn without another model call.
+func ToolTurnBehavior(behavior toolexecution.TurnBehavior) CustomToolOption {
+	return func(configuration *customToolConfig) error {
+		if behavior != ContinueTurn && behavior != EndTurn {
+			return fmt.Errorf("unsupported turn behavior %q", behavior)
+		}
+		configuration.turnBehavior = behavior
+		return nil
+	}
+}
+
+const (
+	// ContinueTurn asks the model to consume the tool result and continue.
+	ContinueTurn = toolexecution.ContinueTurn
+	// EndTurn stores the successful tool result and completes the turn.
+	EndTurn = toolexecution.EndTurn
+)
 
 // ToolSchema overrides automatic input-schema inference for advanced JSON
 // Schema constraints. The schema must describe a JSON object.

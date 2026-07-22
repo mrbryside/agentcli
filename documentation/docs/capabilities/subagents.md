@@ -54,9 +54,11 @@ summary and, for incomplete work, the required next step.
 
 ## Asynchronous lifecycle
 
-`start_subagent` returns immediately after routing work. The parent can perform
-other work or end its current answer. The child turn outcome arrives through a
-separate callback containing:
+`start_subagent` and `send_subagent_message` return immediately after routing
+work. Their successful tool results are stored and the current parent turn ends
+without another provider call. This prevents the parent from guessing a child
+question or duplicating the authoritative result. The child turn outcome
+arrives through a separate callback containing:
 
 - parent and child identity;
 - `completed`, `incomplete`, or `failed` status;
@@ -64,6 +66,10 @@ separate callback containing:
 - final assistant answer when one exists;
 - terminal error when the child failed;
 - durable transcript cursor metadata.
+
+When `start_subagent` returns `selection_required`, no work was routed, so that
+turn continues only long enough for the parent to ask which `display_name` the
+user means.
 
 The callback is converted to trusted runtime input for a new parent turn. It is
 not represented as a human message and is not attached as a late result to the

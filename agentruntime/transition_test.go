@@ -127,6 +127,51 @@ func TestEffectsWaitsForEveryToolResultAndPersistsProviderOrder(t *testing.T) {
 	}
 }
 
+func TestEffectsEndsTurnAfterSuccessfulConfiguredToolBatch(t *testing.T) {
+	state := toolRoundState(t)
+	first := ToolResultEnvelope{
+		SessionID: "session", TurnID: "turn", TurnBehavior: ToolTurnEnd,
+		Result: ToolResult{CallID: "call_1", Name: "first", Status: ToolResultSucceeded, Output: []byte(`1`)},
+	}
+	second := ToolResultEnvelope{
+		SessionID: "session", TurnID: "turn",
+		Result: ToolResult{CallID: "call_2", Name: "second", Status: ToolResultSucceeded, Output: []byte(`2`)},
+	}
+
+	state = State(state, AgentEvent{SessionID: "session", TurnID: "turn", Type: ToolResultReceived, ToolResult: &first})
+	effects, err := Effects(state, AgentEvent{SessionID: "session", TurnID: "turn", Type: ToolResultReceived, ToolResult: &second})
+	if err != nil {
+		t.Fatalf("Effects() error = %v", err)
+	}
+	if got, want := effectTypes(effects), []EffectType{AppendMessages, EmitEvent}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("effect types = %v, want %v", got, want)
+	}
+	if effects[1].Event == nil || effects[1].Event.Type != RunCompleted {
+		t.Fatalf("completion effect = %#v, want RunCompleted", effects[1])
+	}
+}
+
+func TestEffectsContinuesWhenEndTurnBatchContainsFailure(t *testing.T) {
+	state := toolRoundState(t)
+	first := ToolResultEnvelope{
+		SessionID: "session", TurnID: "turn", TurnBehavior: ToolTurnEnd,
+		Result: ToolResult{CallID: "call_1", Name: "first", Status: ToolResultSucceeded, Output: []byte(`1`)},
+	}
+	second := ToolResultEnvelope{
+		SessionID: "session", TurnID: "turn",
+		Result: ToolResult{CallID: "call_2", Name: "second", Status: ToolResultFailed, Error: "failed"},
+	}
+
+	state = State(state, AgentEvent{SessionID: "session", TurnID: "turn", Type: ToolResultReceived, ToolResult: &first})
+	effects, err := Effects(state, AgentEvent{SessionID: "session", TurnID: "turn", Type: ToolResultReceived, ToolResult: &second})
+	if err != nil {
+		t.Fatalf("Effects() error = %v", err)
+	}
+	if got, want := effectTypes(effects), []EffectType{AppendMessages, StartProvider}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("effect types = %v, want %v", got, want)
+	}
+}
+
 func TestEffectsRejectsDuplicateAndUnknownToolResults(t *testing.T) {
 	state := toolRoundState(t)
 	accepted := ToolResultEnvelope{SessionID: "session", TurnID: "turn", Result: ToolResult{CallID: "call_1", Name: "first", Status: ToolResultSucceeded, Output: []byte(`1`)}}

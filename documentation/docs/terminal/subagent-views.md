@@ -91,9 +91,9 @@ Close an instance when its task and follow-ups are finished:
 /close Sol
 ```
 
-Closing an active child interrupts its current turn and prevents new messages.
-Closing an idle child preserves its stored transcript but changes its
-lifecycle state to closed.
+An active child must be interrupted before it can be closed. Closing an idle
+child preserves its stored transcript but changes its lifecycle state to
+closed.
 
 ## View isolation
 

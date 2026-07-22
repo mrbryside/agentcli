@@ -1980,6 +1980,9 @@
                 "session_id": {
                     "type": "string"
                 },
+                "turn_behavior": {
+                    "$ref": "#/definitions/agentruntime.ToolTurnBehavior"
+                },
                 "turn_id": {
                     "type": "string"
                 }
@@ -2130,6 +2133,17 @@
                 "ToolResultInterrupted",
                 "ToolResultDenied",
                 "ToolResultDeclined"
+            ]
+        },
+        "agentruntime.ToolTurnBehavior": {
+            "type": "string",
+            "enum": [
+                "",
+                "end_turn"
+            ],
+            "x-enum-varnames": [
+                "ToolTurnContinue",
+                "ToolTurnEnd"
             ]
         },
         "confirmation.Answer": {

@@ -101,6 +101,52 @@ func TestNewCustomToolSupportsStaticPermissionAndSchemaOverride(t *testing.T) {
 	}
 }
 
+func TestNewCustomToolConfiguresTurnBehavior(t *testing.T) {
+	tool, err := NewCustomTool("enqueue", "Enqueues work.", func(_ context.Context, input customToolTestInput) (customToolTestOutput, error) {
+		return customToolTestOutput{Summary: input.Topic}, nil
+	}, ToolTurnBehavior(EndTurn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.TurnBehavior != toolexecution.EndTurn {
+		t.Fatalf("turn behavior = %q, want %q", tool.TurnBehavior, toolexecution.EndTurn)
+	}
+	if _, err := NewCustomTool("invalid-turn", "", func(context.Context, customToolTestInput) (struct{}, error) {
+		return struct{}{}, nil
+	}, ToolTurnBehavior("later")); err == nil {
+		t.Fatal("unsupported turn behavior accepted")
+	}
+}
+
+func TestWithCustomToolEndTurnSkipsSecondModelCall(t *testing.T) {
+	model := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "enqueue-1", Name: "enqueue", Arguments: map[string]any{"topic": "Go"},
+	}}}
+	agent, err := New(context.Background(),
+		WithModel(model),
+		WithCustomTool("enqueue", "Enqueues work.", func(_ context.Context, input customToolTestInput) (customToolTestOutput, error) {
+			return customToolTestOutput{Summary: input.Topic}, nil
+		}, ToolTurnBehavior(EndTurn)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	run, err := agent.Start(context.Background(), userRequest("end-turn-tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if got := len(model.Requests()); got != 1 {
+		t.Fatalf("model requests = %d, want 1", got)
+	}
+	result, err := run.Result()
+	if err != nil || !result.Finished || len(result.ToolResults) != 1 {
+		t.Fatalf("Result() = (%#v, %v)", result, err)
+	}
+}
+
 func TestNewCustomToolRejectsInvalidConfiguration(t *testing.T) {
 	type recursive struct {
 		Child *recursive `json:"child,omitempty"`

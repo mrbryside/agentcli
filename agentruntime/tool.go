@@ -2,6 +2,15 @@ package agentruntime
 
 import "encoding/json"
 
+// ToolTurnBehavior controls what the agent loop does after a successful tool
+// result has been persisted. The zero value preserves the normal tool loop.
+type ToolTurnBehavior string
+
+const (
+	ToolTurnContinue ToolTurnBehavior = ""
+	ToolTurnEnd      ToolTurnBehavior = "end_turn"
+)
+
 // ToolDefinition describes a provider-neutral callable tool.
 type ToolDefinition struct {
 	Name        string
@@ -18,9 +27,10 @@ type ToolRequest struct {
 
 // ToolResultEnvelope correlates a completed tool result to its turn.
 type ToolResultEnvelope struct {
-	SessionID string
-	TurnID    string
-	Result    ToolResult
+	SessionID    string
+	TurnID       string
+	Result       ToolResult
+	TurnBehavior ToolTurnBehavior
 }
 
 // ToolInterrupt requests cancellation of selected outstanding calls in a turn.

@@ -79,6 +79,9 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	}
 	result.Result.Status = agentruntime.ToolResultSucceeded
 	result.Result.Output = cloneRawJSON(output)
+	if behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, output); registered {
+		result.TurnBehavior = behavior
+	}
 	return result
 }
 

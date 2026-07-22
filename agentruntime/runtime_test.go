@@ -468,6 +468,39 @@ func TestRuntimeLoopPersistsToolRoundBeforeDispatchAndContinues(t *testing.T) {
 	}
 }
 
+func TestRuntimeLoopEndsTurnAfterSuccessfulConfiguredToolResult(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "call_async", Name: "async", Arguments: map[string]any{}}}, Finished: true}}}}},
+	}}
+	messages := inmemory.NewMessageStorage()
+	runtime, requests, results := newLoopRuntime(t, model, messages, 20)
+	run, err := runtime.Start(context.Background(), Request{SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "dispatch"}})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	_ = receiveToolRequest(t, requests)
+	results <- ToolResultEnvelope{
+		SessionID: "session", TurnID: "turn", TurnBehavior: ToolTurnEnd,
+		Result: ToolResult{CallID: "call_async", Name: "async", Status: ToolResultSucceeded, Output: []byte(`{"accepted":true}`)},
+	}
+	collectRuntimeEvents(t, run)
+
+	if got := len(model.Requests()); got != 1 {
+		t.Fatalf("provider request count = %d, want 1", got)
+	}
+	stored, err := messages.List(context.Background(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 3 || stored[2].Type != MessageTypeToolResult {
+		t.Fatalf("stored messages = %#v, want user, tool call, tool result", stored)
+	}
+	result, err := run.Result()
+	if err != nil || !result.Finished || len(result.ToolResults) != 1 {
+		t.Fatalf("Result() = (%#v, %v)", result, err)
+	}
+}
+
 func TestRuntimeLoopWaitsForEveryToolResultInProviderOrder(t *testing.T) {
 	model := &scriptedRuntimeModel{streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{CompletedTools: []provider.ToolCall{

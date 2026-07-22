@@ -65,9 +65,14 @@ agentcli.ToolPermission(typedDescriptor)
 agentcli.ToolPermissionWithPolicy(typedDescriptor)
 agentcli.ToolConfirmation(typedDescriptor)
 agentcli.ToolSchema(rawObjectSchema)
+agentcli.ToolTurnBehavior(agentcli.ContinueTurn)
+agentcli.ToolTurnBehavior(agentcli.EndTurn)
 ```
 
 `NewCustomTool` constructs a `toolexecution.Tool` without adding it to an agent.
+`ContinueTurn` is the default. `EndTurn` stores a successful tool result and
+completes the current turn without another provider call; non-success results
+still continue so the model can report the failure.
 
 ## Turns
 

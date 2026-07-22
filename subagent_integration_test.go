@@ -180,7 +180,7 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 }
 
-func TestSubagentIntegrationParentInterruptPropagatesToChild(t *testing.T) {
+func TestSubagentIntegrationExplicitInterruptStopsChildAfterParentTurnEnds(t *testing.T) {
 	childModel := newIntegrationChildModel("never completes without release")
 	parentModel := &integrationInterruptParentModel{}
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
@@ -192,7 +192,7 @@ func TestSubagentIntegrationParentInterruptPropagatesToChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentModel.waitForSecondRound(t)
+	waitRun(t, parentRun)
 	childModel.waitRequests(t, 1)
 	children, err := agent.ListSubagents(context.Background(), "parent", false)
 	if err != nil || len(children) != 1 {
@@ -202,10 +202,9 @@ func TestSubagentIntegrationParentInterruptPropagatesToChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := parentRun.Interrupt(context.Background(), "parent cancelled"); err != nil {
+	if err := agent.InterruptSubagent(context.Background(), "parent", children[0].ID, "parent cancelled"); err != nil {
 		t.Fatal(err)
 	}
-	waitRun(t, parentRun)
 	waitRun(t, childRun)
 	if _, err := childRun.Result(); !errors.Is(err, agentruntime.ErrRunInterrupted) {
 		t.Fatalf("child result after parent interrupt = %v, want ErrRunInterrupted", err)

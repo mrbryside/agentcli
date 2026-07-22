@@ -262,9 +262,10 @@ type ToolRequestResponse struct {
 }
 
 type ToolResultEnvelopeResponse struct {
-	SessionID string             `json:"session_id"`
-	TurnID    string             `json:"turn_id"`
-	Result    ToolResultResponse `json:"result"`
+	SessionID    string                        `json:"session_id"`
+	TurnID       string                        `json:"turn_id"`
+	Result       ToolResultResponse            `json:"result"`
+	TurnBehavior agentruntime.ToolTurnBehavior `json:"turn_behavior,omitempty"`
 }
 
 type ProviderEventResponse struct {
@@ -381,7 +382,7 @@ func newEventResponse(event agentruntime.AgentEvent) EventResponse {
 		response.ToolRequest = &value
 	}
 	if event.ToolResult != nil {
-		value := ToolResultEnvelopeResponse{SessionID: event.ToolResult.SessionID, TurnID: event.ToolResult.TurnID, Result: newToolResultResponse(event.ToolResult.Result)}
+		value := ToolResultEnvelopeResponse{SessionID: event.ToolResult.SessionID, TurnID: event.ToolResult.TurnID, Result: newToolResultResponse(event.ToolResult.Result), TurnBehavior: event.ToolResult.TurnBehavior}
 		response.ToolResult = &value
 	}
 	if event.Result != nil {

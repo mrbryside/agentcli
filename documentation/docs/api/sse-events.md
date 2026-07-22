@@ -112,7 +112,7 @@ Queued turns emit nothing until admitted.
 | `run_started` | `message`, `permission_mode` | The turn was admitted and its user message was stored. `permission_mode.current` is the mode captured for the run. |
 | `provider_event_received` | `provider_event` | One provider-neutral streaming fragment was received. See the provider event catalog below. |
 | `tool_call_requested` | `tool_request` | A complete provider tool call was assembled, validated, and submitted for permission/confirmation/execution. |
-| `tool_result_received` | `tool_result` | Tool execution reached a terminal `succeeded`, `failed`, `interrupted`, `denied`, or `declined` result. |
+| `tool_result_received` | `tool_result` | Tool execution reached a terminal `succeeded`, `failed`, `interrupted`, `denied`, or `declined` result. `tool_result.turn_behavior` is `end_turn` when a successful result completes the turn without another provider step; it is omitted for the default continue behavior. |
 | `permission_requested` | `permission` | Tool execution is paused until a correlated permission decision arrives or the request expires. |
 | `permission_resolved` | `permission`, `decision` | A permission decision was accepted. This event is committed before its resulting tool result. |
 | `permission_cancelled` | `permission` | A pending permission was cancelled because its run or runtime stopped. |
@@ -168,7 +168,7 @@ validated call and emits `tool_call_requested`.
 | `tool_call_started` | `tool.index`, `tool.id`, `tool.name`, `tool.type` | Begins one streamed tool call. `index` correlates later argument fragments. |
 | `tool_arguments_received` | `tool.index`, `tool.arguments` | Adds an argument-string fragment; it may not be valid JSON until completion. |
 | `tool_call_completed` | `tool.index` and completed tool metadata | Signals that the provider finished the streamed call. Wait for `tool_call_requested` before execution. |
-| `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools and start another provider step. |
+| `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools. It starts another provider step unless a successful tool in the completed batch uses `end_turn`. |
 | `stream_failed` | `error` | The provider stream failed. A terminal `run_failed` follows unless the runtime has already terminated. |
 
 ## Permission event

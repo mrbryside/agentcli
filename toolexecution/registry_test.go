@@ -89,6 +89,7 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}{
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
+		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
 		{name: "array schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "array", InputSchema: json.RawMessage(`[]`)}, Handler: testHandler}},
 		{name: "non-object type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "string", InputSchema: json.RawMessage(`{"type":"string"}`)}, Handler: testHandler}},
 		{name: "missing type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "type", InputSchema: json.RawMessage(`{"properties":{}}`)}, Handler: testHandler}},

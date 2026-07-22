@@ -515,6 +515,8 @@ definitions:
         $ref: '#/definitions/agentcli.ToolResultResponse'
       session_id:
         type: string
+      turn_behavior:
+        $ref: '#/definitions/agentruntime.ToolTurnBehavior'
       turn_id:
         type: string
     type: object
@@ -637,6 +639,14 @@ definitions:
     - ToolResultInterrupted
     - ToolResultDenied
     - ToolResultDeclined
+  agentruntime.ToolTurnBehavior:
+    enum:
+    - ""
+    - end_turn
+    type: string
+    x-enum-varnames:
+    - ToolTurnContinue
+    - ToolTurnEnd
   confirmation.Answer:
     enum:
     - "yes"

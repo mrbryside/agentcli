@@ -49,6 +49,12 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(string(tool.Definition.InputSchema), `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
+		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && tool.TurnBehavior != EndTurn {
+			t.Fatalf("subagent dispatch tool %q turn behavior = %q, want end_turn", tool.Definition.Name, tool.TurnBehavior)
+		}
+		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.TurnBehavior != ContinueTurn {
+			t.Fatalf("subagent management tool %q turn behavior = %q, want continue", tool.Definition.Name, tool.TurnBehavior)
+		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(string(tool.Definition.InputSchema), `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
 		}
@@ -72,6 +78,21 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	for name := range subagentToolNames {
 		if !seen[name] {
 			t.Fatalf("reserved subagent tool %q is missing", name)
+		}
+	}
+}
+
+func TestStartSubagentOnlyContinuesWhenSelectionIsRequired(t *testing.T) {
+	if got := startSubagentTurnBehavior(json.RawMessage(`{"action":"selection_required"}`)); got != ContinueTurn {
+		t.Fatalf("selection behavior = %q, want continue", got)
+	}
+	for _, output := range []json.RawMessage{
+		json.RawMessage(`{"action":"created"}`),
+		json.RawMessage(`{"action":"reused"}`),
+		json.RawMessage(`not-json`),
+	} {
+		if got := startSubagentTurnBehavior(output); got != EndTurn {
+			t.Fatalf("dispatch behavior for %s = %q, want end_turn", output, got)
 		}
 	}
 }

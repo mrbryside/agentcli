@@ -133,6 +133,9 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 		return failEffects(event, errors.New("tool result received without a pending tool round"))
 	}
 	result := event.ToolResult
+	if result.TurnBehavior != ToolTurnContinue && result.TurnBehavior != ToolTurnEnd {
+		return failEffects(event, fmt.Errorf("tool result has unsupported turn behavior %q", result.TurnBehavior))
+	}
 	if result.SessionID != event.SessionID || result.TurnID != event.TurnID {
 		return failEffects(event, fmt.Errorf("tool result identifiers do not match the run"))
 	}
@@ -143,6 +146,7 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 		return nil
 	}
 	round.accepted[result.Result.CallID] = cloneToolResult(result.Result)
+	round.behaviors[result.Result.CallID] = result.TurnBehavior
 	if len(round.accepted) != len(round.order) {
 		return nil
 	}
@@ -157,7 +161,19 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 			ToolResult: &toolResult,
 		})
 	}
-	return []Effect{{Type: AppendMessages, Messages: messages}, {Type: StartProvider}}
+	effects := []Effect{{Type: AppendMessages, Messages: messages}}
+	shouldEnd := false
+	for _, callID := range round.order {
+		if round.accepted[callID].Status != ToolResultSucceeded {
+			return append(effects, Effect{Type: StartProvider})
+		}
+		shouldEnd = shouldEnd || round.behaviors[callID] == ToolTurnEnd
+	}
+	if shouldEnd {
+		completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
+		return append(effects, Effect{Type: EmitEvent, Event: &completed})
+	}
+	return append(effects, Effect{Type: StartProvider})
 }
 
 func interruptionEffects(current AgentState, event AgentEvent) []Effect {
@@ -200,6 +216,7 @@ type toolRound struct {
 	order     []string
 	requested map[string]ToolRequest
 	accepted  map[string]ToolResult
+	behaviors map[string]ToolTurnBehavior
 }
 
 func latestToolRound(events []AgentEvent) (toolRound, bool) {
@@ -219,7 +236,7 @@ func latestToolRound(events []AgentEvent) (toolRound, bool) {
 		return toolRound{}, false
 	}
 
-	round := toolRound{requested: make(map[string]ToolRequest), accepted: make(map[string]ToolResult)}
+	round := toolRound{requested: make(map[string]ToolRequest), accepted: make(map[string]ToolResult), behaviors: make(map[string]ToolTurnBehavior)}
 	for _, event := range events[boundary+1:] {
 		switch event.Type {
 		case ToolCallRequested:
@@ -242,6 +259,7 @@ func latestToolRound(events []AgentEvent) (toolRound, bool) {
 			}
 			if _, duplicate := round.accepted[callID]; !duplicate {
 				round.accepted[callID] = cloneToolResult(event.ToolResult.Result)
+				round.behaviors[callID] = event.ToolResult.TurnBehavior
 			}
 		}
 	}
