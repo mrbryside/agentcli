@@ -1,6 +1,6 @@
 # Client surfaces
 
-`Agent.RunTerminal` is the reusable reference UI. Terminal options select input, output, initial prompt, and session ID. It renders streaming content, tools, permissions, confirmations, child views, and loading state. Interactive provider fragments are micro-batched for roughly 24 ms and displayed as a readline-managed multiline prompt prefix, preserving the user's current input; completed lines commit to output, the spinner yields on first content, and switching views cancels stale fragment timers. Exiting the terminal does not close the Agent, allowing later direct turns or server startup.
+`Agent.RunTerminal` is the reusable reference UI. Terminal options select input, output, initial prompt, and session ID. It renders streaming content, tools, permissions, confirmations, child views, and loading state. Each provider fragment is forwarded exactly once as it arrives through readline's output writer; the spinner yields before the first content write, while the serialized renderer prevents root and child-view output from being written concurrently. Exiting the terminal does not close the Agent, allowing later direct turns or server startup.
 
 `Agent.RunServer` and `NewServer` expose Echo JSON/SSE endpoints. The server binds to loopback by default, accepts middleware, limits request size, emits heartbeat comments, queues a bounded number of same-session turns, and lets different sessions proceed concurrently. `NewServer` is preferred when embedding `Handler` or `Echo` in another service.
 

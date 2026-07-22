@@ -7,11 +7,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/confirmation"
 	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/provider"
 	"github.com/mrbryside/agentcli/storage"
 )
 
@@ -484,77 +484,25 @@ func TestTerminalInputFallsBackForNonInteractiveReaders(t *testing.T) {
 	}
 }
 
-func TestInteractiveTerminalStreamsPartialProviderLinesAbovePrompt(t *testing.T) {
+func TestTerminalRendersProviderFragmentsExactlyOnce(t *testing.T) {
 	var output bytes.Buffer
-	editor := &recordingPromptEditor{}
-	editor.SetPrompt("❯ ")
-	stream := &terminalStreamOutput{}
-	stream.attach(editor, "❯ ")
-	terminal := terminal{out: &output, interactive: true, stream: stream}
-
-	terminal.write("Hello")
-	if output.Len() != 0 {
-		t.Fatalf("partial provider line was committed early: %q", output.String())
-	}
-	waitForPrompt(t, editor, "Hello\n❯ ")
-
-	terminal.write(" world\nNext")
-	waitForPrompt(t, editor, "Next\n❯ ")
-	if got := output.String(); got != "Hello world\n" {
-		t.Fatalf("completed provider lines = %q", got)
+	client := terminalClient{terminal: terminal{out: &output, interactive: true}}
+	wroteContent := false
+	for _, fragment := range []string{"I'm", " your primary", " agent."} {
+		client.renderEvent(agentruntime.AgentEvent{
+			Type: agentruntime.ProviderEventReceived,
+			ProviderEvent: provider.StreamEvent{
+				Type:    provider.ContentReceived,
+				Content: fragment,
+			},
+		}, &wroteContent)
 	}
 
-	terminal.println("")
-	if got := output.String(); got != "Hello world\nNext\n\n" {
-		t.Fatalf("flushed provider output = %q", got)
+	if got, want := output.String(), "I'm your primary agent."; got != want {
+		t.Fatalf("rendered provider fragments = %q, want %q", got, want)
 	}
-	if prompt, _, _ := editor.snapshot(); prompt != "❯ " {
-		t.Fatalf("restored prompt = %q", prompt)
-	}
-}
-
-func TestInteractiveTerminalDiscardCancelsPartialStream(t *testing.T) {
-	var output bytes.Buffer
-	editor := &recordingPromptEditor{}
-	editor.SetPrompt("❯ ")
-	stream := &terminalStreamOutput{}
-	stream.attach(editor, "❯ ")
-	terminal := terminal{out: &output, interactive: true, stream: stream}
-
-	terminal.write("old view")
-	terminal.discardStream()
-	time.Sleep(terminalStreamInterval * 2)
-
-	if got := output.String(); got != "" {
-		t.Fatalf("discarded output = %q", got)
-	}
-	if prompt, _, _ := editor.snapshot(); prompt != "❯ " {
-		t.Fatalf("discarded prompt = %q", prompt)
-	}
-}
-
-func TestTerminalWithoutPromptEditorWritesFragmentsImmediately(t *testing.T) {
-	var output bytes.Buffer
-	terminal := terminal{out: &output, interactive: true, stream: &terminalStreamOutput{}}
-
-	terminal.write("Hello")
-	if got := output.String(); got != "Hello" {
-		t.Fatalf("provider fragment = %q", got)
-	}
-}
-
-func waitForPrompt(t *testing.T, editor *recordingPromptEditor, want string) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for {
-		prompt, _, _ := editor.snapshot()
-		if prompt == want {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("prompt = %q, want %q", prompt, want)
-		}
-		time.Sleep(terminalStreamInterval / 3)
+	if got := strings.Count(output.String(), "I'm"); got != 1 {
+		t.Fatalf("first fragment rendered %d times, want exactly once", got)
 	}
 }
 

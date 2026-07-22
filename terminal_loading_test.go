@@ -149,28 +149,26 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 	}
 }
 
-func TestTerminalStreamOwnsPromptAfterFirstContent(t *testing.T) {
+func TestTerminalContentStopsLoadingAndWritesImmediately(t *testing.T) {
 	editor := &recordingPromptEditor{}
 	loadingState := &terminalLoadingState{}
 	loadingState.attach(editor, "❯ ")
-	stream := &terminalStreamOutput{}
-	stream.attach(editor, "❯ ")
 	var output bytes.Buffer
 	terminal := terminal{
 		out:         &output,
 		interactive: true,
 		loading:     loadingState,
-		stream:      stream,
 	}
 
 	loading := terminal.loadingController()
 	loading.Start("Thinking")
 	terminal.write("answer")
-	waitForPrompt(t, editor, "answer\n❯ ")
+	if got := output.String(); got != "answer" {
+		t.Fatalf("provider fragment = %q, want immediate exact write", got)
+	}
 
 	time.Sleep(terminalLoadingInterval * 2)
-	if prompt, _, _ := editor.snapshot(); prompt != "answer\n❯ " {
-		t.Fatalf("loading animation replaced stream prompt: %q", prompt)
+	if prompt, _, _ := editor.snapshot(); prompt != "❯ " {
+		t.Fatalf("loading animation continued after content: %q", prompt)
 	}
-	terminal.println("")
 }

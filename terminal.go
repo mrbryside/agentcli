@@ -26,8 +26,6 @@ import (
 
 const terminalInterruptInput = "\x03"
 
-const terminalStreamInterval = 24 * time.Millisecond
-
 // TerminalOption configures Agent.RunTerminal without changing the Agent's
 // runtime, tools, storage, or lifecycle.
 type TerminalOption func(*terminalConfig) error
@@ -725,7 +723,6 @@ func (c *terminalClient) switchView(subagentID string) context.Context {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
 	c.terminal.stopLoading()
-	c.terminal.discardStream()
 	c.stateMu.Lock()
 	if c.viewCancel != nil {
 		c.viewCancel()
@@ -1375,7 +1372,6 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 		return nil, nil, false, func() {}, err
 	}
 	output.loading.attach(instance, output.promptValue())
-	output.stream.attach(instance, output.promptValue())
 	output.out = instance.Stdout()
 	lines := make(chan string)
 	readErrors := make(chan error, 1)
@@ -1400,7 +1396,6 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 	}()
 	return lines, readErrors, true, func() {
 		output.stopLoading()
-		output.stream.detach(instance)
 		output.loading.detach(instance)
 		_ = instance.Close()
 	}, nil
@@ -1418,23 +1413,7 @@ type terminal struct {
 	out         io.Writer
 	color       bool
 	interactive bool
-	stream      *terminalStreamOutput
 	loading     *terminalLoadingState
-}
-
-// terminalStreamOutput displays provider fragments above readline's editable
-// prompt. Partial lines live temporarily inside a multiline prompt prefix, so
-// readline can redraw them together with the user's current input. Completed
-// lines are committed to the ordinary output stream. Tiny chunks are batched
-// briefly to avoid a full prompt redraw for every provider token.
-type terminalStreamOutput struct {
-	mu         sync.Mutex
-	editor     terminalPromptEditor
-	basePrompt string
-	pending    string
-	timer      *time.Timer
-	generation uint64
-	displayed  bool
 }
 
 func newTerminal(output io.Writer) terminal {
@@ -1446,7 +1425,6 @@ func newTerminal(output io.Writer) terminal {
 	}
 	value := terminal{out: output, color: interactive, interactive: interactive}
 	if interactive {
-		value.stream = &terminalStreamOutput{}
 		value.loading = &terminalLoadingState{}
 	}
 	return value
@@ -1683,7 +1661,6 @@ func (t terminal) error(err error) {
 }
 
 func (t terminal) clear() {
-	t.discardStream()
 	if t.color {
 		fmt.Fprint(t.out, "\033[2J\033[H")
 	}
@@ -1696,145 +1673,12 @@ func (t terminal) ensureNewline(condition bool) {
 }
 
 func (t terminal) write(value string) {
-	if t.stream != nil {
-		t.stopLoading()
-		t.stream.write(t.out, value)
-		return
-	}
+	t.stopLoading()
 	fmt.Fprint(t.out, value)
 }
 
 func (t terminal) println(value string) {
-	t.flushStream()
 	fmt.Fprintln(t.out, value)
-}
-
-func (t terminal) flushStream() {
-	if t.stream != nil {
-		t.stream.flush(t.out)
-	}
-}
-
-func (t terminal) discardStream() {
-	if t.stream != nil {
-		t.stream.discard()
-	}
-}
-
-func (s *terminalStreamOutput) write(output io.Writer, value string) {
-	if value == "" {
-		return
-	}
-	s.mu.Lock()
-	if s.editor == nil {
-		s.mu.Unlock()
-		fmt.Fprint(output, value)
-		return
-	}
-	s.pending += value
-	if s.timer == nil {
-		generation := s.generation
-		s.timer = time.AfterFunc(terminalStreamInterval, func() {
-			s.render(output, generation)
-		})
-	}
-	s.mu.Unlock()
-}
-
-func (s *terminalStreamOutput) flush(output io.Writer) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancelTimerLocked()
-	if s.editor != nil {
-		s.restorePromptLocked()
-	}
-	if s.pending == "" {
-		return
-	}
-	fmt.Fprint(output, s.pending)
-	if !strings.HasSuffix(s.pending, "\n") {
-		fmt.Fprint(output, "\n")
-	}
-	s.pending = ""
-}
-
-func (s *terminalStreamOutput) discard() {
-	s.mu.Lock()
-	s.cancelTimerLocked()
-	s.pending = ""
-	if s.editor != nil {
-		s.restorePromptLocked()
-	}
-	s.mu.Unlock()
-}
-
-func (s *terminalStreamOutput) attach(editor terminalPromptEditor, basePrompt string) {
-	if s == nil || editor == nil {
-		return
-	}
-	s.mu.Lock()
-	s.cancelTimerLocked()
-	s.editor = editor
-	s.basePrompt = basePrompt
-	s.pending = ""
-	s.displayed = false
-	s.mu.Unlock()
-}
-
-func (s *terminalStreamOutput) detach(editor terminalPromptEditor) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	if s.editor == editor {
-		s.cancelTimerLocked()
-		s.pending = ""
-		s.restorePromptLocked()
-		s.editor = nil
-		s.basePrompt = ""
-	}
-	s.mu.Unlock()
-}
-
-func (s *terminalStreamOutput) render(output io.Writer, generation uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.timer == nil || s.generation != generation || s.editor == nil {
-		return
-	}
-	s.timer = nil
-
-	lastNewline := strings.LastIndexByte(s.pending, '\n')
-	if lastNewline >= 0 {
-		completed := s.pending[:lastNewline+1]
-		s.pending = s.pending[lastNewline+1:]
-		s.restorePromptLocked()
-		fmt.Fprint(output, completed)
-	}
-
-	if s.pending == "" {
-		return
-	}
-	s.editor.SetPrompt(s.pending + "\n" + s.basePrompt)
-	s.editor.Refresh()
-	s.displayed = true
-}
-
-func (s *terminalStreamOutput) cancelTimerLocked() {
-	s.generation++
-	if s.timer != nil {
-		s.timer.Stop()
-		s.timer = nil
-	}
-}
-
-func (s *terminalStreamOutput) restorePromptLocked() {
-	if s.editor == nil || !s.displayed {
-		return
-	}
-	s.editor.SetPrompt(s.basePrompt)
-	s.editor.Refresh()
-	s.displayed = false
 }
 
 func (t terminal) paint(code, value string) string {
