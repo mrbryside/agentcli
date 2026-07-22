@@ -1,6 +1,6 @@
 # Client surfaces
 
-`Agent.RunTerminal` is the reusable reference UI. Terminal options select input, output, initial prompt, and session ID. It renders streaming content, tools, permissions, confirmations, child views, and loading state. Each provider fragment immediately updates the current incomplete assistant line above readline's editable prompt; completed lines become ordinary scrollback, so queued user input survives redraws without cumulative text duplication. The spinner yields before the first content write, while the serialized renderer prevents root and child-view output from being written concurrently. Exiting the terminal does not close the Agent, allowing later direct turns or server startup.
+`Agent.RunTerminal` is the reusable Terminal UI. Terminal options select input, output, initial prompt, and session ID. It renders streaming content, tools, permissions, confirmations, child views, and loading state. Interactive input and output share one prompt-aware renderer; see [terminal-ui.md](terminal-ui.md) for its editing, streaming, reasoning, and interrupt contracts. Exiting the Terminal UI does not close the Agent, allowing later direct turns or server startup.
 
 `Agent.RunServer` and `NewServer` expose Echo JSON/SSE endpoints. The server binds to loopback by default, accepts middleware, limits request size, emits heartbeat comments, queues a bounded number of same-session turns, and lets different sessions proceed concurrently. `NewServer` is preferred when embedding `Handler` or `Echo` in another service.
 

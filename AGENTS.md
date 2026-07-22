@@ -1,8 +1,8 @@
 # AGENTS.md — agentcli
 
-Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, terminal and HTTP integration surfaces.
+Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: f060aea4bc9bd4455b760d435a727f25d4a113ca`
+`Last documented commit: c636c9fd7c036b9435786b21e3072f29ae81e5ea`
 
 ## Project structure
 
@@ -10,7 +10,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | --- | --- |
 | `.agentcli/` | Example project definitions: `MAIN.md`, provider config template, skills, and subagents. |
 | `.github/workflows/` | GitHub Actions automation, including Docusaurus deployment to GitHub Pages. |
-| Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, custom tools, subagents, terminal client, and Echo HTTP/SSE server. |
+| Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, custom tools, subagents, Terminal UI, and Echo HTTP/SSE server. |
 | `Makefile` | Convenience entry points for the terminal playground and documentation install/build/dev workflows. |
 | `agentruntime/` | Session/turn coordination, retained agent events, live subscriptions, interruption, and state/effect/result folding. |
 | `agentruntime/modeladapter/openai/` | Provider-boundary conversion from generic messages and tools to OpenAI chat requests. |
@@ -22,7 +22,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `toolexecution/bashsecure/` | Optional shell command parsing, path scoping, policy classification, and platform sandbox helpers. |
 | `permission/` | Capability, risk, mode, policy, request, decision, and grant domain. |
 | `confirmation/` | Independent invocation-specific Yes/No confirmation domain. |
-| `playground/terminal/` | Runnable terminal playground with caller-owned `glob`, `read`, and `confirm_demo` tools. |
+| `playground/terminal/` | Runnable Terminal UI playground with caller-owned `glob`, `read`, and `confirm_demo` tools. |
 | `documentation/` | Docusaurus guides plus generated Swaggo/OpenAPI and Redocly API reference. |
 | `docs/agents/` | Context-saving agent documentation indexes and focused subtopics. |
 
@@ -34,7 +34,7 @@ Only open the sections below when they are relevant to the current task.
 | Agent construction, project loading, terminal/server surfaces, skills, or subagents | [docs/agents/application/index.md](docs/agents/application/index.md) |
 | Tool registration/execution, permissions, confirmations, or shell safety | [docs/agents/tools-safety/index.md](docs/agents/tools-safety/index.md) |
 | Generic storage domains, in-memory behavior, providers, or OpenAI conversion | [docs/agents/boundaries/index.md](docs/agents/boundaries/index.md) |
-| Testing, documentation generation, examples, or the terminal playground | [docs/agents/development/index.md](docs/agents/development/index.md) |
+| Testing, documentation generation, examples, or the Terminal UI playground | [docs/agents/development/index.md](docs/agents/development/index.md) |
 
 ## Maintenance note
 

@@ -1,6 +1,6 @@
 # Playground and documentation
 
-Run the caller-owned terminal playground from the repository root:
+Run the caller-owned Terminal UI playground from the repository root:
 
 ```sh
 go run ./playground/terminal
