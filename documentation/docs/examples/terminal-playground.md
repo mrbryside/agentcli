@@ -94,6 +94,12 @@ playground open. Ctrl+C is reserved for exiting: the first press shows a warning
 and the second press within two seconds exits immediately. `/exit` also returns
 control to the Go caller without closing the Agent.
 
+The reference terminal keeps assistant Markdown, loading status, and editable
+input as independent live state. Every provider content event is appended to
+the Markdown source and the current document is rendered again above the input
+row. Loading indicators use their own row, so `Thinking` never becomes part of
+the `❯` prompt and text being typed remains intact.
+
 For the reusable application design behind root and child screens, see
 [Child views](../agentcli/child-views.md). For an HTTP client implementation,
 see [Build an application with the API](./api-client-integration.md).

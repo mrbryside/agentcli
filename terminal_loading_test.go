@@ -3,7 +3,6 @@ package agentcli
 import (
 	"bytes"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,49 +11,25 @@ import (
 	"github.com/mrbryside/agentcli/provider"
 )
 
-type recordingPromptEditor struct {
-	mu      sync.Mutex
-	prompt  string
-	refresh int
-	history []string
-}
-
-func (editor *recordingPromptEditor) SetPrompt(prompt string) {
-	editor.mu.Lock()
-	editor.prompt = prompt
-	editor.history = append(editor.history, prompt)
-	editor.mu.Unlock()
-}
-
-func (editor *recordingPromptEditor) Refresh() {
-	editor.mu.Lock()
-	editor.refresh++
-	editor.mu.Unlock()
-}
-
-func (editor *recordingPromptEditor) snapshot() (string, int, []string) {
-	editor.mu.Lock()
-	defer editor.mu.Unlock()
-	return editor.prompt, editor.refresh, append([]string(nil), editor.history...)
-}
-
-func TestTerminalLoadingAnimatesPromptAndRestoresInput(t *testing.T) {
-	editor := &recordingPromptEditor{}
+func TestTerminalLoadingUsesASeparateStatusRow(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	var output bytes.Buffer
 	state := &terminalLoadingState{}
-	state.attach(editor, "❯ ")
-	terminal := terminal{interactive: true, loading: state}
+	state.attach(renderer, &output)
+	terminal := terminal{out: &output, interactive: true, loading: state, stream: renderer}
 	loading := terminal.loadingController()
 
 	loading.Start("Thinking")
-	first, refreshes, _ := editor.snapshot()
-	if !strings.Contains(first, "Thinking") || !strings.HasSuffix(first, "❯ ") || refreshes == 0 {
-		t.Fatalf("initial loading prompt = %q refreshes=%d", first, refreshes)
+	firstSource, firstStatus := terminalRendererSnapshot(renderer)
+	if firstSource != "" || !strings.Contains(firstStatus, "Thinking") || strings.Contains(firstStatus, "❯") {
+		t.Fatalf("initial loading state source=%q status=%q", firstSource, firstStatus)
 	}
 
 	deadline := time.Now().Add(time.Second)
 	for {
-		current, _, _ := editor.snapshot()
-		if current != first {
+		_, current := terminalRendererSnapshot(renderer)
+		if current != firstStatus {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -64,47 +39,50 @@ func TestTerminalLoadingAnimatesPromptAndRestoresInput(t *testing.T) {
 	}
 
 	loading.Start("Running read")
-	current, _, _ := editor.snapshot()
+	_, current := terminalRendererSnapshot(renderer)
 	if !strings.Contains(current, "Running read") {
-		t.Fatalf("tool loading prompt = %q", current)
+		t.Fatalf("tool loading status = %q", current)
 	}
 	loading.Stop()
-	current, _, _ = editor.snapshot()
-	if current != "❯ " {
-		t.Fatalf("restored prompt = %q", current)
+	_, current = terminalRendererSnapshot(renderer)
+	if current != "" {
+		t.Fatalf("stopped loading status = %q", current)
 	}
 }
 
 func TestStaleLoadingControllerCannotClearCurrentView(t *testing.T) {
-	editor := &recordingPromptEditor{}
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	var output bytes.Buffer
 	state := &terminalLoadingState{}
-	state.attach(editor, "❯ ")
-	terminal := terminal{interactive: true, loading: state}
+	state.attach(renderer, &output)
+	terminal := terminal{out: &output, interactive: true, loading: state, stream: renderer}
 	oldView := terminal.loadingController()
 	currentView := terminal.loadingController()
 
 	oldView.Start("Old view")
 	currentView.Start("Current view")
 	oldView.Stop()
-	prompt, _, _ := editor.snapshot()
-	if !strings.Contains(prompt, "Current view") {
-		t.Fatalf("stale controller cleared current prompt: %q", prompt)
+	_, status := terminalRendererSnapshot(renderer)
+	if !strings.Contains(status, "Current view") {
+		t.Fatalf("stale controller cleared current status: %q", status)
 	}
 
 	terminal.stopLoading()
-	prompt, _, _ = editor.snapshot()
-	if prompt != "❯ " {
-		t.Fatalf("global stop prompt = %q", prompt)
+	_, status = terminalRendererSnapshot(renderer)
+	if status != "" {
+		t.Fatalf("global stop status = %q", status)
 	}
 }
 
 func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
-	editor := &recordingPromptEditor{}
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
 	state := &terminalLoadingState{}
-	state.attach(editor, "❯ ")
 	var output bytes.Buffer
+	state.attach(renderer, &output)
 	client := terminalClient{
-		terminal:           terminal{out: &output, interactive: true, loading: state},
+		terminal:           terminal{out: &output, interactive: true, loading: state, stream: renderer},
 		pendingPermissions: make(map[permission.ID]permission.Request),
 		permissionSubagent: make(map[permission.ID]string),
 	}
@@ -116,8 +94,8 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 		Type:          agentruntime.ProviderEventReceived,
 		ProviderEvent: provider.StreamEvent{Type: provider.ContentReceived, Content: "answer"},
 	}, &wroteContent, loading)
-	if prompt, _, _ := editor.snapshot(); prompt != "❯ " || !wroteContent || output.String() != "answer" {
-		t.Fatalf("content phase prompt=%q wrote=%v output=%q", prompt, wroteContent, output.String())
+	if source, status := terminalRendererSnapshot(renderer); status != "" || source != "answer" || !wroteContent {
+		t.Fatalf("content phase source=%q status=%q wrote=%v", source, status, wroteContent)
 	}
 
 	client.renderEventWithLoading(agentruntime.AgentEvent{
@@ -126,8 +104,8 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 			Name: "read",
 		}},
 	}, &wroteContent, loading)
-	if prompt, _, _ := editor.snapshot(); !strings.Contains(prompt, "Running read") {
-		t.Fatalf("tool phase prompt = %q", prompt)
+	if _, status := terminalRendererSnapshot(renderer); !strings.Contains(status, "Running read") {
+		t.Fatalf("tool phase status = %q", status)
 	}
 
 	client.renderEventWithLoading(agentruntime.AgentEvent{
@@ -136,39 +114,47 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 			Name: "read", Status: agentruntime.ToolResultSucceeded,
 		}},
 	}, &wroteContent, loading)
-	if prompt, _, _ := editor.snapshot(); !strings.Contains(prompt, "Thinking") {
-		t.Fatalf("post-tool prompt = %q", prompt)
+	if _, status := terminalRendererSnapshot(renderer); !strings.Contains(status, "Thinking") {
+		t.Fatalf("post-tool status = %q", status)
 	}
 
 	client.renderEventWithLoading(agentruntime.AgentEvent{
 		Type:       agentruntime.AgentPermissionRequested,
 		Permission: &permission.Request{ID: "permission_1", ToolName: "write"},
 	}, &wroteContent, loading)
-	if prompt, _, _ := editor.snapshot(); prompt != "❯ " {
-		t.Fatalf("permission prompt = %q", prompt)
+	if _, status := terminalRendererSnapshot(renderer); status != "" {
+		t.Fatalf("permission status = %q", status)
 	}
 }
 
 func TestTerminalContentStopsLoadingAndWritesImmediately(t *testing.T) {
-	editor := &recordingPromptEditor{}
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
 	loadingState := &terminalLoadingState{}
-	loadingState.attach(editor, "❯ ")
 	var output bytes.Buffer
+	loadingState.attach(renderer, &output)
 	terminal := terminal{
 		out:         &output,
 		interactive: true,
 		loading:     loadingState,
+		stream:      renderer,
 	}
 
 	loading := terminal.loadingController()
 	loading.Start("Thinking")
 	terminal.write("answer")
-	if got := output.String(); got != "answer" {
-		t.Fatalf("provider fragment = %q, want immediate exact write", got)
+	if source, status := terminalRendererSnapshot(renderer); source != "answer" || status != "" {
+		t.Fatalf("provider state source=%q status=%q", source, status)
 	}
 
 	time.Sleep(terminalLoadingInterval * 2)
-	if prompt, _, _ := editor.snapshot(); prompt != "❯ " {
-		t.Fatalf("loading animation continued after content: %q", prompt)
+	if _, status := terminalRendererSnapshot(renderer); status != "" {
+		t.Fatalf("loading animation continued after content: %q", status)
 	}
+}
+
+func terminalRendererSnapshot(renderer *terminalStreamRenderer) (source, status string) {
+	renderer.mu.Lock()
+	defer renderer.mu.Unlock()
+	return renderer.source, renderer.status
 }

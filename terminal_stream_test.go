@@ -2,6 +2,7 @@ package agentcli
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -20,8 +21,11 @@ func TestTerminalStreamRendererReplacesPartialLineWithoutDuplicates(t *testing.T
 		screen.apply(output.Bytes()[before:])
 	}
 
-	if got, want := screen.text(), "I'm your primary agent for this session."; got != want {
-		t.Fatalf("rendered screen = %q, want %q", got, want)
+	if source, _ := terminalRendererSnapshot(renderer); source != "I'm your primary agent for this session." {
+		t.Fatalf("stream source = %q", source)
+	}
+	if got := terminalANSIEscape.ReplaceAllString(screen.text(), ""); !strings.Contains(got, "I'm your primary agent for this session.") {
+		t.Fatalf("rendered screen = %q", got)
 	}
 	if got := strings.Count(screen.text(), "I'm"); got != 1 {
 		t.Fatalf("first fragment remained on %d screen lines, want exactly one", got)
@@ -39,13 +43,13 @@ func TestTerminalStreamRendererCommitsCompletedLines(t *testing.T) {
 		renderer.write(&output, fragment)
 		screen.apply(output.Bytes()[before:])
 	}
-	if got, want := screen.text(), "First line\nSecond line"; got != want {
-		t.Fatalf("rendered screen = %q, want %q", got, want)
+	if got := terminalANSIEscape.ReplaceAllString(screen.text(), ""); !strings.Contains(got, "First line") || !strings.Contains(got, "Second line") {
+		t.Fatalf("rendered screen = %q", got)
 	}
-	if !renderer.commit() {
+	if !renderer.commit(&output) {
 		t.Fatal("active stream was not committed")
 	}
-	if renderer.commit() {
+	if renderer.commit(&output) {
 		t.Fatal("inactive stream committed twice")
 	}
 
@@ -68,6 +72,30 @@ func TestTerminalStreamRendererFallsBackWithoutReadline(t *testing.T) {
 	}
 }
 
+func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	renderer.source = "# Title\n\nThis is **bold**.\n\n- one\n- two\n\n```go\nfmt.Println(\"hi\")\n```"
+
+	renderer.mu.Lock()
+	rendered := renderer.renderMarkdownLocked()
+	renderer.mu.Unlock()
+	plain := terminalANSIEscape.ReplaceAllString(rendered, "")
+	for _, wanted := range []string{"# Title", "This is bold.", "• one", "fmt.Println"} {
+		if !strings.Contains(plain, wanted) {
+			t.Fatalf("rendered Markdown %q missing %q", plain, wanted)
+		}
+	}
+	for _, rawSyntax := range []string{"**bold**", "```go"} {
+		if strings.Contains(plain, rawSyntax) {
+			t.Fatalf("rendered Markdown still contains %q: %q", rawSyntax, plain)
+		}
+	}
+	if len(rendered) > 4096 {
+		t.Fatalf("small Markdown rendered to %d bytes", len(rendered))
+	}
+}
+
 func TestTerminalStreamRowsCountsWrappingAndWideRunes(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -80,6 +108,7 @@ func TestTerminalStreamRowsCountsWrappingAndWideRunes(t *testing.T) {
 		{name: "wrapped", value: "123456", width: 5, want: 2},
 		{name: "wide runes", value: "日本語", width: 4, want: 2},
 		{name: "color ignored", value: "\x1b[31mhello\x1b[0m", width: 5, want: 1},
+		{name: "multiple lines", value: "one\ntwo\nthree", width: 20, want: 3},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -87,6 +116,17 @@ func TestTerminalStreamRowsCountsWrappingAndWideRunes(t *testing.T) {
 				t.Fatalf("terminalStreamRows(%q, %d) = %d, want %d", test.value, test.width, got, test.want)
 			}
 		})
+	}
+}
+
+func BenchmarkTerminalStreamRendererMarkdown(b *testing.B) {
+	fragment := "A short **Markdown** fragment with `code`.\n"
+	for range b.N {
+		renderer := &terminalStreamRenderer{}
+		renderer.attach(func() int { return 100 })
+		for range 100 {
+			renderer.write(io.Discard, fragment)
+		}
 	}
 }
 

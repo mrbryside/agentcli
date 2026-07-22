@@ -1448,9 +1448,9 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 		_ = cancelableInput.Close()
 		return nil, nil, nil, false, func() {}, err
 	}
-	output.loading.attach(instance, output.promptValue())
 	output.stream.attach(readline.GetScreenWidth)
 	output.out = instance.Stdout()
+	output.loading.attach(output.stream, output.out)
 	lines := make(chan string)
 	readErrors := make(chan error, 1)
 	go func() {
@@ -1475,7 +1475,7 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 	return lines, readErrors, escapes, true, func() {
 		output.stopLoading()
 		output.stream.detach()
-		output.loading.detach(instance)
+		output.loading.detach(output.stream)
 		_ = cancelableInput.Close()
 		_ = instance.Close()
 	}, nil
@@ -1765,7 +1765,7 @@ func (t terminal) write(value string) {
 }
 
 func (t terminal) println(value string) {
-	if t.stream != nil && t.stream.commit() && value == "" {
+	if t.stream != nil && t.stream.commit(t.out) && value == "" {
 		return
 	}
 	fmt.Fprintln(t.out, value)

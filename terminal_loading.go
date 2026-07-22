@@ -1,6 +1,7 @@
 package agentcli
 
 import (
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -10,15 +11,10 @@ var terminalLoadingFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴"
 
 const terminalLoadingInterval = 90 * time.Millisecond
 
-type terminalPromptEditor interface {
-	SetPrompt(string)
-	Refresh()
-}
-
 type terminalLoadingState struct {
 	mu         sync.Mutex
-	editor     terminalPromptEditor
-	basePrompt string
+	renderer   *terminalStreamRenderer
+	output     io.Writer
 	generation uint64
 	active     bool
 	stop       chan struct{}
@@ -74,24 +70,25 @@ func (t terminal) startLoading(label string) terminalLoadingHandle {
 	return t.loading.start(label, t.color)
 }
 
-func (state *terminalLoadingState) attach(editor terminalPromptEditor, basePrompt string) {
-	if state == nil || editor == nil {
+func (state *terminalLoadingState) attach(renderer *terminalStreamRenderer, output io.Writer) {
+	if state == nil || renderer == nil || output == nil {
 		return
 	}
 	state.mu.Lock()
-	state.editor = editor
-	state.basePrompt = basePrompt
+	state.renderer = renderer
+	state.output = output
 	state.mu.Unlock()
 }
 
-func (state *terminalLoadingState) detach(editor terminalPromptEditor) {
+func (state *terminalLoadingState) detach(renderer *terminalStreamRenderer) {
 	if state == nil {
 		return
 	}
 	state.stopCurrent()
 	state.mu.Lock()
-	if state.editor == editor {
-		state.editor = nil
+	if state.renderer == renderer {
+		state.renderer = nil
+		state.output = nil
 	}
 	state.mu.Unlock()
 }
@@ -102,7 +99,7 @@ func (state *terminalLoadingState) start(label string, color bool) terminalLoadi
 		label = "Working"
 	}
 	state.mu.Lock()
-	if state.editor == nil {
+	if state.renderer == nil || state.output == nil {
 		state.mu.Unlock()
 		return terminalLoadingHandle{}
 	}
@@ -145,12 +142,11 @@ func (state *terminalLoadingState) animate(generation uint64, stop <-chan struct
 }
 
 func (state *terminalLoadingState) renderLocked(frame int) {
-	prefix := terminalLoadingFrames[frame] + " " + state.label + " · "
+	status := terminalLoadingFrames[frame] + " " + state.label
 	if state.color {
-		prefix = "\033[36m" + terminalLoadingFrames[frame] + "\033[0m \033[2m" + state.label + " ·\033[0m "
+		status = "\033[36m" + terminalLoadingFrames[frame] + "\033[0m \033[2m" + state.label + "\033[0m"
 	}
-	state.editor.SetPrompt(prefix + state.basePrompt)
-	state.editor.Refresh()
+	state.renderer.setStatus(state.output, status)
 }
 
 func (state *terminalLoadingState) stopCurrent() {
@@ -177,8 +173,7 @@ func (state *terminalLoadingState) stopLocked(generation uint64) {
 	}
 	state.active = false
 	close(state.stop)
-	if state.editor != nil {
-		state.editor.SetPrompt(state.basePrompt)
-		state.editor.Refresh()
+	if state.renderer != nil && state.output != nil {
+		state.renderer.setStatus(state.output, "")
 	}
 }
