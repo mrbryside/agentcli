@@ -41,12 +41,43 @@ code {
   width: 100%;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 0.5rem;
-  background: #111513;
-  overflow: hidden;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  overflow: visible;
 }
 
 .redoclyLoading {
   padding: 2rem;
   color: var(--ifm-color-emphasis-700);
   text-align: center;
+}
+
+.redoclyEmbeddedContent,
+.redoclyEmbeddedContent .redoc-wrap,
+.redoclyEmbeddedContent .api-content {
+  overflow: visible !important;
+}
+
+.redoclyEmbeddedContent .redoc-wrap {
+  background: var(--ifm-background-color) !important;
+  border-radius: inherit;
+}
+
+.redoclyEmbeddedContent .menu-content {
+  top: var(--ifm-navbar-height) !important;
+  height: calc(100vh - var(--ifm-navbar-height)) !important;
+  max-height: calc(100vh - var(--ifm-navbar-height)) !important;
+  background: var(--ifm-background-color) !important;
+}
+
+.redoclyEmbeddedContent .api-content {
+  background: var(--ifm-background-color) !important;
+}
+
+@media (max-width: 50rem) {
+  .redoclyEmbeddedContent .menu-content {
+    top: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+  }
 }
