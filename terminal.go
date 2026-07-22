@@ -26,6 +26,10 @@ import (
 
 const terminalInterruptInput = "\x03"
 
+const terminalExitConfirmWindow = 2 * time.Second
+
+var errTerminalExit = errors.New("terminal exit requested")
+
 // TerminalOption configures Agent.RunTerminal without changing the Agent's
 // runtime, tools, storage, or lifecycle.
 type TerminalOption func(*terminalConfig) error
@@ -180,14 +184,17 @@ type terminalClient struct {
 	rootPromptQueue      []string
 	rootCallbackQueue    []SubagentCallback
 	rootNotices          []string
+	escapeInput          <-chan struct{}
+	exitArmedUntil       time.Time
 }
 
 func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) error {
-	lines, readErrors, promptManaged, closeInput, err := terminalInput(input, &c.terminal)
+	lines, readErrors, escapes, promptManaged, closeInput, err := terminalInput(input, &c.terminal)
 	if err != nil {
 		return fmt.Errorf("initialize terminal input: %w", err)
 	}
 	defer closeInput()
+	c.escapeInput = escapes
 	c.switchView("")
 	c.terminal.banner(c.modelName, c.sessionID)
 	callbacks := c.agent.SubscribeSubagentCallbacks(ctx)
@@ -195,7 +202,9 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 	for {
 		if callback, ok := c.dequeueRootCallback(); ok {
 			c.rootNotice("Subagent callback", callbackDisplayReference(callback)+" · "+string(callback.Status))
-			if err := c.runCallbackTurn(ctx, callback, lines, callbacks); err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
+			if err := c.runCallbackTurn(ctx, callback, lines, callbacks); errors.Is(err, errTerminalExit) {
+				return nil
+			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 				if c.activeView() == "" {
 					c.terminal.error(err)
 				} else {
@@ -207,7 +216,9 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 		if c.activeView() == "" {
 			if queuedPrompt, ok := c.dequeueRootPrompt(); ok {
 				c.terminal.status("Queued message", "starting")
-				if err := c.runTurn(ctx, queuedPrompt, lines, callbacks); err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
+				if err := c.runTurn(ctx, queuedPrompt, lines, callbacks); errors.Is(err, errTerminalExit) {
+					return nil
+				} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 					if c.activeView() == "" {
 						c.terminal.error(err)
 					} else {
@@ -224,8 +235,11 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 		case <-ctx.Done():
 			return nil
 		case <-c.interrupts:
-			c.terminal.println("\nGoodbye.")
-			return nil
+			if c.handleExitInterrupt() {
+				return nil
+			}
+		case <-c.escapeInput:
+			c.interruptActiveView()
 		case err := <-readErrors:
 			if err != nil {
 				return fmt.Errorf("read prompt: %w", err)
@@ -238,7 +252,9 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 				continue
 			}
 			c.rootNotice("Subagent callback", callbackDisplayReference(callback)+" · "+string(callback.Status))
-			if err := c.runCallbackTurn(ctx, callback, lines, callbacks); err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
+			if err := c.runCallbackTurn(ctx, callback, lines, callbacks); errors.Is(err, errTerminalExit) {
+				return nil
+			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 				if c.activeView() == "" {
 					c.terminal.error(err)
 				} else {
@@ -251,12 +267,12 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 				return nil
 			}
 			if line == terminalInterruptInput {
-				if c.interruptActiveView() {
-					continue
+				if c.handleExitInterrupt() {
+					return nil
 				}
-				c.terminal.println("\nGoodbye.")
-				return nil
+				continue
 			}
+			c.disarmExitInterrupt()
 			prompt := strings.TrimSpace(line)
 			if prompt == "" {
 				continue
@@ -268,12 +284,16 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 				continue
 			}
 			if c.activeView() != "" {
-				if err := c.runSubagentTurn(ctx, prompt, lines); err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
+				if err := c.runSubagentTurn(ctx, prompt, lines); errors.Is(err, errTerminalExit) {
+					return nil
+				} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 					c.terminal.error(err)
 				}
 				continue
 			}
-			if err := c.runTurn(ctx, prompt, lines, callbacks); err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
+			if err := c.runTurn(ctx, prompt, lines, callbacks); errors.Is(err, errTerminalExit) {
+				return nil
+			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 				if c.activeView() == "" {
 					c.terminal.error(err)
 				} else {
@@ -790,6 +810,31 @@ func (c *terminalClient) interruptActiveView() bool {
 	return true
 }
 
+func (c *terminalClient) handleExitInterrupt() bool {
+	now := time.Now()
+	c.stateMu.Lock()
+	armed := !c.exitArmedUntil.IsZero() && now.Before(c.exitArmedUntil)
+	if armed {
+		c.exitArmedUntil = time.Time{}
+	} else {
+		c.exitArmedUntil = now.Add(terminalExitConfirmWindow)
+	}
+	c.stateMu.Unlock()
+
+	if armed {
+		c.terminal.println("\nGoodbye.")
+		return true
+	}
+	c.terminal.status("Exit", "press Ctrl+C again within 2 seconds to quit")
+	return false
+}
+
+func (c *terminalClient) disarmExitInterrupt() {
+	c.stateMu.Lock()
+	c.exitArmedUntil = time.Time{}
+	c.stateMu.Unlock()
+}
+
 func (c *terminalClient) currentViewStreaming() bool {
 	subagentID := c.activeView()
 	if subagentID == "" {
@@ -1008,6 +1053,10 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 	for {
 		select {
 		case <-c.interrupts:
+			if c.handleExitInterrupt() {
+				return errTerminalExit
+			}
+		case <-c.escapeInput:
 			if !c.interruptActiveView() {
 				if err := run.Interrupt(context.Background(), "interrupted by user"); err != nil && !errors.Is(err, agentruntime.ErrRunNotFound) {
 					return err
@@ -1019,13 +1068,12 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 				continue
 			}
 			if line == terminalInterruptInput {
-				if !c.interruptActiveView() {
-					if err := run.Interrupt(context.Background(), "interrupted by user"); err != nil && !errors.Is(err, agentruntime.ErrRunNotFound) {
-						return err
-					}
+				if c.handleExitInterrupt() {
+					return errTerminalExit
 				}
 				continue
 			}
+			c.disarmExitInterrupt()
 			value := strings.TrimSpace(line)
 			if value == "" {
 				continue
@@ -1136,11 +1184,24 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, parentSessionID,
 		loading.Start("Thinking")
 	}
 	defer loading.Stop()
+	interrupts := c.interrupts
+	escapes := c.escapeInput
+	if input == nil {
+		// The interactive loop owns global key handling while this renderer runs
+		// in the background. Keeping these channels here as well could let the
+		// renderer consume the second Ctrl+C without exiting the terminal.
+		interrupts = nil
+		escapes = nil
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-c.interrupts:
+		case <-interrupts:
+			if c.handleExitInterrupt() {
+				return errTerminalExit
+			}
+		case <-escapes:
 			if err := run.Interrupt(context.Background(), "interrupted by user"); err != nil && !errors.Is(err, agentruntime.ErrRunNotFound) {
 				return err
 			}
@@ -1151,11 +1212,12 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, parentSessionID,
 			}
 			value := strings.TrimSpace(line)
 			if line == terminalInterruptInput {
-				if err := run.Interrupt(context.Background(), "interrupted by user"); err != nil && !errors.Is(err, agentruntime.ErrRunNotFound) {
-					return err
+				if c.handleExitInterrupt() {
+					return errTerminalExit
 				}
 				continue
 			}
+			c.disarmExitInterrupt()
 			if value == "" {
 				continue
 			}
@@ -1350,27 +1412,41 @@ func scanLines(input io.Reader) (<-chan string, <-chan error) {
 	return lines, errorsChannel
 }
 
-func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan error, bool, func(), error) {
+func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan error, <-chan struct{}, bool, func(), error) {
 	inputFile, inputIsFile := input.(*os.File)
 	if output == nil || !output.interactive || !inputIsFile {
 		lines, readErrors := scanLines(input)
-		return lines, readErrors, false, func() {}, nil
+		return lines, readErrors, nil, false, func() {}, nil
 	}
 	inputInfo, err := inputFile.Stat()
 	if err != nil || inputInfo.Mode()&os.ModeCharDevice == 0 {
 		lines, readErrors := scanLines(input)
-		return lines, readErrors, false, func() {}, nil
+		return lines, readErrors, nil, false, func() {}, nil
 	}
+	escapes := make(chan struct{}, 1)
+	cancelableInput := readline.NewCancelableStdin(inputFile)
 	instance, err := readline.NewEx(&readline.Config{
 		Prompt:          output.promptValue(),
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
-		Stdin:           inputFile,
+		Stdin:           cancelableInput,
 		Stdout:          output.out,
 		Stderr:          output.out,
+		VimMode:         true,
+		FuncFilterInputRune: func(value rune) (rune, bool) {
+			if value != readline.CharEsc {
+				return value, true
+			}
+			select {
+			case escapes <- struct{}{}:
+			default:
+			}
+			return 0, false
+		},
 	})
 	if err != nil {
-		return nil, nil, false, func() {}, err
+		_ = cancelableInput.Close()
+		return nil, nil, nil, false, func() {}, err
 	}
 	output.loading.attach(instance, output.promptValue())
 	output.stream.attach(readline.GetScreenWidth)
@@ -1396,10 +1472,11 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 			lines <- line
 		}
 	}()
-	return lines, readErrors, true, func() {
+	return lines, readErrors, escapes, true, func() {
 		output.stopLoading()
 		output.stream.detach()
 		output.loading.detach(instance)
+		_ = cancelableInput.Close()
 		_ = instance.Close()
 	}, nil
 }
@@ -1471,7 +1548,8 @@ func (t terminal) help() {
 	t.println("  /mode MODE change the permission mode")
 	t.println("  1-4       answer the oldest pending permission")
 	t.println("  y/n       answer the oldest pending confirmation")
-	t.println("  Ctrl+C    interrupt an active response")
+	t.println("  Esc       interrupt an active response")
+	t.println("  Ctrl+C    press twice to quit")
 }
 
 func (t terminal) skills(skills []Skill) {

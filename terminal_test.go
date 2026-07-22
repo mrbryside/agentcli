@@ -468,7 +468,7 @@ func TestTerminalSubagentCallbackQueueIsFIFO(t *testing.T) {
 
 func TestTerminalInputFallsBackForNonInteractiveReaders(t *testing.T) {
 	output := terminal{out: &bytes.Buffer{}, interactive: true}
-	lines, readErrors, promptManaged, closeInput, err := terminalInput(strings.NewReader("hello\n"), &output)
+	lines, readErrors, escapes, promptManaged, closeInput, err := terminalInput(strings.NewReader("hello\n"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,11 +476,38 @@ func TestTerminalInputFallsBackForNonInteractiveReaders(t *testing.T) {
 	if promptManaged {
 		t.Fatal("non-terminal input unexpectedly enabled the interactive line editor")
 	}
+	if escapes != nil {
+		t.Fatal("non-terminal input unexpectedly enabled escape-key handling")
+	}
 	if got := <-lines; got != "hello" {
 		t.Fatalf("line = %q, want hello", got)
 	}
 	if err := <-readErrors; err != nil {
 		t.Fatalf("read error = %v", err)
+	}
+}
+
+func TestTerminalCtrlCRequiresTwoPressesAndCanBeDisarmed(t *testing.T) {
+	var output bytes.Buffer
+	client := terminalClient{terminal: terminal{out: &output}}
+
+	if client.handleExitInterrupt() {
+		t.Fatal("first Ctrl+C requested exit")
+	}
+	if !strings.Contains(output.String(), "press Ctrl+C again within 2 seconds to quit") {
+		t.Fatalf("first Ctrl+C output = %q", output.String())
+	}
+	if !client.handleExitInterrupt() {
+		t.Fatal("second Ctrl+C did not request exit")
+	}
+	if !strings.Contains(output.String(), "Goodbye.") {
+		t.Fatalf("second Ctrl+C output = %q", output.String())
+	}
+
+	client.handleExitInterrupt()
+	client.disarmExitInterrupt()
+	if client.handleExitInterrupt() {
+		t.Fatal("Ctrl+C remained armed after ordinary input")
 	}
 }
 

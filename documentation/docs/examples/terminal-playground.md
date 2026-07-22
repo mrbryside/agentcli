@@ -31,10 +31,10 @@ if err := agent.RunTerminal(
 messages, err := agent.ListMessages(ctx, "manual-check")
 ```
 
-`RunTerminal` blocks until `/exit`, idle Ctrl+C, Agent shutdown, input EOF, or
-an error. It does not close the Agent. A stable session ID makes the playground
-transcript available to later Go API calls; omit the option to generate a new
-session ID automatically.
+`RunTerminal` blocks until `/exit`, a confirmed Ctrl+C exit, Agent shutdown,
+input EOF, or an error. It does not close the Agent. A stable session ID makes
+the playground transcript available to later Go API calls; omit the option to
+generate a new session ID automatically.
 
 ## Terminal options
 
@@ -89,9 +89,10 @@ Answer the oldest permission with `1` through `4`, or use `/allow ID`,
 Answer the oldest confirmation with `y` or `n`, or use `/confirm ID` and
 `/decline ID`.
 
-During an active turn, Ctrl+C interrupts that turn while leaving the playground
-open. At an idle prompt, Ctrl+C exits. `/exit` also returns control to the Go
-caller without closing the Agent.
+Press `Esc` to interrupt an active root or subagent response while leaving the
+playground open. Ctrl+C is reserved for exiting: the first press shows a warning
+and the second press within two seconds exits immediately. `/exit` also returns
+control to the Go caller without closing the Agent.
 
 For the reusable application design behind root and child screens, see
 [Child views](../agentcli/child-views.md). For an HTTP client implementation,
