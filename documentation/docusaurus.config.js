@@ -44,7 +44,7 @@ const config = {
         },
         {
           to: '/terminal/overview',
-          label: 'Terminal',
+          label: 'Terminal UI',
           position: 'left',
           activeBaseRegex: '/terminal/',
         },
@@ -68,7 +68,7 @@ const config = {
           items: [
             {label: 'Installation', to: '/'},
             {label: 'Build an agentcli application', to: '/examples/agentcli-application'},
-            {label: 'Use the terminal', to: '/terminal/overview'},
+            {label: 'Use the Terminal UI', to: '/terminal/overview'},
           ],
         },
         {

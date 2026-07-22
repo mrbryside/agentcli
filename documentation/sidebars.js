@@ -21,7 +21,7 @@ module.exports = {
     },
     {
       type: 'category',
-      label: 'Terminal',
+      label: 'Terminal UI',
       items: [
         'terminal/overview',
         'terminal/input-and-streaming',

@@ -1,9 +1,9 @@
 ---
-title: Terminal overview
+title: Terminal UI overview
 sidebar_position: 1
 ---
 
-# Terminal overview
+# Terminal UI overview
 
 `Agent.RunTerminal` opens AgentCLI's reference interactive client over an
 existing `Agent`. It is useful for testing an agent configuration before
