@@ -148,3 +148,29 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 		t.Fatalf("permission prompt = %q", prompt)
 	}
 }
+
+func TestTerminalStreamOwnsPromptAfterFirstContent(t *testing.T) {
+	editor := &recordingPromptEditor{}
+	loadingState := &terminalLoadingState{}
+	loadingState.attach(editor, "❯ ")
+	stream := &terminalStreamOutput{}
+	stream.attach(editor, "❯ ")
+	var output bytes.Buffer
+	terminal := terminal{
+		out:         &output,
+		interactive: true,
+		loading:     loadingState,
+		stream:      stream,
+	}
+
+	loading := terminal.loadingController()
+	loading.Start("Thinking")
+	terminal.write("answer")
+	waitForPrompt(t, editor, "answer\n❯ ")
+
+	time.Sleep(terminalLoadingInterval * 2)
+	if prompt, _, _ := editor.snapshot(); prompt != "answer\n❯ " {
+		t.Fatalf("loading animation replaced stream prompt: %q", prompt)
+	}
+	terminal.println("")
+}
