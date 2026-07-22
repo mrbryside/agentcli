@@ -3,6 +3,9 @@ title: Child views
 sidebar_position: 3
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Child views
 
 An `agentcli` application can present every subagent as an independent child
@@ -13,12 +16,9 @@ what is visible; it must not stop work running in another view.
 This application pattern applies to web, mobile, desktop, and custom
 interactive clients using either the Go API or the HTTP API.
 
-This guide has two complete integration versions:
-
-| Version | Use it when |
-| --- | --- |
-| [HTTP API](#http-api-version) | The UI runs in another process or language and connects through JSON and SSE. |
-| [AgentCLI Go package](#agentcli-go-package-version) | The host application imports `github.com/mrbryside/agentcli` and renders child state directly. |
+After the shared state model, choose the integration tab that matches the host
+application. Both versions preserve the same session, turn, message, and event
+semantics.
 
 ## State model
 
@@ -52,7 +52,20 @@ render only `children[subagentID].messages`. Provider events may continue to
 update an inactive view's state without writing into the currently visible
 view.
 
-## HTTP API version
+## Integration
+
+<Tabs
+  groupId="child-view-integration"
+  defaultValue="agentcli"
+  queryString="integration"
+  values={[
+    {label: 'AgentCLI Go', value: 'agentcli'},
+    {label: 'HTTP API', value: 'http'},
+  ]}>
+
+<TabItem value="http">
+
+### HTTP API
 
 Use this version when the client connects to `Agent.RunServer`. JSON endpoints
 provide snapshots and commands, while retained SSE streams provide live child
@@ -286,7 +299,11 @@ If cursors are not durable, fetch the transcript first and replay a child's
 active turn from sequence zero. Merge messages and event-derived state by
 identity so replay cannot duplicate visible content.
 
-## AgentCLI Go package version
+</TabItem>
+
+<TabItem value="agentcli">
+
+### AgentCLI Go package
 
 Use this version when the UI and `Agent` run in the same Go process. It uses
 the same provider-neutral child records, messages, and runtime events as the
@@ -453,3 +470,7 @@ childStore.Replace(closed.ID, closed)
 
 Closing retains the transcript. Keep the view available as read-only when the
 application lists children with `includeClosed` set to `true`.
+
+</TabItem>
+
+</Tabs>
