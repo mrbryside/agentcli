@@ -79,7 +79,7 @@ Use sources and explain uncertainty.
 	if !strings.Contains(catalog, "default is to answer the user directly") || !strings.Contains(catalog, "Do not delegate simple answers") || !strings.Contains(catalog, "Mere topic overlap") {
 		t.Fatalf("catalog does not prevent unnecessary delegation: %q", catalog)
 	}
-	for _, expected := range []string{"only agent allowed", "children never receive subagent-management tools", "Never poll while waiting", "wait passively", "send_subagent_message", "another callback will automatically resume you", "display_name", "exactly one child is open", "ask the user which display_name", "new_instance=true", "bounded one-shot work", "concrete planned follow-up", "mere possibility"} {
+	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "<subagent_orchestration_rules>", "Dispatch is not completion", "Ending the turn is how you wait passively", "Never poll", "Callbacks are authoritative", "new_instance=true", "Never close a running child", "runtime rejects it", "completed bounded work"} {
 		if !strings.Contains(catalog, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, catalog)
 		}

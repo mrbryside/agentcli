@@ -75,6 +75,14 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 		t.Fatalf("cross-parent permission status = %d body = %s", wrongPermission.StatusCode, body)
 	}
 
+	runningClose := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
+	defer runningClose.Body.Close()
+	if runningClose.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(runningClose.Body)
+		t.Fatalf("running close status = %d body = %s", runningClose.StatusCode, body)
+	}
+	childModel.releases <- struct{}{}
+	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
 	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
 	defer closed.Body.Close()
 	if closed.StatusCode != http.StatusOK {

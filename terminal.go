@@ -1614,10 +1614,13 @@ func (t terminal) messages(messages []agentruntime.Message) {
 			t.println(t.paint("36", "You · ") + message.Content)
 		case agentruntime.MessageTypeAssistant:
 			content := message.Content
+			if strings.TrimSpace(content) == "" {
+				continue
+			}
 			if t.interactive {
 				content = renderTerminalMarkdown(content, readline.GetScreenWidth())
 			}
-			t.println(t.paint("32", "Agent · ") + content)
+			t.println(content)
 		case agentruntime.MessageTypeToolCall:
 			for _, call := range message.ToolCalls {
 				t.toolCall(call.Name, "")

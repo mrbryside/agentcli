@@ -50,6 +50,8 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 			t.Fatalf("persisted reminder in %#v", message)
 		}
 	}
+	model.releases <- struct{}{}
+	awaitSubagentStatus(t, manager, first.ID, storage.SubagentStatusIdle)
 	if _, err := manager.CloseSubagent(context.Background(), "parent-a", first.ID); err != nil {
 		t.Fatal(err)
 	}

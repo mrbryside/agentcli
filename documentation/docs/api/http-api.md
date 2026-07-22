@@ -278,6 +278,11 @@ Child permission and confirmation bodies use the same fields as root
 decisions. Their nested endpoints force ownership and derive the child session
 from the owned record.
 
+Delete closes only an idle child and retains its transcript and completed event
+history. Closing is not cancellation. Attempting to delete a running child
+returns `409 conflict`; interrupt its active turn, wait for the child callback
+and idle lifecycle state, then delete it.
+
 ## Errors
 
 Errors have a stable envelope:
@@ -297,7 +302,7 @@ Common mappings:
 | --- | --- | --- |
 | `400` | `invalid_request`, `invalid_json`, `invalid_cursor` | Missing identity, invalid decision, malformed JSON. |
 | `404` | `run_not_found`, `not_found` | Unknown run, permission, confirmation, or child. |
-| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision. |
+| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, or attempted close of a running child. |
 | `429` | `turn_queue_full` | Per-session waiting-turn bound reached. |
 | `408` | `request_cancelled` | Context cancellation or deadline. |
 | `413` | `request_too_large` | JSON body exceeds configured limit. |

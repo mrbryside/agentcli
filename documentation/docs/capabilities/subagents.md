@@ -43,9 +43,9 @@ When definitions exist, the root model receives five fixed framework tools:
 | --- | --- |
 | `start_subagent` | Create or reuse a child and asynchronously route work. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
-| `close_subagent` | Interrupt active work, clear queued messages, and close the child. |
-| `list_subagents` | List definitions and current child sessions. |
-| `subagent_status` | Read compact status for an explicit status question; never poll. |
+| `close_subagent` | Release an idle child only after its callback has been consumed. It is not cancellation. |
+| `list_subagents` | List lightweight child summaries for explicit discovery or selection. |
+| `subagent_status` | Read one compact snapshot for an explicit status question; repeated checks in one parent turn return the cached snapshot. |
 
 Child agents do not receive these management tools. Every child instead
 receives one framework-owned `report_subagent_outcome` tool. Before its final
@@ -117,6 +117,12 @@ new, separate, another, or parallel work.
 its current turn. The next callback is produced for each completed queued turn.
 The parent should use callbacks rather than repeated status/read polling.
 
+`subagent_status` permits one fresh snapshot per child and parent turn. A repeat
+returns `action: already_checked` with the original cached snapshot, so it
+cannot be used to discover completion sooner. `list_subagents` remains
+available for explicit discovery and selecting among multiple open children;
+it is not a progress API.
+
 The model-facing `send_subagent_message` tool enforces one accepted message per
 `(parent session, parent turn, child)` tuple. Its internal SHA-256 idempotency
 key also includes normalized message content:
@@ -138,10 +144,16 @@ intermediate message. `ListMessages` remains available for a full child UI.
 `ReadSubagent` is a recovery API that consumes the latest unobserved final
 answer; it is not exposed as a model tool.
 
-After delivering a bounded one-shot `completed` result, the parent should close the child
-unless it has a concrete follow-up, queued work, unresolved work requiring the
-same context, or an explicit ongoing collaboration. The possibility of a later
-question alone is not a reason to keep it open.
+After delivering a bounded one-shot `completed` result, the parent should close
+the child unless it has a concrete follow-up or explicit ongoing collaboration.
+The possibility of a later question alone is not a reason to keep it open.
+
+Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model tool,
+and HTTP `DELETE` all reject a `running` child with
+`storage.ErrSubagentRunning` / HTTP `409 conflict`. Interrupt the active child
+turn first, let its terminal callback transition the child to `idle`, and then
+close it. This prevents a premature close from suppressing the callback that
+the parent is waiting to consume.
 
 ## Capacity
 

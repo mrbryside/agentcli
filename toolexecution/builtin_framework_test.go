@@ -52,17 +52,20 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(string(tool.Definition.InputSchema), `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
 		}
-		if tool.Definition.Name == ListSubagentsToolName && (!strings.Contains(tool.Definition.Description, "explicitly asks") || !strings.Contains(tool.Definition.Description, "Never call it to wait, poll")) {
+		if tool.Definition.Name == ListSubagentsToolName && (!strings.Contains(tool.Definition.Description, "explicit discovery") || !strings.Contains(tool.Definition.Description, "never use it as a polling loop")) {
 			t.Fatalf("list_subagents does not prohibit polling: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == SubagentStatusToolName && (!strings.Contains(tool.Definition.Description, "explicitly asks") || !strings.Contains(tool.Definition.Description, "at most once") || !strings.Contains(tool.Definition.Description, "never poll")) {
+		if tool.Definition.Name == SubagentStatusToolName && (!strings.Contains(tool.Definition.Description, "explicitly asks") || !strings.Contains(tool.Definition.Description, "one fresh snapshot") || !strings.Contains(tool.Definition.Description, "already_checked")) {
 			t.Fatalf("subagent_status does not advertise lightweight status semantics: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "Do not poll")) {
+		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "not completed") || !strings.Contains(tool.Definition.Description, "do not call status/list/close")) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == CloseSubagentToolName && (!strings.Contains(tool.Definition.Description, "bounded one-shot work") || !strings.Contains(tool.Definition.Description, "mere possibility")) {
+		if tool.Definition.Name == CloseSubagentToolName && (!strings.Contains(tool.Definition.Description, "cleanup, not cancellation") || !strings.Contains(tool.Definition.Description, "Never call this after") || !strings.Contains(tool.Definition.Description, "completed callback") || !strings.Contains(tool.Definition.Description, "runtime rejects running")) {
 			t.Fatalf("close_subagent does not describe lifecycle judgment: %q", tool.Definition.Description)
+		}
+		if strings.Contains(string(tool.Definition.InputSchema), `"type":"string"`) && !strings.Contains(string(tool.Definition.InputSchema), `"minLength":1`) {
+			t.Fatalf("subagent tool %q has an unconstrained string schema: %s", tool.Definition.Name, tool.Definition.InputSchema)
 		}
 		seen[tool.Definition.Name] = true
 	}

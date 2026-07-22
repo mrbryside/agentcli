@@ -133,6 +133,7 @@ func (server *Server) getSubagent(c echo.Context) error {
 
 // closeSubagent godoc
 // @Summary Close one owned subagent
+// @Description Closes an idle child while retaining transcript and completed event history. Closing is cleanup, not cancellation; interrupt a running child turn first and wait for it to become idle.
 // @ID closeSubagent
 // @Tags Subagents
 // @Produce json
@@ -140,6 +141,7 @@ func (server *Server) getSubagent(c echo.Context) error {
 // @Param subagentID path string true "Subagent ID"
 // @Success 200 {object} SubagentResponse
 // @Failure 404 {object} APIErrorResponse
+// @Failure 409 {object} APIErrorResponse
 // @Router /v1/sessions/{parentSessionID}/subagents/{subagentID} [delete]
 func (server *Server) closeSubagent(c echo.Context) error {
 	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")

@@ -949,6 +949,9 @@ paths:
       - Subagents
   /v1/sessions/{parentSessionID}/subagents/{subagentID}:
     delete:
+      description: Closes an idle child while retaining transcript and completed event
+        history. Closing is cleanup, not cancellation; interrupt a running child turn
+        first and wait for it to become idle.
       operationId: closeSubagent
       parameters:
       - description: Owning parent session ID
@@ -970,6 +973,10 @@ paths:
             $ref: '#/definitions/agentcli.SubagentResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
       summary: Close one owned subagent

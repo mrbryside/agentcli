@@ -48,13 +48,27 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	if status.Subagent.Status != storage.SubagentStatusRunning || status.ResultReady || !strings.Contains(status.ActivitySummary, "Working on") || strings.Contains(string(statusJSON), `"messages"`) {
 		t.Fatalf("lightweight status result = %s", statusJSON)
 	}
+	if status.Action != "snapshot" || !strings.Contains(status.Instruction, "Do not call subagent_status again") {
+		t.Fatalf("initial status contract = %s", statusJSON)
+	}
 	wrongStatus := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-b", TurnID: "turn", CallID: "status", ToolName: SubagentStatusToolName})
 	if _, err := callSubagentTool(bridge, SubagentStatusToolName, wrongStatus, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentNotFound) {
 		t.Fatalf("cross-parent status error = %v", err)
 	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
-	completedJSON, err := callSubagentTool(bridge, SubagentStatusToolName, statusCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	cachedJSON, err := callSubagentTool(bridge, SubagentStatusToolName, statusCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(cachedJSON, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Action != "already_checked" || status.Subagent.Status != storage.SubagentStatusRunning || !strings.Contains(status.Instruction, "cached snapshot") {
+		t.Fatalf("repeated status was not cached = %s", cachedJSON)
+	}
+	completedCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "next-turn", CallID: "status-next", ToolName: SubagentStatusToolName})
+	completedJSON, err := callSubagentTool(bridge, SubagentStatusToolName, completedCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +77,38 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	}
 	if status.Subagent.Status != storage.SubagentStatusIdle || status.ResultReady || status.Subagent.LastTurnOutcome != storage.SubagentTurnIncomplete || !strings.Contains(status.ActivitySummary, "Incomplete") {
 		t.Fatalf("incomplete status result = %s", completedJSON)
+	}
+}
+
+func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	bridge := newTestSubagentToolBridge(manager)
+	startCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "start-turn", CallID: "start", ToolName: StartSubagentToolName})
+	startedJSON, err := callSubagentTool(bridge, StartSubagentToolName, startCtx, json.RawMessage(`{"name":"researcher","message":"work"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started struct {
+		ID string `json:"subagent_id"`
+	}
+	if err := json.Unmarshal(startedJSON, &started); err != nil {
+		t.Fatal(err)
+	}
+	closeCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "start-turn", CallID: "close", ToolName: CloseSubagentToolName})
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentRunning) {
+		t.Fatalf("close running child error = %v", err)
+	}
+	record, found, err := manager.store.Get(context.Background(), started.ID)
+	if err != nil || !found || record.Status != storage.SubagentStatusRunning {
+		t.Fatalf("child after rejected close = (%#v, %v, %v)", record, found, err)
+	}
+	model.releases <- struct{}{}
+	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
+	closeCtx = toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "callback-turn", CallID: "close", ToolName: CloseSubagentToolName})
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -51,6 +51,8 @@ type managedSubagent struct {
 	runs                     map[string]*agentruntime.Run
 	lastDispatchParentTurnID string
 	lastDispatchKey          string
+	lastStatusParentTurnID   string
+	lastStatusSnapshot       storage.Subagent
 }
 
 type subagentReadResult = SubagentReadResult
@@ -559,6 +561,36 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	return m.sendLocked(ctx, instance, record, content)
 }
 
+// StatusFromParentTurn returns at most one fresh lifecycle snapshot for a
+// child in a parent turn. Later calls in the same turn receive the original
+// snapshot so model-facing status checks cannot become polling.
+func (m *subagentManager) StatusFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id string) (toolexecution.SubagentStatusSnapshot, error) {
+	ctx = nonNilContext(ctx)
+	parentTurnID = strings.TrimSpace(parentTurnID)
+	if parentTurnID == "" {
+		return toolexecution.SubagentStatusSnapshot{}, errors.New("parent turn ID is required")
+	}
+	if _, err := m.getOwned(ctx, parentSessionID, id); err != nil {
+		return toolexecution.SubagentStatusSnapshot{}, err
+	}
+	instance, err := m.instance(id)
+	if err != nil {
+		return toolexecution.SubagentStatusSnapshot{}, err
+	}
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+	if instance.lastStatusParentTurnID == parentTurnID {
+		return toolexecution.SubagentStatusSnapshot{Subagent: storage.CloneSubagent(instance.lastStatusSnapshot), Repeated: true}, nil
+	}
+	record, err := m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		return toolexecution.SubagentStatusSnapshot{}, err
+	}
+	instance.lastStatusParentTurnID = parentTurnID
+	instance.lastStatusSnapshot = storage.CloneSubagent(record)
+	return toolexecution.SubagentStatusSnapshot{Subagent: record}, nil
+}
+
 // SendFromParentTurn accepts at most one dispatch from a parent turn to one
 // child. Exact retries return duplicate; changed retries return already_sent.
 // Neither case starts a turn or appends mailbox work.
@@ -745,21 +777,46 @@ func (m *subagentManager) interruptParentTurn(parentSessionID, parentTurnID stri
 }
 
 // Close prevents new work, drops queued work, and retains transcript history.
+// A running child must first finish or be interrupted; closing is lifecycle
+// cleanup and never doubles as cancellation.
 func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (storage.Subagent, error) {
-	record, err := m.getOwned(nonNilContext(ctx), parentSessionID, id)
+	ctx = nonNilContext(ctx)
+	record, err := m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	closed, err := m.store.Close(nonNilContext(ctx), id)
-	if err != nil {
-		return storage.Subagent{}, err
-	}
-	if instance, instanceErr := m.instance(id); instanceErr == nil {
-		if child := instance.releaseAgent(); child != nil {
-			_ = child.Close()
+	instance, instanceErr := m.instance(id)
+	if instanceErr != nil {
+		if record.Status == storage.SubagentStatusRunning {
+			return storage.Subagent{}, storage.ErrSubagentRunning
 		}
+		closed, closeErr := m.store.Close(ctx, id)
+		if closeErr == nil {
+			m.signalChanged()
+		}
+		return closed, closeErr
 	}
-	_ = record
+	instance.mu.Lock()
+	record, err = m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		instance.mu.Unlock()
+		return storage.Subagent{}, err
+	}
+	if record.Status == storage.SubagentStatusRunning {
+		instance.mu.Unlock()
+		return storage.Subagent{}, storage.ErrSubagentRunning
+	}
+	closed, err := m.store.Close(ctx, id)
+	if err != nil {
+		instance.mu.Unlock()
+		return storage.Subagent{}, err
+	}
+	child := instance.agent
+	instance.agent = nil
+	instance.mu.Unlock()
+	if child != nil {
+		_ = child.Close()
+	}
 	m.signalChanged()
 	return closed, nil
 }

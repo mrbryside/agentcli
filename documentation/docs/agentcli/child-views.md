@@ -279,10 +279,11 @@ decision IDs and session/turn/call correlation must remain unchanged.
 DELETE /v1/sessions/{parentSessionID}/subagents/{subagentID}
 ```
 
-Closing interrupts active child work, drops queued messages, and rejects future
-messages. It does not delete the transcript or completed event history. Mark
-the view read-only, stop its live stream after the interruption event,
-and keep it available when `include_closed=true` is requested.
+Closing is cleanup for an idle child and rejects future messages. It does not
+delete the transcript or completed event history. A running child returns
+`409 conflict`; interrupt its active turn first, consume the terminal event and
+callback, then close after the child becomes idle. Mark a successfully closed
+view read-only and keep it available when `include_closed=true` is requested.
 
 ### Restore views after application reload
 

@@ -104,6 +104,8 @@ var (
 	ErrSubagentVersionConflict = errors.New("subagent version conflict")
 	// ErrSubagentClosed indicates an operation would send work to a closed child.
 	ErrSubagentClosed = errors.New("subagent closed")
+	// ErrSubagentRunning indicates an operation requires the child to be idle.
+	ErrSubagentRunning = errors.New("subagent is still running")
 )
 
 // ValidateSubagent verifies a record can be retained by a SubagentStorage.

@@ -67,7 +67,7 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <callback_policy>Never poll list_subagents or subagent_status while waiting. Use a delivered callback, do useful work, send a focused follow-up, or end the turn and wait passively for the next callback.</callback_policy>\n")
+		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting, and never close a running child. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback.</callback_policy>\n")
 		content.WriteString("</active_subagents>")
 		return []agentruntime.ContextReminder{{Content: content.String()}}, nil
 	}
