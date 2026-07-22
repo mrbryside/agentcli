@@ -723,6 +723,7 @@ func (c *terminalClient) switchView(subagentID string) context.Context {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
 	c.terminal.stopLoading()
+	c.terminal.resetStream()
 	c.stateMu.Lock()
 	if c.viewCancel != nil {
 		c.viewCancel()
@@ -1372,6 +1373,7 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 		return nil, nil, false, func() {}, err
 	}
 	output.loading.attach(instance, output.promptValue())
+	output.stream.attach(readline.GetScreenWidth)
 	output.out = instance.Stdout()
 	lines := make(chan string)
 	readErrors := make(chan error, 1)
@@ -1396,6 +1398,7 @@ func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan err
 	}()
 	return lines, readErrors, true, func() {
 		output.stopLoading()
+		output.stream.detach()
 		output.loading.detach(instance)
 		_ = instance.Close()
 	}, nil
@@ -1413,6 +1416,7 @@ type terminal struct {
 	out         io.Writer
 	color       bool
 	interactive bool
+	stream      *terminalStreamRenderer
 	loading     *terminalLoadingState
 }
 
@@ -1425,6 +1429,7 @@ func newTerminal(output io.Writer) terminal {
 	}
 	value := terminal{out: output, color: interactive, interactive: interactive}
 	if interactive {
+		value.stream = &terminalStreamRenderer{}
 		value.loading = &terminalLoadingState{}
 	}
 	return value
@@ -1661,6 +1666,7 @@ func (t terminal) error(err error) {
 }
 
 func (t terminal) clear() {
+	t.resetStream()
 	if t.color {
 		fmt.Fprint(t.out, "\033[2J\033[H")
 	}
@@ -1674,11 +1680,23 @@ func (t terminal) ensureNewline(condition bool) {
 
 func (t terminal) write(value string) {
 	t.stopLoading()
+	if t.stream != nil && t.stream.write(t.out, value) {
+		return
+	}
 	fmt.Fprint(t.out, value)
 }
 
 func (t terminal) println(value string) {
+	if t.stream != nil && t.stream.commit() && value == "" {
+		return
+	}
 	fmt.Fprintln(t.out, value)
+}
+
+func (t terminal) resetStream() {
+	if t.stream != nil {
+		t.stream.reset()
+	}
 }
 
 func (t terminal) paint(code, value string) string {
