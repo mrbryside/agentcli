@@ -1,0 +1,121 @@
+---
+title: Project configuration
+sidebar_position: 2
+---
+
+# Project configuration
+
+`agentcli.LoadProject(root)` takes an immutable snapshot of project-owned
+inputs:
+
+```text
+AGENTS.md
+.agentcli/
+├── config.yaml
+├── MAIN.md
+├── skill/
+│   └── interview/SKILL.md
+└── agent/
+    └── researcher/researcher.md
+```
+
+`config.yaml` and `MAIN.md` are required. `AGENTS.md`, skill directories, and
+subagent directories are optional. Invalid YAML, unknown frontmatter fields, missing provider profiles, unknown
+skills, or unregistered tool allowlist entries cause initialization to fail.
+This makes configuration mistakes visible before the first model request.
+
+## Provider configuration
+
+`.agentcli/config.yaml` owns connections and the initial permission mode:
+
+```yaml
+permission_mode: default
+
+providers:
+  openai:
+    url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+    request_timeout: 2m
+
+  openrouter:
+    url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    request_timeout: 90s
+```
+
+Provider names are application-defined profiles. `MAIN.md` and subagent files
+refer to the profile by name. Every configured provider currently uses the
+OpenAI-compatible adapter.
+
+Environment substitutions use `${NAME}`. A missing variable is a load error;
+the loader does not silently send an empty credential.
+
+## Main-agent definition
+
+`.agentcli/MAIN.md` is always loaded, so it does not need `name` or
+`description`:
+
+```markdown
+---
+provider: openai
+model: gpt-4.1-mini
+skills:
+  - interview
+tools:
+  - lookup_topic
+  - publish_report
+---
+
+Understand the requested outcome, use capabilities deliberately, and provide a
+clear self-contained result.
+```
+
+`skills` and `tools` are strict allowlists. Omit a key when the main agent gets
+none of that capability. An explicit empty list is rejected to avoid confusing
+"configured empty" state.
+
+Listing a custom tool does not create its handler. The Go application must also
+register that exact name with `WithCustomTool` or `WithTool`; otherwise
+`agentcli.New` returns an error such as:
+
+```text
+root agent requires custom tool "publish_report", but it is not registered
+```
+
+## Project instructions
+
+`AGENTS.md` contains owner instructions shared with the model. When it exists,
+project loading creates exactly two system messages:
+
+1. One framework message containing runtime rules, environment/model context,
+   `MAIN.md`, and discovery-only skill/subagent catalogs.
+2. One project-owner message containing `AGENTS.md` verbatim.
+
+Without `AGENTS.md`, only the grouped framework message is sent. Neither system message is persisted in conversation storage. They are rebuilt
+for provider calls from the loaded project snapshot.
+
+## Programmatic overrides
+
+`WithProject` applies the loaded model, prompts, root identity, permission mode,
+skills, and subagents. Later scalar options can override it:
+
+```go
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithPermissionMode(permission.CriticalOnly),
+    agentcli.WithToolWorkers(8),
+)
+```
+
+Use `WithProjectRoot` only when constructing without a loaded project. It sets
+the identity used for project-scoped permission grants; it does not sandbox or
+register tools.
+
+## Configuration checklist
+
+- Keep API keys in the process environment.
+- Give every main/subagent tool an exact registered-name match.
+- Keep tool allowlists minimal.
+- Describe skills and subagents narrowly enough that the model can avoid
+  unnecessary activation.
+- Start in `default` while testing safety classifications.

@@ -1,0 +1,1533 @@
+basePath: /
+definitions:
+  agentcli.APIError:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  agentcli.APIErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/agentcli.APIError'
+    type: object
+  agentcli.ConfirmationDecisionRequest:
+    properties:
+      answer:
+        $ref: '#/definitions/confirmation.Answer'
+      call_id:
+        type: string
+      session_id:
+        type: string
+      turn_id:
+        type: string
+    required:
+    - answer
+    - call_id
+    - session_id
+    - turn_id
+    type: object
+  agentcli.ConfirmationDecisionResponse:
+    properties:
+      decision:
+        $ref: '#/definitions/agentcli.ConfirmationDecisionResponseValue'
+    type: object
+  agentcli.ConfirmationDecisionResponseValue:
+    properties:
+      answer:
+        $ref: '#/definitions/confirmation.Answer'
+      call_id:
+        type: string
+      confirmation_id:
+        type: string
+      session_id:
+        type: string
+      turn_id:
+        type: string
+    type: object
+  agentcli.ConfirmationRequestResponse:
+    properties:
+      call_id:
+        type: string
+      created_at:
+        type: string
+      details:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      message:
+        type: string
+      session_id:
+        type: string
+      title:
+        type: string
+      tool_name:
+        type: string
+      turn_id:
+        type: string
+    type: object
+  agentcli.CreateSubagentRequest:
+    properties:
+      label:
+        type: string
+      message:
+        type: string
+      name:
+        type: string
+      parent_turn_id:
+        type: string
+    required:
+    - message
+    - name
+    type: object
+  agentcli.DecisionResponse:
+    properties:
+      call_id:
+        type: string
+      permission_id:
+        type: string
+      session_id:
+        type: string
+      turn_id:
+        type: string
+      type:
+        $ref: '#/definitions/permission.DecisionType'
+    type: object
+  agentcli.EventResponse:
+    properties:
+      confirmation:
+        $ref: '#/definitions/agentcli.ConfirmationRequestResponse'
+      confirmation_decision:
+        $ref: '#/definitions/agentcli.ConfirmationDecisionResponseValue'
+      decision:
+        $ref: '#/definitions/agentcli.DecisionResponse'
+      error:
+        type: string
+      message:
+        $ref: '#/definitions/agentcli.MessageResponse'
+      permission:
+        $ref: '#/definitions/agentcli.PermissionRequestResponse'
+      permission_mode:
+        $ref: '#/definitions/agentcli.PermissionModeChangeResponse'
+      provider_event:
+        $ref: '#/definitions/agentcli.ProviderEventResponse'
+      reason:
+        type: string
+      result:
+        $ref: '#/definitions/agentcli.RunResultResponse'
+      sequence:
+        type: integer
+      session_id:
+        type: string
+      tool_request:
+        $ref: '#/definitions/agentcli.ToolRequestResponse'
+      tool_result:
+        $ref: '#/definitions/agentcli.ToolResultEnvelopeResponse'
+      turn_id:
+        type: string
+      type:
+        $ref: '#/definitions/agentruntime.EventType'
+    type: object
+  agentcli.InterruptRequest:
+    properties:
+      reason:
+        type: string
+    type: object
+  agentcli.MessageResponse:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      session_id:
+        type: string
+      tool_calls:
+        items:
+          $ref: '#/definitions/agentcli.ToolCallResponse'
+        type: array
+      tool_result:
+        $ref: '#/definitions/agentcli.ToolResultResponse'
+      turn_id:
+        type: string
+      type:
+        $ref: '#/definitions/agentruntime.MessageType'
+    type: object
+  agentcli.MessagesResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/agentcli.MessageResponse'
+        type: array
+    type: object
+  agentcli.PermissionDecisionRequest:
+    properties:
+      call_id:
+        type: string
+      decision:
+        $ref: '#/definitions/permission.DecisionType'
+      session_id:
+        type: string
+      turn_id:
+        type: string
+    required:
+    - call_id
+    - decision
+    - session_id
+    - turn_id
+    type: object
+  agentcli.PermissionDecisionResponse:
+    properties:
+      decision:
+        $ref: '#/definitions/agentcli.DecisionResponse'
+    type: object
+  agentcli.PermissionModeChangeResponse:
+    properties:
+      current:
+        $ref: '#/definitions/permission.Mode'
+      previous:
+        $ref: '#/definitions/permission.Mode'
+    type: object
+  agentcli.PermissionModeResponse:
+    properties:
+      mode:
+        $ref: '#/definitions/permission.Mode'
+      previous:
+        $ref: '#/definitions/permission.Mode'
+    type: object
+  agentcli.PermissionRequestResponse:
+    properties:
+      actions:
+        items:
+          $ref: '#/definitions/permission.Action'
+        type: array
+      call_id:
+        type: string
+      created_at:
+        type: string
+      details:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      reason:
+        type: string
+      risk:
+        $ref: '#/definitions/permission.Risk'
+      session_id:
+        type: string
+      tool_name:
+        type: string
+      turn_id:
+        type: string
+    type: object
+  agentcli.ProviderEventResponse:
+    properties:
+      content:
+        type: string
+      error:
+        type: string
+      finish_reason:
+        type: string
+      reasoning:
+        type: string
+      tool:
+        $ref: '#/definitions/agentcli.ProviderToolEventResponse'
+      type:
+        $ref: '#/definitions/provider.EventType'
+    type: object
+  agentcli.ProviderToolEventResponse:
+    properties:
+      arguments:
+        type: string
+      id:
+        type: string
+      index:
+        type: integer
+      name:
+        type: string
+      type:
+        type: string
+    type: object
+  agentcli.RunResultResponse:
+    properties:
+      content:
+        type: string
+      finished:
+        type: boolean
+      reasoning:
+        type: string
+      session_id:
+        type: string
+      steps:
+        type: integer
+      tool_results:
+        items:
+          $ref: '#/definitions/agentcli.ToolResultResponse'
+        type: array
+      turn_id:
+        type: string
+    type: object
+  agentcli.SendSubagentMessageRequest:
+    properties:
+      message:
+        type: string
+    required:
+    - message
+    type: object
+  agentcli.ServerTurnSource:
+    enum:
+    - user
+    - subagent_callback
+    type: string
+    x-enum-varnames:
+    - ServerTurnSourceUser
+    - ServerTurnSourceSubagentCallback
+  agentcli.SessionActivityType:
+    enum:
+    - turn_queued
+    - turn_admitted
+    - turn_cancelled
+    - turn_rejected
+    - turn_event
+    type: string
+    x-enum-varnames:
+    - SessionActivityTurnQueued
+    - SessionActivityTurnAdmitted
+    - SessionActivityTurnCancelled
+    - SessionActivityTurnRejected
+    - SessionActivityTurnEvent
+  agentcli.SessionEventResponse:
+    properties:
+      cursor:
+        type: integer
+      error:
+        type: string
+      events_url:
+        type: string
+      queue_position:
+        type: integer
+      runtime_event:
+        $ref: '#/definitions/agentcli.EventResponse'
+      session_id:
+        type: string
+      source:
+        $ref: '#/definitions/agentcli.ServerTurnSource'
+      subagent_callback:
+        $ref: '#/definitions/agentcli.SubagentCallbackReference'
+      turn_id:
+        type: string
+      turn_url:
+        type: string
+      type:
+        $ref: '#/definitions/agentcli.SessionActivityType'
+    type: object
+  agentcli.SetPermissionModeRequest:
+    properties:
+      mode:
+        $ref: '#/definitions/permission.Mode'
+    required:
+    - mode
+    type: object
+  agentcli.StartTurnRequest:
+    properties:
+      message:
+        description: User message for the new turn.
+        type: string
+      turn_id:
+        description: Optional caller-defined idempotency identity.
+        type: string
+    required:
+    - message
+    type: object
+  agentcli.StartTurnResponse:
+    properties:
+      events_url:
+        type: string
+      messages_url:
+        type: string
+      queue_position:
+        type: integer
+      session_events_url:
+        type: string
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/agentruntime.RunStatus'
+      turn_id:
+        type: string
+      turn_url:
+        type: string
+    type: object
+  agentcli.SubagentCallbackReference:
+    properties:
+      child_session_id:
+        type: string
+      child_turn_id:
+        type: string
+      definition_name:
+        type: string
+      display_name:
+        type: string
+      status:
+        $ref: '#/definitions/agentcli.SubagentCallbackStatus'
+      subagent_id:
+        type: string
+    type: object
+  agentcli.SubagentCallbackStatus:
+    enum:
+    - completed
+    - failed
+    type: string
+    x-enum-varnames:
+    - SubagentCallbackCompleted
+    - SubagentCallbackFailed
+  agentcli.SubagentDefinitionResponse:
+    properties:
+      description:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      provider:
+        type: string
+      skills:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  agentcli.SubagentDefinitionsResponse:
+    properties:
+      definitions:
+        items:
+          $ref: '#/definitions/agentcli.SubagentDefinitionResponse'
+        type: array
+    type: object
+  agentcli.SubagentMessagesResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/agentcli.MessageResponse'
+        type: array
+      subagent:
+        $ref: '#/definitions/agentcli.SubagentResponse'
+    type: object
+  agentcli.SubagentResponse:
+    properties:
+      closed_at:
+        type: string
+      created_at:
+        type: string
+      current_turn_id:
+        type: string
+      definition_name:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      label:
+        type: string
+      last_turn_error:
+        type: string
+      last_turn_id:
+        type: string
+      model:
+        type: string
+      parent_session_id:
+        type: string
+      parent_turn_id:
+        type: string
+      provider:
+        type: string
+      queued_messages:
+        type: integer
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/storage.SubagentStatus'
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  agentcli.SubagentTurnResponse:
+    properties:
+      subagent:
+        $ref: '#/definitions/agentcli.SubagentResponse'
+      turn:
+        $ref: '#/definitions/agentcli.TurnResponse'
+    type: object
+  agentcli.SubagentsResponse:
+    properties:
+      subagents:
+        items:
+          $ref: '#/definitions/agentcli.SubagentResponse'
+        type: array
+    type: object
+  agentcli.ToolCallResponse:
+    properties:
+      arguments:
+        items:
+          type: integer
+        type: array
+      call_id:
+        type: string
+      name:
+        type: string
+    type: object
+  agentcli.ToolRequestResponse:
+    properties:
+      call:
+        $ref: '#/definitions/agentcli.ToolCallResponse'
+      session_id:
+        type: string
+      turn_id:
+        type: string
+    type: object
+  agentcli.ToolResultEnvelopeResponse:
+    properties:
+      result:
+        $ref: '#/definitions/agentcli.ToolResultResponse'
+      session_id:
+        type: string
+      turn_id:
+        type: string
+    type: object
+  agentcli.ToolResultResponse:
+    properties:
+      call_id:
+        type: string
+      error:
+        type: string
+      name:
+        type: string
+      output:
+        items:
+          type: integer
+        type: array
+      status:
+        $ref: '#/definitions/agentruntime.ToolResultStatus'
+    type: object
+  agentcli.TurnResponse:
+    properties:
+      error:
+        type: string
+      queue_position:
+        type: integer
+      result:
+        $ref: '#/definitions/agentcli.RunResultResponse'
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/agentruntime.RunStatus'
+      turn_id:
+        type: string
+    type: object
+  agentruntime.EventType:
+    enum:
+    - run_started
+    - provider_event_received
+    - tool_call_requested
+    - tool_result_received
+    - run_completed
+    - run_failed
+    - agent_interrupted
+    - permission_requested
+    - permission_resolved
+    - permission_cancelled
+    - permission_expired
+    - confirmation_requested
+    - confirmation_resolved
+    - confirmation_cancelled
+    - confirmation_expired
+    - permission_mode_changed
+    type: string
+    x-enum-varnames:
+    - RunStarted
+    - ProviderEventReceived
+    - ToolCallRequested
+    - ToolResultReceived
+    - RunCompleted
+    - RunFailed
+    - AgentInterrupted
+    - AgentPermissionRequested
+    - AgentPermissionResolved
+    - AgentPermissionCancelled
+    - AgentPermissionExpired
+    - AgentConfirmationRequested
+    - AgentConfirmationResolved
+    - AgentConfirmationCancelled
+    - AgentConfirmationExpired
+    - PermissionModeChanged
+  agentruntime.MessageType:
+    enum:
+    - system
+    - user
+    - runtime_event
+    - assistant
+    - tool_call
+    - tool_result
+    - system
+    - user
+    - runtime_event
+    - assistant
+    - tool_call
+    - tool_result
+    type: string
+    x-enum-varnames:
+    - MessageTypeSystem
+    - MessageTypeUser
+    - MessageTypeRuntimeEvent
+    - MessageTypeAssistant
+    - MessageTypeToolCall
+    - MessageTypeToolResult
+  agentruntime.RunStatus:
+    enum:
+    - active
+    - waiting_for_permission
+    - waiting_for_confirmation
+    - done
+    type: string
+    x-enum-varnames:
+    - RunStatusActive
+    - RunStatusWaitingForPermission
+    - RunStatusWaitingForConfirmation
+    - RunStatusDone
+  agentruntime.ToolResultStatus:
+    enum:
+    - succeeded
+    - failed
+    - interrupted
+    - denied
+    - declined
+    - succeeded
+    - failed
+    - interrupted
+    - denied
+    - declined
+    type: string
+    x-enum-varnames:
+    - ToolResultSucceeded
+    - ToolResultFailed
+    - ToolResultInterrupted
+    - ToolResultDenied
+    - ToolResultDeclined
+  confirmation.Answer:
+    enum:
+    - "yes"
+    - "no"
+    type: string
+    x-enum-varnames:
+    - "Yes"
+    - "No"
+  permission.Action:
+    enum:
+    - filesystem.read
+    - filesystem.write
+    - process.execute
+    - network.access
+    - sandbox.bypass
+    type: string
+    x-enum-varnames:
+    - FilesystemRead
+    - FilesystemWrite
+    - ProcessExecute
+    - NetworkAccess
+    - SandboxBypass
+  permission.DecisionType:
+    enum:
+    - allow_once
+    - allow_session
+    - allow_project
+    - deny
+    type: string
+    x-enum-varnames:
+    - AllowOnce
+    - AllowSession
+    - AllowProject
+    - Deny
+  permission.Mode:
+    enum:
+    - default
+    - acceptEdits
+    - criticalOnly
+    - dontAsk
+    - plan
+    - unrestricted
+    type: string
+    x-enum-varnames:
+    - Default
+    - AcceptEdits
+    - CriticalOnly
+    - DontAsk
+    - Plan
+    - Unrestricted
+  permission.Risk:
+    enum:
+    - low
+    - medium
+    - high
+    type: string
+    x-enum-varnames:
+    - RiskLow
+    - RiskMedium
+    - RiskHigh
+  provider.EventType:
+    enum:
+    - content_received
+    - reasoning_received
+    - tool_call_started
+    - tool_arguments_received
+    - tool_call_completed
+    - stream_completed
+    - stream_failed
+    type: string
+    x-enum-varnames:
+    - ContentReceived
+    - ReasoningReceived
+    - ToolCallStarted
+    - ToolArgumentsReceived
+    - ToolCallCompleted
+    - StreamCompleted
+    - StreamFailed
+  storage.SubagentStatus:
+    enum:
+    - running
+    - idle
+    - closed
+    type: string
+    x-enum-varnames:
+    - SubagentStatusRunning
+    - SubagentStatusIdle
+    - SubagentStatusClosed
+info:
+  contact:
+    name: Harness Agent API support
+  description: Provider-neutral HTTP and server-sent-events API for running agent
+    turns, reading retained messages, resolving tool decisions, and managing subagents.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+  title: Harness Agent HTTP API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      description: Returns successfully when the agent HTTP server is available.
+      operationId: health
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Check server health
+      tags:
+      - System
+  /v1/confirmations/{confirmationID}/decisions:
+    post:
+      consumes:
+      - application/json
+      description: Answers a tool-authored informational Yes/No confirmation. This
+        is independent of permission policy.
+      operationId: resolveRootConfirmation
+      parameters:
+      - description: Confirmation request ID
+        in: path
+        name: confirmationID
+        required: true
+        type: string
+      - description: Confirmation answer
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.ConfirmationDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.ConfirmationDecisionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Resolve a root tool confirmation
+      tags:
+      - Confirmations
+  /v1/permission-mode:
+    get:
+      operationId: getPermissionMode
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PermissionModeResponse'
+      summary: Read the current permission mode
+      tags:
+      - Permissions
+    put:
+      consumes:
+      - application/json
+      description: Changes live tool permission evaluation and emits a permission-mode
+        event.
+      operationId: setPermissionMode
+      parameters:
+      - description: New permission mode
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.SetPermissionModeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PermissionModeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Change the permission mode
+      tags:
+      - Permissions
+  /v1/permissions/{permissionID}/decisions:
+    post:
+      consumes:
+      - application/json
+      operationId: resolveRootPermission
+      parameters:
+      - description: Permission request ID
+        in: path
+        name: permissionID
+        required: true
+        type: string
+      - description: Permission decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.PermissionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PermissionDecisionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Resolve a root tool permission
+      tags:
+      - Permissions
+  /v1/sessions/{parentSessionID}/subagents:
+    get:
+      operationId: listSubagents
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Include closed child records
+        in: query
+        name: include_closed
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: List subagents owned by a parent session
+      tags:
+      - Subagents
+    post:
+      consumes:
+      - application/json
+      operationId: createSubagent
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent definition and initial message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.CreateSubagentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/agentcli.SubagentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Create and asynchronously start a subagent
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}:
+    delete:
+      operationId: closeSubagent
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Close one owned subagent
+      tags:
+      - Subagents
+    get:
+      operationId: getSubagent
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Read one owned subagent
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions:
+    post:
+      consumes:
+      - application/json
+      operationId: resolveSubagentConfirmation
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Confirmation request ID
+        in: path
+        name: confirmationID
+        required: true
+        type: string
+      - description: Confirmation answer
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.ConfirmationDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.ConfirmationDecisionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Resolve a tool confirmation for an owned subagent
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/messages:
+    get:
+      description: Reading for UI rendering does not mark child activity as observed
+        by the parent model.
+      operationId: listSubagentMessages
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentMessagesResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: List an owned subagent transcript
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions:
+    post:
+      consumes:
+      - application/json
+      operationId: resolveSubagentPermission
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Permission request ID
+        in: path
+        name: permissionID
+        required: true
+        type: string
+      - description: Permission decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.PermissionDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PermissionDecisionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Resolve a tool permission for an owned subagent
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns:
+    post:
+      consumes:
+      - application/json
+      description: 'Starts a turn when the child is idle or queues the message in
+        its mailbox while busy. An immediately started turn can be streamed with Accept:
+        text/event-stream.'
+      operationId: startSubagentTurn
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Next user message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.SendSubagentMessageRequest'
+      produces:
+      - application/json
+      - text/event-stream
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/agentcli.SubagentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Continue a subagent conversation
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}:
+    get:
+      operationId: getSubagentTurn
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Child turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentTurnResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Read an owned subagent turn
+      tags:
+      - Subagents
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events:
+    get:
+      description: Replays retained child-turn events after the cursor, then continues
+        with live EventResponse envelopes.
+      operationId: streamSubagentTurnEvents
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Child turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      - description: Resume after this event sequence
+        in: query
+        name: after
+        type: integer
+      - description: Resume after this event sequence when after is omitted
+        in: header
+        name: Last-Event-ID
+        type: integer
+      produces:
+      - application/json
+      - text/event-stream
+      responses:
+        "200":
+          description: One SSE data payload; the HTTP response remains open for more
+            events
+          schema:
+            $ref: '#/definitions/agentcli.EventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Stream retained and live subagent turn events
+      tags:
+      - Event streams
+  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt:
+    post:
+      consumes:
+      - application/json
+      description: Only the child turn currently active may be interrupted. The body
+        is optional.
+      operationId: interruptSubagentTurn
+      parameters:
+      - description: Owning parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      - description: Subagent ID
+        in: path
+        name: subagentID
+        required: true
+        type: string
+      - description: Child turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      - description: Optional interruption reason
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/agentcli.InterruptRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/agentcli.SubagentTurnResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Interrupt an owned subagent turn
+      tags:
+      - Subagents
+  /v1/sessions/{sessionID}/events:
+    get:
+      description: Replays and follows every root turn in a session, including queued
+        lifecycle records and parent turns created automatically from subagent callbacks.
+        The session cursor is independent from each runtime event sequence.
+      operationId: streamSessionEvents
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Resume after this session cursor
+        in: query
+        name: after
+        type: integer
+      - description: Resume after this session cursor when after is omitted
+        in: header
+        name: Last-Event-ID
+        type: integer
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: One SSE data payload; the HTTP response remains open for more
+            records
+          schema:
+            $ref: '#/definitions/agentcli.SessionEventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Stream retained and live session activity
+      tags:
+      - Event streams
+  /v1/sessions/{sessionID}/messages:
+    get:
+      description: Returns the provider-neutral transcript, including user, assistant,
+        tool-call, and tool-result messages.
+      operationId: listSessionMessages
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.MessagesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: List retained session messages
+      tags:
+      - Messages
+  /v1/sessions/{sessionID}/turns:
+    post:
+      consumes:
+      - application/json
+      description: 'Starts immediately when the session is idle or queues FIFO when
+        another turn is active. Send Accept: text/event-stream to stream an admitted
+        turn instead of receiving JSON.'
+      operationId: startRootTurn
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Turn input
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/agentcli.StartTurnRequest'
+      produces:
+      - application/json
+      - text/event-stream
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/agentcli.StartTurnResponse'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/agentcli.StartTurnResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Start or queue a root agent turn
+      tags:
+      - Turns
+  /v1/sessions/{sessionID}/turns/{turnID}:
+    get:
+      operationId: getRootTurn
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.TurnResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Read root turn status and result
+      tags:
+      - Turns
+  /v1/sessions/{sessionID}/turns/{turnID}/events:
+    get:
+      description: Replays events after the supplied cursor, then continues with live
+        events. The SSE event ID is the event sequence.
+      operationId: streamRootTurnEvents
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      - description: Resume after this event sequence
+        in: query
+        name: after
+        type: integer
+      - description: Resume after this event sequence when after is omitted
+        in: header
+        name: Last-Event-ID
+        type: integer
+      produces:
+      - application/json
+      - text/event-stream
+      responses:
+        "200":
+          description: One SSE data payload; the HTTP response remains open for more
+            events
+          schema:
+            $ref: '#/definitions/agentcli.EventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Stream retained and live root turn events
+      tags:
+      - Event streams
+  /v1/sessions/{sessionID}/turns/{turnID}/interrupt:
+    post:
+      consumes:
+      - application/json
+      description: Cancels a queued turn before admission or requests interruption
+        of an active turn. The body is optional.
+      operationId: interruptRootTurn
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Turn ID
+        in: path
+        name: turnID
+        required: true
+        type: string
+      - description: Optional interruption reason
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/agentcli.InterruptRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: Interrupt a root turn
+      tags:
+      - Turns
+  /v1/subagent-definitions:
+    get:
+      description: Returns safe discovery metadata. Local paths and private instructions
+        are omitted.
+      operationId: listSubagentDefinitions
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.SubagentDefinitionsResponse'
+      summary: List available subagent definitions
+      tags:
+      - Subagents
+schemes:
+- http
+- https
+swagger: "2.0"

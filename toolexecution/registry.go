@@ -1,0 +1,168 @@
+// Package toolexecution registers provider-neutral tools and executes them.
+package toolexecution
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	"harness-api/agentruntime"
+	"harness-api/confirmation"
+	"harness-api/permission"
+)
+
+// Handler executes a tool call with its JSON arguments.
+type Handler func(context.Context, json.RawMessage) (json.RawMessage, error)
+
+// Tool combines a provider-neutral definition with its implementation.
+// Permission and PermissionWithPolicy control authorization. Confirmation is
+// an independent, optional Yes/No user gate that is unaffected by permission
+// policy or mode.
+type Tool struct {
+	Definition           agentruntime.ToolDefinition
+	Handler              Handler
+	Permission           PermissionDescriptor
+	PermissionWithPolicy PermissionPolicyDescriptor
+	Confirmation         ConfirmationDescriptor
+}
+
+// PermissionDescriptor describes the capabilities required by one invocation.
+// StaticPermission is the convenient choice when every invocation has the same
+// actions and risk.
+type PermissionDescriptor func(json.RawMessage) (permission.Description, error)
+
+// PermissionPolicyDescriptor is an optional admission callback that receives
+// the immutable policy snapshot captured when a request enters the executor.
+// Tool.Permission remains supported for custom tools that do not need policy
+// dependent classification.
+type PermissionPolicyDescriptor func(json.RawMessage, permission.Policy) (permission.Description, error)
+
+// ConfirmationDescriptor builds the user-facing information for one Yes/No
+// confirmation request. The handler runs only after a correlated Yes answer.
+type ConfirmationDescriptor func(json.RawMessage) (confirmation.Description, error)
+
+// Registry is a synchronized, ordered catalog of callable tools.
+type Registry struct {
+	mu    sync.RWMutex
+	tools map[string]registeredTool
+	order []string
+}
+
+type registeredTool struct {
+	definition           agentruntime.ToolDefinition
+	handler              Handler
+	permission           PermissionDescriptor
+	permissionWithPolicy PermissionPolicyDescriptor
+	confirmation         ConfirmationDescriptor
+}
+
+// NewRegistry creates an empty tool registry.
+func NewRegistry() *Registry {
+	return &Registry{tools: make(map[string]registeredTool)}
+}
+
+// Register adds tool to the catalog. Tool names are unique and schemas must be
+// valid JSON Schema objects (with type set to object).
+func (r *Registry) Register(tool Tool) error {
+	if tool.Definition.Name == "" {
+		return fmt.Errorf("tool name is required")
+	}
+	if tool.Handler == nil {
+		return fmt.Errorf("tool %q handler is required", tool.Definition.Name)
+	}
+	if err := validateInputSchema(tool.Definition.InputSchema); err != nil {
+		return fmt.Errorf("tool %q input schema: %w", tool.Definition.Name, err)
+	}
+
+	definition := cloneDefinition(tool.Definition)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.tools[definition.Name]; exists {
+		return fmt.Errorf("tool %q is already registered", definition.Name)
+	}
+	r.tools[definition.Name] = registeredTool{definition: definition, handler: tool.Handler, permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy, confirmation: tool.Confirmation}
+	r.order = append(r.order, definition.Name)
+	return nil
+}
+
+func (r *Registry) confirmationFor(name string, arguments json.RawMessage) (confirmation.Description, error, bool) {
+	r.mu.RLock()
+	tool, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return confirmation.Description{}, nil, false
+	}
+	if tool.confirmation == nil {
+		return confirmation.Description{}, nil, true
+	}
+	description, err := tool.confirmation(cloneRawJSON(arguments))
+	return description, err, true
+}
+
+// Definitions returns registered definitions in stable registration order.
+func (r *Registry) Definitions() []agentruntime.ToolDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	definitions := make([]agentruntime.ToolDefinition, 0, len(r.order))
+	for _, name := range r.order {
+		definitions = append(definitions, cloneDefinition(r.tools[name].definition))
+	}
+	return definitions
+}
+
+// lookup retrieves a registered handler by name.
+func (r *Registry) lookup(name string) (Handler, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[name]
+	return tool.handler, ok
+}
+
+func (r *Registry) permissionFor(name string, arguments json.RawMessage, policy permission.Policy) (permission.Description, error, bool) {
+	r.mu.RLock()
+	tool, ok := r.tools[name]
+	r.mu.RUnlock()
+	if !ok {
+		return permission.Description{}, nil, false
+	}
+	if tool.permissionWithPolicy != nil {
+		description, err := tool.permissionWithPolicy(cloneRawJSON(arguments), clonePolicyValue(policy))
+		return description, err, true
+	}
+	if tool.permission == nil {
+		return permission.Description{}, nil, true
+	}
+	description, err := tool.permission(cloneRawJSON(arguments))
+	return description, err, true
+}
+
+func validateInputSchema(schema json.RawMessage) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(schema, &object); err != nil {
+		return fmt.Errorf("must be valid JSON: %w", err)
+	}
+	if object == nil {
+		return fmt.Errorf("must be a JSON object")
+	}
+
+	rawType, ok := object["type"]
+	if !ok {
+		return fmt.Errorf("must declare type object")
+	}
+	var schemaType string
+	if err := json.Unmarshal(rawType, &schemaType); err != nil || schemaType != "object" {
+		return fmt.Errorf("type must be object")
+	}
+	return nil
+}
+
+func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDefinition {
+	clone := definition
+	if definition.InputSchema != nil {
+		clone.InputSchema = make(json.RawMessage, len(definition.InputSchema))
+		copy(clone.InputSchema, definition.InputSchema)
+	}
+	return clone
+}

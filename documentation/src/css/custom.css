@@ -1,0 +1,52 @@
+:root {
+  --ifm-color-primary: #207f68;
+  --ifm-color-primary-dark: #1d725e;
+  --ifm-color-primary-darker: #1b6c59;
+  --ifm-color-primary-darkest: #165949;
+  --ifm-color-primary-light: #238c72;
+  --ifm-color-primary-lighter: #259278;
+  --ifm-color-primary-lightest: #2aa686;
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #68d4ad;
+  --ifm-color-primary-dark: #4dcc9e;
+  --ifm-color-primary-darker: #3ec998;
+  --ifm-color-primary-darkest: #2fab82;
+  --ifm-color-primary-light: #83dcbc;
+  --ifm-color-primary-lighter: #91e0c3;
+  --ifm-color-primary-lightest: #bbead9;
+  --ifm-background-color: #111513;
+  --ifm-background-surface-color: #181e1b;
+}
+
+.hero--primary {
+  background: linear-gradient(135deg, #10392f, #1d715e);
+}
+
+code {
+  border-radius: 0.35rem;
+}
+
+.theme-code-block {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.redoclyEmbeddedShell {
+  width: 100%;
+}
+
+.redoclyEmbeddedReference {
+  width: 100%;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 0.5rem;
+  background: #111513;
+  overflow: hidden;
+}
+
+.redoclyLoading {
+  padding: 2rem;
+  color: var(--ifm-color-emphasis-700);
+  text-align: center;
+}

@@ -1,0 +1,35 @@
+{
+  "name": "harness-api-documentation",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "api:generate": "go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo swagger.go --dir ../agentcli --output static/openapi --outputTypes json,yaml --parseDependency",
+    "api:lint": "redocly lint harness-agent@v1",
+    "api:render": "redocly build-docs harness-agent@v1 --output static/redoc/index.html --title 'Harness Agent HTTP API' --template redoc-template.hbs",
+    "api:docs": "npm run api:generate && npm run api:lint && npm run api:render",
+    "start": "npm run api:docs && docusaurus start",
+    "build": "npm run api:docs && docusaurus build",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@mdx-js/react": "^3.0.0",
+    "clsx": "^2.1.1",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/tsconfig": "3.10.2",
+    "@redocly/cli": "^2.39.0"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.7"
+  },
+  "engines": {
+    "node": ">=20.0"
+  }
+}

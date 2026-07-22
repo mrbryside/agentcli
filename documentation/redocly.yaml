@@ -1,0 +1,72 @@
+apis:
+  harness-agent@v1:
+    root: ./static/openapi/swagger.json
+
+extends:
+  - recommended
+
+rules:
+  info-license: off
+  no-server-example.com: off
+  operation-4xx-response: off
+  # Authentication is intentionally supplied by host applications through
+  # Echo middleware; the core local server does not prescribe an auth scheme.
+  security-defined: off
+
+openapi:
+  hideDownloadButton: false
+  nativeScrollbars: true
+  schemaExpansionLevel: 1
+  showExtensions: true
+  sortOperationsAlphabetically: true
+  theme:
+    colors:
+      primary:
+        main: '#68d4ad'
+        light: '#91e0c3'
+        dark: '#2fab82'
+        contrastText: '#08110d'
+      text:
+        primary: '#e7f0ec'
+        secondary: '#a9bbb3'
+      border:
+        dark: '#3a4b43'
+        light: '#26352e'
+      success:
+        main: '#68d4ad'
+      warning:
+        main: '#f2cc60'
+      error:
+        main: '#ff7b72'
+    sidebar:
+      backgroundColor: '#111513'
+      textColor: '#b8c9c1'
+      activeTextColor: '#68d4ad'
+    rightPanel:
+      backgroundColor: '#0b0f0d'
+      textColor: '#e7f0ec'
+    schema:
+      nestedBackground: '#181e1b'
+      linesColor: '#3a4b43'
+      typeNameColor: '#91e0c3'
+      typeTitleColor: '#e7f0ec'
+      requireLabelColor: '#ff7b72'
+    codeBlock:
+      backgroundColor: '#0b0f0d'
+    typography:
+      fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif'
+      headings:
+        fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif'
+      heading1:
+        color: '#f2f7f5'
+      heading2:
+        color: '#e7f0ec'
+      heading3:
+        color: '#d8e5df'
+      code:
+        color: '#91e0c3'
+        backgroundColor: '#181e1b'
+      links:
+        color: '#68d4ad'
+        visited: '#83dcbc'
+        hover: '#bbead9'

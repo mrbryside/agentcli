@@ -1,0 +1,2218 @@
+{
+    "schemes": [
+        "http",
+        "https"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Provider-neutral HTTP and server-sent-events API for running agent turns, reading retained messages, resolving tool decisions, and managing subagents.",
+        "title": "Harness Agent HTTP API",
+        "contact": {
+            "name": "Harness Agent API support"
+        },
+        "license": {
+            "name": "MIT",
+            "url": "https://opensource.org/license/mit"
+        },
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/healthz": {
+            "get": {
+                "description": "Returns successfully when the agent HTTP server is available.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Check server health",
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/confirmations/{confirmationID}/decisions": {
+            "post": {
+                "description": "Answers a tool-authored informational Yes/No confirmation. This is independent of permission policy.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Confirmations"
+                ],
+                "summary": "Resolve a root tool confirmation",
+                "operationId": "resolveRootConfirmation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Confirmation request ID",
+                        "name": "confirmationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Confirmation answer",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.ConfirmationDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.ConfirmationDecisionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/permission-mode": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permissions"
+                ],
+                "summary": "Read the current permission mode",
+                "operationId": "getPermissionMode",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionModeResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Changes live tool permission evaluation and emits a permission-mode event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permissions"
+                ],
+                "summary": "Change the permission mode",
+                "operationId": "setPermissionMode",
+                "parameters": [
+                    {
+                        "description": "New permission mode",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SetPermissionModeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionModeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/permissions/{permissionID}/decisions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permissions"
+                ],
+                "summary": "Resolve a root tool permission",
+                "operationId": "resolveRootPermission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Permission request ID",
+                        "name": "permissionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Permission decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionDecisionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "List subagents owned by a parent session",
+                "operationId": "listSubagents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include closed child records",
+                        "name": "include_closed",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Create and asynchronously start a subagent",
+                "operationId": "createSubagent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Subagent definition and initial message",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.CreateSubagentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Read one owned subagent",
+                "operationId": "getSubagent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Close one owned subagent",
+                "operationId": "closeSubagent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Resolve a tool confirmation for an owned subagent",
+                "operationId": "resolveSubagentConfirmation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Confirmation request ID",
+                        "name": "confirmationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Confirmation answer",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.ConfirmationDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.ConfirmationDecisionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/messages": {
+            "get": {
+                "description": "Reading for UI rendering does not mark child activity as observed by the parent model.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "List an owned subagent transcript",
+                "operationId": "listSubagentMessages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentMessagesResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Resolve a tool permission for an owned subagent",
+                "operationId": "resolveSubagentPermission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Permission request ID",
+                        "name": "permissionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Permission decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PermissionDecisionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns": {
+            "post": {
+                "description": "Starts a turn when the child is idle or queues the message in its mailbox while busy. An immediately started turn can be streamed with Accept: text/event-stream.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json",
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Continue a subagent conversation",
+                "operationId": "startSubagentTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Next user message",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SendSubagentMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Read an owned subagent turn",
+                "operationId": "getSubagentTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Child turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentTurnResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events": {
+            "get": {
+                "description": "Replays retained child-turn events after the cursor, then continues with live EventResponse envelopes.",
+                "produces": [
+                    "application/json",
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Event streams"
+                ],
+                "summary": "Stream retained and live subagent turn events",
+                "operationId": "streamSubagentTurnEvents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Child turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this event sequence",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this event sequence when after is omitted",
+                        "name": "Last-Event-ID",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One SSE data payload; the HTTP response remains open for more events",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.EventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt": {
+            "post": {
+                "description": "Only the child turn currently active may be interrupted. The body is optional.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "Interrupt an owned subagent turn",
+                "operationId": "interruptSubagentTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Owning parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Subagent ID",
+                        "name": "subagentID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Child turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional interruption reason",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.InterruptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentTurnResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/events": {
+            "get": {
+                "description": "Replays and follows every root turn in a session, including queued lifecycle records and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Event streams"
+                ],
+                "summary": "Stream retained and live session activity",
+                "operationId": "streamSessionEvents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this session cursor",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this session cursor when after is omitted",
+                        "name": "Last-Event-ID",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One SSE data payload; the HTTP response remains open for more records",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SessionEventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/messages": {
+            "get": {
+                "description": "Returns the provider-neutral transcript, including user, assistant, tool-call, and tool-result messages.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Messages"
+                ],
+                "summary": "List retained session messages",
+                "operationId": "listSessionMessages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.MessagesResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/turns": {
+            "post": {
+                "description": "Starts immediately when the session is idle or queues FIFO when another turn is active. Send Accept: text/event-stream to stream an admitted turn instead of receiving JSON.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json",
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Turns"
+                ],
+                "summary": "Start or queue a root agent turn",
+                "operationId": "startRootTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Turn input",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.StartTurnRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.StartTurnResponse"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.StartTurnResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/turns/{turnID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Turns"
+                ],
+                "summary": "Read root turn status and result",
+                "operationId": "getRootTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.TurnResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/turns/{turnID}/events": {
+            "get": {
+                "description": "Replays events after the supplied cursor, then continues with live events. The SSE event ID is the event sequence.",
+                "produces": [
+                    "application/json",
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Event streams"
+                ],
+                "summary": "Stream retained and live root turn events",
+                "operationId": "streamRootTurnEvents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this event sequence",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Resume after this event sequence when after is omitted",
+                        "name": "Last-Event-ID",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One SSE data payload; the HTTP response remains open for more events",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.EventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{sessionID}/turns/{turnID}/interrupt": {
+            "post": {
+                "description": "Cancels a queued turn before admission or requests interruption of an active turn. The body is optional.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Turns"
+                ],
+                "summary": "Interrupt a root turn",
+                "operationId": "interruptRootTurn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Turn ID",
+                        "name": "turnID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional interruption reason",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.InterruptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/subagent-definitions": {
+            "get": {
+                "description": "Returns safe discovery metadata. Local paths and private instructions are omitted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Subagents"
+                ],
+                "summary": "List available subagent definitions",
+                "operationId": "listSubagentDefinitions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.SubagentDefinitionsResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "agentcli.APIError": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.APIErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/agentcli.APIError"
+                }
+            }
+        },
+        "agentcli.ConfirmationDecisionRequest": {
+            "type": "object",
+            "required": [
+                "answer",
+                "call_id",
+                "session_id",
+                "turn_id"
+            ],
+            "properties": {
+                "answer": {
+                    "$ref": "#/definitions/confirmation.Answer"
+                },
+                "call_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ConfirmationDecisionResponse": {
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "$ref": "#/definitions/agentcli.ConfirmationDecisionResponseValue"
+                }
+            }
+        },
+        "agentcli.ConfirmationDecisionResponseValue": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "$ref": "#/definitions/confirmation.Answer"
+                },
+                "call_id": {
+                    "type": "string"
+                },
+                "confirmation_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ConfirmationRequestResponse": {
+            "type": "object",
+            "properties": {
+                "call_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "tool_name": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.CreateSubagentRequest": {
+            "type": "object",
+            "required": [
+                "message",
+                "name"
+            ],
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parent_turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.DecisionResponse": {
+            "type": "object",
+            "properties": {
+                "call_id": {
+                    "type": "string"
+                },
+                "permission_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/permission.DecisionType"
+                }
+            }
+        },
+        "agentcli.EventResponse": {
+            "type": "object",
+            "properties": {
+                "confirmation": {
+                    "$ref": "#/definitions/agentcli.ConfirmationRequestResponse"
+                },
+                "confirmation_decision": {
+                    "$ref": "#/definitions/agentcli.ConfirmationDecisionResponseValue"
+                },
+                "decision": {
+                    "$ref": "#/definitions/agentcli.DecisionResponse"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "message": {
+                    "$ref": "#/definitions/agentcli.MessageResponse"
+                },
+                "permission": {
+                    "$ref": "#/definitions/agentcli.PermissionRequestResponse"
+                },
+                "permission_mode": {
+                    "$ref": "#/definitions/agentcli.PermissionModeChangeResponse"
+                },
+                "provider_event": {
+                    "$ref": "#/definitions/agentcli.ProviderEventResponse"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/definitions/agentcli.RunResultResponse"
+                },
+                "sequence": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_request": {
+                    "$ref": "#/definitions/agentcli.ToolRequestResponse"
+                },
+                "tool_result": {
+                    "$ref": "#/definitions/agentcli.ToolResultEnvelopeResponse"
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/agentruntime.EventType"
+                }
+            }
+        },
+        "agentcli.InterruptRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.MessageResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.ToolCallResponse"
+                    }
+                },
+                "tool_result": {
+                    "$ref": "#/definitions/agentcli.ToolResultResponse"
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/agentruntime.MessageType"
+                }
+            }
+        },
+        "agentcli.MessagesResponse": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.MessageResponse"
+                    }
+                }
+            }
+        },
+        "agentcli.PermissionDecisionRequest": {
+            "type": "object",
+            "required": [
+                "call_id",
+                "decision",
+                "session_id",
+                "turn_id"
+            ],
+            "properties": {
+                "call_id": {
+                    "type": "string"
+                },
+                "decision": {
+                    "$ref": "#/definitions/permission.DecisionType"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.PermissionDecisionResponse": {
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "$ref": "#/definitions/agentcli.DecisionResponse"
+                }
+            }
+        },
+        "agentcli.PermissionModeChangeResponse": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "$ref": "#/definitions/permission.Mode"
+                },
+                "previous": {
+                    "$ref": "#/definitions/permission.Mode"
+                }
+            }
+        },
+        "agentcli.PermissionModeResponse": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/permission.Mode"
+                },
+                "previous": {
+                    "$ref": "#/definitions/permission.Mode"
+                }
+            }
+        },
+        "agentcli.PermissionRequestResponse": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/permission.Action"
+                    }
+                },
+                "call_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "risk": {
+                    "$ref": "#/definitions/permission.Risk"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_name": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ProviderEventResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finish_reason": {
+                    "type": "string"
+                },
+                "reasoning": {
+                    "type": "string"
+                },
+                "tool": {
+                    "$ref": "#/definitions/agentcli.ProviderToolEventResponse"
+                },
+                "type": {
+                    "$ref": "#/definitions/provider.EventType"
+                }
+            }
+        },
+        "agentcli.ProviderToolEventResponse": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.RunResultResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "finished": {
+                    "type": "boolean"
+                },
+                "reasoning": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "steps": {
+                    "type": "integer"
+                },
+                "tool_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.ToolResultResponse"
+                    }
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.SendSubagentMessageRequest": {
+            "type": "object",
+            "required": [
+                "message"
+            ],
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ServerTurnSource": {
+            "type": "string",
+            "enum": [
+                "user",
+                "subagent_callback"
+            ],
+            "x-enum-varnames": [
+                "ServerTurnSourceUser",
+                "ServerTurnSourceSubagentCallback"
+            ]
+        },
+        "agentcli.SessionActivityType": {
+            "type": "string",
+            "enum": [
+                "turn_queued",
+                "turn_admitted",
+                "turn_cancelled",
+                "turn_rejected",
+                "turn_event"
+            ],
+            "x-enum-varnames": [
+                "SessionActivityTurnQueued",
+                "SessionActivityTurnAdmitted",
+                "SessionActivityTurnCancelled",
+                "SessionActivityTurnRejected",
+                "SessionActivityTurnEvent"
+            ]
+        },
+        "agentcli.SessionEventResponse": {
+            "type": "object",
+            "properties": {
+                "cursor": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "events_url": {
+                    "type": "string"
+                },
+                "queue_position": {
+                    "type": "integer"
+                },
+                "runtime_event": {
+                    "$ref": "#/definitions/agentcli.EventResponse"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/agentcli.ServerTurnSource"
+                },
+                "subagent_callback": {
+                    "$ref": "#/definitions/agentcli.SubagentCallbackReference"
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "turn_url": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/agentcli.SessionActivityType"
+                }
+            }
+        },
+        "agentcli.SetPermissionModeRequest": {
+            "type": "object",
+            "required": [
+                "mode"
+            ],
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/permission.Mode"
+                }
+            }
+        },
+        "agentcli.StartTurnRequest": {
+            "type": "object",
+            "required": [
+                "message"
+            ],
+            "properties": {
+                "message": {
+                    "description": "User message for the new turn.",
+                    "type": "string"
+                },
+                "turn_id": {
+                    "description": "Optional caller-defined idempotency identity.",
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.StartTurnResponse": {
+            "type": "object",
+            "properties": {
+                "events_url": {
+                    "type": "string"
+                },
+                "messages_url": {
+                    "type": "string"
+                },
+                "queue_position": {
+                    "type": "integer"
+                },
+                "session_events_url": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/agentruntime.RunStatus"
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "turn_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.SubagentCallbackReference": {
+            "type": "object",
+            "properties": {
+                "child_session_id": {
+                    "type": "string"
+                },
+                "child_turn_id": {
+                    "type": "string"
+                },
+                "definition_name": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/agentcli.SubagentCallbackStatus"
+                },
+                "subagent_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.SubagentCallbackStatus": {
+            "type": "string",
+            "enum": [
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SubagentCallbackCompleted",
+                "SubagentCallbackFailed"
+            ]
+        },
+        "agentcli.SubagentDefinitionResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "agentcli.SubagentDefinitionsResponse": {
+            "type": "object",
+            "properties": {
+                "definitions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.SubagentDefinitionResponse"
+                    }
+                }
+            }
+        },
+        "agentcli.SubagentMessagesResponse": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.MessageResponse"
+                    }
+                },
+                "subagent": {
+                    "$ref": "#/definitions/agentcli.SubagentResponse"
+                }
+            }
+        },
+        "agentcli.SubagentResponse": {
+            "type": "object",
+            "properties": {
+                "closed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "current_turn_id": {
+                    "type": "string"
+                },
+                "definition_name": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "last_turn_error": {
+                    "type": "string"
+                },
+                "last_turn_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "parent_session_id": {
+                    "type": "string"
+                },
+                "parent_turn_id": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "queued_messages": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/storage.SubagentStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "agentcli.SubagentTurnResponse": {
+            "type": "object",
+            "properties": {
+                "subagent": {
+                    "$ref": "#/definitions/agentcli.SubagentResponse"
+                },
+                "turn": {
+                    "$ref": "#/definitions/agentcli.TurnResponse"
+                }
+            }
+        },
+        "agentcli.SubagentsResponse": {
+            "type": "object",
+            "properties": {
+                "subagents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.SubagentResponse"
+                    }
+                }
+            }
+        },
+        "agentcli.ToolCallResponse": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "call_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ToolRequestResponse": {
+            "type": "object",
+            "properties": {
+                "call": {
+                    "$ref": "#/definitions/agentcli.ToolCallResponse"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ToolResultEnvelopeResponse": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "$ref": "#/definitions/agentcli.ToolResultResponse"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ToolResultResponse": {
+            "type": "object",
+            "properties": {
+                "call_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "status": {
+                    "$ref": "#/definitions/agentruntime.ToolResultStatus"
+                }
+            }
+        },
+        "agentcli.TurnResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "queue_position": {
+                    "type": "integer"
+                },
+                "result": {
+                    "$ref": "#/definitions/agentcli.RunResultResponse"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/agentruntime.RunStatus"
+                },
+                "turn_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentruntime.EventType": {
+            "type": "string",
+            "enum": [
+                "run_started",
+                "provider_event_received",
+                "tool_call_requested",
+                "tool_result_received",
+                "run_completed",
+                "run_failed",
+                "agent_interrupted",
+                "permission_requested",
+                "permission_resolved",
+                "permission_cancelled",
+                "permission_expired",
+                "confirmation_requested",
+                "confirmation_resolved",
+                "confirmation_cancelled",
+                "confirmation_expired",
+                "permission_mode_changed"
+            ],
+            "x-enum-varnames": [
+                "RunStarted",
+                "ProviderEventReceived",
+                "ToolCallRequested",
+                "ToolResultReceived",
+                "RunCompleted",
+                "RunFailed",
+                "AgentInterrupted",
+                "AgentPermissionRequested",
+                "AgentPermissionResolved",
+                "AgentPermissionCancelled",
+                "AgentPermissionExpired",
+                "AgentConfirmationRequested",
+                "AgentConfirmationResolved",
+                "AgentConfirmationCancelled",
+                "AgentConfirmationExpired",
+                "PermissionModeChanged"
+            ]
+        },
+        "agentruntime.MessageType": {
+            "type": "string",
+            "enum": [
+                "system",
+                "user",
+                "runtime_event",
+                "assistant",
+                "tool_call",
+                "tool_result",
+                "system",
+                "user",
+                "runtime_event",
+                "assistant",
+                "tool_call",
+                "tool_result"
+            ],
+            "x-enum-varnames": [
+                "MessageTypeSystem",
+                "MessageTypeUser",
+                "MessageTypeRuntimeEvent",
+                "MessageTypeAssistant",
+                "MessageTypeToolCall",
+                "MessageTypeToolResult"
+            ]
+        },
+        "agentruntime.RunStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "waiting_for_permission",
+                "waiting_for_confirmation",
+                "done"
+            ],
+            "x-enum-varnames": [
+                "RunStatusActive",
+                "RunStatusWaitingForPermission",
+                "RunStatusWaitingForConfirmation",
+                "RunStatusDone"
+            ]
+        },
+        "agentruntime.ToolResultStatus": {
+            "type": "string",
+            "enum": [
+                "succeeded",
+                "failed",
+                "interrupted",
+                "denied",
+                "declined",
+                "succeeded",
+                "failed",
+                "interrupted",
+                "denied",
+                "declined"
+            ],
+            "x-enum-varnames": [
+                "ToolResultSucceeded",
+                "ToolResultFailed",
+                "ToolResultInterrupted",
+                "ToolResultDenied",
+                "ToolResultDeclined"
+            ]
+        },
+        "confirmation.Answer": {
+            "type": "string",
+            "enum": [
+                "yes",
+                "no"
+            ],
+            "x-enum-varnames": [
+                "Yes",
+                "No"
+            ]
+        },
+        "permission.Action": {
+            "type": "string",
+            "enum": [
+                "filesystem.read",
+                "filesystem.write",
+                "process.execute",
+                "network.access",
+                "sandbox.bypass"
+            ],
+            "x-enum-varnames": [
+                "FilesystemRead",
+                "FilesystemWrite",
+                "ProcessExecute",
+                "NetworkAccess",
+                "SandboxBypass"
+            ]
+        },
+        "permission.DecisionType": {
+            "type": "string",
+            "enum": [
+                "allow_once",
+                "allow_session",
+                "allow_project",
+                "deny"
+            ],
+            "x-enum-varnames": [
+                "AllowOnce",
+                "AllowSession",
+                "AllowProject",
+                "Deny"
+            ]
+        },
+        "permission.Mode": {
+            "type": "string",
+            "enum": [
+                "default",
+                "acceptEdits",
+                "criticalOnly",
+                "dontAsk",
+                "plan",
+                "unrestricted"
+            ],
+            "x-enum-varnames": [
+                "Default",
+                "AcceptEdits",
+                "CriticalOnly",
+                "DontAsk",
+                "Plan",
+                "Unrestricted"
+            ]
+        },
+        "permission.Risk": {
+            "type": "string",
+            "enum": [
+                "low",
+                "medium",
+                "high"
+            ],
+            "x-enum-varnames": [
+                "RiskLow",
+                "RiskMedium",
+                "RiskHigh"
+            ]
+        },
+        "provider.EventType": {
+            "type": "string",
+            "enum": [
+                "content_received",
+                "reasoning_received",
+                "tool_call_started",
+                "tool_arguments_received",
+                "tool_call_completed",
+                "stream_completed",
+                "stream_failed"
+            ],
+            "x-enum-varnames": [
+                "ContentReceived",
+                "ReasoningReceived",
+                "ToolCallStarted",
+                "ToolArgumentsReceived",
+                "ToolCallCompleted",
+                "StreamCompleted",
+                "StreamFailed"
+            ]
+        },
+        "storage.SubagentStatus": {
+            "type": "string",
+            "enum": [
+                "running",
+                "idle",
+                "closed"
+            ],
+            "x-enum-varnames": [
+                "SubagentStatusRunning",
+                "SubagentStatusIdle",
+                "SubagentStatusClosed"
+            ]
+        }
+    }
+}

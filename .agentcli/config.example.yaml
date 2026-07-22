@@ -1,0 +1,18 @@
+# Copy this file to .agentcli/config.yaml. Keep live provider keys in process
+# environment variables; ${VARIABLE} references are expanded at load time.
+permission_mode: default
+
+# Main-agent identity, model, and capability allowlists live in MAIN.md.
+
+# Provider names are application-defined connection profiles. Every provider
+# entry currently uses an OpenAI-compatible chat-completions endpoint.
+providers:
+  openai:
+    url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+    request_timeout: 2m
+
+  # openrouter:
+  #   url: https://openrouter.ai/api/v1
+  #   api_key: ${OPENROUTER_API_KEY}
+  #   request_timeout: 2m
