@@ -13,6 +13,13 @@ what is visible; it must not stop work running in another view.
 This application pattern applies to web, mobile, desktop, and custom
 interactive clients using either the Go API or the HTTP API.
 
+This guide has two complete integration versions:
+
+| Version | Use it when |
+| --- | --- |
+| [HTTP API](#http-api-version) | The UI runs in another process or language and connects through JSON and SSE. |
+| [AgentCLI Go package](#agentcli-go-package-version) | The host application imports `github.com/mrbryside/agentcli` and renders child state directly. |
+
 ## State model
 
 Keep normalized state instead of one shared output buffer:
@@ -45,7 +52,13 @@ render only `children[subagentID].messages`. Provider events may continue to
 update an inactive view's state without writing into the currently visible
 view.
 
-## Discover child views
+## HTTP API version
+
+Use this version when the client connects to `Agent.RunServer`. JSON endpoints
+provide snapshots and commands, while retained SSE streams provide live child
+turn events.
+
+### Discover child views
 
 Read the definitions available for new children:
 
@@ -77,7 +90,7 @@ Important response fields are:
 | `queued_messages` | Follow-ups waiting behind the active child turn. |
 | `version` | Monotonic child metadata version. |
 
-## Open a child view
+### Open a child view
 
 Opening a child is a read operation. It does not start a model turn and does
 not consume the parent's callback cursor.
@@ -115,7 +128,7 @@ async function openChild(parentSessionID, subagentID) {
 Do not append the history blindly every time a view opens. Replace it or merge
 by message `id`; otherwise switching away and back duplicates messages.
 
-## Resume an active child turn
+### Resume an active child turn
 
 Child turn streams retain events and use a numeric cursor scoped to that one
 turn:
@@ -169,7 +182,7 @@ An SSE disconnect does not change child status. Reconnect from the last applied
 cursor. Do not mark the child failed unless a retained `run_failed` event says
 so.
 
-## Continue queued child work
+### Continue queued child work
 
 Sending a message to an idle child starts a new turn. Sending while it is
 running queues the message behind the current turn:
@@ -210,7 +223,7 @@ Also refresh the child record when the parent session stream reports a
 `subagent_callback` for that child. This covers child work initiated by the
 parent model rather than directly by the UI.
 
-## Switch views without interrupting
+### Switch views without interrupting
 
 Changing `activeView` must not close the child's EventSource or cancel its
 turn. Continue processing events into the child store in the background.
@@ -233,7 +246,7 @@ Derive the loading indicator per view:
 - a background completion may update badges or notifications, but must not
   inject the child's text into the root transcript.
 
-## Permissions and confirmations
+### Permissions and confirmations
 
 Child streams emit the same permission and confirmation events as root turns.
 Route answers through the ownership-scoped endpoints:
@@ -247,7 +260,7 @@ Keep pending prompts associated with the child view even while another view is
 active. A global notification may bring the user to the correct child, but the
 decision IDs and session/turn/call correlation must remain unchanged.
 
-## Close a child
+### Close a child
 
 ```text
 DELETE /v1/sessions/{parentSessionID}/subagents/{subagentID}
@@ -258,7 +271,7 @@ messages. It does not delete the transcript or completed event history. Mark
 the view read-only, stop its live stream after the interruption event,
 and keep it available when `include_closed=true` is requested.
 
-## Restore views after application reload
+### Restore views after application reload
 
 1. Restore the parent session ID.
 2. List children with `include_closed=true`.
@@ -273,26 +286,170 @@ If cursors are not durable, fetch the transcript first and replay a child's
 active turn from sequence zero. Merge messages and event-derived state by
 identity so replay cannot duplicate visible content.
 
-## Direct Go integration
+## AgentCLI Go package version
 
-The same view flow is available without HTTP:
+Use this version when the UI and `Agent` run in the same Go process. It uses
+the same provider-neutral child records, messages, and runtime events as the
+HTTP version, without JSON or SSE serialization.
+
+### Discover and restore child views
+
+Definitions describe which child types may be started. Child records describe
+the instances already owned by the parent session:
 
 ```go
+definitions := agent.SubagentDefinitions()
+
 children, err := agent.ListSubagents(ctx, parentSessionID, true)
-child := children[0]
+if err != nil {
+    return err
+}
+
+for _, child := range children {
+    childStore.Replace(child.ID, child)
+}
+```
+
+Use `storage.Subagent.ID` as the view key, `DisplayName` as its label, and
+`SessionID` to read its transcript. As with the HTTP version, switching the
+active view changes rendering only; it must not interrupt a running child.
+
+### Open a child and resume streaming
+
+Read the transcript with `ListMessages`. This is the UI-safe read path: it does
+not mark the child's final answer as observed by the parent model.
+
+```go
 messages, err := agent.ListMessages(ctx, child.SessionID)
-run, err := agent.SubagentRun(ctx, parentSessionID, child.ID, child.CurrentTurnID)
+if err != nil {
+    return err
+}
+childStore.ReplaceMessages(child.ID, messages)
+
+if child.Status != storage.SubagentStatusRunning || child.CurrentTurnID == "" {
+    return nil
+}
+
+run, err := agent.SubagentRun(
+    ctx,
+    parentSessionID,
+    child.ID,
+    child.CurrentTurnID,
+)
+if err != nil {
+    return err
+}
 
 subscription := run.Subscribe(ctx)
-retained, err := run.EventsBetween(agentruntime.EventCursor{}, subscription.Cursor)
+retained, err := run.EventsBetween(
+    agentruntime.EventCursor{},
+    subscription.Cursor,
+)
+if err != nil {
+    return err
+}
 for _, event := range retained {
-    applyChildEvent(child.ID, event)
+    childStore.ApplyEvent(child.ID, event)
 }
 for event := range subscription.Events {
-    applyChildEvent(child.ID, event)
+    childStore.ApplyEvent(child.ID, event)
 }
 ```
 
 Subscribe before reading retained events, then use the subscription cursor as
 the replay fence. This prevents an event from being missed between history
 loading and live delivery.
+
+Run the subscription loop in its own goroutine. Keep one cancel function per
+`{subagentID, turnID}` and cancel only when that turn ends, the child closes,
+or the application shuts down—not when the user switches views.
+
+### Start or continue child work
+
+Start a project-defined child asynchronously:
+
+```go
+child, err := agent.StartSubagent(
+    ctx,
+    parentSessionID,
+    parentTurnID,
+    "researcher",                  // definition name
+    "Compare the storage options", // initial message
+    "storage research",            // optional label
+)
+if err != nil {
+    return err
+}
+childStore.Replace(child.ID, child)
+```
+
+Continue an existing child with the same method whether it is idle or running:
+
+```go
+child, err = agent.SendSubagentMessage(
+    ctx,
+    parentSessionID,
+    child.ID,
+    "Also evaluate migration cost",
+)
+if err != nil {
+    return err
+}
+childStore.Replace(child.ID, child)
+```
+
+An idle child starts a new turn immediately. A running child queues the message
+and returns an updated record with another entry in `Pending`. When the current
+turn ends, refresh with `ListSubagents`; if `CurrentTurnID` changed, attach to
+the new run using the same subscribe-then-replay sequence.
+
+### Handle callbacks and lifecycle changes
+
+`SubscribeSubagentCallbacks` reports completed or failed child turns to the
+host. Use it to refresh background view badges and child records without
+polling:
+
+```go
+for callback := range agent.SubscribeSubagentCallbacks(ctx) {
+    if callback.ParentSessionID != parentSessionID {
+        continue
+    }
+
+    children, err := agent.ListSubagents(ctx, parentSessionID, true)
+    if err != nil {
+        reportError(err)
+        continue
+    }
+    childStore.Merge(children)
+}
+```
+
+Do not use `ReadSubagent` merely to render a child transcript. That method is
+for advancing the parent's durable observation cursor. Child-view rendering
+should use `ListMessages`.
+
+### Interrupt or close a child
+
+Interrupt only the active turn while retaining the child for later messages:
+
+```go
+err := agent.InterruptSubagent(
+    ctx,
+    parentSessionID,
+    child.ID,
+    "stopped by user",
+)
+```
+
+Close the child when it should accept no more work:
+
+```go
+closed, err := agent.CloseSubagent(ctx, parentSessionID, child.ID)
+if err != nil {
+    return err
+}
+childStore.Replace(closed.ID, closed)
+```
+
+Closing retains the transcript. Keep the view available as read-only when the
+application lists children with `includeClosed` set to `true`.

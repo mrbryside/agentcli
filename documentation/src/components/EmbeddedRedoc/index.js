@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 
 const REDOC_SCRIPT_ID = 'embedded-redoc-script';
 const REDOC_SCRIPT_URL =
@@ -83,6 +84,7 @@ function loadRedoc() {
 export default function EmbeddedRedoc() {
   const containerRef = useRef(null);
   const [error, setError] = useState('');
+  const specificationUrl = useBaseUrl('/openapi/swagger.json');
 
   useEffect(() => {
     let active = true;
@@ -93,7 +95,7 @@ export default function EmbeddedRedoc() {
           return;
         }
 
-        redoc.init('/openapi/swagger.json', redocOptions, containerRef.current);
+        redoc.init(specificationUrl, redocOptions, containerRef.current);
       })
       .catch((value) => {
         if (active) {
@@ -107,7 +109,7 @@ export default function EmbeddedRedoc() {
         containerRef.current.replaceChildren();
       }
     };
-  }, []);
+  }, [specificationUrl]);
 
   if (error) {
     return <div className="alert alert--danger">{error}</div>;
