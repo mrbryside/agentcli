@@ -114,7 +114,7 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 			Name: "read", Status: agentruntime.ToolResultSucceeded,
 		}},
 	}, &wroteContent, loading)
-	if _, status := terminalRendererSnapshot(renderer); !strings.Contains(status, "Thinking") {
+	if _, status := terminalRendererSnapshot(renderer); status != terminalLoadingFrames[0] {
 		t.Fatalf("post-tool status = %q", status)
 	}
 
@@ -150,6 +150,41 @@ func TestTerminalContentStopsLoadingAndWritesImmediately(t *testing.T) {
 	time.Sleep(terminalLoadingInterval * 2)
 	if _, status := terminalRendererSnapshot(renderer); status != "" {
 		t.Fatalf("loading animation continued after content: %q", status)
+	}
+}
+
+func TestTerminalReasoningDoesNotReplaceLoadingIndicator(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	loadingState := &terminalLoadingState{}
+	var output bytes.Buffer
+	loadingState.attach(renderer, &output)
+	terminal := terminal{out: &output, interactive: true, loading: loadingState, stream: renderer}
+	client := terminalClient{terminal: terminal}
+	loading := terminal.loadingController()
+	loading.Start("")
+	defer loading.Stop()
+
+	wroteContent := false
+	client.renderEventWithLoading(agentruntime.AgentEvent{
+		Type: agentruntime.ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type: provider.ReasoningReceived, Reasoning: "considering options",
+		},
+	}, &wroteContent, loading)
+
+	renderer.mu.Lock()
+	rendered := renderer.renderMarkdownLocked()
+	status := renderer.status
+	renderer.mu.Unlock()
+	if !strings.Contains(terminalANSIEscape.ReplaceAllString(rendered, ""), "> thinking") {
+		t.Fatalf("reasoning display = %q", rendered)
+	}
+	if status != terminalLoadingFrames[0] {
+		t.Fatalf("reasoning replaced loading indicator with %q", status)
+	}
+	if wroteContent {
+		t.Fatal("reasoning was treated as assistant content")
 	}
 }
 

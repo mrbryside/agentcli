@@ -94,14 +94,23 @@ playground open. Ctrl+C is reserved for exiting: the first press shows a warning
 and the second press within two seconds exits immediately. `/exit` also returns
 control to the Go caller without closing the Agent.
 
+The input editor accepts multi-line drafts. Press `Shift+Enter` to add a line
+and `Enter` to send the complete draft. Bracketed multi-line paste is inserted
+as one draft, so pasted newlines do not create several queued turns.
+
+Provider reasoning is separate from loading and assistant content. A plain
+spinner is only an activity indicator. When the provider actually emits
+reasoning, the terminal shows a dim, collapsed `> thinking` row. Press `Ctrl+O`
+to expand or collapse every reasoning row in the active root or child view.
+
 The reference terminal keeps assistant Markdown, loading status, and editable
 input as independent live state. Every provider content event is appended to
 the Markdown source and the complete document is rendered in memory. The
 renderer commits unchanged lines to terminal scrollback and repaints only the
 small live tail above the input row. This prevents long streamed answers from
 being duplicated after they exceed the terminal height. Loading indicators use
-their own row, so `Thinking` never becomes part of the `❯` prompt and text being
-typed remains intact.
+their own row, so the spinner never becomes part of the `❯` prompt and text
+being typed remains intact.
 
 For the reusable application design behind root and child screens, see
 [Child views](../agentcli/child-views.md). For an HTTP client implementation,

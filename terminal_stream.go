@@ -54,17 +54,19 @@ func terminalMarkdownStyleConfig() ansi.StyleConfig {
 // memory. Lines that are unchanged are committed to terminal scrollback; only
 // the live tail and loading status are redrawn above readline's input row.
 type terminalStreamRenderer struct {
-	mu               sync.Mutex
-	attached         bool
-	active           bool
-	source           string
-	status           string
-	renderedContent  string
-	renderedStatus   string
-	committedLines   int
-	width            func() int
-	markdownWidth    int
-	markdownRenderer *glamour.TermRenderer
+	mu                sync.Mutex
+	attached          bool
+	active            bool
+	source            string
+	reasoning         string
+	reasoningExpanded bool
+	status            string
+	renderedContent   string
+	renderedStatus    string
+	committedLines    int
+	width             func() int
+	markdownWidth     int
+	markdownRenderer  *glamour.TermRenderer
 }
 
 func (renderer *terminalStreamRenderer) attach(width func() int) {
@@ -75,6 +77,8 @@ func (renderer *terminalStreamRenderer) attach(width func() int) {
 	renderer.attached = true
 	renderer.active = false
 	renderer.source = ""
+	renderer.reasoning = ""
+	renderer.reasoningExpanded = false
 	renderer.status = ""
 	renderer.renderedContent = ""
 	renderer.renderedStatus = ""
@@ -93,6 +97,7 @@ func (renderer *terminalStreamRenderer) detach() {
 	renderer.attached = false
 	renderer.active = false
 	renderer.source = ""
+	renderer.reasoning = ""
 	renderer.status = ""
 	renderer.renderedContent = ""
 	renderer.renderedStatus = ""
@@ -117,6 +122,38 @@ func (renderer *terminalStreamRenderer) write(output io.Writer, fragment string)
 	renderer.source += fragment
 	renderer.renderLocked(output)
 	return true
+}
+
+func (renderer *terminalStreamRenderer) writeReasoning(output io.Writer, fragment string) bool {
+	if renderer == nil || fragment == "" {
+		return renderer != nil && fragment == ""
+	}
+	renderer.mu.Lock()
+	defer renderer.mu.Unlock()
+	if !renderer.attached {
+		return false
+	}
+	renderer.reasoning += fragment
+	renderer.renderLocked(output)
+	return true
+}
+
+func (renderer *terminalStreamRenderer) configureReasoningExpanded(expanded bool) {
+	if renderer == nil {
+		return
+	}
+	renderer.mu.Lock()
+	renderer.reasoningExpanded = expanded
+	renderer.mu.Unlock()
+}
+
+func (renderer *terminalStreamRenderer) reasoningIsExpanded() bool {
+	if renderer == nil {
+		return false
+	}
+	renderer.mu.Lock()
+	defer renderer.mu.Unlock()
+	return renderer.reasoningExpanded
 }
 
 func (renderer *terminalStreamRenderer) setStatus(output io.Writer, status string) bool {
@@ -151,6 +188,7 @@ func (renderer *terminalStreamRenderer) commit(output io.Writer) bool {
 	}
 	renderer.active = false
 	renderer.source = ""
+	renderer.reasoning = ""
 	renderer.status = ""
 	renderer.renderedContent = ""
 	renderer.renderedStatus = ""
@@ -165,6 +203,7 @@ func (renderer *terminalStreamRenderer) reset() {
 	renderer.mu.Lock()
 	renderer.active = false
 	renderer.source = ""
+	renderer.reasoning = ""
 	renderer.status = ""
 	renderer.renderedContent = ""
 	renderer.renderedStatus = ""
@@ -247,6 +286,37 @@ func terminalStreamDisplay(content, status string) string {
 }
 
 func (renderer *terminalStreamRenderer) renderMarkdownLocked() string {
+	reasoning := renderer.renderReasoningLocked()
+	content := renderer.renderAssistantMarkdownLocked()
+	if reasoning == "" {
+		return content
+	}
+	if content == "" {
+		return reasoning
+	}
+	return reasoning + "\n\n" + content
+}
+
+func (renderer *terminalStreamRenderer) renderReasoningLocked() string {
+	return terminalReasoningDisplay(renderer.reasoning, renderer.reasoningExpanded)
+}
+
+func terminalReasoningDisplay(reasoning string, expanded bool) string {
+	reasoning = strings.TrimSpace(terminalANSIEscape.ReplaceAllString(reasoning, ""))
+	if reasoning == "" {
+		return ""
+	}
+	if !expanded {
+		return "\x1b[2;90m> thinking\x1b[0m"
+	}
+	lines := strings.Split(reasoning, "\n")
+	for index := range lines {
+		lines[index] = "  " + lines[index]
+	}
+	return "\x1b[2;90m⌄ thinking\n" + strings.Join(lines, "\n") + "\x1b[0m"
+}
+
+func (renderer *terminalStreamRenderer) renderAssistantMarkdownLocked() string {
 	if renderer.source == "" {
 		return ""
 	}

@@ -25,6 +25,7 @@ type Run struct {
 	nextSubscriberID uint64
 
 	done        bool
+	effectsDone bool
 	result      RunResult
 	resultSet   bool
 	terminalErr error
@@ -59,7 +60,7 @@ const (
 func (r *Run) Status() RunStatus {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.done {
+	if r.done && r.effectsDone {
 		return RunStatusDone
 	}
 	pending := 0
@@ -254,11 +255,12 @@ func (r *Run) validAfterCursorLocked(cursor EventCursor) bool {
 	return cursor.SessionID == r.sessionID && cursor.TurnID == r.turnID
 }
 
-// Done reports whether the run has accepted its one terminal event.
+// Done reports whether the terminal event and all of its side effects,
+// including transcript persistence, have completed.
 func (r *Run) Done() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.done
+	return r.done && r.effectsDone
 }
 
 // Result returns the terminal aggregate cached when the terminal event was
@@ -266,7 +268,7 @@ func (r *Run) Done() bool {
 func (r *Run) Result() (RunResult, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if !r.done {
+	if !r.done || !r.effectsDone {
 		return RunResult{}, ErrRunNotDone
 	}
 	if r.terminalErr != nil {
@@ -318,7 +320,10 @@ func (r *Run) Interrupt(ctx context.Context, reason string) error {
 // publish serializes one state transition. It is intentionally non-blocking
 // with respect to subscribers: delivery happens in their own goroutines.
 func (r *Run) publish(event AgentEvent) {
-	r.transition(event)
+	_, accepted := r.transition(event)
+	if accepted && isTerminalEvent(event.Type) {
+		r.markEffectsDone()
+	}
 }
 
 // transition accepts exactly one event and returns the state that preceded it.
@@ -361,8 +366,6 @@ func (r *Run) transition(event AgentEvent) (AgentState, bool) {
 	case AgentInterrupted:
 		r.terminalErr = ErrRunInterrupted
 	}
-	r.closeSubscribersLocked()
-	signalRun(r.terminalNotify)
 	return previous, true
 }
 
@@ -703,13 +706,34 @@ func (r *Run) fail(ctx context.Context, runtime *Runtime, err error) bool {
 	if err == nil {
 		err = errors.New("agent run failed")
 	}
+	r.mu.Lock()
+	if r.done {
+		r.terminalErr = err
+		r.result = RunResult{}
+		r.resultSet = false
+		r.mu.Unlock()
+		r.finish(runtime)
+		return false
+	}
+	r.mu.Unlock()
 	return r.processEvent(ctx, runtime, AgentEvent{Type: RunFailed, Error: err})
 }
 
 func (r *Run) finish(runtime *Runtime) {
 	r.cancelProvider()
+	r.markEffectsDone()
 	runtime.unregister(r)
 	r.finishOnce.Do(func() { close(r.finished) })
+}
+
+func (r *Run) markEffectsDone() {
+	r.mu.Lock()
+	if r.done && !r.effectsDone {
+		r.effectsDone = true
+		r.closeSubscribersLocked()
+		signalRun(r.terminalNotify)
+	}
+	r.mu.Unlock()
 }
 
 func contextReason(ctx context.Context) string {

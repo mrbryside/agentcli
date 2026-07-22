@@ -59,6 +59,7 @@ type Message struct {
 	TurnID     string
 	Type       MessageType
 	Content    string
+	Reasoning  string
 	ToolCalls  []ToolCall
 	ToolResult *ToolResult
 	CreatedAt  time.Time
@@ -103,6 +104,9 @@ func ValidateMessage(message Message) error {
 		if message.ToolResult != nil {
 			return invalidMessage("%s message cannot include a tool result", message.Type)
 		}
+		if message.Reasoning != "" {
+			return invalidMessage("%s message cannot include reasoning", message.Type)
+		}
 	case MessageTypeAssistant:
 		if len(message.ToolCalls) != 0 {
 			return invalidMessage("%s message cannot include tool calls", message.Type)
@@ -125,6 +129,9 @@ func ValidateMessage(message Message) error {
 	case MessageTypeToolResult:
 		if message.Content != "" {
 			return invalidMessage("tool-result message cannot include content")
+		}
+		if message.Reasoning != "" {
+			return invalidMessage("tool-result message cannot include reasoning")
 		}
 		if len(message.ToolCalls) != 0 {
 			return invalidMessage("tool-result message cannot include tool calls")

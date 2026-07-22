@@ -230,6 +230,7 @@ type MessageResponse struct {
 	TurnID     string                   `json:"turn_id"`
 	Type       agentruntime.MessageType `json:"type"`
 	Content    string                   `json:"content,omitempty"`
+	Reasoning  string                   `json:"reasoning,omitempty"`
 	ToolCalls  []ToolCallResponse       `json:"tool_calls,omitempty"`
 	ToolResult *ToolResultResponse      `json:"tool_result,omitempty"`
 	CreatedAt  time.Time                `json:"created_at"`
@@ -407,7 +408,7 @@ func newEventResponse(event agentruntime.AgentEvent) EventResponse {
 func newMessageResponse(message agentruntime.Message) MessageResponse {
 	response := MessageResponse{
 		ID: message.ID, SessionID: message.SessionID, TurnID: message.TurnID,
-		Type: message.Type, Content: message.Content, CreatedAt: message.CreatedAt,
+		Type: message.Type, Content: message.Content, Reasoning: message.Reasoning, CreatedAt: message.CreatedAt,
 	}
 	if message.ToolCalls != nil {
 		response.ToolCalls = make([]ToolCallResponse, len(message.ToolCalls))

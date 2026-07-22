@@ -33,17 +33,41 @@ func TestTerminalHistoryRendersAssistantMarkdown(t *testing.T) {
 	terminal := terminal{out: &output, color: true, interactive: true}
 
 	terminal.messages([]agentruntime.Message{{
-		Type:    agentruntime.MessageTypeAssistant,
-		Content: "### What This Demonstrates\n\n- Message storage",
+		Type:      agentruntime.MessageTypeAssistant,
+		Content:   "### What This Demonstrates\n\n- Message storage",
+		Reasoning: "inspect the stored message",
 	}})
 
 	plain := terminalANSIEscape.ReplaceAllString(output.String(), "")
 	if strings.Contains(plain, "### What This Demonstrates") {
 		t.Fatalf("assistant history contains raw heading syntax: %q", plain)
 	}
-	for _, wanted := range []string{"Agent · ", "What This Demonstrates", "• Message storage"} {
+	for _, wanted := range []string{"> thinking", "Agent · ", "What This Demonstrates", "• Message storage"} {
 		if !strings.Contains(plain, wanted) {
 			t.Fatalf("assistant history %q missing %q", plain, wanted)
+		}
+	}
+}
+
+func TestTerminalHistoryExpandsAllReasoning(t *testing.T) {
+	var output bytes.Buffer
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	renderer.configureReasoningExpanded(true)
+	terminal := terminal{out: &output, color: true, interactive: true, stream: renderer}
+
+	terminal.messages([]agentruntime.Message{
+		{Type: agentruntime.MessageTypeAssistant, Content: "first", Reasoning: "one\ntwo"},
+		{Type: agentruntime.MessageTypeAssistant, Content: "second", Reasoning: "three"},
+	})
+
+	plain := terminalANSIEscape.ReplaceAllString(output.String(), "")
+	if strings.Count(plain, "⌄ thinking") != 2 {
+		t.Fatalf("expanded history did not render every reasoning block: %q", plain)
+	}
+	for _, wanted := range []string{"  one\n  two", "  three"} {
+		if !strings.Contains(plain, wanted) {
+			t.Fatalf("expanded history %q missing %q", plain, wanted)
 		}
 	}
 }
@@ -488,21 +512,24 @@ func TestTerminalSubagentCallbackQueueIsFIFO(t *testing.T) {
 
 func TestTerminalInputFallsBackForNonInteractiveReaders(t *testing.T) {
 	output := terminal{out: &bytes.Buffer{}, interactive: true}
-	lines, readErrors, escapes, promptManaged, closeInput, err := terminalInput(strings.NewReader("hello\n"), &output)
+	inputSession, err := terminalInput(strings.NewReader("hello\n"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeInput()
-	if promptManaged {
+	defer inputSession.close()
+	if inputSession.promptManaged {
 		t.Fatal("non-terminal input unexpectedly enabled the interactive line editor")
 	}
-	if escapes != nil {
+	if inputSession.escapes != nil {
 		t.Fatal("non-terminal input unexpectedly enabled escape-key handling")
 	}
-	if got := <-lines; got != "hello" {
+	if inputSession.reasoningToggles != nil {
+		t.Fatal("non-terminal input unexpectedly enabled reasoning toggles")
+	}
+	if got := <-inputSession.lines; got != "hello" {
 		t.Fatalf("line = %q, want hello", got)
 	}
-	if err := <-readErrors; err != nil {
+	if err := <-inputSession.errors; err != nil {
 		t.Fatalf("read error = %v", err)
 	}
 }

@@ -1414,6 +1414,9 @@
                 "id": {
                     "type": "string"
                 },
+                "reasoning": {
+                    "type": "string"
+                },
                 "session_id": {
                     "type": "string"
                 },

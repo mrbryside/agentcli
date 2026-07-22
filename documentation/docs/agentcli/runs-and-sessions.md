@@ -136,3 +136,8 @@ The transcript contains all of these message types:
 
 Provider SDK types are never stored. A model adapter transforms these domain
 messages each time it creates a provider request.
+
+Assistant and tool-call messages may also contain `Reasoning`. It remains
+separate from `Content`, is present only when the provider exposed reasoning,
+and lets a UI restore collapsed reasoning after a session or child view is
+reopened. Model adapters do not merge it into ordinary assistant text.

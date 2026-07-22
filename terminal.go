@@ -185,18 +185,21 @@ type terminalClient struct {
 	rootCallbackQueue    []SubagentCallback
 	rootNotices          []string
 	escapeInput          <-chan struct{}
+	reasoningToggleInput <-chan struct{}
 	exitArmedUntil       time.Time
 }
 
 func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) error {
-	lines, readErrors, escapes, promptManaged, closeInput, err := terminalInput(input, &c.terminal)
+	inputSession, err := terminalInput(input, &c.terminal)
 	if err != nil {
 		return fmt.Errorf("initialize terminal input: %w", err)
 	}
-	defer closeInput()
-	c.escapeInput = escapes
+	defer inputSession.close()
+	c.escapeInput = inputSession.escapes
+	c.reasoningToggleInput = inputSession.reasoningToggles
 	c.switchView("")
 	c.terminal.banner(c.modelName, c.sessionID)
+	lines := inputSession.lines
 	callbacks := c.agent.SubscribeSubagentCallbacks(ctx)
 
 	for {
@@ -228,7 +231,7 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 				continue
 			}
 		}
-		if !promptManaged {
+		if !inputSession.promptManaged {
 			c.terminal.prompt()
 		}
 		select {
@@ -240,7 +243,9 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 			}
 		case <-c.escapeInput:
 			c.interruptActiveView()
-		case err := <-readErrors:
+		case <-c.reasoningToggleInput:
+			c.toggleReasoning()
+		case err := <-inputSession.errors:
 			if err != nil {
 				return fmt.Errorf("read prompt: %w", err)
 			}
@@ -262,7 +267,7 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 				}
 			}
 			continue
-		case line, open := <-lines:
+		case line, open := <-inputSession.lines:
 			if !open {
 				return nil
 			}
@@ -971,7 +976,7 @@ func (c *terminalClient) showRootView() {
 		c.stateMu.Unlock()
 	}
 	if loading := c.currentRootLoading(); loading != nil && !wroteContent {
-		loading.Start("Thinking")
+		loading.Start("")
 	}
 }
 
@@ -995,6 +1000,18 @@ func (c *terminalClient) takeRootNotices() []string {
 	notices := append([]string(nil), c.rootNotices...)
 	c.rootNotices = nil
 	return notices
+}
+
+func (c *terminalClient) toggleReasoning() {
+	expanded := !c.terminal.reasoningExpanded()
+	c.terminal.configureReasoningExpanded(expanded)
+	if id := c.activeView(); id != "" {
+		if err := c.openSubagent(id); err != nil {
+			c.terminal.error(err)
+		}
+		return
+	}
+	c.showRootView()
 }
 
 func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wroteContent *bool) {
@@ -1045,7 +1062,7 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 	c.setRootLoading(loading)
 	defer c.clearRootLoading(loading)
 	if c.activeView() == "" {
-		loading.Start("Thinking")
+		loading.Start("")
 	}
 	defer loading.Stop()
 
@@ -1062,6 +1079,8 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 					return err
 				}
 			}
+		case <-c.reasoningToggleInput:
+			c.toggleReasoning()
 		case line, open := <-input:
 			if !open {
 				input = nil
@@ -1181,17 +1200,19 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, parentSessionID,
 	}
 	loading := c.terminal.loadingController()
 	if !wroteContent {
-		loading.Start("Thinking")
+		loading.Start("")
 	}
 	defer loading.Stop()
 	interrupts := c.interrupts
 	escapes := c.escapeInput
+	reasoningToggles := c.reasoningToggleInput
 	if input == nil {
 		// The interactive loop owns global key handling while this renderer runs
 		// in the background. Keeping these channels here as well could let the
 		// renderer consume the second Ctrl+C without exiting the terminal.
 		interrupts = nil
 		escapes = nil
+		reasoningToggles = nil
 	}
 	for {
 		select {
@@ -1205,6 +1226,8 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, parentSessionID,
 			if err := run.Interrupt(context.Background(), "interrupted by user"); err != nil && !errors.Is(err, agentruntime.ErrRunNotFound) {
 				return err
 			}
+		case <-reasoningToggles:
+			c.toggleReasoning()
 		case line, open := <-input:
 			if !open {
 				input = nil
@@ -1281,7 +1304,6 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			c.terminal.write(event.ProviderEvent.Content)
 			*wroteContent = true
 		case provider.ReasoningReceived:
-			loading.Stop()
 			c.terminal.reasoning(event.ProviderEvent.Reasoning)
 		}
 	case agentruntime.ToolCallRequested:
@@ -1302,7 +1324,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 				}
 			}
 			if visible {
-				loading.Start("Thinking")
+				loading.Start("")
 			}
 		}
 	case agentruntime.AgentInterrupted:
@@ -1345,7 +1367,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 		}
 		c.stateMu.Unlock()
 		if visible {
-			loading.Start("Thinking")
+			loading.Start("")
 		}
 	case agentruntime.AgentConfirmationRequested:
 		if event.Confirmation != nil {
@@ -1380,7 +1402,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 		}
 		c.stateMu.Unlock()
 		if visible {
-			loading.Start("Thinking")
+			loading.Start("")
 		}
 	case agentruntime.RunCompleted, agentruntime.RunFailed:
 		if visible {
@@ -1412,73 +1434,27 @@ func scanLines(input io.Reader) (<-chan string, <-chan error) {
 	return lines, errorsChannel
 }
 
-func terminalInput(input io.Reader, output *terminal) (<-chan string, <-chan error, <-chan struct{}, bool, func(), error) {
+type terminalInputSession struct {
+	lines            <-chan string
+	errors           <-chan error
+	escapes          <-chan struct{}
+	reasoningToggles <-chan struct{}
+	promptManaged    bool
+	close            func()
+}
+
+func terminalInput(input io.Reader, output *terminal) (terminalInputSession, error) {
 	inputFile, inputIsFile := input.(*os.File)
 	if output == nil || !output.interactive || !inputIsFile {
 		lines, readErrors := scanLines(input)
-		return lines, readErrors, nil, false, func() {}, nil
+		return terminalInputSession{lines: lines, errors: readErrors, close: func() {}}, nil
 	}
 	inputInfo, err := inputFile.Stat()
 	if err != nil || inputInfo.Mode()&os.ModeCharDevice == 0 {
 		lines, readErrors := scanLines(input)
-		return lines, readErrors, nil, false, func() {}, nil
+		return terminalInputSession{lines: lines, errors: readErrors, close: func() {}}, nil
 	}
-	escapes := make(chan struct{}, 1)
-	cancelableInput := readline.NewCancelableStdin(inputFile)
-	instance, err := readline.NewEx(&readline.Config{
-		Prompt:          output.promptValue(),
-		InterruptPrompt: "^C",
-		EOFPrompt:       "exit",
-		Stdin:           cancelableInput,
-		Stdout:          output.out,
-		Stderr:          output.out,
-		VimMode:         true,
-		FuncFilterInputRune: func(value rune) (rune, bool) {
-			if value != readline.CharEsc {
-				return value, true
-			}
-			select {
-			case escapes <- struct{}{}:
-			default:
-			}
-			return 0, false
-		},
-	})
-	if err != nil {
-		_ = cancelableInput.Close()
-		return nil, nil, nil, false, func() {}, err
-	}
-	output.stream.attach(readline.GetScreenWidth)
-	output.out = instance.Stdout()
-	output.loading.attach(output.stream, output.out)
-	lines := make(chan string)
-	readErrors := make(chan error, 1)
-	go func() {
-		defer close(lines)
-		defer close(readErrors)
-		for {
-			line, readErr := instance.Readline()
-			switch {
-			case errors.Is(readErr, readline.ErrInterrupt):
-				lines <- terminalInterruptInput
-				continue
-			case errors.Is(readErr, io.EOF):
-				readErrors <- nil
-				return
-			case readErr != nil:
-				readErrors <- readErr
-				return
-			}
-			lines <- line
-		}
-	}()
-	return lines, readErrors, escapes, true, func() {
-		output.stopLoading()
-		output.stream.detach()
-		output.loading.detach(output.stream)
-		_ = cancelableInput.Close()
-		_ = instance.Close()
-	}, nil
+	return newInteractiveTerminalInput(inputFile, output)
 }
 
 func newSessionID() string {
@@ -1548,6 +1524,8 @@ func (t terminal) help() {
 	t.println("  /mode MODE change the permission mode")
 	t.println("  1-4       answer the oldest pending permission")
 	t.println("  y/n       answer the oldest pending confirmation")
+	t.println("  Shift+Enter add a new line without sending")
+	t.println("  Ctrl+O    expand or collapse all reasoning")
 	t.println("  Esc       interrupt an active response")
 	t.println("  Ctrl+C    press twice to quit")
 }
@@ -1628,6 +1606,9 @@ func (t terminal) subagentStatus(output json.RawMessage) {
 
 func (t terminal) messages(messages []agentruntime.Message) {
 	for _, message := range messages {
+		if message.Reasoning != "" {
+			t.reasoningHistory(message.Reasoning)
+		}
 		switch message.Type {
 		case agentruntime.MessageTypeUser:
 			t.println(t.paint("36", "You · ") + message.Content)
@@ -1728,9 +1709,32 @@ func (t terminal) toolResult(result agentruntime.ToolResult) {
 }
 
 func (t terminal) reasoning(reasoning string) {
-	if strings.TrimSpace(reasoning) != "" {
-		t.println(t.paint("2", "\nthinking · "+reasoning))
+	if strings.TrimSpace(reasoning) == "" {
+		return
 	}
+	if t.stream != nil && t.stream.writeReasoning(t.out, reasoning) {
+		return
+	}
+}
+
+func (t terminal) reasoningHistory(reasoning string) {
+	expanded := t.stream != nil && t.stream.reasoningIsExpanded()
+	if display := terminalReasoningDisplay(reasoning, expanded); display != "" {
+		if !t.color {
+			display = terminalANSIEscape.ReplaceAllString(display, "")
+		}
+		t.println(display)
+	}
+}
+
+func (t terminal) configureReasoningExpanded(expanded bool) {
+	if t.stream != nil {
+		t.stream.configureReasoningExpanded(expanded)
+	}
+}
+
+func (t terminal) reasoningExpanded() bool {
+	return t.stream != nil && t.stream.reasoningIsExpanded()
 }
 
 func (t terminal) status(label, value string) {

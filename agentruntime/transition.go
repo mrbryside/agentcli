@@ -81,6 +81,7 @@ func providerEffects(event AgentEvent) []Effect {
 				TurnID:    event.TurnID,
 				Type:      MessageTypeAssistant,
 				Content:   result.Content,
+				Reasoning: result.Reasoning,
 			}
 			completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
 			return []Effect{
@@ -108,6 +109,7 @@ func providerEffects(event AgentEvent) []Effect {
 			TurnID:    event.TurnID,
 			Type:      MessageTypeToolCall,
 			Content:   result.Content,
+			Reasoning: result.Reasoning,
 			ToolCalls: calls,
 		}
 		effects := []Effect{{Type: AppendMessages, Messages: []Message{message}}}

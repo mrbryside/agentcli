@@ -85,6 +85,39 @@ func TestTerminalStreamRendererLeavesSpaceAboveInput(t *testing.T) {
 	}
 }
 
+func TestTerminalReasoningIsCollapsedUntilToggled(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	var output bytes.Buffer
+
+	renderer.writeReasoning(&output, "first line\nsecond line")
+	collapsed := terminalANSIEscape.ReplaceAllString(renderer.renderMarkdownLocked(), "")
+	if collapsed != "> thinking" {
+		t.Fatalf("collapsed reasoning = %q", collapsed)
+	}
+
+	renderer.configureReasoningExpanded(true)
+	expanded := terminalANSIEscape.ReplaceAllString(renderer.renderMarkdownLocked(), "")
+	if expanded != "⌄ thinking\n  first line\n  second line" {
+		t.Fatalf("expanded reasoning = %q", expanded)
+	}
+	if !strings.Contains(renderer.renderMarkdownLocked(), "\x1b[2;90m") {
+		t.Fatalf("expanded reasoning is not strongly dimmed: %q", renderer.renderMarkdownLocked())
+	}
+}
+
+func TestTerminalDoesNotShowThinkingWithoutReasoning(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	var output bytes.Buffer
+	renderer.write(&output, "answer")
+
+	plain := terminalANSIEscape.ReplaceAllString(renderer.renderMarkdownLocked(), "")
+	if strings.Contains(plain, "thinking") {
+		t.Fatalf("answer without provider reasoning rendered thinking: %q", plain)
+	}
+}
+
 func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T) {
 	renderer := &terminalStreamRenderer{}
 	renderer.attach(func() int { return 80 })

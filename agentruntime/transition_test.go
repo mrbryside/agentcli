@@ -75,6 +75,32 @@ func TestEffectsLifecycleOrder(t *testing.T) {
 	}
 }
 
+func TestProviderCompletionPersistsReasoningSeparately(t *testing.T) {
+	event := AgentEvent{
+		SessionID: "session",
+		TurnID:    "turn",
+		Type:      ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "answer", Reasoning: "internal reasoning", Finished: true,
+			}},
+		},
+	}
+
+	effects, err := Effects(AgentState{}, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effects) == 0 || len(effects[0].Messages) != 1 {
+		t.Fatalf("effects = %#v, want one stored assistant message", effects)
+	}
+	message := effects[0].Messages[0]
+	if message.Content != "answer" || message.Reasoning != "internal reasoning" {
+		t.Fatalf("stored assistant = %#v", message)
+	}
+}
+
 func TestEffectsWaitsForEveryToolResultAndPersistsProviderOrder(t *testing.T) {
 	state := toolRoundState(t)
 	second := ToolResultEnvelope{SessionID: "session", TurnID: "turn", Result: ToolResult{CallID: "call_2", Name: "second", Status: ToolResultSucceeded, Output: []byte(`2`)}}

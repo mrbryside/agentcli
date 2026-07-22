@@ -95,9 +95,6 @@ func (state *terminalLoadingState) detach(renderer *terminalStreamRenderer) {
 
 func (state *terminalLoadingState) start(label string, color bool) terminalLoadingHandle {
 	label = strings.TrimSpace(label)
-	if label == "" {
-		label = "Working"
-	}
 	state.mu.Lock()
 	if state.renderer == nil || state.output == nil {
 		state.mu.Unlock()
@@ -142,9 +139,15 @@ func (state *terminalLoadingState) animate(generation uint64, stop <-chan struct
 }
 
 func (state *terminalLoadingState) renderLocked(frame int) {
-	status := terminalLoadingFrames[frame] + " " + state.label
+	status := terminalLoadingFrames[frame]
+	if state.label != "" {
+		status += " " + state.label
+	}
 	if state.color {
-		status = "\033[36m" + terminalLoadingFrames[frame] + "\033[0m \033[2m" + state.label + "\033[0m"
+		status = "\033[36m" + terminalLoadingFrames[frame] + "\033[0m"
+		if state.label != "" {
+			status += " \033[2m" + state.label + "\033[0m"
+		}
 	}
 	state.renderer.setStatus(state.output, status)
 }

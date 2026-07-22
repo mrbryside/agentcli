@@ -144,6 +144,8 @@ definitions:
         type: string
       id:
         type: string
+      reasoning:
+        type: string
       session_id:
         type: string
       tool_calls:
