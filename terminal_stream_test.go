@@ -98,6 +98,13 @@ func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T
 	if !strings.Contains(rendered, "\x1b[38;5;203") {
 		t.Fatalf("inline code did not keep its red foreground: %q", rendered)
 	}
+	if !strings.Contains(rendered, "\x1b[38;5;75mPrintln") ||
+		!strings.Contains(rendered, "\x1b[38;5;114m\"hi\"") {
+		t.Fatalf("code block did not use the One Dark palette: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[38;5;39;1mTitle") {
+		t.Fatalf("One Dark leaked outside the code block: %q", rendered)
+	}
 	if len(rendered) > 4096 {
 		t.Fatalf("small Markdown rendered to %d bytes", len(rendered))
 	}

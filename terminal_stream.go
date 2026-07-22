@@ -40,6 +40,8 @@ var terminalMarkdownStyle = func() glamour.TermRendererOption {
 	style.Code.Suffix = ""
 	style.Code.BackgroundColor = nil
 	style.CodeBlock.Margin = &zero
+	style.CodeBlock.Theme = "onedark"
+	style.CodeBlock.Chroma = nil
 	return glamour.WithStyles(style)
 }()
 
