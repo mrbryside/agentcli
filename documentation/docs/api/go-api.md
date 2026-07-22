@@ -46,7 +46,7 @@ Common options:
 | `WithTool` | Register an advanced raw tool. |
 | `WithPermissionMode` | Set initial mode. |
 | `WithPermissionPolicy` | Supply explicit capability rules. |
-| `WithNonInteractive` | Deny questions/decline confirmations rather than wait. |
+| `WithNonInteractive` | Independent unattended-run flag: convert permission `ask` to `deny` and decline confirmations without changing permission mode. |
 | `WithToolWorkers` | Set handler worker concurrency; default 4. |
 | `WithChannelBuffer` | Set internal transport buffer; default 64. |
 | `WithMessageStorage` | Replace transcript storage. |
@@ -100,6 +100,11 @@ agent.ResolveConfirmation(ctx, confirmation.Decision{...})
 agent.PermissionMode()
 agent.SetPermissionMode(ctx, permission.CriticalOnly)
 ```
+
+`WithNonInteractive(true)` does not select a permission mode. The configured
+mode still decides `allow`, `ask`, or `deny`; the flag denies only `ask`
+outcomes because no UI is available, and it declines every required Yes/No
+confirmation. See [Permissions and confirmations](../tools/permissions-and-confirmations.md#non-interactive-execution).
 
 ## Subagents
 

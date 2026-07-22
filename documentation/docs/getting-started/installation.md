@@ -63,7 +63,8 @@ go run ./playground/terminal "Explain the agent event lifecycle"
 ```
 
 One-shot mode is non-interactive: pending permissions are denied and Yes/No
-confirmations are declined rather than bypassed.
+confirmations are declined rather than bypassed. This is an execution flag,
+not another permission mode; see [Non-interactive execution](../tools/permissions-and-confirmations.md#non-interactive-execution).
 
 ## Run the examples
 

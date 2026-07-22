@@ -60,6 +60,51 @@ err := agent.SetPermissionMode(ctx, permission.CriticalOnly)
 Active runs receive `permission_mode_changed`. Already pending prompts remain
 pending; new requests use the new policy epoch.
 
+## Non-interactive execution
+
+`agentcli.WithNonInteractive(true)` is **not** a permission mode. It is an
+independent execution flag for one-shot jobs, background workers, tests, and
+other hosts that have no UI available to answer a question.
+
+Admission still evaluates the configured permission mode, explicit policy
+rules, and existing grants first. Non-interactive handling changes only the
+outcomes that require human input:
+
+```text
+permission allow  → allow
+permission deny   → deny
+permission ask    → deny
+confirmation      → No / declined
+```
+
+It does not change `Agent.PermissionMode()`, emit a permission-mode event, or
+disable tools that the current policy already allows.
+
+| Permission mode | Effective non-interactive behavior |
+| --- | --- |
+| `default` | Guarded calls that would ask are denied. |
+| `acceptEdits` | Filesystem-write-only calls are allowed; other calls that would ask are denied. |
+| `criticalOnly` | Low/medium-risk calls are allowed; high-risk calls that would ask are denied. |
+| `dontAsk` | Guarded calls are denied by the mode as usual. |
+| `plan` | Executable capabilities are denied by the mode as usual. |
+| `unrestricted` | Declared permissions are allowed unless an explicit policy rule asks or denies; confirmation is still declined. |
+
+For example, a one-shot terminal command has no input loop, so it should not
+wait forever for a permission answer:
+
+```go
+nonInteractive := initialPrompt != ""
+
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithNonInteractive(nonInteractive),
+)
+```
+
+Use `false` for an interactive terminal or UI that renders and resolves
+permission and confirmation requests. Use `true` only when the host cannot
+answer them.
+
 ## Resolve a permission
 
 Render the complete request to the user, then preserve all correlation IDs:
@@ -115,4 +160,3 @@ exist. Duplicate, mismatched, expired, cancelled, and post-interruption answers
 fail safely.
 
 Waiting permission/confirmation requests do not occupy worker-pool slots.
-
