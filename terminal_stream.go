@@ -12,6 +12,7 @@ import (
 )
 
 const terminalStreamFallbackWidth = 80
+const terminalStreamStableTailLines = 8
 
 var terminalANSIEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
@@ -43,16 +44,18 @@ var terminalMarkdownStyle = func() glamour.TermRendererOption {
 }()
 
 // terminalStreamRenderer is the interactive terminal's live view state. Each
-// provider event appends Markdown source, then redraws that complete rendered
-// document above readline's independently managed input row. Loading status is
-// another row in the same view, so it can never become part of the prompt.
+// provider event appends Markdown source and renders the complete document in
+// memory. Lines that are unchanged are committed to terminal scrollback; only
+// the live tail and loading status are redrawn above readline's input row.
 type terminalStreamRenderer struct {
 	mu               sync.Mutex
 	attached         bool
 	active           bool
 	source           string
 	status           string
-	renderedRows     int
+	renderedContent  string
+	renderedStatus   string
+	committedLines   int
 	width            func() int
 	markdownWidth    int
 	markdownRenderer *glamour.TermRenderer
@@ -67,7 +70,9 @@ func (renderer *terminalStreamRenderer) attach(width func() int) {
 	renderer.active = false
 	renderer.source = ""
 	renderer.status = ""
-	renderer.renderedRows = 0
+	renderer.renderedContent = ""
+	renderer.renderedStatus = ""
+	renderer.committedLines = 0
 	renderer.width = width
 	renderer.markdownWidth = 0
 	renderer.markdownRenderer = nil
@@ -83,7 +88,9 @@ func (renderer *terminalStreamRenderer) detach() {
 	renderer.active = false
 	renderer.source = ""
 	renderer.status = ""
-	renderer.renderedRows = 0
+	renderer.renderedContent = ""
+	renderer.renderedStatus = ""
+	renderer.committedLines = 0
 	renderer.width = nil
 	renderer.markdownWidth = 0
 	renderer.markdownRenderer = nil
@@ -139,7 +146,9 @@ func (renderer *terminalStreamRenderer) commit(output io.Writer) bool {
 	renderer.active = false
 	renderer.source = ""
 	renderer.status = ""
-	renderer.renderedRows = 0
+	renderer.renderedContent = ""
+	renderer.renderedStatus = ""
+	renderer.committedLines = 0
 	return active
 }
 
@@ -151,21 +160,38 @@ func (renderer *terminalStreamRenderer) reset() {
 	renderer.active = false
 	renderer.source = ""
 	renderer.status = ""
-	renderer.renderedRows = 0
+	renderer.renderedContent = ""
+	renderer.renderedStatus = ""
+	renderer.committedLines = 0
 	renderer.mu.Unlock()
 }
 
 func (renderer *terminalStreamRenderer) renderLocked(output io.Writer) {
-	display := renderer.renderMarkdownLocked()
-	if renderer.status != "" {
-		if display != "" {
-			display += "\n"
-		}
-		display += renderer.status
+	content := renderer.renderMarkdownLocked()
+	previousLines := terminalStreamLines(renderer.renderedContent)
+	currentLines := terminalStreamLines(content)
+	commonLines := terminalStreamCommonPrefix(previousLines, currentLines)
+	// ANSI cursor movement cannot reach lines that have entered scrollback.
+	// Preserve the stable common prefix and repaint only a small mutable tail.
+	commitThrough := renderer.committedLines
+	if stableThrough := commonLines - terminalStreamStableTailLines; stableThrough > commitThrough {
+		commitThrough = stableThrough
+	}
+	if commitThrough > len(previousLines) {
+		commitThrough = len(previousLines)
+	}
+	if commitThrough > len(currentLines) {
+		commitThrough = len(currentLines)
 	}
 
+	previousTail := strings.Join(previousLines[commitThrough:], "\n")
+	previousDisplay := terminalStreamDisplay(previousTail, renderer.renderedStatus)
+	rowsToErase := terminalStreamRows(previousDisplay, renderer.currentWidth())
+	currentTail := strings.Join(currentLines[commitThrough:], "\n")
+	display := terminalStreamDisplay(currentTail, renderer.status)
+
 	var update strings.Builder
-	for range renderer.renderedRows {
+	for range rowsToErase {
 		update.WriteString("\x1b[1A\r\x1b[2K")
 	}
 	if display != "" {
@@ -175,7 +201,39 @@ func (renderer *terminalStreamRenderer) renderLocked(output io.Writer) {
 	_, _ = io.WriteString(output, update.String())
 
 	renderer.active = display != ""
-	renderer.renderedRows = terminalStreamRows(display, renderer.currentWidth())
+	renderer.renderedContent = content
+	renderer.renderedStatus = renderer.status
+	renderer.committedLines = commitThrough
+}
+
+func terminalStreamLines(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, "\n")
+}
+
+func terminalStreamCommonPrefix(left, right []string) int {
+	limit := len(left)
+	if len(right) < limit {
+		limit = len(right)
+	}
+	for index := 0; index < limit; index++ {
+		if left[index] != right[index] {
+			return index
+		}
+	}
+	return limit
+}
+
+func terminalStreamDisplay(content, status string) string {
+	if status == "" {
+		return content
+	}
+	if content == "" {
+		return status
+	}
+	return content + "\n" + status
 }
 
 func (renderer *terminalStreamRenderer) renderMarkdownLocked() string {

@@ -2,6 +2,7 @@ package agentcli
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -99,6 +100,32 @@ func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T
 	}
 	if len(rendered) > 4096 {
 		t.Fatalf("small Markdown rendered to %d bytes", len(rendered))
+	}
+}
+
+func TestTerminalStreamRendererCommitsStablePrefixForLongResponses(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 100 })
+	var output bytes.Buffer
+	var firstFragment strings.Builder
+	firstFragment.WriteString("```go\n")
+	for index := range 100 {
+		firstFragment.WriteString(fmt.Sprintf("fmt.Println(%d)\n", index))
+	}
+
+	renderer.write(&output, firstFragment.String())
+	before := output.Len()
+	renderer.write(&output, "fmt.Println(100)\n")
+	update := output.String()[before:]
+
+	if renderer.committedLines < 80 {
+		t.Fatalf("committed lines = %d, want the stable prefix in scrollback", renderer.committedLines)
+	}
+	if moves := strings.Count(update, "\x1b[1A"); moves > terminalStreamStableTailLines+2 {
+		t.Fatalf("long response redraw moved up %d rows; update can escape the viewport", moves)
+	}
+	if strings.Contains(update, "fmt.Println(0)") {
+		t.Fatalf("long response redrew its committed prefix: %q", update)
 	}
 }
 
