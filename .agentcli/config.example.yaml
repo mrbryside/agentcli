@@ -7,7 +7,7 @@ permission_mode: default
 # Provider names are application-defined connection profile aliases. The
 # required type selects the protocol adapter independently from that alias.
 providers:
-  openai:
+  your_provider_name:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
