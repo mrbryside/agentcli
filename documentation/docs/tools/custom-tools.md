@@ -92,15 +92,15 @@ and every tool in that batch uses `EndTurn`. A `ContinueTurn` result keeps the
 loop open, and failed, interrupted, denied, or declined results continue to the
 provider so it can explain or recover from the error.
 
-`start_subagent` and `send_subagent_message` expose a model-facing
-`finish_turn` argument. It defaults to `true`, applying `EndTurn` after a final
-dispatch because the authoritative child answer arrives later through a
-callback turn. The model sets it to `false` only while it has a concrete plan to
-continue decomposing work or issue more start/send calls after the current tool
-batch. It must set `true` on the final dispatch, when no more child messages are
-planned, or when unsure. A `selection_required` start always continues because
-no child work was dispatched and the model must ask which existing child the
-user means. Their model-facing tool results echo the resolved `finish_turn`
+`start_subagent`, `send_subagent_message`, and `close_subagent` expose a
+model-facing `finish_turn` argument. It defaults to `true`, applying `EndTurn`
+after a final dispatch or cleanup. The model sets it to `false` only while it
+has a concrete plan to continue decomposing work or issue more start/send/close
+operations after the current tool batch. It must set `true` on the final
+operation, when no more subagent operations are planned, or when unsure. A
+`selection_required` start always continues because no child work was
+dispatched and the model must ask which existing child the user means. Their
+model-facing tool results echo the resolved `finish_turn`
 boolean and a `turn_behavior` label of `continue_turn` or `end_turn`, plus an
 instruction matching that decision.
 

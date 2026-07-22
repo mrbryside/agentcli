@@ -109,16 +109,87 @@ func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testin
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
 	closeCtx = toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "callback-turn", CallID: "close", ToolName: CloseSubagentToolName})
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); err != nil {
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentIncomplete) {
+		t.Fatalf("close incomplete child error = %v", err)
+	}
+	callback := markTestSubagentCompleted(t, manager, started.ID)
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentCallbackPending) {
+		t.Fatalf("close before callback observation error = %v", err)
+	}
+	observeTestSubagentCallback(t, manager, callback)
+	closedJSON, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	if err != nil {
 		t.Fatal(err)
+	}
+	var closed struct {
+		Subagent     toolexecution.SubagentToolSummary `json:"subagent"`
+		FinishTurn   bool                              `json:"finish_turn"`
+		TurnBehavior string                            `json:"turn_behavior"`
+		Instruction  string                            `json:"instruction"`
+	}
+	if err := json.Unmarshal(closedJSON, &closed); err != nil {
+		t.Fatal(err)
+	}
+	if closed.Subagent.Status != storage.SubagentStatusClosed || !closed.FinishTurn || closed.TurnBehavior != "end_turn" || !strings.Contains(closed.Instruction, "final cleanup") {
+		t.Fatalf("default close result = %s", closedJSON)
+	}
+}
+
+func TestForceCloseSubagentToolIsImmediateAndDoesNotRequireConfirmation(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	bridge := newTestSubagentToolBridge(manager)
+
+	var forceTool *toolexecution.Tool
+	for index := range bridge.Tools() {
+		tool := bridge.Tools()[index]
+		if tool.Definition.Name == ForceCloseSubagentToolName {
+			forceTool = &tool
+			break
+		}
+	}
+	if forceTool == nil || forceTool.Confirmation != nil {
+		t.Fatalf("force-close tool confirmation = %#v, want nil", forceTool)
+	}
+
+	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Send(context.Background(), "parent", record.ID, "queued"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+		SessionID: "parent", TurnID: "force-turn", CallID: "force-call", ToolName: ForceCloseSubagentToolName,
+	})
+	output, err := callSubagentTool(bridge, ForceCloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Subagent        toolexecution.SubagentToolSummary `json:"subagent"`
+		PreviousStatus  storage.SubagentStatus            `json:"previous_status"`
+		DroppedMessages int                               `json:"dropped_messages"`
+		Interrupted     bool                              `json:"interrupted"`
+		Forced          bool                              `json:"forced"`
+		FinishTurn      bool                              `json:"finish_turn"`
+		TurnBehavior    string                            `json:"turn_behavior"`
+		Instruction     string                            `json:"instruction"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.Forced || !result.FinishTurn || result.TurnBehavior != "end_turn" || !strings.Contains(result.Instruction, "User-directed force close completed") {
+		t.Fatalf("force-close result = %s", output)
 	}
 }
 
 func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 	bridge := toolexecution.NewSubagentToolBridge()
 	tools := bridge.Tools()
-	if len(tools) != 5 {
-		t.Fatalf("tool count = %d, want 5", len(tools))
+	if len(tools) != 6 {
+		t.Fatalf("tool count = %d, want 6", len(tools))
 	}
 	seen := make(map[string]bool)
 	for _, tool := range tools {

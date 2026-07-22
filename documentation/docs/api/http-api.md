@@ -278,10 +278,14 @@ Child permission and confirmation bodies use the same fields as root
 decisions. Their nested endpoints force ownership and derive the child session
 from the owned record.
 
-Delete closes only an idle child and retains its transcript and completed event
-history. Closing is not cancellation. Attempting to delete a running child
-returns `409 conflict`; interrupt its active turn, wait for the child callback
-and idle lifecycle state, then delete it.
+Sending to a running child queues the message. Sending to an idle incomplete,
+completed, or failed child starts the follow-up only after its latest callback
+has been consumed; otherwise it returns `409 conflict`.
+
+Delete closes only a completed or failed child after its latest callback has
+been consumed, and retains its transcript and completed event history. Closing
+is not cancellation. Running, incomplete, and callback-pending children return
+`409 conflict`.
 
 ## Errors
 
@@ -302,7 +306,7 @@ Common mappings:
 | --- | --- | --- |
 | `400` | `invalid_request`, `invalid_json`, `invalid_cursor` | Missing identity, invalid decision, malformed JSON. |
 | `404` | `run_not_found`, `not_found` | Unknown run, permission, confirmation, or child. |
-| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, or attempted close of a running child. |
+| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, send before callback consumption, or invalid child cleanup state. |
 | `429` | `turn_queue_full` | Per-session waiting-turn bound reached. |
 | `408` | `request_cancelled` | Context cancellation or deadline. |
 | `413` | `request_too_large` | JSON body exceeds configured limit. |

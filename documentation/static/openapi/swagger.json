@@ -360,7 +360,7 @@
                 }
             },
             "delete": {
-                "description": "Closes an idle child while retaining transcript and completed event history. Closing is cleanup, not cancellation; interrupt a running child turn first and wait for it to become idle.",
+                "description": "Closes a completed or failed child after its latest callback has been consumed, while retaining transcript and completed event history. Closing is cleanup, not cancellation; running, incomplete, and callback-pending children are rejected.",
                 "produces": [
                     "application/json"
                 ],
@@ -598,7 +598,7 @@
         },
         "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns": {
             "post": {
-                "description": "Starts a turn when the child is idle or queues the message in its mailbox while busy. An immediately started turn can be streamed with Accept: text/event-stream.",
+                "description": "Queues the message while the child is running, or starts an idle incomplete/completed/failed child after its latest callback has been consumed. Closed, callback-pending, and outcome-less children return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
                 "consumes": [
                     "application/json"
                 ],

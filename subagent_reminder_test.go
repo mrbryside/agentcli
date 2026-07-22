@@ -52,6 +52,7 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, first.ID, storage.SubagentStatusIdle)
+	observeTestSubagentCallback(t, manager, markTestSubagentCompleted(t, manager, first.ID))
 	if _, err := manager.CloseSubagent(context.Background(), "parent-a", first.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +62,38 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	}
 	if len(reminders) != 0 {
 		t.Fatalf("closed child reminder = %#v", reminders)
+	}
+}
+
+func TestSubagentReminderIsStableWithinOneParentTurn(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	record, err := manager.Start(context.Background(), "parent", "child-parent-turn", "researcher", "work", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := subagentReminderProvider(manager)
+	request := agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "active-parent-turn"}
+	before, err := provider(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	after, err := provider(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || len(after) != 1 || before[0].Content != after[0].Content || strings.Contains(after[0].Content, "completion_callback") {
+		t.Fatalf("same-turn reminder changed after callback: before=%#v after=%#v", before, after)
+	}
+	next, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "next-parent-turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next) != 1 || !strings.Contains(next[0].Content, "<completion_callback>incomplete</completion_callback>") {
+		t.Fatalf("next-turn reminder does not expose durable callback: %#v", next)
 	}
 }
 

@@ -75,7 +75,7 @@ GET /v1/sessions/{sessionID}/turns/{turnID}/events
 | Read or change permission mode | `GET`, `PUT /v1/permission-mode` |
 | Discover subagent definitions | `GET /v1/subagent-definitions` |
 | Create or list children | `POST`, `GET /v1/sessions/{sessionID}/subagents` |
-| Open or close one idle child | `GET`, `DELETE /v1/sessions/{sessionID}/subagents/{subagentID}` |
+| Open or close one terminal child | `GET`, `DELETE /v1/sessions/{sessionID}/subagents/{subagentID}` |
 | Send a child message | `POST /v1/sessions/{sessionID}/subagents/{subagentID}/turns` |
 | Restore a child transcript | `GET /v1/sessions/{sessionID}/subagents/{subagentID}/messages` |
 
@@ -304,7 +304,7 @@ To build a child-session view, keep its transcript and streaming state separate
 from the root view. Open the selected child's `/messages`, then resume its
 `current_turn_id` through the nested `/events` endpoint. The complete state
 model and reconnect algorithm are in [Child views](../agentcli/child-views.md).
-Closing a child keeps its history readable.
+Closing a completed or failed, callback-consumed child keeps its history readable.
 
 ## Reload and reconnect checklist
 

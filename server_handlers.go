@@ -375,7 +375,7 @@ func (server *Server) writeRuntimeError(c echo.Context, err error) error {
 		status, code = http.StatusBadRequest, "invalid_request"
 	case errors.Is(err, agentruntime.ErrRunNotFound), errors.Is(err, permission.ErrNotFound), errors.Is(err, confirmation.ErrNotFound), errors.Is(err, storage.ErrSubagentNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning):
+	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning), errors.Is(err, storage.ErrSubagentIncomplete), errors.Is(err, storage.ErrSubagentCallbackPending), errors.Is(err, storage.ErrSubagentOutcomeUnavailable):
 		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, errServerTurnQueueFull):
 		status, code = http.StatusTooManyRequests, "turn_queue_full"

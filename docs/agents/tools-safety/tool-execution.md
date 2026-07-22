@@ -12,10 +12,17 @@ Typed tools select static behavior with
 `agentcli.ToolTurnBehavior(agentcli.EndTurn)`; raw tools set
 `toolexecution.Tool.TurnBehavior`. Framework start/send tools derive behavior
 from their `finish_turn` argument (default true): false is reserved for planned
-additional decomposition/dispatch, and true marks the final/no-more/uncertain
-case. `start_subagent` overrides to `ContinueTurn` for `selection_required`,
+additional decomposition, dispatch, or cleanup, and true marks the final/no-more/uncertain
+case. This applies to `start_subagent`, `send_subagent_message`,
+`close_subagent`, and `force_close_subagent`. `start_subagent` overrides to `ContinueTurn` for `selection_required`,
 where no dispatch occurred.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by `toolexecution` and wired by `agentcli`. Application tools remain caller-owned; the framework does not silently register filesystem or shell tools.
+
+`force_close_subagent` is an ordinary framework tool, not a confirmation tool.
+It bypasses normal child outcome/callback guards, interrupts active work, drops
+queued child messages, and retains existing history. Its schema description
+and root prompt reserve it for a force-close instruction in the latest user
+message; normal autonomous cleanup must use `close_subagent`.
 
 Back to [tools-safety/index.md](index.md).

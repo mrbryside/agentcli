@@ -37,13 +37,14 @@ project loading/agent initialization.
 
 ## Root management tools
 
-When definitions exist, the root model receives five fixed framework tools:
+When definitions exist, the root model receives six fixed framework tools:
 
 | Tool | Use |
 | --- | --- |
 | `start_subagent` | Create or reuse a child and asynchronously route work. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
-| `close_subagent` | Release an idle child only after its callback has been consumed. It is not cancellation. |
+| `close_subagent` | Release an idle child only after its callback has been consumed. It is not cancellation. Supports controlled turn completion for sequential cleanup. |
+| `force_close_subagent` | Immediately interrupt and close a specific child only when the latest user message explicitly requests it. Drops queued child messages, retains history, and does not open a confirmation prompt. |
 | `list_subagents` | List lightweight child summaries for explicit discovery or selection. |
 | `subagent_status` | Read one compact snapshot for an explicit status question; repeated checks in one parent turn return the cached snapshot. |
 
@@ -55,12 +56,13 @@ summary and, for incomplete work, the required next step.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. Both accept `finish_turn`, defaulting to `true`. The model uses `false`
-only when it has already planned more decomposition or start/send dispatches
-after the current tool batch, and uses `true` on the final dispatch, when none
-remain, or when unsure. The runtime ends the parent turn when every successful
-dispatch in the batch requests it. This prevents speculative parent questions
-while still allowing detailed sequential delegation. The child turn outcome
+work. They, `close_subagent`, and `force_close_subagent` accept `finish_turn`, defaulting to `true`. The
+model uses `false` only when it has already planned more decomposition or
+start/send/close operations after the current tool batch, and uses `true` on
+the final dispatch or cleanup, when none remain, or when unsure. The runtime
+ends the parent turn when every successful controlled operation in the batch
+requests it. This prevents speculative parent questions while still allowing
+detailed sequential delegation and cleanup. The child turn outcome
 arrives through a separate callback containing:
 
 - parent and child identity;
@@ -70,7 +72,7 @@ arrives through a separate callback containing:
 - terminal error when the child failed;
 - durable transcript cursor metadata.
 
-Each model-facing dispatch result echoes the resolved control state:
+Each model-facing start, send, close, or force-close result echoes the resolved control state:
 
 ```json
 {
@@ -80,7 +82,7 @@ Each model-facing dispatch result echoes the resolved control state:
 }
 ```
 
-Final dispatches return `finish_turn: true` and
+Final dispatches and cleanup operations return `finish_turn: true` and
 `turn_behavior: "end_turn"`. A `selection_required` result always reports
 `false` and `continue_turn`.
 
@@ -171,12 +173,34 @@ After delivering a bounded one-shot `completed` result, the parent should close
 the child unless it has a concrete follow-up or explicit ongoing collaboration.
 The possibility of a later question alone is not a reason to keep it open.
 
-Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model tool,
-and HTTP `DELETE` all reject a `running` child with
-`storage.ErrSubagentRunning` / HTTP `409 conflict`. Interrupt the active child
-turn first, let its terminal callback transition the child to `idle`, and then
-close it. This prevents a premature close from suppressing the callback that
-the parent is waiting to consume.
+Sending follows lifecycle admission. A running child accepts FIFO mailbox
+input. An idle `incomplete`, `completed`, or `failed` child accepts a focused
+follow-up, distinct next task, or recovery instruction only after its latest
+callback was consumed. Closed, callback-pending, and outcome-less children are
+rejected with a specific lifecycle error.
+
+Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model
+tool, Terminal UI, and HTTP `DELETE` require a `completed` or `failed` outcome
+whose latest callback cursor has been consumed. They reject running,
+incomplete, and callback-pending children with a storage lifecycle error /
+HTTP `409 conflict`. This prevents a fast child from being closed in the same
+parent turn that started it and prevents cleanup from suppressing an unread
+callback.
+
+Context reminders are stable within one parent turn. If a child finishes
+between provider rounds, the active turn continues seeing its original
+snapshot; the queued callback becomes authoritative input in the following
+callback turn.
+
+`force_close_subagent` is the destructive escape hatch. Unlike normal close,
+it can stop a running child or discard an incomplete child without waiting for
+callback consumption. The tool is intentionally not protected by the generic
+Yes/No confirmation mechanism. Its description and root orchestration prompt
+restrict it to a specific child named by the latest explicit user request; the
+model must never select it autonomously or use an older instruction as ongoing
+authorization. Existing transcript messages and retained run events remain
+available, while pending mailbox messages are removed and future sends are
+rejected.
 
 ## Capacity
 

@@ -558,6 +558,9 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	if record.Status == storage.SubagentStatusClosed {
 		return storage.Subagent{}, storage.ErrSubagentClosed
 	}
+	if err := m.validateSubagentSend(ctx, record); err != nil {
+		return storage.Subagent{}, err
+	}
 	return m.sendLocked(ctx, instance, record, content)
 }
 
@@ -624,6 +627,9 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	if record.Status == storage.SubagentStatusClosed {
 		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
 	}
+	if err := m.validateSubagentSend(ctx, record); err != nil {
+		return toolexecution.SubagentSendResult{}, err
+	}
 	key := subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, content)
 	if instance.lastDispatchParentTurnID == parentTurnID {
 		action := toolexecution.SubagentSendAlreadySent
@@ -681,6 +687,25 @@ func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubag
 	}
 	m.signalChanged()
 	return m.getOwned(ctx, record.ParentSessionID, record.ID)
+}
+
+// validateSubagentSend allows running work to accept ordered mailbox input.
+// An idle child may resume after any known outcome, but only after the parent
+// consumed that outcome's callback; otherwise a new message could overtake the
+// authoritative result that explains what the child needs next.
+func (m *subagentManager) validateSubagentSend(ctx context.Context, record storage.Subagent) error {
+	if record.Status == storage.SubagentStatusRunning {
+		return nil
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return storage.ErrSubagentClosed
+	}
+	switch record.LastTurnOutcome {
+	case storage.SubagentTurnCompleted, storage.SubagentTurnIncomplete, storage.SubagentTurnFailed:
+		return m.validateLatestSubagentCallbackObserved(ctx, record)
+	default:
+		return storage.ErrSubagentOutcomeUnavailable
+	}
 }
 
 func normalizeSubagentMessage(content string) string {
@@ -790,6 +815,9 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		if record.Status == storage.SubagentStatusRunning {
 			return storage.Subagent{}, storage.ErrSubagentRunning
 		}
+		if err := m.validateSubagentClose(ctx, record); err != nil {
+			return storage.Subagent{}, err
+		}
 		closed, closeErr := m.store.Close(ctx, id)
 		if closeErr == nil {
 			m.signalChanged()
@@ -806,6 +834,10 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		instance.mu.Unlock()
 		return storage.Subagent{}, storage.ErrSubagentRunning
 	}
+	if err := m.validateSubagentClose(ctx, record); err != nil {
+		instance.mu.Unlock()
+		return storage.Subagent{}, err
+	}
 	closed, err := m.store.Close(ctx, id)
 	if err != nil {
 		instance.mu.Unlock()
@@ -819,6 +851,99 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 	}
 	m.signalChanged()
 	return closed, nil
+}
+
+// ForceCloseSubagent bypasses normal outcome and callback-consumption guards
+// for an explicit user-directed destructive close. It atomically marks the
+// child closed before interrupting its run so completion cannot dequeue more
+// mailbox work or publish a fresh callback after the force close begins.
+func (m *subagentManager) ForceCloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentForceCloseResult, error) {
+	ctx = nonNilContext(ctx)
+	record, err := m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		return toolexecution.SubagentForceCloseResult{}, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return toolexecution.SubagentForceCloseResult{}, storage.ErrSubagentClosed
+	}
+	instance, instanceErr := m.instance(id)
+	if instanceErr != nil {
+		if record.Status == storage.SubagentStatusRunning {
+			return toolexecution.SubagentForceCloseResult{}, fmt.Errorf("force close running subagent: runtime instance unavailable: %w", instanceErr)
+		}
+		closed, closeErr := m.store.Close(ctx, id)
+		if closeErr != nil {
+			return toolexecution.SubagentForceCloseResult{}, closeErr
+		}
+		m.signalChanged()
+		return toolexecution.SubagentForceCloseResult{
+			Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
+			DroppedMessages: len(record.Pending),
+		}, nil
+	}
+
+	instance.mu.Lock()
+	record, err = m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		instance.mu.Unlock()
+		return toolexecution.SubagentForceCloseResult{}, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		instance.mu.Unlock()
+		return toolexecution.SubagentForceCloseResult{}, storage.ErrSubagentClosed
+	}
+	run := instance.run
+	child := instance.agent
+	closed, err := m.store.Close(ctx, id)
+	if err != nil {
+		instance.mu.Unlock()
+		return toolexecution.SubagentForceCloseResult{}, err
+	}
+	instance.agent = nil
+	instance.mu.Unlock()
+
+	interrupted := record.Status == storage.SubagentStatusRunning && run != nil && !run.Done()
+	if interrupted {
+		_ = run.Interrupt(context.Background(), "subagent force closed by explicit user request")
+	}
+	if child != nil {
+		_ = child.Close()
+	}
+	m.signalChanged()
+	return toolexecution.SubagentForceCloseResult{
+		Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
+		DroppedMessages: len(record.Pending), Interrupted: interrupted,
+	}, nil
+}
+
+// validateSubagentClose makes close a cleanup-only operation. An idle state
+// alone is insufficient: incomplete work must remain available for follow-up,
+// while completed and failed outcomes must reach a parent callback consumer
+// before the child can disappear from the active set.
+func (m *subagentManager) validateSubagentClose(ctx context.Context, record storage.Subagent) error {
+	switch record.LastTurnOutcome {
+	case storage.SubagentTurnCompleted, storage.SubagentTurnFailed:
+		return m.validateLatestSubagentCallbackObserved(ctx, record)
+	case storage.SubagentTurnIncomplete:
+		return storage.ErrSubagentIncomplete
+	default:
+		return storage.ErrSubagentOutcomeUnavailable
+	}
+}
+
+func (m *subagentManager) validateLatestSubagentCallbackObserved(ctx context.Context, record storage.Subagent) error {
+	messages, err := m.parent.ListMessages(nonNilContext(ctx), record.SessionID)
+	if err != nil {
+		return fmt.Errorf("read child callback cursor: %w", err)
+	}
+	if len(messages) == 0 {
+		return storage.ErrSubagentCallbackPending
+	}
+	latest := messages[len(messages)-1]
+	if record.ObservedMessageID != latest.ID || record.ObservedVersion < uint64(len(messages)) {
+		return storage.ErrSubagentCallbackPending
+	}
+	return nil
 }
 
 // Run returns the retained child run for nested SSE backfill and live

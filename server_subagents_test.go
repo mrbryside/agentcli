@@ -83,6 +83,13 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 	}
 	childModel.releases <- struct{}{}
 	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
+	incompleteClose := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
+	defer incompleteClose.Body.Close()
+	if incompleteClose.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(incompleteClose.Body)
+		t.Fatalf("incomplete close status = %d body = %s", incompleteClose.StatusCode, body)
+	}
+	observeTestSubagentCallback(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
 	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
 	defer closed.Body.Close()
 	if closed.StatusCode != http.StatusOK {
@@ -93,7 +100,7 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 
 func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {
 	childModel := &subagentGateModel{releases: make(chan struct{}, 1)}
-	_, serverURL := newTestSubagentHTTPServer(t, childModel)
+	agent, serverURL := newTestSubagentHTTPServer(t, childModel)
 	created := createHTTPSubagent(t, serverURL, "parent-events", `{"name":"researcher","message":"work"}`)
 	if err := childModel.waitStarts(1); err != nil {
 		t.Fatal(err)
@@ -110,6 +117,7 @@ func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {
 		t.Fatalf("reconnect after final event = %#v", reconnected)
 	}
 
+	observeTestSubagentCallback(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
 	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-events", created.ID), "", "")
 	defer closed.Body.Close()
 	if closed.StatusCode != http.StatusOK {

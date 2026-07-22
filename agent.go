@@ -507,7 +507,8 @@ func (a *Agent) WaitSubagent(ctx context.Context, parentSessionID string, subage
 	return manager.Wait(ctx, parentSessionID, subagentIDs, after)
 }
 
-// SendSubagentMessage delivers or queues child work.
+// SendSubagentMessage queues running child work or resumes an idle child after
+// its latest callback has been consumed.
 func (a *Agent) SendSubagentMessage(ctx context.Context, parentSessionID, subagentID, message string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
@@ -516,13 +517,26 @@ func (a *Agent) SendSubagentMessage(ctx context.Context, parentSessionID, subage
 	return manager.Send(ctx, parentSessionID, subagentID, message)
 }
 
-// CloseSubagent closes one owned child and retains its transcript history.
+// CloseSubagent closes one owned, completed or failed child after its latest
+// callback has been consumed, and retains its transcript history.
 func (a *Agent) CloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return storage.Subagent{}, err
 	}
 	return manager.CloseSubagent(ctx, parentSessionID, subagentID)
+}
+
+// ForceCloseSubagent interrupts and closes one owned child regardless of its
+// current outcome or callback state. Callers should expose this only for an
+// explicit user-directed destructive action.
+func (a *Agent) ForceCloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
+	manager, err := a.subagentManager()
+	if err != nil {
+		return storage.Subagent{}, err
+	}
+	result, err := manager.ForceCloseSubagent(ctx, parentSessionID, subagentID)
+	return result.Subagent, err
 }
 
 // SubagentRun returns an ownership-checked retained child run.

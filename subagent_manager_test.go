@@ -117,6 +117,42 @@ func TestSubagentManagerDeduplicatesParentTurnMessages(t *testing.T) {
 	}
 }
 
+func TestSubagentManagerIdleSendWaitsForLatestCallbackObservation(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 1)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	callbacks := manager.subscribeCallbacks(context.Background())
+	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	var callback SubagentCallback
+	select {
+	case callback = <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+	}
+	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	if callback.Status != SubagentCallbackIncomplete {
+		t.Fatalf("callback status = %q, want incomplete", callback.Status)
+	}
+	if _, err := manager.Send(context.Background(), "parent", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentCallbackPending) {
+		t.Fatalf("direct send before callback observation error = %v", err)
+	}
+	if _, err := manager.SendFromParentTurn(context.Background(), "parent", "early-turn", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentCallbackPending) {
+		t.Fatalf("model send before callback observation error = %v", err)
+	}
+	observeTestSubagentCallback(t, manager, callback)
+	sent, err := manager.SendFromParentTurn(context.Background(), "parent", "callback-turn", record.ID, "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Action != toolexecution.SubagentSendStarted || !sent.Accepted || sent.Subagent.Status != storage.SubagentStatusRunning {
+		t.Fatalf("send after callback observation = %#v", sent)
+	}
+}
+
 func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) {
 	t.Run("one open child is reused", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
@@ -267,7 +303,7 @@ func TestSubagentManagerPublishesCompactSuccessAndFailureCallbacks(t *testing.T)
 				t.Fatalf("callback = %#v", callback)
 			}
 			message := callback.RuntimeMessage()
-			for _, expected := range []string{"authoritative outcome", "dispatch acknowledgement", "display_name", "send one focused follow-up", "Never close a running child", "never poll list_subagents or subagent_status", "unfinished children will callback automatically", "Never reveal secret values"} {
+			for _, expected := range []string{"authoritative outcome", "dispatch acknowledgement", "display_name", "send one focused follow-up", "Never close a running or incomplete child", "Never poll list_subagents or subagent_status", "unfinished children will callback automatically", "Never reveal secret values", "callback to be consumed"} {
 				if !strings.Contains(message.Content, expected) {
 					t.Fatalf("callback instruction missing %q: %s", expected, message.Content)
 				}
@@ -349,6 +385,11 @@ func TestSubagentManagerReadOwnershipWaitAndClose(t *testing.T) {
 	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	callback := markTestSubagentCompleted(t, manager, record.ID)
+	if _, err := manager.CloseSubagent(context.Background(), "parent-a", record.ID); !errors.Is(err, storage.ErrSubagentCallbackPending) {
+		t.Fatalf("close before callback observation error = %v", err)
+	}
+	observeTestSubagentCallback(t, manager, callback)
 	closed, err := manager.CloseSubagent(context.Background(), "parent-a", record.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -380,6 +421,7 @@ func TestSubagentManagerCloseRetainsRunsAfterReleasingChild(t *testing.T) {
 		}
 		model.releases <- struct{}{}
 		awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+		observeTestSubagentCallback(t, manager, markTestSubagentCompleted(t, manager, record.ID))
 		idle, err := manager.getOwned(context.Background(), "parent", record.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -419,8 +461,23 @@ func TestSubagentManagerCloseRetainsRunsAfterReleasingChild(t *testing.T) {
 		}
 		waitRun(t, run)
 		awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-		if _, err := manager.CloseSubagent(context.Background(), "parent", record.ID); err != nil {
+		failed, err := manager.getOwned(context.Background(), "parent", record.ID)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if failed.LastTurnOutcome != storage.SubagentTurnFailed {
+			t.Fatalf("interrupted child outcome = %q, want failed", failed.LastTurnOutcome)
+		}
+		if _, err := manager.CloseSubagent(context.Background(), "parent", record.ID); !errors.Is(err, storage.ErrSubagentCallbackPending) {
+			t.Fatalf("close failed child before callback observation error = %v", err)
+		}
+		messages, err := manager.parent.ListMessages(context.Background(), failed.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observeTestSubagentCallback(t, manager, callbackFromMessages(failed, messages))
+		if _, err := manager.CloseSubagent(context.Background(), "parent", record.ID); err != nil {
+			t.Fatalf("close observed failed child: %v", err)
 		}
 		retained, err := manager.Run(context.Background(), "parent", record.ID, record.CurrentTurnID)
 		if err != nil {
@@ -432,8 +489,96 @@ func TestSubagentManagerCloseRetainsRunsAfterReleasingChild(t *testing.T) {
 	})
 }
 
+func TestSubagentManagerForceCloseInterruptsAndDropsQueuedWork(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	callbacks := manager.subscribeCallbacks(context.Background())
+
+	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := manager.Run(context.Background(), "parent", record.ID, record.CurrentTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := manager.Send(context.Background(), "parent", record.ID, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued.Pending) != 1 {
+		t.Fatalf("queued messages = %d, want 1", len(queued.Pending))
+	}
+
+	result, err := manager.ForceCloseSubagent(context.Background(), "parent", record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.PreviousOutcome != "" || result.DroppedMessages != 1 || !result.Interrupted {
+		t.Fatalf("force close result = %#v", result)
+	}
+	if len(result.Subagent.Pending) != 0 || result.Subagent.ClosedAt == nil {
+		t.Fatalf("closed child = %#v", result.Subagent)
+	}
+	if _, err := manager.Send(context.Background(), "parent", record.ID, "after close"); !errors.Is(err, storage.ErrSubagentClosed) {
+		t.Fatalf("send after force close error = %v", err)
+	}
+	retained, err := manager.Run(context.Background(), "parent", record.ID, record.CurrentTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, retained)
+	if retained != run || !retained.Done() || len(retained.Events()) == 0 {
+		t.Fatalf("retained force-closed run mismatch: same=%t done=%t events=%d", retained == run, retained.Done(), len(retained.Events()))
+	}
+	messages, err := manager.parent.ListMessages(context.Background(), record.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) == 0 || messages[0].Content != "first" {
+		t.Fatalf("retained child transcript = %#v", messages)
+	}
+	select {
+	case callback := <-callbacks:
+		t.Fatalf("force-closed child published callback: %#v", callback)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
 func newTestSubagentManager(t *testing.T, model agentruntime.Model, maximum int) *subagentManager {
 	return newTestSubagentManagerWithStorage(t, model, maximum, inmemory.NewMessageStorage())
+}
+
+func markTestSubagentCompleted(t *testing.T, manager *subagentManager, id string) SubagentCallback {
+	t.Helper()
+	record, found, err := manager.store.Get(context.Background(), id)
+	if err != nil || !found {
+		t.Fatalf("get child for completion = (%#v, %v, %v)", record, found, err)
+	}
+	completed, err := manager.store.Update(context.Background(), id, record.Version, storage.SubagentUpdate{
+		Status:           record.Status,
+		CurrentTurnID:    record.CurrentTurnID,
+		LastTurnID:       record.LastTurnID,
+		LastTurnOutcome:  storage.SubagentTurnCompleted,
+		LastTurnSummary:  "test work completed",
+		LastTurnNextStep: "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, err := manager.parent.ListMessages(context.Background(), record.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return callbackFromMessages(completed, messages)
+}
+
+func observeTestSubagentCallback(t *testing.T, manager *subagentManager, callback SubagentCallback) {
+	t.Helper()
+	if err := manager.observeCallback(context.Background(), callback); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, maximum int, messages storage.MessageStorage) *subagentManager {

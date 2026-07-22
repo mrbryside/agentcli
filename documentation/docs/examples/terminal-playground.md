@@ -76,7 +76,7 @@ go run ./playground/terminal "Explain this repository"
 | `/agent REF` | Open a child by ID or friendly display name. |
 | `/agent-status REF` | Read child lifecycle state without a model turn. |
 | `/back` | Return to the root view. |
-| `/close REF` | Close a child and interrupt active child work. |
+| `/close REF` | Close a completed or failed child after callback consumption; active work is never interrupted. |
 | `/permissions` | List unresolved permission requests. |
 | `/confirmations` | List unresolved confirmations. |
 | `/mode MODE` | Exercise a permission mode. |

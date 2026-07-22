@@ -39,8 +39,8 @@ func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.
 	}
 	waitRun(t, parentRun)
 	for _, request := range parentModel.Requests() {
-		if len(request.Tools) != 5 {
-			t.Fatalf("parent provider tool count = %d, want static five: %#v", len(request.Tools), request.Tools)
+		if len(request.Tools) != 6 {
+			t.Fatalf("parent provider tool count = %d, want static six: %#v", len(request.Tools), request.Tools)
 		}
 		for _, tool := range request.Tools {
 			if tool.Name == "read_subagent" || tool.Name == "wait_subagent" {
@@ -287,6 +287,15 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 
 	childModel.release()
 	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
+	pendingResponse := integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("parent", created.ID)+"/turns", `{"message":"too early"}`)
+	if pendingResponse.StatusCode != http.StatusConflict {
+		defer pendingResponse.Body.Close()
+		t.Fatalf("send before callback consumption status = %d", pendingResponse.StatusCode)
+	}
+	pendingResponse.Body.Close()
+	if _, err := agent.ReadSubagent(context.Background(), "parent", created.ID, ""); err != nil {
+		t.Fatal(err)
+	}
 	response = integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("parent", created.ID)+"/turns", `{"message":"HTTP follow-up"}`)
 	if response.StatusCode != http.StatusAccepted {
 		defer response.Body.Close()
@@ -296,6 +305,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	childModel.waitRequests(t, 2)
 	childModel.release()
 	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
+	observeTestSubagentCallback(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
 
 	response = integrationJSONRequest(t, http.MethodDelete, httpServer.URL+subagentPath("parent", created.ID), "")
 	if response.StatusCode != http.StatusOK {

@@ -133,7 +133,7 @@ func (server *Server) getSubagent(c echo.Context) error {
 
 // closeSubagent godoc
 // @Summary Close one owned subagent
-// @Description Closes an idle child while retaining transcript and completed event history. Closing is cleanup, not cancellation; interrupt a running child turn first and wait for it to become idle.
+// @Description Closes a completed or failed child after its latest callback has been consumed, while retaining transcript and completed event history. Closing is cleanup, not cancellation; running, incomplete, and callback-pending children are rejected.
 // @ID closeSubagent
 // @Tags Subagents
 // @Produce json
@@ -158,7 +158,7 @@ func (server *Server) closeSubagent(c echo.Context) error {
 // sendSubagentTurn godoc
 // @Summary Continue a subagent conversation
 // @ID startSubagentTurn
-// @Description Starts a turn when the child is idle or queues the message in its mailbox while busy. An immediately started turn can be streamed with Accept: text/event-stream.
+// @Description Queues the message while the child is running, or starts an idle incomplete/completed/failed child after its latest callback has been consumed. Closed, callback-pending, and outcome-less children return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
 // @Tags Subagents
 // @Accept json
 // @Produce json

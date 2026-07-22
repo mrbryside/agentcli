@@ -279,11 +279,14 @@ decision IDs and session/turn/call correlation must remain unchanged.
 DELETE /v1/sessions/{parentSessionID}/subagents/{subagentID}
 ```
 
-Closing is cleanup for an idle child and rejects future messages. It does not
-delete the transcript or completed event history. A running child returns
-`409 conflict`; interrupt its active turn first, consume the terminal event and
-callback, then close after the child becomes idle. Mark a successfully closed
-view read-only and keep it available when `include_closed=true` is requested.
+An idle incomplete, completed, or failed child can receive another message only
+after its latest callback was consumed. A running child accepts queued input.
+
+Closing is cleanup for a completed or failed child whose latest callback was
+consumed, and rejects future messages. It does not delete the transcript or
+completed event history. Running, incomplete, and callback-pending children
+return `409 conflict`. Mark a successfully closed view read-only and keep it
+available when `include_closed=true` is requested.
 
 ### Restore views after application reload
 
@@ -459,7 +462,7 @@ err := agent.InterruptSubagent(
 )
 ```
 
-Close the child when it should accept no more work:
+Close the child after its completed or failed callback has been consumed:
 
 ```go
 closed, err := agent.CloseSubagent(ctx, parentSessionID, child.ID)
@@ -468,6 +471,22 @@ if err != nil {
 }
 childStore.Replace(closed.ID, closed)
 ```
+
+When the latest user action explicitly requests destructive shutdown, force
+close can bypass the normal outcome and callback guards:
+
+```go
+closed, err := agent.ForceCloseSubagent(ctx, parentSessionID, child.ID)
+if err != nil {
+    return err
+}
+childStore.Replace(closed.ID, closed)
+```
+
+Force close interrupts active work, removes queued child messages, rejects
+future sends, and does not ask for confirmation. It still retains the child
+transcript and completed event history for a read-only view. Do not expose it
+as an automatic cleanup path; bind it to an explicit user action.
 
 Closing retains the transcript. Keep the view available as read-only when the
 application lists children with `includeClosed` set to `true`.

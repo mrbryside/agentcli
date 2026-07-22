@@ -32,7 +32,7 @@ HTTP APIs.
 | `/agent REF` | Open a child using its ID or case-insensitive display name. |
 | `/agent-status REF` | Show lifecycle status and activity summary without starting a model turn. |
 | `/back` | Return to the root view without interrupting the child. |
-| `/close REF` | Close a child. Active child work is interrupted. |
+| `/close REF` | Close a completed or failed child after its latest callback has been consumed. It never interrupts work. |
 
 `REF` is one child ID or one display name. See
 [Subagent views](./subagent-views.md) for message routing and background work.

@@ -79,7 +79,7 @@ Use sources and explain uncertainty.
 	if !strings.Contains(catalog, "default is to answer the user directly") || !strings.Contains(catalog, "Do not delegate simple answers") || !strings.Contains(catalog, "Mere topic overlap") {
 		t.Fatalf("catalog does not prevent unnecessary delegation: %q", catalog)
 	}
-	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "<subagent_orchestration_rules>", "Dispatch is not completion", "finish_turn, which defaults to true", "continue decomposing", "final dispatch", "selection_required always continues", "Never poll", "Callbacks are authoritative", "new_instance=true", "Never close a running child", "runtime rejects it", "completed bounded work"} {
+	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "<subagent_orchestration_rules>", "Dispatch is not completion", "finish_turn, which defaults to true", "continue decomposing", "final dispatch", "selection_required always continues", "Never poll", "Callbacks are authoritative", "new_instance=true", "Never close a running or incomplete child", "runtime enforces these rules", "reuse the same child", "callback must be consumed", "force_close_subagent is destructive", "latest user message explicitly", "Never choose it autonomously"} {
 		if !strings.Contains(catalog, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, catalog)
 		}

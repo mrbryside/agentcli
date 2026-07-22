@@ -106,6 +106,15 @@ var (
 	ErrSubagentClosed = errors.New("subagent closed")
 	// ErrSubagentRunning indicates an operation requires the child to be idle.
 	ErrSubagentRunning = errors.New("subagent is still running")
+	// ErrSubagentIncomplete indicates lifecycle cleanup was requested while the
+	// child's latest outcome still requires a follow-up.
+	ErrSubagentIncomplete = errors.New("subagent outcome is incomplete")
+	// ErrSubagentCallbackPending indicates send or lifecycle cleanup was
+	// requested before the latest callback was consumed by the parent.
+	ErrSubagentCallbackPending = errors.New("subagent callback has not been consumed")
+	// ErrSubagentOutcomeUnavailable indicates an idle child has no terminal or
+	// follow-up outcome that can safely anchor another message.
+	ErrSubagentOutcomeUnavailable = errors.New("subagent has no finished turn outcome")
 )
 
 // ValidateSubagent verifies a record can be retained by a SubagentStorage.
