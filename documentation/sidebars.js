@@ -49,7 +49,7 @@ module.exports = {
       type: 'category',
       label: 'Examples',
       items: [
-        'examples/complete-application',
+        'examples/agentcli-application',
         'examples/api-client-integration',
         'examples/terminal-playground',
         'examples/testing',

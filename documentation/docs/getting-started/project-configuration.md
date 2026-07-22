@@ -32,20 +32,24 @@ This makes configuration mistakes visible before the first model request.
 permission_mode: default
 
 providers:
-  openai:
+  primary:
+    type: openai
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
     request_timeout: 2m
 
   openrouter:
+    type: openai
     url: https://openrouter.ai/api/v1
     api_key: ${OPENROUTER_API_KEY}
     request_timeout: 90s
 ```
 
-Provider names are application-defined profiles. `MAIN.md` and subagent files
-refer to the profile by name. Every configured provider currently uses the
-OpenAI-compatible adapter.
+Provider names are application-defined aliases. `MAIN.md` and subagent files
+refer to the alias, while the required `type` field selects the adapter. Both
+`primary` and `openrouter` above use `type: openai`, so their names can change
+without changing protocol behavior. `openai` is currently the only supported
+type; missing or unsupported types fail during `LoadProject`.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
@@ -57,7 +61,7 @@ the loader does not silently send an empty credential.
 
 ```markdown
 ---
-provider: openai
+provider: primary
 model: gpt-4.1-mini
 skills:
   - interview

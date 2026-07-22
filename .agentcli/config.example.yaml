@@ -4,15 +4,17 @@ permission_mode: default
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 
-# Provider names are application-defined connection profiles. Every provider
-# entry currently uses an OpenAI-compatible chat-completions endpoint.
+# Provider names are application-defined connection profile aliases. The
+# required type selects the protocol adapter independently from that alias.
 providers:
   openai:
+    type: openai
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
     request_timeout: 2m
 
   # openrouter:
+  #   type: openai
   #   url: https://openrouter.ai/api/v1
   #   api_key: ${OPENROUTER_API_KEY}
   #   request_timeout: 2m

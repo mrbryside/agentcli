@@ -38,10 +38,20 @@ type ProjectConfig struct {
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 }
 
+// ProviderType selects the protocol adapter used by a named connection
+// profile. Map keys under providers are application-defined aliases.
+type ProviderType string
+
+const (
+	// ProviderTypeOpenAI selects the OpenAI-compatible chat-completions adapter.
+	ProviderTypeOpenAI ProviderType = "openai"
+)
+
 type ProviderConfig struct {
-	URL            string `yaml:"url"`
-	APIKey         string `yaml:"api_key"`
-	RequestTimeout string `yaml:"request_timeout"`
+	Type           ProviderType `yaml:"type"`
+	URL            string       `yaml:"url"`
+	APIKey         string       `yaml:"api_key"`
+	RequestTimeout string       `yaml:"request_timeout"`
 }
 
 // Skill is one .agentcli/skill/<name>/SKILL.md file. Only name and
@@ -163,9 +173,9 @@ func (project *Project) Model() (agentruntime.Model, error) {
 	return project.ModelFor(project.providerName, project.ModelName())
 }
 
-// ModelFor constructs an OpenAI-compatible model for a named project
-// provider and model. The definition supplies only the provider name and
-// model; URL, credential, and timeout always remain in project config.
+// ModelFor constructs a model for a named project provider profile and model.
+// The profile's type selects the protocol adapter; URL, credential, and
+// timeout always remain in project config.
 func (project *Project) ModelFor(providerName, model string) (agentruntime.Model, error) {
 	if project == nil {
 		return nil, errors.New("project is nil")
@@ -182,23 +192,21 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	if !found {
 		return nil, fmt.Errorf("provider %q is not configured", providerName)
 	}
-	if strings.TrimSpace(providerConfig.APIKey) == "" {
-		return nil, fmt.Errorf("provider %q api_key is required", providerName)
+	timeout, err := validateProviderConfig(providerName, providerConfig)
+	if err != nil {
+		return nil, err
 	}
-	timeout := 2 * time.Minute
-	if providerConfig.RequestTimeout != "" {
-		parsed, err := time.ParseDuration(providerConfig.RequestTimeout)
-		if err != nil || parsed <= 0 {
-			return nil, fmt.Errorf("provider %q request_timeout must be a positive duration", providerName)
-		}
-		timeout = parsed
+	switch providerConfig.Type {
+	case ProviderTypeOpenAI:
+		return openaiadapter.New(
+			provideropenai.NewProvider(provideropenai.Config{
+				URL: providerConfig.URL, APIKey: providerConfig.APIKey, Timeout: timeout,
+			}),
+			openaiadapter.Config{Model: model},
+		), nil
+	default:
+		return nil, unsupportedProviderType(providerName, providerConfig.Type)
 	}
-	return openaiadapter.New(
-		provideropenai.NewProvider(provideropenai.Config{
-			URL: providerConfig.URL, APIKey: providerConfig.APIKey, Timeout: timeout,
-		}),
-		openaiadapter.Config{Model: model},
-	), nil
 }
 
 func (project *Project) Root() string {
@@ -330,22 +338,29 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 	if len(config.Providers) == 0 {
 		return "", "", ProviderConfig{}, 0, errors.New("providers must contain at least one provider")
 	}
+	providerNames := make([]string, 0, len(config.Providers))
+	for providerName := range config.Providers {
+		providerNames = append(providerNames, providerName)
+	}
+	sort.Strings(providerNames)
+	for _, providerName := range providerNames {
+		providerConfig := config.Providers[providerName]
+		if strings.TrimSpace(providerName) == "" {
+			return "", "", ProviderConfig{}, 0, errors.New("provider name is required")
+		}
+		if _, err := validateProviderConfig(providerName, providerConfig); err != nil {
+			return "", "", ProviderConfig{}, 0, err
+		}
+	}
 	providerName := strings.TrimSpace(main.Provider)
 	providerConfig, found := config.Providers[providerName]
 	if !found {
 		return "", "", ProviderConfig{}, 0, fmt.Errorf("main agent provider %q is not configured", providerName)
 	}
-	if strings.TrimSpace(providerConfig.APIKey) == "" {
-		return "", "", ProviderConfig{}, 0, fmt.Errorf("provider %q api_key is required", providerName)
-	}
 	modelName := strings.TrimSpace(main.Model)
-	timeout := 2 * time.Minute
-	if providerConfig.RequestTimeout != "" {
-		parsed, err := time.ParseDuration(providerConfig.RequestTimeout)
-		if err != nil || parsed <= 0 {
-			return "", "", ProviderConfig{}, 0, fmt.Errorf("provider %q request_timeout must be a positive duration", providerName)
-		}
-		timeout = parsed
+	timeout, err := validateProviderConfig(providerName, providerConfig)
+	if err != nil {
+		return "", "", ProviderConfig{}, 0, err
 	}
 	if !permission.IsValidMode(config.PermissionMode) {
 		return "", "", ProviderConfig{}, 0, fmt.Errorf("unknown permission_mode %q", config.PermissionMode)
@@ -355,11 +370,37 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 
 func expandProjectConfig(config *ProjectConfig) {
 	for name, providerConfig := range config.Providers {
+		providerConfig.Type = ProviderType(strings.ToLower(os.ExpandEnv(strings.TrimSpace(string(providerConfig.Type)))))
 		providerConfig.URL = os.ExpandEnv(strings.TrimSpace(providerConfig.URL))
 		providerConfig.APIKey = os.ExpandEnv(strings.TrimSpace(providerConfig.APIKey))
 		providerConfig.RequestTimeout = os.ExpandEnv(strings.TrimSpace(providerConfig.RequestTimeout))
 		config.Providers[name] = providerConfig
 	}
+}
+
+func validateProviderConfig(providerName string, providerConfig ProviderConfig) (time.Duration, error) {
+	if providerConfig.Type == "" {
+		return 0, fmt.Errorf("provider %q type is required", providerName)
+	}
+	if providerConfig.Type != ProviderTypeOpenAI {
+		return 0, unsupportedProviderType(providerName, providerConfig.Type)
+	}
+	if strings.TrimSpace(providerConfig.APIKey) == "" {
+		return 0, fmt.Errorf("provider %q api_key is required", providerName)
+	}
+	timeout := 2 * time.Minute
+	if providerConfig.RequestTimeout != "" {
+		parsed, err := time.ParseDuration(providerConfig.RequestTimeout)
+		if err != nil || parsed <= 0 {
+			return 0, fmt.Errorf("provider %q request_timeout must be a positive duration", providerName)
+		}
+		timeout = parsed
+	}
+	return timeout, nil
+}
+
+func unsupportedProviderType(providerName string, providerType ProviderType) error {
+	return fmt.Errorf("provider %q has unsupported type %q; supported types: %s", providerName, providerType, ProviderTypeOpenAI)
 }
 
 func selectProjectSkills(all map[string]Skill, names []string) (map[string]Skill, error) {

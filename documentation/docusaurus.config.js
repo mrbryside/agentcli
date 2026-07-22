@@ -56,7 +56,7 @@ const config = {
           title: 'Build',
           items: [
             {label: 'Installation', to: '/'},
-            {label: 'Complete application', to: '/examples/complete-application'},
+            {label: 'Build an agentcli application', to: '/examples/agentcli-application'},
           ],
         },
         {

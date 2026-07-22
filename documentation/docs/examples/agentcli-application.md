@@ -1,9 +1,9 @@
 ---
-title: Complete application
+title: Build an agentcli application
 sidebar_position: 1
 ---
 
-# Complete application
+# Build an agentcli application
 
 This example combines project configuration, a typed custom tool, dynamic
 confirmation, permissions, streaming events, and the HTTP server.
@@ -24,7 +24,8 @@ my-agent/
 ```yaml
 permission_mode: default
 providers:
-  openai:
+  primary:
+    type: openai
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
     request_timeout: 2m
@@ -34,7 +35,7 @@ providers:
 
 ```markdown
 ---
-provider: openai
+provider: primary
 model: gpt-4.1-mini
 tools:
   - publish_report

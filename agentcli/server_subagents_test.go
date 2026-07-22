@@ -195,7 +195,7 @@ func createHTTPSubagent(t *testing.T, serverURL, parentSessionID, body string) S
 func newTestSubagentHTTPServer(t *testing.T, childModel *subagentGateModel) (*Agent, string) {
 	t.Helper()
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  test:\n    url: https://example.test/v1\n    api_key: test-key\n")
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  test:\n    type: openai\n    url: https://example.test/v1\n    api_key: test-key\n")
 	writeMainAgentDefinition(t, root, "test", "root-model", "")
 	writeTestFile(t, filepath.Join(root, ".agentcli", "agent", "researcher", "researcher.md"), "---\nname: researcher\ndescription: Research the assigned topic.\nprovider: test\nmodel: child-model\n---\nResearch carefully.\n")
 	project, err := LoadProject(root)

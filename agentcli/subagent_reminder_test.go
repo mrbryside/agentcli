@@ -140,7 +140,7 @@ func TestRootAgentComposesCallerAndActiveSubagentReminders(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
 	project := &Project{
 		config: ProjectConfig{PermissionMode: permission.Default, Providers: map[string]ProviderConfig{
-			"test": {URL: "http://example.invalid", APIKey: "test"},
+			"test": {Type: ProviderTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
 		}},
 		providerName: "test", modelName: "test",
 		subagents: map[string]SubagentDefinition{"researcher": {Name: "researcher", Provider: "test", Model: "test", Description: "Research", Instructions: "be useful"}},

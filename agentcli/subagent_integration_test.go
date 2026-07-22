@@ -311,7 +311,7 @@ func newIntegrationSubagentAgent(t *testing.T, parent agentruntime.Model, childM
 	}
 	project := &Project{
 		config: ProjectConfig{PermissionMode: permission.Default, Providers: map[string]ProviderConfig{
-			"test": {URL: "http://example.invalid", APIKey: "test"},
+			"test": {Type: ProviderTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
 		}},
 		providerName: "test", modelName: "parent-model",
 		subagents: definitions,

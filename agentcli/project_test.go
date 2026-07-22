@@ -218,7 +218,7 @@ func TestProjectSkillToolDeduplicatesRecentAndRefreshesStaleHistory(t *testing.T
 func TestLoadProjectValidatesConfigAndSkillMetadata(t *testing.T) {
 	t.Run("unknown config field", func(t *testing.T) {
 		root := t.TempDir()
-		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {api_key: key}}\nunknown: true\n")
+		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {type: openai, api_key: key}}\nunknown: true\n")
 		if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field unknown") {
 			t.Fatalf("error = %v", err)
 		}
@@ -237,7 +237,7 @@ func TestLoadProjectValidatesConfigAndSkillMetadata(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {api_key: key}}\n")
+			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {type: openai, api_key: key}}\n")
 			writeMainAgentDefinition(t, root, "openai", "model", "")
 			writeTestFile(t, filepath.Join(root, ".agentcli", "skill", test.directory, "SKILL.md"), test.contents)
 			if _, err := LoadProject(root); err == nil {
@@ -250,7 +250,7 @@ func TestLoadProjectValidatesConfigAndSkillMetadata(t *testing.T) {
 func TestLoadProjectRequiresMainDefinitionAndRejectsLegacyAgentConfig(t *testing.T) {
 	t.Run("missing MAIN", func(t *testing.T) {
 		root := t.TempDir()
-		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {api_key: key}}\n")
+		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {type: openai, api_key: key}}\n")
 		if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "MAIN.md") {
 			t.Fatalf("missing MAIN error = %v", err)
 		}
@@ -258,7 +258,7 @@ func TestLoadProjectRequiresMainDefinitionAndRejectsLegacyAgentConfig(t *testing
 
 	t.Run("identity fields belong only to subagents", func(t *testing.T) {
 		root := t.TempDir()
-		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {api_key: key}}\n")
+		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers: {openai: {type: openai, api_key: key}}\n")
 		writeTestFile(t, filepath.Join(root, ".agentcli", "MAIN.md"), "---\nname: main\nprovider: openai\nmodel: model\n---\nInstructions.\n")
 		if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field name") {
 			t.Fatalf("main identity field error = %v", err)
@@ -267,7 +267,7 @@ func TestLoadProjectRequiresMainDefinitionAndRejectsLegacyAgentConfig(t *testing
 
 	t.Run("legacy agent config", func(t *testing.T) {
 		root := t.TempDir()
-		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "agent: {provider: openai, model: model, skills: [], tools: []}\nproviders: {openai: {api_key: key}}\n")
+		writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "agent: {provider: openai, model: model, skills: [], tools: []}\nproviders: {openai: {type: openai, api_key: key}}\n")
 		writeMainAgentDefinition(t, root, "openai", "model", "")
 		if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field agent") {
 			t.Fatalf("legacy agent config error = %v", err)
@@ -278,7 +278,7 @@ func TestLoadProjectRequiresMainDefinitionAndRejectsLegacyAgentConfig(t *testing
 func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	t.Setenv("PROJECT_TEST_API_KEY", "secret")
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  local:\n    url: https://example.test/v1\n    api_key: ${PROJECT_TEST_API_KEY}\n")
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  local:\n    type: openai\n    url: https://example.test/v1\n    api_key: ${PROJECT_TEST_API_KEY}\n")
 	writeMainAgentDefinition(t, root, "local", "model", "")
 	project, err := LoadProject(root)
 	if err != nil {
@@ -292,11 +292,44 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		provider    string
+		want        string
+		wantNoError bool
+	}{
+		{name: "arbitrary alias selects openai by type", provider: "type: openai\n    api_key: key", wantNoError: true},
+		{name: "missing type", provider: "api_key: key", want: `provider "custom-profile" type is required`},
+		{name: "unsupported type", provider: "type: anthropic\n    api_key: key", want: `provider "custom-profile" has unsupported type "anthropic"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  custom-profile:\n    "+test.provider+"\n")
+			writeMainAgentDefinition(t, root, "custom-profile", "model", "")
+			project, err := LoadProject(root)
+			if test.wantNoError {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if project.ProviderName() != "custom-profile" {
+					t.Fatalf("provider alias = %q", project.ProviderName())
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadProject() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestMainDefinitionSelectsRootModelSkillsAndTools(t *testing.T) {
 	root := projectFixture(t)
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
 providers:
   openai:
+    type: openai
     url: https://example.test/v1
     api_key: test-key
     request_timeout: 30s
@@ -371,6 +404,7 @@ func projectFixture(t *testing.T) string {
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
 providers:
   openai:
+    type: openai
     url: https://example.test/v1
     api_key: ${PROJECT_FIXTURE_API_KEY}
     request_timeout: 30s

@@ -364,7 +364,7 @@ func TestProjectModelForUsesDefinitionProviderAndModel(t *testing.T) {
 	defer server.Close()
 
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  primary:\n    api_key: primary-key\n  child:\n    url: "+server.URL+"\n    api_key: child-key\n    request_timeout: 1s\n")
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "providers:\n  primary:\n    type: openai\n    api_key: primary-key\n  child:\n    type: openai\n    url: "+server.URL+"\n    api_key: child-key\n    request_timeout: 1s\n")
 	writeMainAgentDefinition(t, root, "primary", "primary-model", "")
 	project, err := LoadProject(root)
 	if err != nil {
