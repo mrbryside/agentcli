@@ -41,8 +41,6 @@ code {
   width: 100%;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 0.5rem;
-  background: var(--ifm-background-color);
-  color: var(--ifm-font-color-base);
   overflow: visible;
 }
 
@@ -59,7 +57,6 @@ code {
 }
 
 .redoclyEmbeddedContent .redoc-wrap {
-  background: var(--ifm-background-color) !important;
   border-radius: inherit;
 }
 
@@ -67,11 +64,6 @@ code {
   top: var(--ifm-navbar-height) !important;
   height: calc(100vh - var(--ifm-navbar-height)) !important;
   max-height: calc(100vh - var(--ifm-navbar-height)) !important;
-  background: var(--ifm-background-color) !important;
-}
-
-.redoclyEmbeddedContent .api-content {
-  background: var(--ifm-background-color) !important;
 }
 
 @media (max-width: 50rem) {
