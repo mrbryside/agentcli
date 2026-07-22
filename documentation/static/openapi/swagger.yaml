@@ -376,18 +376,24 @@ definitions:
         type: string
       display_name:
         type: string
+      next_step:
+        type: string
       status:
         $ref: '#/definitions/agentcli.SubagentCallbackStatus'
       subagent_id:
+        type: string
+      summary:
         type: string
     type: object
   agentcli.SubagentCallbackStatus:
     enum:
     - completed
+    - incomplete
     - failed
     type: string
     x-enum-varnames:
     - SubagentCallbackCompleted
+    - SubagentCallbackIncomplete
     - SubagentCallbackFailed
   agentcli.SubagentDefinitionResponse:
     properties:
@@ -443,6 +449,12 @@ definitions:
       last_turn_error:
         type: string
       last_turn_id:
+        type: string
+      last_turn_next_step:
+        type: string
+      last_turn_outcome:
+        $ref: '#/definitions/storage.SubagentTurnOutcome'
+      last_turn_summary:
         type: string
       model:
         type: string
@@ -713,6 +725,16 @@ definitions:
     - SubagentStatusRunning
     - SubagentStatusIdle
     - SubagentStatusClosed
+  storage.SubagentTurnOutcome:
+    enum:
+    - completed
+    - incomplete
+    - failed
+    type: string
+    x-enum-varnames:
+    - SubagentTurnCompleted
+    - SubagentTurnIncomplete
+    - SubagentTurnFailed
 info:
   contact:
     name: AgentCLI API support

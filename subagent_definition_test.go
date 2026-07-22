@@ -260,8 +260,8 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 		skills    []string
 		wantTools int
 	}{
-		{name: "selected skill", skills: []string{"testing-go"}, wantTools: 1},
-		{name: "no skills", wantTools: 0},
+		{name: "selected skill", skills: []string{"testing-go"}, wantTools: 2},
+		{name: "no skills", wantTools: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := &scriptedModel{}
@@ -288,7 +288,10 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			if len(requests[0].SystemPrompts) != 2 {
 				t.Fatalf("provider system prompts = %#v", requests[0].SystemPrompts)
 			}
-			if test.wantTools == 1 && requests[0].Tools[0].Name != SkillLoaderToolName {
+			if requests[0].Tools[len(requests[0].Tools)-1].Name != toolexecution.SubagentOutcomeToolName {
+				t.Fatalf("child outcome tool = %#v", requests[0].Tools)
+			}
+			if len(test.skills) != 0 && requests[0].Tools[0].Name != SkillLoaderToolName {
 				t.Fatalf("provider tools = %#v", requests[0].Tools)
 			}
 		})
@@ -337,7 +340,7 @@ Use the registered search tool.
 	}
 	waitRun(t, run)
 	requests := model.Requests()
-	if len(requests) != 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != "search" {
+	if len(requests) != 1 || len(requests[0].Tools) != 2 || requests[0].Tools[0].Name != "search" || requests[0].Tools[1].Name != toolexecution.SubagentOutcomeToolName {
 		t.Fatalf("child provider tools = %#v", requests)
 	}
 	for _, tool := range requests[0].Tools {

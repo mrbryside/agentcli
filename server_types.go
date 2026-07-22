@@ -71,6 +71,8 @@ type SubagentCallbackReference struct {
 	ChildSessionID string                 `json:"child_session_id"`
 	ChildTurnID    string                 `json:"child_turn_id"`
 	Status         SubagentCallbackStatus `json:"status"`
+	Summary        string                 `json:"summary,omitempty"`
+	NextStep       string                 `json:"next_step,omitempty"`
 }
 
 // SessionEventResponse is the session-wide SSE envelope. Cursor is monotonic
@@ -161,24 +163,27 @@ type SendSubagentMessageRequest struct {
 // SubagentResponse is an HTTP-safe summary of one child instance. Pending
 // message content remains private to the manager mailbox.
 type SubagentResponse struct {
-	ID              string                 `json:"id"`
-	DisplayName     string                 `json:"display_name"`
-	Label           string                 `json:"label,omitempty"`
-	ParentSessionID string                 `json:"parent_session_id"`
-	ParentTurnID    string                 `json:"parent_turn_id"`
-	SessionID       string                 `json:"session_id"`
-	DefinitionName  string                 `json:"definition_name"`
-	Provider        string                 `json:"provider"`
-	Model           string                 `json:"model"`
-	Status          storage.SubagentStatus `json:"status"`
-	CurrentTurnID   string                 `json:"current_turn_id,omitempty"`
-	LastTurnID      string                 `json:"last_turn_id,omitempty"`
-	LastTurnError   string                 `json:"last_turn_error,omitempty"`
-	Version         uint64                 `json:"version"`
-	QueuedMessages  int                    `json:"queued_messages"`
-	CreatedAt       time.Time              `json:"created_at"`
-	UpdatedAt       time.Time              `json:"updated_at"`
-	ClosedAt        *time.Time             `json:"closed_at,omitempty"`
+	ID               string                      `json:"id"`
+	DisplayName      string                      `json:"display_name"`
+	Label            string                      `json:"label,omitempty"`
+	ParentSessionID  string                      `json:"parent_session_id"`
+	ParentTurnID     string                      `json:"parent_turn_id"`
+	SessionID        string                      `json:"session_id"`
+	DefinitionName   string                      `json:"definition_name"`
+	Provider         string                      `json:"provider"`
+	Model            string                      `json:"model"`
+	Status           storage.SubagentStatus      `json:"status"`
+	CurrentTurnID    string                      `json:"current_turn_id,omitempty"`
+	LastTurnID       string                      `json:"last_turn_id,omitempty"`
+	LastTurnError    string                      `json:"last_turn_error,omitempty"`
+	LastTurnOutcome  storage.SubagentTurnOutcome `json:"last_turn_outcome,omitempty"`
+	LastTurnSummary  string                      `json:"last_turn_summary,omitempty"`
+	LastTurnNextStep string                      `json:"last_turn_next_step,omitempty"`
+	Version          uint64                      `json:"version"`
+	QueuedMessages   int                         `json:"queued_messages"`
+	CreatedAt        time.Time                   `json:"created_at"`
+	UpdatedAt        time.Time                   `json:"updated_at"`
+	ClosedAt         *time.Time                  `json:"closed_at,omitempty"`
 }
 
 type SubagentsResponse struct {

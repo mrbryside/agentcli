@@ -47,16 +47,20 @@ When definitions exist, the root model receives five fixed framework tools:
 | `list_subagents` | List definitions and current child sessions. |
 | `subagent_status` | Read compact status for an explicit status question; never poll. |
 
-Child agents do not receive these tools.
+Child agents do not receive these management tools. Every child instead
+receives one framework-owned `report_subagent_outcome` tool. Before its final
+answer, the child reports either `completed` or `incomplete` with a concise
+summary and, for incomplete work, the required next step.
 
 ## Asynchronous lifecycle
 
 `start_subagent` returns immediately after routing work. The parent can perform
-other work or end its current answer. Child completion arrives through a
+other work or end its current answer. The child turn outcome arrives through a
 separate callback containing:
 
 - parent and child identity;
-- completed/failed status;
+- `completed`, `incomplete`, or `failed` status;
+- structured summary and required next step when available;
 - final assistant answer when one exists;
 - terminal error when the child failed;
 - durable transcript cursor metadata.
@@ -86,6 +90,19 @@ for callback := range agent.SubscribeSubagentCallbacks(ctx) {
 Failures also produce callbacks, so a failed child cannot leave the parent
 waiting forever without information.
 
+Lifecycle and outcome are intentionally separate. `running`, `idle`, and
+`closed` describe whether the child process can accept work. Callback outcome
+describes whether the delegated task is actually resolved:
+
+| Outcome | Meaning |
+| --- | --- |
+| `completed` | The child explicitly reported that all required delegated work is resolved. |
+| `incomplete` | The turn ended normally, but work, information, or a decision remains. Missing outcome reports default here. |
+| `failed` | The provider/runtime turn ended with an error. |
+
+The runtime never infers completion merely because the provider stopped
+without an error.
+
 ## Reuse behavior
 
 Starting work with no matching open child creates one. When exactly one child
@@ -100,6 +117,20 @@ new, separate, another, or parallel work.
 its current turn. The next callback is produced for each completed queued turn.
 The parent should use callbacks rather than repeated status/read polling.
 
+The model-facing `send_subagent_message` tool enforces one accepted message per
+`(parent session, parent turn, child)` tuple. Its internal SHA-256 idempotency
+key also includes normalized message content:
+
+```text
+SHA-256(parentSessionID + parentTurnID + subagentID + normalizedMessage)
+```
+
+An exact retry returns `action: duplicate`; a different second message from
+the same parent turn returns `action: already_sent`. Neither invocation starts
+a child turn or adds mailbox work. A later parent turn may send again. Direct
+application calls to `Agent.SendSubagentMessage` represent explicit UI/user
+input and are not restricted by the model-facing parent-turn guard.
+
 ## Results and closing
 
 Callbacks carry only the final assistant answer, not every tool call and
@@ -107,7 +138,7 @@ intermediate message. `ListMessages` remains available for a full child UI.
 `ReadSubagent` is a recovery API that consumes the latest unobserved final
 answer; it is not exposed as a model tool.
 
-After delivering a bounded one-shot result, the parent should close the child
+After delivering a bounded one-shot `completed` result, the parent should close the child
 unless it has a concrete follow-up, queued work, unresolved work requiring the
 same context, or an explicit ongoing collaboration. The possibility of a later
 question alone is not a reason to keep it open.
@@ -121,4 +152,3 @@ agentcli.WithMaxSubagents(4)
 The bound applies to non-closed children per parent session. Replace the default
 relationship storage with `WithSubagentStorage` when child metadata must be
 durable.
-

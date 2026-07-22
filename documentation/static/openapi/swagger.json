@@ -1762,10 +1762,16 @@
                 "display_name": {
                     "type": "string"
                 },
+                "next_step": {
+                    "type": "string"
+                },
                 "status": {
                     "$ref": "#/definitions/agentcli.SubagentCallbackStatus"
                 },
                 "subagent_id": {
+                    "type": "string"
+                },
+                "summary": {
                     "type": "string"
                 }
             }
@@ -1774,10 +1780,12 @@
             "type": "string",
             "enum": [
                 "completed",
+                "incomplete",
                 "failed"
             ],
             "x-enum-varnames": [
                 "SubagentCallbackCompleted",
+                "SubagentCallbackIncomplete",
                 "SubagentCallbackFailed"
             ]
         },
@@ -1863,6 +1871,15 @@
                     "type": "string"
                 },
                 "last_turn_id": {
+                    "type": "string"
+                },
+                "last_turn_next_step": {
+                    "type": "string"
+                },
+                "last_turn_outcome": {
+                    "$ref": "#/definitions/storage.SubagentTurnOutcome"
+                },
+                "last_turn_summary": {
                     "type": "string"
                 },
                 "model": {
@@ -2215,6 +2232,19 @@
                 "SubagentStatusRunning",
                 "SubagentStatusIdle",
                 "SubagentStatusClosed"
+            ]
+        },
+        "storage.SubagentTurnOutcome": {
+            "type": "string",
+            "enum": [
+                "completed",
+                "incomplete",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SubagentTurnCompleted",
+                "SubagentTurnIncomplete",
+                "SubagentTurnFailed"
             ]
         }
     }

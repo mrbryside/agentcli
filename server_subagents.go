@@ -419,7 +419,7 @@ func newSubagentDefinitionResponse(definition SubagentDefinition) SubagentDefini
 }
 
 func newSubagentResponse(record storage.Subagent) SubagentResponse {
-	return SubagentResponse{ID: record.ID, DisplayName: record.DisplayName, Label: record.Label, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID, SessionID: record.SessionID, DefinitionName: record.DefinitionName, Provider: record.Provider, Model: record.Model, Status: record.Status, CurrentTurnID: record.CurrentTurnID, LastTurnID: record.LastTurnID, LastTurnError: record.LastTurnError, Version: record.Version, QueuedMessages: len(record.Pending), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, ClosedAt: record.ClosedAt}
+	return SubagentResponse{ID: record.ID, DisplayName: record.DisplayName, Label: record.Label, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID, SessionID: record.SessionID, DefinitionName: record.DefinitionName, Provider: record.Provider, Model: record.Model, Status: record.Status, CurrentTurnID: record.CurrentTurnID, LastTurnID: record.LastTurnID, LastTurnError: record.LastTurnError, LastTurnOutcome: record.LastTurnOutcome, LastTurnSummary: record.LastTurnSummary, LastTurnNextStep: record.LastTurnNextStep, Version: record.Version, QueuedMessages: len(record.Pending), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, ClosedAt: record.ClosedAt}
 }
 
 func newSubagentResponses(records []storage.Subagent) []SubagentResponse {

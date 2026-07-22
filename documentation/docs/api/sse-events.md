@@ -35,7 +35,7 @@ automatically when subagents complete.
 ```text
 id: 19
 event: provider_event_received
-data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id":"demo","turn_id":"turn_callback","turn_url":"/v1/sessions/demo/turns/turn_callback","events_url":"/v1/sessions/demo/turns/turn_callback/events","subagent_callback":{"subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","child_session_id":"subagent-session","child_turn_id":"turn_child","status":"completed"},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_callback","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
+data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id":"demo","turn_id":"turn_callback","turn_url":"/v1/sessions/demo/turns/turn_callback","events_url":"/v1/sessions/demo/turns/turn_callback/events","subagent_callback":{"subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","child_session_id":"subagent-session","child_turn_id":"turn_child","status":"incomplete","summary":"A required choice remains.","next_step":"Ask the user which option to use."},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_callback","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
 ```
 
 Session lifecycle types are `turn_queued`, `turn_admitted`, `turn_cancelled`,

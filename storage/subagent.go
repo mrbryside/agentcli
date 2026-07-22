@@ -16,6 +16,16 @@ const (
 	SubagentStatusClosed  SubagentStatus = "closed"
 )
 
+// SubagentTurnOutcome is the semantic result of the most recently finished
+// child turn. It is independent from the running/idle/closed lifecycle.
+type SubagentTurnOutcome string
+
+const (
+	SubagentTurnCompleted  SubagentTurnOutcome = "completed"
+	SubagentTurnIncomplete SubagentTurnOutcome = "incomplete"
+	SubagentTurnFailed     SubagentTurnOutcome = "failed"
+)
+
 // SubagentQueuedMessage is one ordered parent-to-child mailbox entry.
 type SubagentQueuedMessage struct {
 	ID        string
@@ -36,11 +46,14 @@ type Subagent struct {
 	Provider        string
 	Model           string
 
-	Status        SubagentStatus
-	CurrentTurnID string
-	LastTurnID    string
-	LastTurnError string
-	Version       uint64
+	Status           SubagentStatus
+	CurrentTurnID    string
+	LastTurnID       string
+	LastTurnError    string
+	LastTurnOutcome  SubagentTurnOutcome
+	LastTurnSummary  string
+	LastTurnNextStep string
+	Version          uint64
 
 	Pending []SubagentQueuedMessage
 
@@ -55,10 +68,13 @@ type Subagent struct {
 // SubagentUpdate contains the lifecycle values that may be compare-safely
 // changed together. Mailbox and observation updates have dedicated methods.
 type SubagentUpdate struct {
-	Status        SubagentStatus
-	CurrentTurnID string
-	LastTurnID    string
-	LastTurnError string
+	Status           SubagentStatus
+	CurrentTurnID    string
+	LastTurnID       string
+	LastTurnError    string
+	LastTurnOutcome  SubagentTurnOutcome
+	LastTurnSummary  string
+	LastTurnNextStep string
 }
 
 // SubagentStorage persists parent-child session relationships independently of
@@ -163,6 +179,35 @@ func ValidateSubagent(subagent Subagent) error {
 	}
 	if subagent.ObservedMessageID == "" && subagent.ObservedVersion != 0 {
 		return invalidSubagent("observed version requires an observed message ID")
+	}
+	if subagent.LastTurnOutcome != "" && subagent.LastTurnID == "" {
+		return invalidSubagent("last turn outcome requires a last turn ID")
+	}
+	if subagent.LastTurnError != "" && subagent.LastTurnOutcome != SubagentTurnFailed {
+		return invalidSubagent("last turn error requires failed outcome")
+	}
+	switch subagent.LastTurnOutcome {
+	case "":
+		if subagent.LastTurnSummary != "" || subagent.LastTurnNextStep != "" {
+			return invalidSubagent("last turn details require an outcome")
+		}
+	case SubagentTurnCompleted:
+		if subagent.LastTurnSummary == "" {
+			return invalidSubagent("completed last turn requires a summary")
+		}
+		if subagent.LastTurnNextStep != "" {
+			return invalidSubagent("completed last turn cannot require a next step")
+		}
+	case SubagentTurnIncomplete:
+		if subagent.LastTurnSummary == "" || subagent.LastTurnNextStep == "" {
+			return invalidSubagent("incomplete last turn requires a summary and next step")
+		}
+	case SubagentTurnFailed:
+		if subagent.LastTurnError == "" {
+			return invalidSubagent("failed last turn requires an error")
+		}
+	default:
+		return invalidSubagent("unknown last turn outcome %q", subagent.LastTurnOutcome)
 	}
 	return nil
 }

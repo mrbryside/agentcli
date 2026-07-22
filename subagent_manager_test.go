@@ -68,6 +68,55 @@ func TestSubagentManagerStartIsAsyncAndSerializesMailbox(t *testing.T) {
 	}
 }
 
+func TestSubagentManagerDeduplicatesParentTurnMessages(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 2)
+	defer manager.Close()
+
+	record, err := manager.Start(context.Background(), "parent", "turn-1", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-1", record.ID, " first \r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact.Action != toolexecution.SubagentSendDuplicate || exact.Accepted || !exact.Deduplicated || len(exact.Subagent.Pending) != 0 || len(exact.IdempotencyKey) != 64 {
+		t.Fatalf("exact duplicate = %#v", exact)
+	}
+	changed, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-1", record.ID, "different wording")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || len(changed.Subagent.Pending) != 0 {
+		t.Fatalf("changed repeat = %#v", changed)
+	}
+	queued, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-2", record.ID, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || len(queued.Subagent.Pending) != 1 {
+		t.Fatalf("next parent turn = %#v", queued)
+	}
+	retry, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-2", record.ID, " second ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.Action != toolexecution.SubagentSendDuplicate || retry.Accepted || !retry.Deduplicated || len(retry.Subagent.Pending) != 1 || retry.IdempotencyKey != queued.IdempotencyKey {
+		t.Fatalf("queued retry = %#v", retry)
+	}
+
+	model.releases <- struct{}{}
+	if err := model.waitStarts(2); err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	if got := model.Requests(); len(got) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(got))
+	}
+}
+
 func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) {
 	t.Run("one open child is reused", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
@@ -81,7 +130,7 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartReused || routed.Subagent.ID != first.ID || len(routed.Subagent.Pending) != 1 || routed.Subagent.Pending[0].Content != "talk more" {
+		if routed.Action != toolexecution.SubagentStartReused || routed.DispatchAction != toolexecution.SubagentSendQueued || routed.Subagent.ID != first.ID || len(routed.Subagent.Pending) != 1 || routed.Subagent.Pending[0].Content != "talk more" {
 			t.Fatalf("routed result = %#v", routed)
 		}
 		children, err := manager.List(context.Background(), "parent", false)
@@ -214,7 +263,7 @@ func TestSubagentManagerPublishesCompactSuccessAndFailureCallbacks(t *testing.T)
 		model.releases <- struct{}{}
 		select {
 		case callback := <-callbacks:
-			if callback.SubagentID != record.ID || callback.DisplayName != record.DisplayName || callback.Status != SubagentCallbackCompleted || callback.Error != "" || callback.FinalAnswer == nil || callback.FinalAnswer.Content != "done" || callback.NextMessageID == "" {
+			if callback.SubagentID != record.ID || callback.DisplayName != record.DisplayName || callback.Status != SubagentCallbackIncomplete || callback.Error != "" || callback.FinalAnswer == nil || callback.FinalAnswer.Content != "done" || callback.NextMessageID == "" {
 				t.Fatalf("callback = %#v", callback)
 			}
 			message := callback.RuntimeMessage()

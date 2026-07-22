@@ -7,19 +7,21 @@ import (
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/storage"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 // SubagentCallbackStatus describes how one child turn ended.
 type SubagentCallbackStatus string
 
 const (
-	SubagentCallbackCompleted SubagentCallbackStatus = "completed"
-	SubagentCallbackFailed    SubagentCallbackStatus = "failed"
+	SubagentCallbackCompleted  SubagentCallbackStatus = "completed"
+	SubagentCallbackIncomplete SubagentCallbackStatus = "incomplete"
+	SubagentCallbackFailed     SubagentCallbackStatus = "failed"
 )
 
-// SubagentCallback is the compact, live-only completion signal emitted for a
+// SubagentCallback is the compact, live-only outcome signal emitted for a
 // child turn. The child transcript remains available through ListMessages;
-// this value carries only the final assistant answer and terminal error.
+// this value carries the semantic outcome, final assistant answer, and error.
 type SubagentCallback struct {
 	ParentSessionID string
 	ParentTurnID    string
@@ -29,6 +31,8 @@ type SubagentCallback struct {
 	SessionID       string
 	TurnID          string
 	Status          SubagentCallbackStatus
+	Summary         string
+	NextStep        string
 	FinalAnswer     *agentruntime.Message
 	Error           string
 	NextMessageID   string
@@ -50,12 +54,14 @@ func (callback SubagentCallback) RuntimeMessage() agentruntime.Message {
 		TurnID         string                 `json:"turn_id"`
 		Status         SubagentCallbackStatus `json:"status"`
 		Error          string                 `json:"error,omitempty"`
+		Summary        string                 `json:"summary,omitempty"`
+		NextStep       string                 `json:"next_step,omitempty"`
 		FinalAnswer    string                 `json:"final_answer,omitempty"`
 		Instruction    string                 `json:"instruction"`
 	}{
 		ID: callback.SubagentID, DisplayName: callback.DisplayName, DefinitionName: callback.SubagentName, TurnID: callback.TurnID,
-		Status: callback.Status, Error: callback.Error, FinalAnswer: finalAnswer,
-		Instruction: "This callback is the authoritative outcome for this child turn. Refer to the child by display_name when speaking with the user. Use the final answer or error now, do useful work while other children continue, send a focused follow-up if essential information is missing, or end this parent turn and wait passively. Never call list_subagents or subagent_status to wait or check for another callback; unfinished children will callback automatically. After a follow-up, do not poll for it. Treat a bounded one-shot task as finished after you consume and deliver its result: close the child unless there is a concrete planned follow-up, queued work, unresolved work requiring the same context, or an explicit ongoing collaboration. The mere possibility that the user may ask something later is not a reason to keep it open. Never reveal secret values from a child result; redact them and warn the user.",
+		Status: callback.Status, Error: callback.Error, Summary: callback.Summary, NextStep: callback.NextStep, FinalAnswer: finalAnswer,
+		Instruction: "This callback is the authoritative outcome for this child turn. completed means the child explicitly confirmed all delegated work is resolved; incomplete means the turn ended successfully but required work or a decision remains. Refer to the child by display_name when speaking with the user. Use the final answer or error now, do useful work while other children continue, send a focused follow-up if essential information is missing, or end this parent turn and wait passively. Never call list_subagents or subagent_status to wait or check for another callback; unfinished children will callback automatically. After a follow-up, do not poll for it or send another message from the same parent turn. Treat a bounded one-shot task as finished only after a completed callback is consumed and delivered: close the child unless there is a concrete planned follow-up, queued work, unresolved work requiring the same context, or an explicit ongoing collaboration. The mere possibility that the user may ask something later is not a reason to keep it open. Never reveal secret values from a child result; redact them and warn the user.",
 	})
 	content := "<subagent_callback>\n" + string(payload) + "\n</subagent_callback>"
 	return agentruntime.Message{Type: agentruntime.MessageTypeRuntimeEvent, Content: content}
@@ -162,7 +168,19 @@ func cloneSubagentCallback(callback SubagentCallback) SubagentCallback {
 }
 
 func callbackFromMessages(record storage.Subagent, messages []agentruntime.Message) SubagentCallback {
-	status := SubagentCallbackCompleted
+	status := SubagentCallbackIncomplete
+	switch record.LastTurnOutcome {
+	case storage.SubagentTurnCompleted:
+		status = SubagentCallbackCompleted
+	case storage.SubagentTurnFailed:
+		status = SubagentCallbackFailed
+	case storage.SubagentTurnIncomplete:
+		status = SubagentCallbackIncomplete
+	default:
+		if record.LastTurnError != "" {
+			status = SubagentCallbackFailed
+		}
+	}
 	if record.LastTurnError != "" {
 		status = SubagentCallbackFailed
 	}
@@ -175,8 +193,19 @@ func callbackFromMessages(record storage.Subagent, messages []agentruntime.Messa
 		SessionID:       record.SessionID,
 		TurnID:          record.LastTurnID,
 		Status:          status,
+		Summary:         record.LastTurnSummary,
+		NextStep:        record.LastTurnNextStep,
 		Error:           record.LastTurnError,
 		MessageCount:    uint64(len(messages)),
+	}
+	if status != SubagentCallbackFailed && record.LastTurnOutcome == "" {
+		if outcome, found := reportedSubagentOutcome(record.LastTurnID, messages); found {
+			callback.Summary = outcome.Summary
+			callback.NextStep = outcome.NextStep
+			if outcome.Status == toolexecution.SubagentOutcomeCompleted {
+				callback.Status = SubagentCallbackCompleted
+			}
+		}
 	}
 	if len(messages) != 0 {
 		callback.NextMessageID = messages[len(messages)-1].ID
@@ -190,6 +219,27 @@ func callbackFromMessages(record storage.Subagent, messages []agentruntime.Messa
 		}
 	}
 	return callback
+}
+
+func reportedSubagentOutcome(turnID string, messages []agentruntime.Message) (toolexecution.SubagentOutcome, bool) {
+	var reported toolexecution.SubagentOutcome
+	found := false
+	for _, message := range messages {
+		if message.TurnID != turnID || message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil {
+			continue
+		}
+		result := message.ToolResult
+		if result.Name != toolexecution.SubagentOutcomeToolName || result.Status != agentruntime.ToolResultSucceeded {
+			continue
+		}
+		outcome, err := toolexecution.ParseSubagentOutcome(result.Output)
+		if err != nil {
+			continue
+		}
+		reported = outcome
+		found = true
+	}
+	return reported, found
 }
 
 // observeCallback advances the fallback read/reminder cursor only after a

@@ -70,7 +70,7 @@ func TestSubagentStorageUpdateUsesVersionCompareAndPreservesOwnership(t *testing
 		t.Fatalf("Create: %v", err)
 	}
 	updated, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{
-		Status: storage.SubagentStatusRunning, CurrentTurnID: "turn_2", LastTurnID: "turn_2", LastTurnError: "provider failed",
+		Status: storage.SubagentStatusRunning, CurrentTurnID: "turn_2", LastTurnID: "turn_2", LastTurnError: "provider failed", LastTurnOutcome: storage.SubagentTurnFailed,
 	})
 	if err != nil || updated.Status != storage.SubagentStatusRunning || updated.LastTurnError != "provider failed" || updated.Version != created.Version+1 {
 		t.Fatalf("Update = (%#v, %v)", updated, err)

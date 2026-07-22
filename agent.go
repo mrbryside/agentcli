@@ -95,7 +95,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	rootHasSubagents := configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.childAgent
 	if rootHasSubagents {
 		for _, tool := range configuration.tools {
-			if toolexecution.IsSubagentToolName(tool.Definition.Name) {
+			if toolexecution.IsSubagentToolName(tool.Definition.Name) || tool.Definition.Name == toolexecution.SubagentOutcomeToolName {
 				return nil, fmt.Errorf("custom tool %q conflicts with reserved subagent tool", tool.Definition.Name)
 			}
 		}
@@ -115,6 +115,9 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			configuration.messages,
 			configuration.skillReload,
 		).Tool())
+	}
+	if configuration.childAgent {
+		registeredTools = append(registeredTools, toolexecution.NewSubagentOutcomeTool())
 	}
 	for _, tool := range registeredTools {
 		if err := registry.Register(tool); err != nil {

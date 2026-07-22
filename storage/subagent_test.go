@@ -27,6 +27,16 @@ func TestValidateSubagent(t *testing.T) {
 		{"queued message missing ID", func(s *Subagent) { s.Pending[0].ID = "" }},
 		{"queued message missing content", func(s *Subagent) { s.Pending[0].Content = "" }},
 		{"queued message missing timestamp", func(s *Subagent) { s.Pending[0].CreatedAt = time.Time{} }},
+		{"outcome without turn", func(s *Subagent) {
+			s.LastTurnID, s.LastTurnOutcome, s.LastTurnSummary = "", SubagentTurnCompleted, "done"
+		}},
+		{"completed without summary", func(s *Subagent) { s.LastTurnOutcome = SubagentTurnCompleted }},
+		{"completed with next step", func(s *Subagent) {
+			s.LastTurnOutcome, s.LastTurnSummary, s.LastTurnNextStep = SubagentTurnCompleted, "done", "more"
+		}},
+		{"incomplete without next step", func(s *Subagent) { s.LastTurnOutcome, s.LastTurnSummary = SubagentTurnIncomplete, "partial" }},
+		{"failed without error", func(s *Subagent) { s.LastTurnOutcome = SubagentTurnFailed }},
+		{"error without failed outcome", func(s *Subagent) { s.LastTurnError = "boom" }},
 	}
 
 	if err := ValidateSubagent(valid); err != nil {

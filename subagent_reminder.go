@@ -47,12 +47,21 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 			if record.LastTurnError != "" {
 				fmt.Fprintf(&content, "    <last_turn_error>%s</last_turn_error>\n", html.EscapeString(record.LastTurnError))
 			}
+			if record.LastTurnOutcome != "" {
+				fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(record.LastTurnOutcome)))
+			}
+			if record.LastTurnSummary != "" {
+				fmt.Fprintf(&content, "    <last_turn_summary>%s</last_turn_summary>\n", html.EscapeString(record.LastTurnSummary))
+			}
+			if record.LastTurnNextStep != "" {
+				fmt.Fprintf(&content, "    <last_turn_next_step>%s</last_turn_next_step>\n", html.EscapeString(record.LastTurnNextStep))
+			}
 			fmt.Fprintf(&content, "    <unread_messages>%d</unread_messages>\n", unread)
 			fmt.Fprintf(&content, "    <queued_messages>%d</queued_messages>\n", len(record.Pending))
 			if record.Status == storage.SubagentStatusIdle && unread > 0 {
-				callbackStatus := "ready"
-				if record.LastTurnError != "" {
-					callbackStatus = "failed"
+				callbackStatus := string(record.LastTurnOutcome)
+				if callbackStatus == "" {
+					callbackStatus = "incomplete"
 				}
 				fmt.Fprintf(&content, "    <completion_callback>%s</completion_callback>\n", callbackStatus)
 			}

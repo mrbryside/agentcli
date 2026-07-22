@@ -62,7 +62,7 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	}
 }
 
-func TestSubagentReminderMarksCompletedUnreadWorkAsCallbackReady(t *testing.T) {
+func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
@@ -81,7 +81,7 @@ func TestSubagentReminderMarksCompletedUnreadWorkAsCallbackReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>ready</completion_callback>") || !strings.Contains(reminders[0].Content, "Never poll list_subagents or subagent_status") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>incomplete</completion_callback>") || !strings.Contains(reminders[0].Content, "<last_turn_outcome>incomplete</last_turn_outcome>") || !strings.Contains(reminders[0].Content, "Never poll list_subagents or subagent_status") {
 		t.Fatalf("completion reminder = %#v", reminders)
 	}
 	if _, err := manager.Read(context.Background(), "parent", record.ID, ""); err != nil {

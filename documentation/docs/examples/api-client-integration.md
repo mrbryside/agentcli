@@ -285,16 +285,17 @@ A root model can start project-defined subagents through its management tools,
 or an application can create one directly through the nested HTTP routes.
 Children always run asynchronously.
 
-When a child finishes, the server automatically:
+When a child turn ends, the server automatically:
 
-1. receives its compact completion callback;
+1. receives its compact `completed`, `incomplete`, or `failed` callback;
 2. queues a trusted `runtime_event` turn in the parent session;
 3. prioritizes that callback after the currently active turn;
 4. asks the parent model to use the result or error;
 5. publishes the new parent turn through the session SSE stream.
 
 The activity has `source: "subagent_callback"` and a
-`subagent_callback` reference containing the child and child-turn IDs. The
+`subagent_callback` reference containing the child and child-turn IDs plus its
+structured summary and required next step when present. The
 child answer itself is delivered privately to the parent runtime; render the
 parent's resulting assistant response from normal provider events. Do not poll
 `subagent_status` to discover completion.

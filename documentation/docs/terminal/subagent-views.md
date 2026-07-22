@@ -71,12 +71,15 @@ the complete child transcript or cause a parent-agent turn.
 
 ## Background completion and callbacks
 
-Subagents always run asynchronously relative to the root. When a child
-completes or fails, AgentCLI sends a callback to the root. The callback
-contains the child identity, status, and final result or failure information.
+Subagents always run asynchronously relative to the root. When a child turn
+ends, AgentCLI sends a `completed`, `incomplete`, or `failed` callback to the
+root. The callback contains child identity, structured summary/next-step
+information, and the final result or failure information. `idle` only means no
+turn is executing; it does not imply that the delegated task is complete.
 
 If the root is already running, the callback is queued. The root may act on a
-completed child while other children continue, or wait for more callbacks.
+completed child while other children continue, follow up on an incomplete
+child, or wait for more callbacks.
 The terminal displays callback notifications in the root view without copying
 child output into the selected child view.
 

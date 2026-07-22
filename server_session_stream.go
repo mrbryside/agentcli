@@ -257,6 +257,8 @@ func newSessionLifecycleEvent(turn *serverTurn, eventType SessionActivityType, q
 			ChildSessionID: turn.callback.SessionID,
 			ChildTurnID:    turn.callback.TurnID,
 			Status:         turn.callback.Status,
+			Summary:        turn.callback.Summary,
+			NextStep:       turn.callback.NextStep,
 		}
 	}
 	return response

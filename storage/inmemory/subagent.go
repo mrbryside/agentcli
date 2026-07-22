@@ -115,6 +115,9 @@ func (s *SubagentStorage) Update(ctx context.Context, id string, expectedVersion
 	record.CurrentTurnID = update.CurrentTurnID
 	record.LastTurnID = update.LastTurnID
 	record.LastTurnError = update.LastTurnError
+	record.LastTurnOutcome = update.LastTurnOutcome
+	record.LastTurnSummary = update.LastTurnSummary
+	record.LastTurnNextStep = update.LastTurnNextStep
 	record.UpdatedAt = nextSubagentTimestamp(record)
 	record.Version++
 	if err := storage.ValidateSubagent(record); err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/provider"
 	"github.com/mrbryside/agentcli/storage"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.T) {
@@ -120,7 +121,7 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 		ID: "research", Name: StartSubagentToolName,
 		Arguments: map[string]any{"name": "researcher", "message": "inspect the project"},
 	}}}
-	childModel := newIntegrationChildModel("compact child finding")
+	childModel := newIntegrationCompletedChildModel("compact child finding", "Project inspection is complete.")
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
 	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
 
@@ -134,6 +135,8 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	waitRun(t, parentRun)
 	childModel.waitRequests(t, 1)
 	childModel.release()
+	childModel.waitRequests(t, 2)
+	childModel.release()
 
 	var callback SubagentCallback
 	select {
@@ -141,7 +144,7 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for child callback")
 	}
-	if callback.Status != SubagentCallbackCompleted || callback.FinalAnswer == nil || callback.FinalAnswer.Content != "compact child finding" {
+	if callback.Status != SubagentCallbackCompleted || callback.Summary != "Project inspection is complete." || callback.FinalAnswer == nil || callback.FinalAnswer.Content != "compact child finding" {
 		t.Fatalf("callback = %#v", callback)
 	}
 	continuation, subscription, err := agent.ContinueSubagentCallbackSubscribed(context.Background(), callback)
@@ -171,6 +174,9 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 	if record.ObservedMessageID != callback.NextMessageID {
 		t.Fatalf("observed cursor = %q, want %q", record.ObservedMessageID, callback.NextMessageID)
+	}
+	if record.LastTurnOutcome != storage.SubagentTurnCompleted || record.LastTurnSummary != "Project inspection is complete." || record.LastTurnNextStep != "" {
+		t.Fatalf("stored child outcome = %#v", record)
 	}
 }
 
@@ -326,7 +332,7 @@ func newIntegrationSubagentAgent(t *testing.T, parent agentruntime.Model, childM
 		if model == nil {
 			return nil, errors.New("missing test child model")
 		}
-		return New(context.Background(), WithModel(model), WithMessageStorage(agent.messages))
+		return New(context.Background(), withChildAgent(), WithModel(model), WithMessageStorage(agent.messages))
 	}
 	return agent
 }
@@ -336,17 +342,43 @@ type integrationChildModel struct {
 	requests []agentruntime.ModelRequest
 	releaseC chan struct{}
 	content  string
+	outcome  *toolexecution.SubagentOutcome
 }
 
 func newIntegrationChildModel(content string) *integrationChildModel {
 	return &integrationChildModel{releaseC: make(chan struct{}, 8), content: content}
 }
 
+func newIntegrationCompletedChildModel(content, summary string) *integrationChildModel {
+	return &integrationChildModel{
+		releaseC: make(chan struct{}, 8), content: content,
+		outcome: &toolexecution.SubagentOutcome{Status: toolexecution.SubagentOutcomeCompleted, Summary: summary},
+	}
+}
+
 func (m *integrationChildModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	m.requests = append(m.requests, request)
 	m.mu.Unlock()
-	return integrationChildStream{releaseC: m.releaseC, content: m.content}, nil
+	stream := integrationChildStream{releaseC: m.releaseC, content: m.content}
+	if m.outcome != nil && !integrationHasOutcomeResult(request.Messages) {
+		arguments := map[string]any{"status": string(m.outcome.Status), "summary": m.outcome.Summary}
+		if m.outcome.NextStep != "" {
+			arguments["next_step"] = m.outcome.NextStep
+		}
+		stream.content = ""
+		stream.toolCalls = []provider.ToolCall{{ID: "outcome", Name: toolexecution.SubagentOutcomeToolName, Arguments: arguments}}
+	}
+	return stream, nil
+}
+
+func integrationHasOutcomeResult(messages []agentruntime.Message) bool {
+	for _, message := range messages {
+		if message.ToolResult != nil && message.ToolResult.Name == toolexecution.SubagentOutcomeToolName && message.ToolResult.Status == agentruntime.ToolResultSucceeded {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *integrationChildModel) waitRequests(t *testing.T, count int) {
@@ -367,8 +399,9 @@ func (m *integrationChildModel) waitRequests(t *testing.T, count int) {
 func (m *integrationChildModel) release() { m.releaseC <- struct{}{} }
 
 type integrationChildStream struct {
-	releaseC <-chan struct{}
-	content  string
+	releaseC  <-chan struct{}
+	content   string
+	toolCalls []provider.ToolCall
 }
 
 func (s integrationChildStream) Subscribe(ctx context.Context) <-chan provider.StreamEvent {
@@ -377,7 +410,7 @@ func (s integrationChildStream) Subscribe(ctx context.Context) <-chan provider.S
 		defer close(events)
 		select {
 		case <-s.releaseC:
-			events <- provider.StreamEvent{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: s.content, Finished: true}}}
+			events <- provider.StreamEvent{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: s.content, CompletedTools: s.toolCalls, Finished: true}}}
 		case <-ctx.Done():
 		}
 	}()

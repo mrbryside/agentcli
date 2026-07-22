@@ -3,6 +3,7 @@ package agentcli
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -45,9 +46,11 @@ type managedSubagent struct {
 	// completed event history is transport state, not a live child runtime.
 	agent *Agent
 
-	mu   sync.Mutex // serializes the one active child turn and its mailbox.
-	run  *agentruntime.Run
-	runs map[string]*agentruntime.Run
+	mu                       sync.Mutex // serializes the one active child turn and its mailbox.
+	run                      *agentruntime.Run
+	runs                     map[string]*agentruntime.Run
+	lastDispatchParentTurnID string
+	lastDispatchKey          string
 }
 
 type subagentReadResult = SubagentReadResult
@@ -105,11 +108,11 @@ func (m *subagentManager) StartOrReuse(ctx context.Context, parentSessionID, par
 	}
 	if !newInstance {
 		if len(open) == 1 {
-			record, sendErr := m.Send(ctx, parentSessionID, open[0].ID, message)
+			dispatched, sendErr := m.SendFromParentTurn(ctx, parentSessionID, parentTurnID, open[0].ID, message)
 			if sendErr != nil {
 				return toolexecution.SubagentStartResult{}, sendErr
 			}
-			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartReused, Subagent: record}, nil
+			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartReused, DispatchAction: dispatched.Action, Subagent: dispatched.Subagent}, nil
 		}
 		if len(open) > 1 {
 			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartSelectionRequired, Candidates: open}, nil
@@ -192,7 +195,11 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 		_, _ = m.store.Close(context.Background(), id)
 		return storage.Subagent{}, fmt.Errorf("create child agent: %w", err)
 	}
-	instance := &managedSubagent{agent: child, runs: make(map[string]*agentruntime.Run)}
+	instance := &managedSubagent{
+		agent: child, runs: make(map[string]*agentruntime.Run),
+		lastDispatchParentTurnID: parentTurnID,
+		lastDispatchKey:          subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, message),
+	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -519,11 +526,12 @@ func (m *subagentManager) changedSince(ctx context.Context, parentSessionID stri
 	return changed, nil
 }
 
-// Send starts immediately when idle and appends FIFO mailbox work when a turn
-// is already active.
+// Send delivers direct application/UI work without parent-turn deduplication.
+// Model-facing calls use SendFromParentTurn so retries cannot multiply work.
 func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content string) (storage.Subagent, error) {
 	ctx = nonNilContext(ctx)
-	if strings.TrimSpace(content) == "" {
+	content = normalizeSubagentMessage(content)
+	if content == "" {
 		return storage.Subagent{}, errors.New("subagent message is required")
 	}
 	record, err := m.getOwned(ctx, parentSessionID, id)
@@ -548,12 +556,80 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	if record.Status == storage.SubagentStatusClosed {
 		return storage.Subagent{}, storage.ErrSubagentClosed
 	}
+	return m.sendLocked(ctx, instance, record, content)
+}
+
+// SendFromParentTurn accepts at most one dispatch from a parent turn to one
+// child. Exact retries return duplicate; changed retries return already_sent.
+// Neither case starts a turn or appends mailbox work.
+func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id, content string) (toolexecution.SubagentSendResult, error) {
+	ctx = nonNilContext(ctx)
+	parentTurnID = strings.TrimSpace(parentTurnID)
+	content = normalizeSubagentMessage(content)
+	if parentTurnID == "" {
+		return toolexecution.SubagentSendResult{}, errors.New("parent turn ID is required")
+	}
+	if content == "" {
+		return toolexecution.SubagentSendResult{}, errors.New("subagent message is required")
+	}
+	record, err := m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		return toolexecution.SubagentSendResult{}, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
+	}
+	instance, err := m.instance(id)
+	if err != nil {
+		return toolexecution.SubagentSendResult{}, err
+	}
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+	record, err = m.getOwned(ctx, parentSessionID, id)
+	if err != nil {
+		return toolexecution.SubagentSendResult{}, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
+	}
+	key := subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, content)
+	if instance.lastDispatchParentTurnID == parentTurnID {
+		action := toolexecution.SubagentSendAlreadySent
+		deduplicated := false
+		if instance.lastDispatchKey == key {
+			action = toolexecution.SubagentSendDuplicate
+			deduplicated = true
+		}
+		return toolexecution.SubagentSendResult{
+			Action: action, Subagent: record, IdempotencyKey: key,
+			Deduplicated: deduplicated, Accepted: false,
+		}, nil
+	}
+	action := toolexecution.SubagentSendStarted
+	if record.Status == storage.SubagentStatusRunning {
+		action = toolexecution.SubagentSendQueued
+	}
+	updated, err := m.sendLocked(ctx, instance, record, content)
+	if err != nil {
+		return toolexecution.SubagentSendResult{}, err
+	}
+	instance.lastDispatchParentTurnID = parentTurnID
+	instance.lastDispatchKey = key
+	return toolexecution.SubagentSendResult{
+		Action: action, Subagent: updated, IdempotencyKey: key,
+		Accepted: true,
+	}, nil
+}
+
+// sendLocked starts immediately when idle and appends FIFO mailbox work when
+// a turn is already active. The caller holds instance.mu.
+func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubagent, record storage.Subagent, content string) (storage.Subagent, error) {
 	if record.Status == storage.SubagentStatusRunning {
 		messageID, idErr := newSubagentID("submsg_")
 		if idErr != nil {
 			return storage.Subagent{}, idErr
 		}
-		queued, queueErr := m.store.Enqueue(ctx, id, storage.SubagentQueuedMessage{ID: messageID, Content: content, CreatedAt: time.Now().UTC()})
+		queued, queueErr := m.store.Enqueue(ctx, record.ID, storage.SubagentQueuedMessage{ID: messageID, Content: content, CreatedAt: time.Now().UTC()})
 		if queueErr == nil {
 			m.signalChanged()
 		}
@@ -563,16 +639,29 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	updated, err := m.transition(ctx, id, storage.SubagentStatusRunning, turnID, "", "")
+	updated, err := m.transition(ctx, record.ID, storage.SubagentStatusRunning, turnID, "", "", "", "", "")
 	if err != nil {
 		return storage.Subagent{}, err
 	}
 	if err := m.startTurnLocked(instance, updated, turnID, content); err != nil {
-		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", updated.LastTurnID, err.Error())
+		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentTurnFailed, "", "")
 		return storage.Subagent{}, err
 	}
 	m.signalChanged()
-	return m.getOwned(ctx, parentSessionID, id)
+	return m.getOwned(ctx, record.ParentSessionID, record.ID)
+}
+
+func normalizeSubagentMessage(content string) string {
+	return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+}
+
+func subagentMessageIdempotencyKey(parentSessionID, parentTurnID, subagentID, content string) string {
+	payload := strings.Join([]string{
+		"subagent-message-v1", parentSessionID, parentTurnID, subagentID,
+		normalizeSubagentMessage(content),
+	}, "\x00")
+	digest := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(digest[:])
 }
 
 // Interrupt stops only the current child turn. The child instance remains
@@ -771,20 +860,32 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	if _, runErr := run.Result(); runErr != nil {
 		lastTurnError = runErr.Error()
 	}
-	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError)
+	messages, messagesErr := m.config.messages.List(context.Background(), record.SessionID)
+	if messagesErr != nil && lastTurnError == "" {
+		lastTurnError = "read completed child output: " + messagesErr.Error()
+	}
+	lastOutcome := storage.SubagentTurnIncomplete
+	lastSummary := "Child turn ended without an explicit outcome report."
+	lastNextStep := "Review the final answer and send one focused follow-up if required."
+	if lastTurnError != "" {
+		lastOutcome = storage.SubagentTurnFailed
+		lastSummary = ""
+		lastNextStep = ""
+	} else if reported, ok := reportedSubagentOutcome(run.TurnID(), messages); ok {
+		lastSummary = reported.Summary
+		lastNextStep = reported.NextStep
+		if reported.Status == toolexecution.SubagentOutcomeCompleted {
+			lastOutcome = storage.SubagentTurnCompleted
+			lastNextStep = ""
+		}
+	}
+	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError, lastOutcome, lastSummary, lastNextStep)
 	if err != nil {
 		return
 	}
 	instance.run = nil
 	m.signalChanged()
-	messages, messagesErr := m.config.messages.List(context.Background(), completed.SessionID)
 	callback := callbackFromMessages(completed, messages)
-	if messagesErr != nil {
-		callback.Status = SubagentCallbackFailed
-		if callback.Error == "" {
-			callback.Error = "read completed child output: " + messagesErr.Error()
-		}
-	}
 	m.publishCallback(callback)
 	// One completion owns the dequeue/start transition, so mailbox order is
 	// preserved even when Send races completion.
@@ -797,12 +898,12 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 		return
 	}
 	_ = afterDequeue
-	running, err := m.transition(context.Background(), id, storage.SubagentStatusRunning, turnID, "", "")
+	running, err := m.transition(context.Background(), id, storage.SubagentStatusRunning, turnID, "", "", "", "", "")
 	if err != nil {
 		return
 	}
 	if err := m.startTurnLocked(instance, running, turnID, next.Content); err != nil {
-		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", running.LastTurnID, err.Error())
+		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentTurnFailed, "", "")
 	}
 	m.signalChanged()
 }
@@ -831,7 +932,7 @@ func (m *subagentManager) setPermissionMode(ctx context.Context, mode permission
 // transition retries optimistic updates that race a Read observation. The
 // lifecycle decision is still serialized by the child instance lock; this
 // retry solely accommodates the intentionally independent read cursor.
-func (m *subagentManager) transition(ctx context.Context, id string, status storage.SubagentStatus, currentTurnID, lastTurnID, lastTurnError string) (storage.Subagent, error) {
+func (m *subagentManager) transition(ctx context.Context, id string, status storage.SubagentStatus, currentTurnID, lastTurnID, lastTurnError string, lastTurnOutcome storage.SubagentTurnOutcome, lastTurnSummary, lastTurnNextStep string) (storage.Subagent, error) {
 	for attempts := 0; attempts < 8; attempts++ {
 		record, found, err := m.store.Get(ctx, id)
 		if err != nil {
@@ -844,11 +945,20 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 			return storage.Subagent{}, storage.ErrSubagentClosed
 		}
 		last := lastTurnID
+		turnError := lastTurnError
+		outcome := lastTurnOutcome
+		summary := lastTurnSummary
+		nextStep := lastTurnNextStep
 		if last == "" {
 			last = record.LastTurnID
+			turnError = record.LastTurnError
+			outcome = record.LastTurnOutcome
+			summary = record.LastTurnSummary
+			nextStep = record.LastTurnNextStep
 		}
 		updated, err := m.store.Update(ctx, id, record.Version, storage.SubagentUpdate{
-			Status: status, CurrentTurnID: currentTurnID, LastTurnID: last, LastTurnError: lastTurnError,
+			Status: status, CurrentTurnID: currentTurnID, LastTurnID: last, LastTurnError: turnError,
+			LastTurnOutcome: outcome, LastTurnSummary: summary, LastTurnNextStep: nextStep,
 		})
 		if !errors.Is(err, storage.ErrSubagentVersionConflict) {
 			return updated, err
