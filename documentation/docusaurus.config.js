@@ -36,7 +36,18 @@ const config = {
     navbar: {
       title: 'AgentCLI',
       items: [
-        {to: '/', label: 'Get started', position: 'left'},
+        {
+          to: '/',
+          label: 'Get started',
+          position: 'left',
+          activeBaseRegex: '/agentcli/(?:$|getting-started/)',
+        },
+        {
+          to: '/terminal/overview',
+          label: 'Terminal',
+          position: 'left',
+          activeBaseRegex: '/terminal/',
+        },
         {to: '/tools/custom-tools', label: 'Custom tools', position: 'left'},
         {
           type: 'dropdown',
@@ -57,6 +68,7 @@ const config = {
           items: [
             {label: 'Installation', to: '/'},
             {label: 'Build an agentcli application', to: '/examples/agentcli-application'},
+            {label: 'Use the terminal', to: '/terminal/overview'},
           ],
         },
         {

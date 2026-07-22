@@ -21,6 +21,17 @@ module.exports = {
     },
     {
       type: 'category',
+      label: 'Terminal',
+      items: [
+        'terminal/overview',
+        'terminal/input-and-streaming',
+        'terminal/commands',
+        'terminal/subagent-views',
+        'terminal/safety-and-troubleshooting',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Tools and safety',
       items: [
         'tools/custom-tools',
