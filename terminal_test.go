@@ -492,15 +492,14 @@ func TestClosedAgentRejectsTerminal(t *testing.T) {
 	}
 }
 
-func TestTerminalSubagentCallbackQueueIsFIFO(t *testing.T) {
+func TestTerminalSubagentCallbackQueueIsSilentAndFIFO(t *testing.T) {
 	client := terminalClient{}
 	first := SubagentCallback{SubagentID: "first"}
 	second := SubagentCallback{SubagentID: "second"}
-	if got := client.enqueueRootCallback(first); got != 1 {
-		t.Fatalf("first callback queue position = %d", got)
-	}
-	if got := client.enqueueRootCallback(second); got != 2 {
-		t.Fatalf("second callback queue position = %d", got)
+	client.deferRootCallback(first)
+	client.deferRootCallback(second)
+	if len(client.rootNotices) != 0 {
+		t.Fatalf("deferred callbacks produced notices: %#v", client.rootNotices)
 	}
 	for _, want := range []SubagentCallback{first, second} {
 		got, ok := client.dequeueRootCallback()

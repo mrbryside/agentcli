@@ -926,11 +926,13 @@ func (c *terminalClient) clearRootPrompts() {
 	c.stateMu.Unlock()
 }
 
-func (c *terminalClient) enqueueRootCallback(callback SubagentCallback) int {
+// deferRootCallback keeps a child callback pending while the root turn is
+// active. This is intentionally silent: callback scheduling is internal state,
+// unlike a user-authored prompt that benefits from visible queue feedback.
+func (c *terminalClient) deferRootCallback(callback SubagentCallback) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.rootCallbackQueue = append(c.rootCallbackQueue, callback)
-	return len(c.rootCallbackQueue)
 }
 
 func (c *terminalClient) dequeueRootCallback() (SubagentCallback, bool) {
@@ -1111,8 +1113,7 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 				callbacks = nil
 				continue
 			}
-			position := c.enqueueRootCallback(callback)
-			c.rootNotice("Subagent callback", fmt.Sprintf("%s · %s · %d waiting", callback.SubagentID, callback.Status, position))
+			c.deferRootCallback(callback)
 		case event, open := <-subscription.Events:
 			if !open {
 				// Always flush: this view may have reconstructed content from
