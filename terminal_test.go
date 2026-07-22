@@ -28,6 +28,26 @@ func TestTerminalPermissionAndUnrestrictedRendering(t *testing.T) {
 	}
 }
 
+func TestTerminalHistoryRendersAssistantMarkdown(t *testing.T) {
+	var output bytes.Buffer
+	terminal := terminal{out: &output, color: true, interactive: true}
+
+	terminal.messages([]agentruntime.Message{{
+		Type:    agentruntime.MessageTypeAssistant,
+		Content: "### What This Demonstrates\n\n- Message storage",
+	}})
+
+	plain := terminalANSIEscape.ReplaceAllString(output.String(), "")
+	if strings.Contains(plain, "### What This Demonstrates") {
+		t.Fatalf("assistant history contains raw heading syntax: %q", plain)
+	}
+	for _, wanted := range []string{"Agent · ", "What This Demonstrates", "• Message storage"} {
+		if !strings.Contains(plain, wanted) {
+			t.Fatalf("assistant history %q missing %q", plain, wanted)
+		}
+	}
+}
+
 func TestPermissionChoice(t *testing.T) {
 	tests := []struct {
 		input string

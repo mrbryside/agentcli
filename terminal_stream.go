@@ -269,6 +269,27 @@ func (renderer *terminalStreamRenderer) renderMarkdownLocked() string {
 	return trimTerminalLinePadding(strings.Trim(rendered, "\n"))
 }
 
+func renderTerminalMarkdown(source string, width int) string {
+	if source == "" {
+		return ""
+	}
+	if width <= 0 {
+		width = terminalStreamFallbackWidth
+	}
+	markdownRenderer, err := glamour.NewTermRenderer(
+		terminalMarkdownStyle,
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return strings.Trim(source, "\n")
+	}
+	rendered, err := markdownRenderer.Render(source)
+	if err != nil {
+		return strings.Trim(source, "\n")
+	}
+	return trimTerminalLinePadding(strings.Trim(rendered, "\n"))
+}
+
 func trimTerminalLinePadding(value string) string {
 	lines := strings.Split(value, "\n")
 	for index := range lines {

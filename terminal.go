@@ -1632,7 +1632,11 @@ func (t terminal) messages(messages []agentruntime.Message) {
 		case agentruntime.MessageTypeUser:
 			t.println(t.paint("36", "You · ") + message.Content)
 		case agentruntime.MessageTypeAssistant:
-			t.println(t.paint("32", "Agent · ") + message.Content)
+			content := message.Content
+			if t.interactive {
+				content = renderTerminalMarkdown(content, readline.GetScreenWidth())
+			}
+			t.println(t.paint("32", "Agent · ") + content)
 		case agentruntime.MessageTypeToolCall:
 			for _, call := range message.ToolCalls {
 				t.toolCall(call.Name, "")

@@ -151,6 +151,37 @@ func TestTerminalStreamRendererCommitsStablePrefixForLongResponses(t *testing.T)
 	}
 }
 
+func TestTerminalStreamRendererFormatsHeadingAfterLongCodeBlock(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 100 })
+	var output bytes.Buffer
+	screen := newTerminalTestScreen()
+	write := func(fragment string) {
+		t.Helper()
+		before := output.Len()
+		renderer.write(&output, fragment)
+		screen.apply(output.Bytes()[before:])
+	}
+
+	write("```go\n")
+	for index := range 100 {
+		write(fmt.Sprintf("fmt.Println(%d)\n", index))
+	}
+	write("```\n")
+	write("\n### What This Demonstrates\n\n")
+	for _, item := range []string{"Message storage", "Confirmations", "Permissions", "Subagents"} {
+		write("- " + item + "\n")
+	}
+
+	plain := terminalANSIEscape.ReplaceAllString(screen.text(), "")
+	if strings.Contains(plain, "### What This Demonstrates") {
+		t.Fatalf("stream left raw heading syntax after a long code block: %q", plain)
+	}
+	if !strings.Contains(plain, "What This Demonstrates") {
+		t.Fatalf("stream lost heading after a long code block: %q", plain)
+	}
+}
+
 func TestTerminalStreamRowsCountsWrappingAndWideRunes(t *testing.T) {
 	tests := []struct {
 		name  string
