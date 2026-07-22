@@ -580,6 +580,42 @@ func TestTerminalRendersProviderFragmentsExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestTerminalSubagentUsesSharedMarkdownAndReasoningRenderer(t *testing.T) {
+	var output bytes.Buffer
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	client := terminalClient{terminal: terminal{out: &output, interactive: true, stream: renderer}}
+	wroteContent := false
+
+	client.renderSubagentEvent("subagent_1", agentruntime.AgentEvent{
+		Type: agentruntime.ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type:      provider.ReasoningReceived,
+			Reasoning: "inspect the child task",
+		},
+	}, &wroteContent)
+	client.renderSubagentEvent("subagent_1", agentruntime.AgentEvent{
+		Type: agentruntime.ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type:    provider.ContentReceived,
+			Content: "### Child result\n\n- complete",
+		},
+	}, &wroteContent)
+
+	renderer.mu.Lock()
+	rendered := renderer.renderMarkdownLocked()
+	reasoning := renderer.reasoning
+	source := renderer.source
+	renderer.mu.Unlock()
+	plain := terminalANSIEscape.ReplaceAllString(rendered, "")
+	if reasoning != "inspect the child task" || source != "### Child result\n\n- complete" {
+		t.Fatalf("subagent renderer state = reasoning %q source %q", reasoning, source)
+	}
+	if strings.Contains(plain, "### Child result") || !strings.Contains(plain, "> thinking") || !strings.Contains(plain, "Child result") || !strings.Contains(plain, "• complete") {
+		t.Fatalf("subagent rendered output = %q", plain)
+	}
+}
+
 func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{

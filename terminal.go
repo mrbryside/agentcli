@@ -1061,9 +1061,7 @@ func (c *terminalClient) runRootTurn(ctx context.Context, input <-chan string, c
 	loading := c.terminal.loadingController()
 	c.setRootLoading(loading)
 	defer c.clearRootLoading(loading)
-	if c.activeView() == "" {
-		loading.Start("")
-	}
+	c.renderInView("", func() { loading.Start("") })
 	defer loading.Stop()
 
 	wroteContent := false
@@ -1199,8 +1197,8 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, parentSessionID,
 		}
 	}
 	loading := c.terminal.loadingController()
-	if !wroteContent {
-		loading.Start("")
+	if !wroteContent && !c.renderInView(id, func() { loading.Start("") }) {
+		return nil
 	}
 	defer loading.Stop()
 	interrupts := c.interrupts
@@ -1525,6 +1523,7 @@ func (t terminal) help() {
 	t.println("  1-4       answer the oldest pending permission")
 	t.println("  y/n       answer the oldest pending confirmation")
 	t.println("  Shift+Enter add a new line without sending")
+	t.println("  Up/Down   recall prompts entered in this terminal")
 	t.println("  Ctrl+O    expand or collapse all reasoning")
 	t.println("  Esc       interrupt an active response")
 	t.println("  Ctrl+C    press twice to quit")

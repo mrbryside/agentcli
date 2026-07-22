@@ -45,24 +45,50 @@ var (
 	}
 	terminalLeftKeys = [][]byte{
 		[]byte("\x1b[D"),
+		[]byte("\x1bOD"),
+		[]byte("\x1b[1;1D"),
+		[]byte("\x1b[57350u"),
+		[]byte("\x1b[57350;1u"),
 	}
 	terminalRightKeys = [][]byte{
 		[]byte("\x1b[C"),
+		[]byte("\x1bOC"),
+		[]byte("\x1b[1;1C"),
+		[]byte("\x1b[57351u"),
+		[]byte("\x1b[57351;1u"),
 	}
 	terminalUpKeys = [][]byte{
 		[]byte("\x1b[A"),
+		[]byte("\x1bOA"),
+		[]byte("\x1b[1;1A"),
+		[]byte("\x1b[57352u"),
+		[]byte("\x1b[57352;1u"),
 	}
 	terminalDownKeys = [][]byte{
 		[]byte("\x1b[B"),
+		[]byte("\x1bOB"),
+		[]byte("\x1b[1;1B"),
+		[]byte("\x1b[57353u"),
+		[]byte("\x1b[57353;1u"),
 	}
 	terminalHomeKeys = [][]byte{
 		[]byte("\x1b[H"),
+		[]byte("\x1bOH"),
+		[]byte("\x1b[1;1H"),
+		[]byte("\x1b[57360u"),
+		[]byte("\x1b[57360;1u"),
 	}
 	terminalEndKeys = [][]byte{
 		[]byte("\x1b[F"),
+		[]byte("\x1bOF"),
+		[]byte("\x1b[1;1F"),
+		[]byte("\x1b[57361u"),
+		[]byte("\x1b[57361;1u"),
 	}
 	terminalDeleteKeys = [][]byte{
 		[]byte("\x1b[3~"),
+		[]byte("\x1b[57349u"),
+		[]byte("\x1b[57349;1u"),
 	}
 	terminalIgnoredKeys = [][]byte{
 		[]byte("\x1b[5~"),

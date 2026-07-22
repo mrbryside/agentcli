@@ -97,11 +97,16 @@ control to the Go caller without closing the Agent.
 The input editor accepts multi-line drafts. Press `Shift+Enter` to add a line
 and `Enter` to send the complete draft. Bracketed multi-line paste is inserted
 as one draft, so pasted newlines do not create several queued turns.
+Use the Up and Down arrow keys to move through prompts entered during the
+current terminal process. History entries retain their original multi-line
+content and are available while either the root or a child view is selected.
 
 Provider reasoning is separate from loading and assistant content. A plain
 spinner is only an activity indicator. When the provider actually emits
 reasoning, the terminal shows a dim, collapsed `> thinking` row. Press `Ctrl+O`
 to expand or collapse every reasoning row in the active root or child view.
+Root and child views share the same Markdown, reasoning, loading, and prompt
+editor behavior while retaining view-isolated output.
 
 The reference terminal keeps assistant Markdown, loading status, and editable
 input as independent live state. Every provider content event is appended to

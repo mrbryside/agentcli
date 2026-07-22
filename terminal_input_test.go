@@ -66,6 +66,46 @@ func TestTerminalInputEditsAtCursorAndRestoresHistory(t *testing.T) {
 	}
 }
 
+func TestTerminalInputHistoryRestoresMultilinePromptAndCurrentDraft(t *testing.T) {
+	editor, _ := newTerminalInputEditorForTest()
+	editor.insert("first\nsecond")
+	editor.submit("")
+	if got := <-editor.lines; got != "first\nsecond" {
+		t.Fatalf("submitted input = %q", got)
+	}
+
+	editor.insert("current draft")
+	editor.moveHistory(-1)
+	if got := string(editor.buffer); got != "first\nsecond" {
+		t.Fatalf("recalled history = %q, want multiline prompt", got)
+	}
+	editor.moveHistory(1)
+	if got := string(editor.buffer); got != "current draft" {
+		t.Fatalf("restored draft = %q, want current draft", got)
+	}
+}
+
+func TestTerminalInputRecognizesCommonUpAndDownKeyEncodings(t *testing.T) {
+	for index := range terminalUpKeys {
+		editor, _ := newTerminalInputEditorForTest()
+		editor.insert("previous")
+		editor.submit("")
+		<-editor.lines
+
+		editor.pending = append(editor.pending, terminalUpKeys[index]...)
+		editor.consumePending()
+		if got := string(editor.buffer); got != "previous" {
+			t.Fatalf("up encoding %q recalled %q", terminalUpKeys[index], got)
+		}
+
+		editor.pending = append(editor.pending, terminalDownKeys[index]...)
+		editor.consumePending()
+		if got := string(editor.buffer); got != "" {
+			t.Fatalf("down encoding %q restored %q, want empty draft", terminalDownKeys[index], got)
+		}
+	}
+}
+
 func TestTerminalInputDisplayUsesContinuationLines(t *testing.T) {
 	display := terminalInputDisplay("❯ ", []rune("first\nsecond"))
 	if display != "❯ first\n  second" {
