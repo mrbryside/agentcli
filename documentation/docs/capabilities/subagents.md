@@ -55,9 +55,12 @@ summary and, for incomplete work, the required next step.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. Their successful tool results are stored and the current parent turn ends
-without another provider call. This prevents the parent from guessing a child
-question or duplicating the authoritative result. The child turn outcome
+work. Both accept `finish_turn`, defaulting to `true`. The model uses `false`
+only when it has already planned more decomposition or start/send dispatches
+after the current tool batch, and uses `true` on the final dispatch, when none
+remain, or when unsure. The runtime ends the parent turn when every successful
+dispatch in the batch requests it. This prevents speculative parent questions
+while still allowing detailed sequential delegation. The child turn outcome
 arrives through a separate callback containing:
 
 - parent and child identity;
@@ -66,6 +69,20 @@ arrives through a separate callback containing:
 - final assistant answer when one exists;
 - terminal error when the child failed;
 - durable transcript cursor metadata.
+
+Each model-facing dispatch result echoes the resolved control state:
+
+```json
+{
+  "finish_turn": false,
+  "turn_behavior": "continue_turn",
+  "instruction": "Continue only with additional planned dispatches..."
+}
+```
+
+Final dispatches return `finish_turn: true` and
+`turn_behavior: "end_turn"`. A `selection_required` result always reports
+`false` and `continue_turn`.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
 turn continues only long enough for the parent to ask which `display_name` the

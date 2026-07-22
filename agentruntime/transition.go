@@ -162,18 +162,16 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 		})
 	}
 	effects := []Effect{{Type: AppendMessages, Messages: messages}}
-	shouldEnd := false
 	for _, callID := range round.order {
 		if round.accepted[callID].Status != ToolResultSucceeded {
 			return append(effects, Effect{Type: StartProvider})
 		}
-		shouldEnd = shouldEnd || round.behaviors[callID] == ToolTurnEnd
+		if round.behaviors[callID] != ToolTurnEnd {
+			return append(effects, Effect{Type: StartProvider})
+		}
 	}
-	if shouldEnd {
-		completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
-		return append(effects, Effect{Type: EmitEvent, Event: &completed})
-	}
-	return append(effects, Effect{Type: StartProvider})
+	completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
+	return append(effects, Effect{Type: EmitEvent, Event: &completed})
 }
 
 func interruptionEffects(current AgentState, event AgentEvent) []Effect {

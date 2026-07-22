@@ -168,7 +168,7 @@ validated call and emits `tool_call_requested`.
 | `tool_call_started` | `tool.index`, `tool.id`, `tool.name`, `tool.type` | Begins one streamed tool call. `index` correlates later argument fragments. |
 | `tool_arguments_received` | `tool.index`, `tool.arguments` | Adds an argument-string fragment; it may not be valid JSON until completion. |
 | `tool_call_completed` | `tool.index` and completed tool metadata | Signals that the provider finished the streamed call. Wait for `tool_call_requested` before execution. |
-| `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools. It starts another provider step unless a successful tool in the completed batch uses `end_turn`. |
+| `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools. It skips the next provider step only when every result in the completed batch succeeded and uses `end_turn`. |
 | `stream_failed` | `error` | The provider stream failed. A terminal `run_failed` follows unless the runtime has already terminated. |
 
 ## Permission event

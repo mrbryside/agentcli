@@ -87,17 +87,22 @@ The available values are:
 | `agentcli.EndTurn` | Store a successful result and complete the turn immediately. |
 
 The runtime always waits for every result in the current parallel tool-call
-batch before deciding. If any successful tool in that batch uses `EndTurn`, it
-stores the entire ordered batch and completes the turn. Failed, interrupted,
-denied, or declined results continue to the provider so it can explain or
-recover from the error.
+batch before deciding. It completes the turn only when every result succeeded
+and every tool in that batch uses `EndTurn`. A `ContinueTurn` result keeps the
+loop open, and failed, interrupted, denied, or declined results continue to the
+provider so it can explain or recover from the error.
 
-`start_subagent` and `send_subagent_message` use `EndTurn` because their
-successful results confirm asynchronous dispatch, not child completion. The
-authoritative child answer arrives later through a callback turn. If
-`start_subagent` returns `selection_required`, it temporarily continues the
-turn because no child work was dispatched and the model must ask which existing
-child the user means.
+`start_subagent` and `send_subagent_message` expose a model-facing
+`finish_turn` argument. It defaults to `true`, applying `EndTurn` after a final
+dispatch because the authoritative child answer arrives later through a
+callback turn. The model sets it to `false` only while it has a concrete plan to
+continue decomposing work or issue more start/send calls after the current tool
+batch. It must set `true` on the final dispatch, when no more child messages are
+planned, or when unsure. A `selection_required` start always continues because
+no child work was dispatched and the model must ask which existing child the
+user means. Their model-facing tool results echo the resolved `finish_turn`
+boolean and a `turn_behavior` label of `continue_turn` or `end_turn`, plus an
+instruction matching that decision.
 
 ## Dynamic permission metadata
 

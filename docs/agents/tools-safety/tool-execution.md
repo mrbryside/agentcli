@@ -5,14 +5,16 @@
 `Executor.Run` consumes runtime requests, applies admission, dispatches accepted work through a bounded worker pool, emits correlated results, and consumes exact-turn interrupts. Calls are keyed by session, turn, and call ID. Preserve these identities and never let one session's interrupt or result affect another.
 
 `ContinueTurn` is the zero-value default. `EndTurn` is attached to a successful
-result and tells AgentRuntime to persist the complete result batch, emit
-`RunCompleted`, and skip the next provider step. Non-success results always
-continue to the provider. Typed tools select this with
+result and tells AgentRuntime it may skip the next provider step. The runtime
+does so only when the complete result batch succeeded and every result uses
+`EndTurn`; any continue or non-success result starts another provider step.
+Typed tools select static behavior with
 `agentcli.ToolTurnBehavior(agentcli.EndTurn)`; raw tools set
-`toolexecution.Tool.TurnBehavior`. The framework assigns `EndTurn` to
-`start_subagent` and `send_subagent_message` so callback turns remain the only
-authoritative child responses. `start_subagent` overrides to `ContinueTurn`
-only for `selection_required`, where no dispatch occurred.
+`toolexecution.Tool.TurnBehavior`. Framework start/send tools derive behavior
+from their `finish_turn` argument (default true): false is reserved for planned
+additional decomposition/dispatch, and true marks the final/no-more/uncertain
+case. `start_subagent` overrides to `ContinueTurn` for `selection_required`,
+where no dispatch occurred.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by `toolexecution` and wired by `agentcli`. Application tools remain caller-owned; the framework does not silently register filesystem or shell tools.
 

@@ -29,11 +29,13 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 		ID           string                 `json:"subagent_id"`
 		Status       storage.SubagentStatus `json:"status"`
 		Asynchronous bool                   `json:"asynchronous"`
+		FinishTurn   bool                   `json:"finish_turn"`
+		TurnBehavior string                 `json:"turn_behavior"`
 	}
 	if err := json.Unmarshal(output, &started); err != nil {
 		t.Fatal(err)
 	}
-	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous {
+	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || !started.FinishTurn || started.TurnBehavior != "end_turn" {
 		t.Fatalf("start result = %s", output)
 	}
 	statusCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "turn", CallID: "status", ToolName: SubagentStatusToolName})
@@ -189,12 +191,14 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		var selection struct {
 			Action     toolexecution.SubagentStartAction   `json:"action"`
 			Candidates []toolexecution.SubagentToolSummary `json:"candidates"`
+			FinishTurn bool                                `json:"finish_turn"`
+			Behavior   string                              `json:"turn_behavior"`
 			NextAction string                              `json:"next_action"`
 		}
 		if err := json.Unmarshal(selectionJSON, &selection); err != nil {
 			t.Fatal(err)
 		}
-		if selection.Action != toolexecution.SubagentStartSelectionRequired || len(selection.Candidates) != 2 || selection.Candidates[0].DisplayName == "" || selection.Candidates[1].DisplayName == "" || selection.Candidates[0].DisplayName == selection.Candidates[1].DisplayName || !strings.Contains(selection.NextAction, "Ask the user") {
+		if selection.Action != toolexecution.SubagentStartSelectionRequired || selection.FinishTurn || selection.Behavior != "continue_turn" || len(selection.Candidates) != 2 || selection.Candidates[0].DisplayName == "" || selection.Candidates[1].DisplayName == "" || selection.Candidates[0].DisplayName == selection.Candidates[1].DisplayName || !strings.Contains(selection.NextAction, "Ask the user") {
 			t.Fatalf("selection = %s", selectionJSON)
 		}
 	})
@@ -223,6 +227,8 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 		Subagent     struct {
 			QueuedMessages int `json:"queued_messages"`
 		} `json:"subagent"`
+		FinishTurn  bool   `json:"finish_turn"`
+		Behavior    string `json:"turn_behavior"`
 		Instruction string `json:"instruction"`
 	}
 	send := func(turnID, callID, message string) sendResult {
@@ -248,7 +254,7 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || !strings.Contains(changed.Instruction, "Nothing new was queued") {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 {
+	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || !queued.FinishTurn || queued.Behavior != "end_turn" {
 		t.Fatalf("next turn = %#v", queued)
 	}
 }

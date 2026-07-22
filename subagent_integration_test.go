@@ -116,6 +116,33 @@ func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.
 	}
 }
 
+func TestSubagentIntegrationFinishTurnAllowsSequentialDispatch(t *testing.T) {
+	parentModel := &integrationSequentialDispatchParentModel{}
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
+		"researcher": newIntegrationChildModel("research complete"),
+		"reviewer":   newIntegrationChildModel("review complete"),
+	})
+
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent", TurnID: "parent-turn-sequential",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate sequentially"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, parentRun)
+	if got := parentModel.requestCount(); got != 2 {
+		t.Fatalf("parent provider requests = %d, want two dispatch rounds", got)
+	}
+	children, err := agent.ListSubagents(context.Background(), "parent", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("children = %#v, want two sequential dispatches", children)
+	}
+}
+
 func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
@@ -424,6 +451,34 @@ type integrationInterruptParentModel struct {
 	mu          sync.Mutex
 	starts      int
 	secondRound chan struct{}
+}
+
+type integrationSequentialDispatchParentModel struct {
+	mu       sync.Mutex
+	requests int
+}
+
+func (m *integrationSequentialDispatchParentModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	m.requests++
+	round := m.requests
+	m.mu.Unlock()
+
+	call := provider.ToolCall{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{
+		"name": "researcher", "message": "research this", "new_instance": true, "finish_turn": false,
+	}}
+	if round == 2 {
+		call = provider.ToolCall{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{
+			"name": "reviewer", "message": "review this", "new_instance": true, "finish_turn": true,
+		}}
+	}
+	return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
+}
+
+func (m *integrationSequentialDispatchParentModel) requestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.requests
 }
 
 func (m *integrationInterruptParentModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {

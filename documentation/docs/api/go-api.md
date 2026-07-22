@@ -71,8 +71,9 @@ agentcli.ToolTurnBehavior(agentcli.EndTurn)
 
 `NewCustomTool` constructs a `toolexecution.Tool` without adding it to an agent.
 `ContinueTurn` is the default. `EndTurn` stores a successful tool result and
-completes the current turn without another provider call; non-success results
-still continue so the model can report the failure.
+allows the current turn to complete without another provider call when every
+result in that batch also succeeds with `EndTurn`; mixed or non-success batches
+continue so the model can dispatch more work or report the failure.
 
 ## Turns
 

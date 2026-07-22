@@ -52,6 +52,11 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && tool.TurnBehavior != EndTurn {
 			t.Fatalf("subagent dispatch tool %q turn behavior = %q, want end_turn", tool.Definition.Name, tool.TurnBehavior)
 		}
+		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
+			if !strings.Contains(tool.Definition.Description, "finish_turn defaults to true") || !strings.Contains(tool.Definition.Description, "continue decomposing") || !strings.Contains(string(tool.Definition.InputSchema), `"finish_turn"`) || !strings.Contains(string(tool.Definition.InputSchema), `"default":true`) {
+				t.Fatalf("subagent dispatch tool %q does not explain finish_turn: %#v", tool.Definition.Name, tool.Definition)
+			}
+		}
 		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.TurnBehavior != ContinueTurn {
 			t.Fatalf("subagent management tool %q turn behavior = %q, want continue", tool.Definition.Name, tool.TurnBehavior)
 		}
@@ -82,17 +87,28 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	}
 }
 
-func TestStartSubagentOnlyContinuesWhenSelectionIsRequired(t *testing.T) {
-	if got := startSubagentTurnBehavior(json.RawMessage(`{"action":"selection_required"}`)); got != ContinueTurn {
+func TestSubagentDispatchTurnBehavior(t *testing.T) {
+	if got := subagentTurnBehaviorLabel(false); got != "continue_turn" {
+		t.Fatalf("continue label = %q", got)
+	}
+	if got := subagentTurnBehaviorLabel(true); got != "end_turn" {
+		t.Fatalf("end label = %q", got)
+	}
+	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`{"action":"selection_required"}`)); got != ContinueTurn {
 		t.Fatalf("selection behavior = %q, want continue", got)
 	}
-	for _, output := range []json.RawMessage{
-		json.RawMessage(`{"action":"created"}`),
-		json.RawMessage(`{"action":"reused"}`),
-		json.RawMessage(`not-json`),
-	} {
-		if got := startSubagentTurnBehavior(output); got != EndTurn {
-			t.Fatalf("dispatch behavior for %s = %q, want end_turn", output, got)
+	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":false}`), json.RawMessage(`{"action":"created"}`)); got != ContinueTurn {
+		t.Fatalf("unfinished start behavior = %q, want continue", got)
+	}
+	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`{"action":"reused"}`)); got != EndTurn {
+		t.Fatalf("final start behavior = %q, want end_turn", got)
+	}
+	if got := subagentDispatchTurnBehavior(json.RawMessage(`{"finish_turn":false}`), nil); got != ContinueTurn {
+		t.Fatalf("unfinished send behavior = %q, want continue", got)
+	}
+	for _, arguments := range []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`not-json`)} {
+		if got := subagentDispatchTurnBehavior(arguments, nil); got != EndTurn {
+			t.Fatalf("default/final dispatch behavior for %s = %q, want end_turn", arguments, got)
 		}
 	}
 }

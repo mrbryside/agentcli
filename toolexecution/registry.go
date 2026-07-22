@@ -35,7 +35,7 @@ type Tool struct {
 	Permission           PermissionDescriptor
 	PermissionWithPolicy PermissionPolicyDescriptor
 	Confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage) TurnBehavior
+	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -67,7 +67,7 @@ type registeredTool struct {
 	permission           PermissionDescriptor
 	permissionWithPolicy PermissionPolicyDescriptor
 	confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage) TurnBehavior
+	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -136,7 +136,7 @@ func (r *Registry) lookup(name string) (Handler, bool) {
 	return tool.handler, ok
 }
 
-func (r *Registry) turnBehaviorFor(name string, output json.RawMessage) (TurnBehavior, bool) {
+func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessage) (TurnBehavior, bool) {
 	r.mu.RLock()
 	tool, ok := r.tools[name]
 	r.mu.RUnlock()
@@ -144,7 +144,7 @@ func (r *Registry) turnBehaviorFor(name string, output json.RawMessage) (TurnBeh
 		return ContinueTurn, false
 	}
 	if tool.resultTurnBehavior != nil {
-		return tool.resultTurnBehavior(cloneRawJSON(output)), true
+		return tool.resultTurnBehavior(cloneRawJSON(arguments), cloneRawJSON(output)), true
 	}
 	return tool.turnBehavior, true
 }
