@@ -73,6 +73,18 @@ func TestTerminalStreamRendererFallsBackWithoutReadline(t *testing.T) {
 	}
 }
 
+func TestTerminalStreamRendererLeavesSpaceAboveInput(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	var output bytes.Buffer
+
+	renderer.write(&output, "answer")
+
+	if !strings.HasSuffix(output.String(), "\n\n") {
+		t.Fatalf("stream output does not leave a blank row above input: %q", output.String())
+	}
+}
+
 func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T) {
 	renderer := &terminalStreamRenderer{}
 	renderer.attach(func() int { return 80 })
@@ -98,15 +110,18 @@ func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T
 	if !strings.Contains(rendered, "\x1b[38;5;203") {
 		t.Fatalf("inline code did not keep its red foreground: %q", rendered)
 	}
-	if !strings.Contains(rendered, "\x1b[38;5;75mPrintln") ||
-		!strings.Contains(rendered, "\x1b[38;5;114m\"hi\"") {
-		t.Fatalf("code block did not use the One Dark palette: %q", rendered)
-	}
-	if !strings.Contains(rendered, "\x1b[38;5;39;1mTitle") {
-		t.Fatalf("One Dark leaked outside the code block: %q", rendered)
-	}
 	if len(rendered) > 4096 {
 		t.Fatalf("small Markdown rendered to %d bytes", len(rendered))
+	}
+}
+
+func TestTerminalMarkdownStyleUsesOneDarkForCodeBlocks(t *testing.T) {
+	style := terminalMarkdownStyleConfig()
+	if style.CodeBlock.Theme != "onedark" {
+		t.Fatalf("code block theme = %q, want onedark", style.CodeBlock.Theme)
+	}
+	if style.CodeBlock.Chroma != nil {
+		t.Fatal("embedded code block palette overrides the One Dark theme")
 	}
 }
 

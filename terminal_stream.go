@@ -7,16 +7,20 @@ import (
 	"sync"
 
 	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	readlinerunes "github.com/chzyer/readline/runes"
 )
 
 const terminalStreamFallbackWidth = 80
+const terminalStreamPromptSpacingLines = 1
 const terminalStreamStableTailLines = 8
 
 var terminalANSIEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
-var terminalMarkdownStyle = func() glamour.TermRendererOption {
+var terminalMarkdownStyle = glamour.WithStyles(terminalMarkdownStyleConfig())
+
+func terminalMarkdownStyleConfig() ansi.StyleConfig {
 	style := styles.DarkStyleConfig
 	zero := uint(0)
 	style.Document.BlockPrefix = ""
@@ -42,8 +46,8 @@ var terminalMarkdownStyle = func() glamour.TermRendererOption {
 	style.CodeBlock.Margin = &zero
 	style.CodeBlock.Theme = "onedark"
 	style.CodeBlock.Chroma = nil
-	return glamour.WithStyles(style)
-}()
+	return style
+}
 
 // terminalStreamRenderer is the interactive terminal's live view state. Each
 // provider event appends Markdown source and renders the complete document in
@@ -229,13 +233,17 @@ func terminalStreamCommonPrefix(left, right []string) int {
 }
 
 func terminalStreamDisplay(content, status string) string {
-	if status == "" {
-		return content
+	display := content
+	if status != "" {
+		if display != "" {
+			display += "\n"
+		}
+		display += status
 	}
-	if content == "" {
-		return status
+	if display == "" {
+		return ""
 	}
-	return content + "\n" + status
+	return display + strings.Repeat("\n", terminalStreamPromptSpacingLines)
 }
 
 func (renderer *terminalStreamRenderer) renderMarkdownLocked() string {
