@@ -6,4 +6,6 @@
 
 Both surfaces operate on the same Agent semantics: transcripts are read separately from run events; permission and confirmation decisions require exact IDs; interruptions target a session and turn; subagent ownership is scoped to the parent session.
 
+Child views have two equivalent integration paths. Remote applications use the Echo child-record/message endpoints and retained per-turn SSE streams. In-process Go applications use `ListSubagents`, `ListMessages`, `SubagentRun`, and the run subscribe-then-replay fence directly. UI transcript reads must use `ListMessages`; `ReadSubagent` advances the parent model's observation cursor and is not a rendering API. Switching views changes visible state only and must not cancel background child streams.
+
 Back to [application/index.md](index.md).
