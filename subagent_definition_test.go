@@ -282,7 +282,7 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			}
 			waitRun(t, run)
 			requests := model.Requests()
-			if len(requests) != 1 || len(requests[0].Tools) != test.wantTools {
+			if len(requests) < 1 || len(requests[0].Tools) != test.wantTools {
 				t.Fatalf("provider tools = %#v", requests)
 			}
 			if len(requests[0].SystemPrompts) != 2 {
@@ -294,6 +294,7 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			if len(test.skills) != 0 && requests[0].Tools[0].Name != SkillLoaderToolName {
 				t.Fatalf("provider tools = %#v", requests[0].Tools)
 			}
+			assertOutcomeOnlyRepairRequest(t, requests)
 		})
 	}
 }
@@ -340,13 +341,28 @@ Use the registered search tool.
 	}
 	waitRun(t, run)
 	requests := model.Requests()
-	if len(requests) != 1 || len(requests[0].Tools) != 2 || requests[0].Tools[0].Name != "search" || requests[0].Tools[1].Name != toolexecution.SubagentOutcomeToolName {
+	if len(requests) < 1 || len(requests[0].Tools) != 2 || requests[0].Tools[0].Name != "search" || requests[0].Tools[1].Name != toolexecution.SubagentOutcomeToolName {
 		t.Fatalf("child provider tools = %#v", requests)
 	}
 	for _, tool := range requests[0].Tools {
 		if isSubagentToolName(tool.Name) {
 			t.Fatalf("child received parent-only management tool %q", tool.Name)
 		}
+	}
+	assertOutcomeOnlyRepairRequest(t, requests)
+}
+
+func assertOutcomeOnlyRepairRequest(t *testing.T, requests []agentruntime.ModelRequest) {
+	t.Helper()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want initial request and one repair: %#v", len(requests), requests)
+	}
+	repair := requests[1]
+	if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentOutcomeToolName {
+		t.Fatalf("repair tools = %#v", repair.Tools)
+	}
+	if !hasSubagentOutcomeRepairReminder(repair) {
+		t.Fatalf("repair reminders = %#v", repair.ContextReminders)
 	}
 }
 

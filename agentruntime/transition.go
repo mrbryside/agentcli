@@ -83,10 +83,9 @@ func providerEffects(event AgentEvent) []Effect {
 				Content:   result.Content,
 				Reasoning: result.Reasoning,
 			}
-			completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
 			return []Effect{
 				{Type: AppendMessages, Messages: []Message{message}},
-				{Type: EmitEvent, Event: &completed},
+				{Type: AttemptComplete},
 			}
 		}
 
@@ -170,8 +169,7 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 			return append(effects, Effect{Type: StartProvider})
 		}
 	}
-	completed := AgentEvent{SessionID: event.SessionID, TurnID: event.TurnID, Type: RunCompleted}
-	return append(effects, Effect{Type: EmitEvent, Event: &completed})
+	return append(effects, Effect{Type: AttemptComplete})
 }
 
 func interruptionEffects(current AgentState, event AgentEvent) []Effect {

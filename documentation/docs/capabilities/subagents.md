@@ -53,6 +53,19 @@ receives one framework-owned `report_subagent_outcome` tool. Before its final
 answer, the child reports either `completed` or `incomplete` with a concise
 summary and, for incomplete work, the required next step.
 
+This outcome protocol is enforced by the child runtime, not only by prompt
+wording. When a child tries to finish without a successful outcome report, the
+runtime starts one bounded repair request using the transcript that was already
+stored. That request exposes only `report_subagent_outcome`, so a transfer,
+write, or other domain action that already ran cannot be invoked again. The
+same restriction remains while the child writes its concise final answer.
+There is no polling or second callback during repair.
+
+If the repair reports `completed` or `incomplete`, that structured value is
+authoritative. If the child still omits a valid report, the turn ends after the
+single repair and emits an `incomplete` callback with a fallback summary. A
+repair is never retried indefinitely.
+
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
@@ -122,7 +135,7 @@ describes whether the delegated task is actually resolved:
 | Outcome | Meaning |
 | --- | --- |
 | `completed` | The child explicitly reported that all required delegated work is resolved. |
-| `incomplete` | The turn ended normally, but work, information, or a decision remains. Missing outcome reports default here. |
+| `incomplete` | The turn ended normally, but work, information, or a decision remains. A report still missing after the one repair request defaults here. |
 | `failed` | The provider/runtime turn ended with an error. |
 
 The runtime never infers completion merely because the provider stopped
@@ -206,6 +219,20 @@ incomplete, and callback-pending children with a storage lifecycle error /
 HTTP `409 conflict`. This prevents a fast child from being closed in the same
 parent turn that started it and prevents cleanup from suppressing an unread
 callback.
+
+When a parent closes completed work during its callback turn, it should include
+the callback result in user-visible content in the same provider response as
+the `close_subagent` call. A root completion guard distinguishes the two cases:
+
+```text
+result content + close → callback already delivered → finish normally
+silent close          → one tool-free repair → deliver callback → finish
+```
+
+Content streamed alongside the close tool call counts as delivered, so the
+repair does not repeat an answer the user already saw. The repair tool allowlist
+is explicitly empty, preventing another close, send, or status call, and it is
+bounded to one attempt.
 
 Context reminders are stable within one parent turn. If a child finishes
 between provider rounds, the active turn continues seeing its original

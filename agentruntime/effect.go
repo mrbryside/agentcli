@@ -6,15 +6,16 @@ import "github.com/mrbryside/agentcli/storage"
 type EffectType string
 
 const (
-	EmitEvent      EffectType = "emit_event"
-	AppendMessages EffectType = "append_messages"
-	StartProvider  EffectType = "start_provider"
-	DispatchTool   EffectType = "dispatch_tool"
-	InterruptTools EffectType = "interrupt_tools"
-	CancelProvider EffectType = "cancel_provider"
-	CompleteRun    EffectType = "complete_run"
-	FailRun        EffectType = "fail_run"
-	CloseRun       EffectType = "close_run"
+	EmitEvent       EffectType = "emit_event"
+	AppendMessages  EffectType = "append_messages"
+	StartProvider   EffectType = "start_provider"
+	DispatchTool    EffectType = "dispatch_tool"
+	InterruptTools  EffectType = "interrupt_tools"
+	CancelProvider  EffectType = "cancel_provider"
+	AttemptComplete EffectType = "attempt_complete"
+	CompleteRun     EffectType = "complete_run"
+	FailRun         EffectType = "fail_run"
+	CloseRun        EffectType = "close_run"
 )
 
 // Effect is a pure command for the Run coordinator. Only the field relevant

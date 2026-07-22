@@ -153,6 +153,12 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		subagentTools.Bind(manager)
 	}
 	reminderProvider := configuration.contextReminderProvider
+	var completionGuard agentruntime.CompletionGuard
+	if configuration.childAgent {
+		completionGuard = subagentOutcomeCompletionGuard
+	} else {
+		completionGuard = callbackDeliveryCompletionGuard
+	}
 	if manager != nil {
 		reminderProvider = composeContextReminderProviders(reminderProvider, subagentReminderProvider(manager))
 	}
@@ -162,6 +168,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		Messages:                configuration.messages,
 		SystemPrompts:           append([]string(nil), configuration.systemPrompts...),
 		ContextReminderProvider: reminderProvider,
+		CompletionGuard:         completionGuard,
 		Tools:                   registry.Definitions(),
 		ToolRequests:            toolRequests,
 		ToolResults:             toolResults,

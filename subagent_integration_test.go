@@ -257,6 +257,184 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 }
 
+func TestSubagentIntegrationSilentCloseRepairsWithUserVisibleAnswer(t *testing.T) {
+	parentModel := &silentCloseCallbackParentModel{}
+	childModel := newIntegrationCompletedChildModel("verified child result", "The delegated work completed.")
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
+	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
+
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent", TurnID: "parent-silent-close",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate and close when complete"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, parentRun)
+	childModel.waitRequests(t, 1)
+	childModel.release()
+	childModel.waitRequests(t, 2)
+	childModel.release()
+
+	var callback SubagentCallback
+	select {
+	case callback = <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+	}
+	continuation, subscription, err := agent.ContinueSubagentCallbackSubscribed(context.Background(), callback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range subscription.Events {
+	}
+	waitRun(t, continuation)
+	result, err := continuation.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != "The delegated work completed. Verified child result." {
+		t.Fatalf("callback delivery result = %#v", result)
+	}
+	if continuation.CompletionRepairCount() != 1 {
+		t.Fatalf("callback delivery repairs = %d, want 1", continuation.CompletionRepairCount())
+	}
+	record, err := agent.subagents.getOwned(context.Background(), "parent", callback.SubagentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != storage.SubagentStatusClosed {
+		t.Fatalf("child status = %q, want closed", record.Status)
+	}
+	requests := parentModel.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("parent provider requests = %d, want start, silent close, delivery repair", len(requests))
+	}
+	repair := requests[2]
+	if len(repair.Tools) != 0 || !strings.Contains(integrationReminderContents(repair.ContextReminders), "no user-visible assistant response") {
+		t.Fatalf("delivery repair request = %#v", repair)
+	}
+}
+
+func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *testing.T) {
+	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "research", Name: StartSubagentToolName,
+		Arguments: map[string]any{"name": "researcher", "message": "perform the domain action"},
+	}}}
+	childModel := &outcomeRepairIntegrationModel{}
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
+		"researcher": newIntegrationChildModel("unused"),
+	})
+	var domainMu sync.Mutex
+	domainCalls := 0
+	agent.subagents.childFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(),
+			withChildAgent(),
+			WithModel(childModel),
+			WithMessageStorage(agent.messages),
+			WithTool(toolexecution.Tool{
+				Definition: agentruntime.ToolDefinition{
+					Name: "domain_action", InputSchema: json.RawMessage(`{"type":"object"}`),
+				},
+				Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+					domainMu.Lock()
+					domainCalls++
+					domainMu.Unlock()
+					return json.RawMessage(`{"performed":true}`), nil
+				},
+			}),
+		)
+	}
+	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
+
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent", TurnID: "parent-repair-turn",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate an action"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, parentRun)
+
+	var callback SubagentCallback
+	select {
+	case callback = <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for repaired child callback")
+	}
+	if callback.Status != SubagentCallbackCompleted || callback.Summary != "The domain action completed once." {
+		t.Fatalf("callback = %#v", callback)
+	}
+	if callback.FinalAnswer == nil || callback.FinalAnswer.Content != "The domain action is complete." {
+		t.Fatalf("final answer = %#v", callback.FinalAnswer)
+	}
+	domainMu.Lock()
+	gotDomainCalls := domainCalls
+	domainMu.Unlock()
+	if gotDomainCalls != 1 {
+		t.Fatalf("domain tool calls = %d, want exactly 1", gotDomainCalls)
+	}
+	requests := childModel.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("child provider requests = %d, want domain, answer, repair, final: %#v", len(requests), requests)
+	}
+	for index := 2; index < len(requests); index++ {
+		if len(requests[index].Tools) != 1 || requests[index].Tools[0].Name != toolexecution.SubagentOutcomeToolName {
+			t.Fatalf("request %d tools = %#v, want outcome only", index, requests[index].Tools)
+		}
+	}
+	if !hasSubagentOutcomeRepairReminder(requests[2]) {
+		t.Fatalf("repair reminder = %#v", requests[2].ContextReminders)
+	}
+	childRun, err := agent.SubagentRun(context.Background(), "parent", callback.SubagentID, callback.TurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childRun.CompletionRepairCount() != 1 {
+		t.Fatalf("child repair count = %d, want 1", childRun.CompletionRepairCount())
+	}
+	select {
+	case duplicate := <-callbacks:
+		t.Fatalf("duplicate callback = %#v", duplicate)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestSubagentIntegrationMissingOutcomeFallsBackAfterOneRepair(t *testing.T) {
+	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "research", Name: StartSubagentToolName,
+		Arguments: map[string]any{"name": "researcher", "message": "answer without reporting"},
+	}}}
+	childModel := &scriptedModel{}
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
+		"researcher": newIntegrationChildModel("unused"),
+	})
+	agent.subagents.childFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), withChildAgent(), WithModel(childModel), WithMessageStorage(agent.messages))
+	}
+	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent", TurnID: "parent-fallback-turn",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate incomplete reporting"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, parentRun)
+
+	select {
+	case callback := <-callbacks:
+		if callback.Status != SubagentCallbackIncomplete || callback.Summary != "Child turn ended without an explicit outcome report after one repair attempt." {
+			t.Fatalf("fallback callback = %#v", callback)
+		}
+		if got := len(childModel.Requests()); got != 2 {
+			t.Fatalf("provider requests = %d, want initial plus one bounded repair", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for fallback child callback")
+	}
+}
+
 func TestSubagentIntegrationExplicitInterruptStopsChildAfterParentTurnEnds(t *testing.T) {
 	childModel := newIntegrationChildModel("never completes without release")
 	parentModel := &integrationInterruptParentModel{}
@@ -424,11 +602,115 @@ func newIntegrationSubagentAgent(t *testing.T, parent agentruntime.Model, childM
 }
 
 type integrationChildModel struct {
+	mu        sync.Mutex
+	requests  []agentruntime.ModelRequest
+	releaseC  chan struct{}
+	content   string
+	outcome   *toolexecution.SubagentOutcome
+	repairing bool
+}
+
+type outcomeRepairIntegrationModel struct {
 	mu       sync.Mutex
 	requests []agentruntime.ModelRequest
-	releaseC chan struct{}
-	content  string
-	outcome  *toolexecution.SubagentOutcome
+}
+
+type silentCloseCallbackParentModel struct {
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+}
+
+func (m *silentCloseCallbackParentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := len(m.requests)
+	m.requests = append(m.requests, request)
+	m.mu.Unlock()
+	var result provider.StreamResult
+	switch index {
+	case 0:
+		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "start-child", Name: StartSubagentToolName,
+			Arguments: map[string]any{"name": "researcher", "message": "verify the delegated result"},
+		}}, Finished: true}
+	case 1:
+		callbackID := integrationCallbackSubagentID(request.Messages)
+		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "close-child", Name: CloseSubagentToolName,
+			Arguments: map[string]any{"subagent_id": callbackID, "finish_turn": true},
+		}}, Finished: true}
+	default:
+		result = provider.StreamResult{Content: "The delegated work completed. Verified child result.", Finished: true}
+	}
+	return scriptedStream{result: result}, nil
+}
+
+func (m *silentCloseCallbackParentModel) Requests() []agentruntime.ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), m.requests...)
+}
+
+func integrationCallbackSubagentID(messages []agentruntime.Message) string {
+	for _, message := range messages {
+		if message.Type != agentruntime.MessageTypeRuntimeEvent {
+			continue
+		}
+		const opening = "<subagent_callback>"
+		const closing = "</subagent_callback>"
+		start := strings.Index(message.Content, opening)
+		end := strings.LastIndex(message.Content, closing)
+		if start < 0 || end <= start {
+			continue
+		}
+		var callback struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal([]byte(strings.TrimSpace(message.Content[start+len(opening):end])), &callback) == nil {
+			return callback.ID
+		}
+	}
+	return ""
+}
+
+func integrationReminderContents(reminders []agentruntime.ContextReminder) string {
+	var contents []string
+	for _, reminder := range reminders {
+		contents = append(contents, reminder.Content)
+	}
+	return strings.Join(contents, "\n")
+}
+
+func (m *outcomeRepairIntegrationModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := len(m.requests)
+	m.requests = append(m.requests, request)
+	m.mu.Unlock()
+	var result provider.StreamResult
+	switch index {
+	case 0:
+		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "domain-call", Name: "domain_action", Arguments: map[string]any{},
+		}}, Finished: true}
+	case 1:
+		result = provider.StreamResult{Content: "The action ran, but I omitted the outcome report.", Finished: true}
+	case 2:
+		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "outcome-call", Name: toolexecution.SubagentOutcomeToolName,
+			Arguments: map[string]any{
+				"status":  string(toolexecution.SubagentOutcomeCompleted),
+				"summary": "The domain action completed once.",
+			},
+		}}, Finished: true}
+	default:
+		result = provider.StreamResult{Content: "The domain action is complete.", Finished: true}
+	}
+	return scriptedStream{result: result}, nil
+}
+
+func (m *outcomeRepairIntegrationModel) Requests() []agentruntime.ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), m.requests...)
 }
 
 func newIntegrationChildModel(content string) *integrationChildModel {
@@ -445,9 +727,36 @@ func newIntegrationCompletedChildModel(content, summary string) *integrationChil
 func (m *integrationChildModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	m.requests = append(m.requests, request)
+	if hasSubagentOutcomeRepairReminder(request) {
+		m.repairing = true
+	}
+	repairing := m.repairing
 	m.mu.Unlock()
+	if hasSubagentOutcomeRepairReminder(request) {
+		return scriptedStream{result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{
+				ID:   "outcome-repair",
+				Name: toolexecution.SubagentOutcomeToolName,
+				Arguments: map[string]any{
+					"status":    string(toolexecution.SubagentOutcomeIncomplete),
+					"summary":   m.content,
+					"next_step": "Continue with more information.",
+				},
+			}},
+			Finished: true,
+		}}, nil
+	}
+	if repairing {
+		if _, found := reportedSubagentOutcome(request.TurnID, request.Messages); found {
+			return scriptedStream{result: provider.StreamResult{Content: m.content, Finished: true}}, nil
+		}
+	}
 	stream := integrationChildStream{releaseC: m.releaseC, content: m.content}
-	if m.outcome != nil && !integrationHasOutcomeResult(request.Messages) {
+	if m.outcome != nil {
+		_, reported := reportedSubagentOutcome(request.TurnID, request.Messages)
+		if reported {
+			return stream, nil
+		}
 		arguments := map[string]any{"status": string(m.outcome.Status), "summary": m.outcome.Summary}
 		if m.outcome.NextStep != "" {
 			arguments["next_step"] = m.outcome.NextStep
@@ -456,15 +765,6 @@ func (m *integrationChildModel) Start(_ context.Context, request agentruntime.Mo
 		stream.toolCalls = []provider.ToolCall{{ID: "outcome", Name: toolexecution.SubagentOutcomeToolName, Arguments: arguments}}
 	}
 	return stream, nil
-}
-
-func integrationHasOutcomeResult(messages []agentruntime.Message) bool {
-	for _, message := range messages {
-		if message.ToolResult != nil && message.ToolResult.Name == toolexecution.SubagentOutcomeToolName && message.ToolResult.Status == agentruntime.ToolResultSucceeded {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *integrationChildModel) waitRequests(t *testing.T, count int) {

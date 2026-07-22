@@ -81,6 +81,42 @@ Within one model step, several tool calls may execute concurrently. The runtime
 waits for all calls in that step and persists their result messages in original
 provider order before it makes the next model request.
 
+## Completion admission
+
+Low-level AgentRuntime integrations may configure `Config.CompletionGuard` to
+inspect a defensive transcript snapshot after the provider's final output has
+been persisted but before `RunCompleted` is committed:
+
+```go
+guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
+    agentruntime.CompletionDecision,
+    error,
+) {
+    if outcomeExists(attempt.TurnID, attempt.Messages) || attempt.RepairCount > 0 {
+        return agentruntime.CompletionDecision{
+            Action: agentruntime.CompletionProceed,
+        }, nil
+    }
+    return agentruntime.CompletionDecision{
+        Action: agentruntime.CompletionRetry,
+        ContextReminders: []agentruntime.ContextReminder{{
+            Content: "Report the existing outcome; do not repeat the work.",
+        }},
+        ToolAllowlist: []string{"report_outcome"},
+    }, nil
+}
+```
+
+The retry reminder is ephemeral and appears only on the next provider request.
+A non-nil allowlist restricts that request and all of its follow-up rounds.
+Guard implementations own their retry policy; use `RepairCount` to keep it
+bounded. AgentCLI applies this mechanism automatically to child sessions to
+enforce one `report_subagent_outcome` repair without re-running domain tools.
+Root callback turns use a separate delivery guard: an answer emitted alongside
+a final cleanup tool counts as delivered, while a silent callback turn receives
+one tool-free provider round to report its authoritative result. This prevents
+silent completion without duplicating content that was already streamed.
+
 ## Run status
 
 `run.Status()` reports `active`, `waiting_for_permission`,

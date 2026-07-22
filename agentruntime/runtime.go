@@ -19,6 +19,7 @@ type Config struct {
 	Messages                storage.MessageStorage
 	SystemPrompts           []string
 	ContextReminderProvider ContextReminderProvider
+	CompletionGuard         CompletionGuard
 	Tools                   []ToolDefinition
 	ToolRequests            chan<- ToolRequest
 	ToolResults             <-chan ToolResultEnvelope
@@ -46,6 +47,7 @@ type Runtime struct {
 	messages                storage.MessageStorage
 	systemPrompts           []string
 	contextReminderProvider ContextReminderProvider
+	completionGuard         CompletionGuard
 	tools                   []ToolDefinition
 	toolRequests            chan<- ToolRequest
 	toolResults             <-chan ToolResultEnvelope
@@ -127,6 +129,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		messages:                  config.Messages,
 		systemPrompts:             append([]string(nil), config.SystemPrompts...),
 		contextReminderProvider:   config.ContextReminderProvider,
+		completionGuard:           config.CompletionGuard,
 		tools:                     cloneToolDefinitions(config.Tools),
 		toolRequests:              config.ToolRequests,
 		toolResults:               config.ToolResults,

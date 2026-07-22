@@ -37,15 +37,19 @@ type Run struct {
 	// The following coordinator-owned values are initialized here so routing,
 	// interruption, and provider execution can share this Run without adding
 	// another mutable owner of its state.
-	control           chan runControl
-	toolResults       []ToolResultEnvelope
-	toolResultsNotify chan struct{}
-	providerCancel    context.CancelFunc
-	providerEvents    <-chan provider.StreamEvent
-	steps             int
-	terminalNotify    chan struct{}
-	finished          chan struct{}
-	finishOnce        sync.Once
+	control                   chan runControl
+	toolResults               []ToolResultEnvelope
+	toolResultsNotify         chan struct{}
+	providerCancel            context.CancelFunc
+	providerEvents            <-chan provider.StreamEvent
+	steps                     int
+	completionRepairs         int
+	completionReminder        []ContextReminder
+	completionToolsRestricted bool
+	completionToolAllowlist   []string
+	terminalNotify            chan struct{}
+	finished                  chan struct{}
+	finishOnce                sync.Once
 }
 
 type RunStatus string
@@ -562,6 +566,8 @@ func (r *Run) interpretEffect(ctx context.Context, runtime *Runtime, effect Effe
 		}
 	case CancelProvider:
 		r.cancelProvider()
+	case AttemptComplete:
+		return r.attemptComplete(ctx, runtime)
 	case CompleteRun, FailRun:
 		// publish caches the terminal outcome before effect interpretation.
 	case CloseRun:
@@ -627,6 +633,11 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 			return fmt.Errorf("resolve context reminders: %w", err)
 		}
 	}
+	reminders = append(reminders, r.takeCompletionReminder()...)
+	tools := cloneToolDefinitions(runtime.tools)
+	if restricted, allowlist := r.completionToolRestriction(); restricted {
+		tools = filterCompletionTools(tools, allowlist)
+	}
 
 	r.cancelProvider()
 	providerCtx, cancel := context.WithCancel(ctx)
@@ -636,7 +647,7 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		SystemPrompts:    append([]string(nil), runtime.systemPrompts...),
 		ContextReminders: cloneContextReminders(reminders),
 		Messages:         storage.CloneMessages(messages),
-		Tools:            cloneToolDefinitions(runtime.tools),
+		Tools:            tools,
 	})
 	if err != nil {
 		cancel()
@@ -654,6 +665,83 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	// accessor; startProvider is always called by that one loop goroutine.
 	r.setProviderEvents(stream.Subscribe(providerCtx))
 	return nil
+}
+
+func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
+	if runtime.completionGuard == nil {
+		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
+	}
+	messages, err := runtime.messages.List(ctx, r.sessionID)
+	if err != nil {
+		return r.fail(ctx, runtime, fmt.Errorf("inspect completion messages: %w", err))
+	}
+	attempt := CompletionAttempt{
+		SessionID: r.sessionID, TurnID: r.turnID, Messages: storage.CloneMessages(messages),
+		ProviderSteps: r.providerSteps(), RepairCount: r.CompletionRepairCount(),
+	}
+	decision, err := runtime.completionGuard(ctx, cloneCompletionAttempt(attempt))
+	if err != nil {
+		return r.fail(ctx, runtime, fmt.Errorf("evaluate completion guard: %w", err))
+	}
+	decision = cloneCompletionDecision(decision)
+	if err := validateCompletionDecision(decision, runtime.tools); err != nil {
+		return r.fail(ctx, runtime, fmt.Errorf("evaluate completion guard: %w", err))
+	}
+	if decision.Action == CompletionProceed {
+		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
+	}
+	r.setCompletionRepair(decision)
+	if err := r.startProvider(ctx, runtime); err != nil {
+		return r.fail(ctx, runtime, err)
+	}
+	return true
+}
+
+// CompletionRepairCount reports how many provider retries the completion
+// guard requested for this run.
+func (r *Run) CompletionRepairCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.completionRepairs
+}
+
+func (r *Run) setCompletionRepair(decision CompletionDecision) {
+	r.mu.Lock()
+	r.completionRepairs++
+	r.completionReminder = cloneContextReminders(decision.ContextReminders)
+	if decision.ToolAllowlist != nil {
+		r.completionToolsRestricted = true
+		r.completionToolAllowlist = append([]string(nil), decision.ToolAllowlist...)
+	}
+	r.mu.Unlock()
+}
+
+func (r *Run) takeCompletionReminder() []ContextReminder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reminders := cloneContextReminders(r.completionReminder)
+	r.completionReminder = nil
+	return reminders
+}
+
+func (r *Run) completionToolRestriction() (bool, []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...)
+}
+
+func filterCompletionTools(tools []ToolDefinition, allowlist []string) []ToolDefinition {
+	allowed := make(map[string]struct{}, len(allowlist))
+	for _, name := range allowlist {
+		allowed[name] = struct{}{}
+	}
+	filtered := make([]ToolDefinition, 0, len(allowlist))
+	for _, tool := range tools {
+		if _, found := allowed[tool.Name]; found {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
 }
 
 func cloneContextReminders(reminders []ContextReminder) []ContextReminder {

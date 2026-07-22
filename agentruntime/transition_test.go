@@ -38,7 +38,7 @@ func TestEffectsLifecycleOrder(t *testing.T) {
 		{
 			name:  "final provider completion",
 			event: AgentEvent{SessionID: "session", TurnID: "turn", Type: ProviderEventReceived, ProviderEvent: completed},
-			want:  []EffectType{AppendMessages, EmitEvent},
+			want:  []EffectType{AppendMessages, AttemptComplete},
 		},
 		{
 			name:  "provider tool completion",
@@ -143,11 +143,8 @@ func TestEffectsEndsTurnAfterSuccessfulConfiguredToolBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Effects() error = %v", err)
 	}
-	if got, want := effectTypes(effects), []EffectType{AppendMessages, EmitEvent}; !reflect.DeepEqual(got, want) {
+	if got, want := effectTypes(effects), []EffectType{AppendMessages, AttemptComplete}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("effect types = %v, want %v", got, want)
-	}
-	if effects[1].Event == nil || effects[1].Event.Type != RunCompleted {
-		t.Fatalf("completion effect = %#v, want RunCompleted", effects[1])
 	}
 }
 

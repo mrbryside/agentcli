@@ -663,7 +663,33 @@ func (m *subagentGateModel) Start(_ context.Context, request agentruntime.ModelR
 	m.mu.Lock()
 	m.requests = append(m.requests, request)
 	m.mu.Unlock()
+	if hasSubagentOutcomeRepairReminder(request) {
+		return scriptedStream{result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{
+				ID:   "outcome-repair",
+				Name: toolexecution.SubagentOutcomeToolName,
+				Arguments: map[string]any{
+					"status":    string(toolexecution.SubagentOutcomeIncomplete),
+					"summary":   "Test child needs follow-up.",
+					"next_step": "Continue the test.",
+				},
+			}},
+			Finished: true,
+		}}, nil
+	}
+	if _, found := reportedSubagentOutcome(request.TurnID, request.Messages); found {
+		return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil
+	}
 	return subagentGateStream{release: m.releases}, nil
+}
+
+func hasSubagentOutcomeRepairReminder(request agentruntime.ModelRequest) bool {
+	for _, reminder := range request.ContextReminders {
+		if strings.Contains(reminder.Content, "attempted to finish without a successful report_subagent_outcome") {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *subagentGateModel) Requests() []agentruntime.ModelRequest {
