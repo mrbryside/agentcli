@@ -143,6 +143,56 @@ func TestSubagentIntegrationFinishTurnAllowsSequentialDispatch(t *testing.T) {
 	}
 }
 
+func TestSubagentIntegrationFastCallbackDoesNotTriggerSpeculativeParentAnswer(t *testing.T) {
+	parentModel := newIntegrationPendingCallbackParentModel()
+	childModel := newIntegrationChildModel("Who should receive the transfer?")
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
+		"researcher": childModel,
+	})
+
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent", TurnID: "parent-fast-callback",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate then follow up"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentModel.waitForSecondRound(t)
+	childModel.waitRequests(t, 1)
+	childModel.release()
+	children, err := agent.ListSubagents(context.Background(), "parent", false)
+	if err != nil || len(children) != 1 {
+		t.Fatalf("children before callback = %#v, err = %v", children, err)
+	}
+	awaitSubagentStatus(t, agent.subagents, children[0].ID, storage.SubagentStatusIdle)
+	parentModel.releaseSecondRound()
+	waitRun(t, parentRun)
+
+	if got := parentModel.requestCount(); got != 2 {
+		t.Fatalf("parent provider requests = %d, want 2 without speculative recovery round", got)
+	}
+	messages, err := agent.ListMessages(context.Background(), "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundAlreadySent := false
+	for _, message := range messages {
+		if message.ToolResult == nil || message.ToolResult.Name != SendSubagentMessageToolName {
+			continue
+		}
+		var result struct {
+			Action toolexecution.SubagentSendAction `json:"action"`
+		}
+		if err := json.Unmarshal(message.ToolResult.Output, &result); err != nil {
+			t.Fatal(err)
+		}
+		foundAlreadySent = message.ToolResult.Status == agentruntime.ToolResultSucceeded && result.Action == toolexecution.SubagentSendAlreadySent
+	}
+	if !foundAlreadySent {
+		t.Fatalf("parent transcript has no controlled already_sent result: %#v", messages)
+	}
+}
+
 func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
@@ -466,6 +516,86 @@ type integrationInterruptParentModel struct {
 type integrationSequentialDispatchParentModel struct {
 	mu       sync.Mutex
 	requests int
+}
+
+type integrationPendingCallbackParentModel struct {
+	mu            sync.Mutex
+	requests      int
+	secondEntered chan struct{}
+	secondRelease chan struct{}
+}
+
+func newIntegrationPendingCallbackParentModel() *integrationPendingCallbackParentModel {
+	return &integrationPendingCallbackParentModel{
+		secondEntered: make(chan struct{}),
+		secondRelease: make(chan struct{}),
+	}
+}
+
+func (m *integrationPendingCallbackParentModel) Start(ctx context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	m.requests++
+	round := m.requests
+	m.mu.Unlock()
+
+	if round == 1 {
+		call := provider.ToolCall{ID: "start", Name: StartSubagentToolName, Arguments: map[string]any{
+			"name": "researcher", "message": "ask for the missing transfer details", "finish_turn": false,
+		}}
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
+	}
+	if round == 2 {
+		close(m.secondEntered)
+		select {
+		case <-m.secondRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		childID := integrationStartedSubagentID(request.Messages)
+		if childID == "" {
+			return nil, errors.New("start_subagent result did not contain a child ID")
+		}
+		call := provider.ToolCall{ID: "send", Name: SendSubagentMessageToolName, Arguments: map[string]any{
+			"subagent_id": childID, "message": "ask again", "finish_turn": true,
+		}}
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
+	}
+	return scriptedStream{result: provider.StreamResult{Content: "speculative parent question", Finished: true}}, nil
+}
+
+func (m *integrationPendingCallbackParentModel) waitForSecondRound(t *testing.T) {
+	t.Helper()
+	select {
+	case <-m.secondEntered:
+	case <-time.After(time.Second):
+		t.Fatal("parent did not reach second provider round")
+	}
+}
+
+func (m *integrationPendingCallbackParentModel) releaseSecondRound() {
+	close(m.secondRelease)
+}
+
+func (m *integrationPendingCallbackParentModel) requestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.requests
+}
+
+func integrationStartedSubagentID(messages []agentruntime.Message) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		result := messages[index].ToolResult
+		if result == nil || result.Name != StartSubagentToolName || result.Status != agentruntime.ToolResultSucceeded {
+			continue
+		}
+		var output struct {
+			SubagentID string `json:"subagent_id"`
+		}
+		if json.Unmarshal(result.Output, &output) == nil {
+			return output.SubagentID
+		}
+	}
+	return ""
 }
 
 func (m *integrationSequentialDispatchParentModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {

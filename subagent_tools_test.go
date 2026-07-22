@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/toolexecution"
@@ -328,6 +329,58 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || !queued.FinishTurn || queued.Behavior != "end_turn" {
 		t.Fatalf("next turn = %#v", queued)
 	}
+}
+
+func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 1)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	callbacks := manager.subscribeCallbacks(context.Background())
+	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	select {
+	case <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+	}
+	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	bridge := newTestSubagentToolBridge(manager)
+
+	test := func(turnID string, finishTurn bool, wantBehavior string) {
+		t.Helper()
+		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+			SessionID: "parent", TurnID: turnID, CallID: "send", ToolName: SendSubagentMessageToolName,
+		})
+		arguments, err := json.Marshal(map[string]any{
+			"subagent_id": record.ID, "message": "too early", "finish_turn": finishTurn,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, err := callSubagentTool(bridge, SendSubagentMessageToolName, ctx, arguments)
+		if err != nil {
+			t.Fatalf("callback_pending returned tool error: %v", err)
+		}
+		var result struct {
+			Action       toolexecution.SubagentSendAction `json:"action"`
+			Accepted     bool                             `json:"accepted"`
+			FinishTurn   bool                             `json:"finish_turn"`
+			TurnBehavior string                           `json:"turn_behavior"`
+			Instruction  string                           `json:"instruction"`
+		}
+		if err := json.Unmarshal(output, &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.FinishTurn != finishTurn || result.TurnBehavior != wantBehavior || !strings.Contains(result.Instruction, "authoritative callback") || !strings.Contains(result.Instruction, "Do not retry") {
+			t.Fatalf("callback_pending result = %s", output)
+		}
+	}
+
+	test("final-turn", true, "end_turn")
+	test("continuing-turn", false, "continue_turn")
 }
 
 func TestReadSubagentRecoveryAPIReportsLastTurnFailure(t *testing.T) {

@@ -140,8 +140,19 @@ func TestSubagentManagerIdleSendWaitsForLatestCallbackObservation(t *testing.T) 
 	if _, err := manager.Send(context.Background(), "parent", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentCallbackPending) {
 		t.Fatalf("direct send before callback observation error = %v", err)
 	}
-	if _, err := manager.SendFromParentTurn(context.Background(), "parent", "early-turn", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentCallbackPending) {
-		t.Fatalf("model send before callback observation error = %v", err)
+	sameTurn, err := manager.SendFromParentTurn(context.Background(), "parent", "start-turn", record.ID, "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameTurn.Action != toolexecution.SubagentSendAlreadySent || sameTurn.Accepted {
+		t.Fatalf("same-turn send after callback = %#v, want already_sent", sameTurn)
+	}
+	pending, err := manager.SendFromParentTurn(context.Background(), "parent", "early-turn", record.ID, "follow up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Action != toolexecution.SubagentSendCallbackPending || pending.Accepted || pending.Subagent.Status != storage.SubagentStatusIdle {
+		t.Fatalf("model send before callback observation = %#v", pending)
 	}
 	observeTestSubagentCallback(t, manager, callback)
 	sent, err := manager.SendFromParentTurn(context.Background(), "parent", "callback-turn", record.ID, "follow up")

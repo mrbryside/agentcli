@@ -595,8 +595,10 @@ func (m *subagentManager) StatusFromParentTurn(ctx context.Context, parentSessio
 }
 
 // SendFromParentTurn accepts at most one dispatch from a parent turn to one
-// child. Exact retries return duplicate; changed retries return already_sent.
-// Neither case starts a turn or appends mailbox work.
+// child. Exact retries return duplicate; changed retries return already_sent,
+// and both decisions precede lifecycle admission. A pending authoritative
+// callback is also a controlled non-error result so the model can end its turn
+// without inventing a replacement response. None of these cases adds work.
 func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id, content string) (toolexecution.SubagentSendResult, error) {
 	ctx = nonNilContext(ctx)
 	parentTurnID = strings.TrimSpace(parentTurnID)
@@ -611,9 +613,6 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	if err != nil {
 		return toolexecution.SubagentSendResult{}, err
 	}
-	if record.Status == storage.SubagentStatusClosed {
-		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
-	}
 	instance, err := m.instance(id)
 	if err != nil {
 		return toolexecution.SubagentSendResult{}, err
@@ -622,12 +621,6 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	defer instance.mu.Unlock()
 	record, err = m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
-		return toolexecution.SubagentSendResult{}, err
-	}
-	if record.Status == storage.SubagentStatusClosed {
-		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
-	}
-	if err := m.validateSubagentSend(ctx, record); err != nil {
 		return toolexecution.SubagentSendResult{}, err
 	}
 	key := subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, content)
@@ -642,6 +635,18 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 			Action: action, Subagent: record, IdempotencyKey: key,
 			Deduplicated: deduplicated, Accepted: false,
 		}, nil
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return toolexecution.SubagentSendResult{}, storage.ErrSubagentClosed
+	}
+	if err := m.validateSubagentSend(ctx, record); err != nil {
+		if errors.Is(err, storage.ErrSubagentCallbackPending) {
+			return toolexecution.SubagentSendResult{
+				Action: toolexecution.SubagentSendCallbackPending, Subagent: record,
+				IdempotencyKey: key, Accepted: false,
+			}, nil
+		}
+		return toolexecution.SubagentSendResult{}, err
 	}
 	action := toolexecution.SubagentSendStarted
 	if record.Status == storage.SubagentStatusRunning {

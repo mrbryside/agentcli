@@ -158,7 +158,10 @@ SHA-256(parentSessionID + parentTurnID + subagentID + normalizedMessage)
 
 An exact retry returns `action: duplicate`; a different second message from
 the same parent turn returns `action: already_sent`. Neither invocation starts
-a child turn or adds mailbox work. A later parent turn may send again. Direct
+a child turn or adds mailbox work. This check happens before lifecycle
+admission, so even when a fast child has already produced a callback, a
+same-parent-turn retry remains `duplicate` or `already_sent` instead of becoming
+a tool error. A later parent turn may send again. Direct
 application calls to `Agent.SendSubagentMessage` represent explicit UI/user
 input and are not restricted by the model-facing parent-turn guard.
 
@@ -176,8 +179,25 @@ The possibility of a later question alone is not a reason to keep it open.
 Sending follows lifecycle admission. A running child accepts FIFO mailbox
 input. An idle `incomplete`, `completed`, or `failed` child accepts a focused
 follow-up, distinct next task, or recovery instruction only after its latest
-callback was consumed. Closed, callback-pending, and outcome-less children are
-rejected with a specific lifecycle error.
+callback was consumed. For the model-facing tool, a pending callback is an
+expected controlled result rather than a failed tool result:
+
+```json
+{
+  "action": "callback_pending",
+  "accepted": false,
+  "finish_turn": true,
+  "turn_behavior": "end_turn",
+  "instruction": "No message was sent; wait for the authoritative callback."
+}
+```
+
+The result preserves the requested `finish_turn`. `false` permits only concrete
+operations already planned for other children; it never permits retrying the
+same child or answering the user on the child's behalf. Tool calls already in
+the same parallel batch still all run before AgentRuntime evaluates the batch.
+Direct Go and HTTP sends continue returning the callback-pending lifecycle
+error, while closed and outcome-less children remain rejected.
 
 Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model
 tool, Terminal UI, and HTTP `DELETE` require a `completed` or `failed` outcome

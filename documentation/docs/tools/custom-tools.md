@@ -92,6 +92,14 @@ and every tool in that batch uses `EndTurn`. A `ContinueTurn` result keeps the
 loop open, and failed, interrupted, denied, or declined results continue to the
 provider so it can explain or recover from the error.
 
+Framework tools may represent an expected admission conflict as a successful
+structured result when provider recovery would be harmful. For example,
+`send_subagent_message` returns `action: callback_pending` and `accepted: false`
+instead of a failed result when the child's authoritative callback is already
+waiting. Its resolved `finish_turn` still controls `EndTurn` or `ContinueTurn`;
+real validation, ownership, storage, and execution failures remain failed tool
+results.
+
 `start_subagent`, `send_subagent_message`, and `close_subagent` expose a
 model-facing `finish_turn` argument. It defaults to `true`, applying `EndTurn`
 after a final dispatch or cleanup. The model sets it to `false` only while it
