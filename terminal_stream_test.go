@@ -75,21 +75,27 @@ func TestTerminalStreamRendererFallsBackWithoutReadline(t *testing.T) {
 func TestTerminalStreamRendererFormatsMarkdownWithoutVerbosePadding(t *testing.T) {
 	renderer := &terminalStreamRenderer{}
 	renderer.attach(func() int { return 80 })
-	renderer.source = "# Title\n\nThis is **bold**.\n\n- one\n- two\n\n```go\nfmt.Println(\"hi\")\n```"
+	renderer.source = "### Title\n\nThis is **bold** with `inline code`.\n\n- one\n- two\n\n```go\nfmt.Println(\"hi\")\n```"
 
 	renderer.mu.Lock()
 	rendered := renderer.renderMarkdownLocked()
 	renderer.mu.Unlock()
 	plain := terminalANSIEscape.ReplaceAllString(rendered, "")
-	for _, wanted := range []string{"# Title", "This is bold.", "• one", "fmt.Println"} {
+	for _, wanted := range []string{"Title", "This is bold with inline code.", "• one", "fmt.Println"} {
 		if !strings.Contains(plain, wanted) {
 			t.Fatalf("rendered Markdown %q missing %q", plain, wanted)
 		}
 	}
-	for _, rawSyntax := range []string{"**bold**", "```go"} {
+	for _, rawSyntax := range []string{"# Title", "###", "**bold**", "```go"} {
 		if strings.Contains(plain, rawSyntax) {
 			t.Fatalf("rendered Markdown still contains %q: %q", rawSyntax, plain)
 		}
+	}
+	if strings.Contains(rendered, "\x1b[48;") {
+		t.Fatalf("rendered Markdown contains a background color: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[38;5;203") {
+		t.Fatalf("inline code did not keep its red foreground: %q", rendered)
 	}
 	if len(rendered) > 4096 {
 		t.Fatalf("small Markdown rendered to %d bytes", len(rendered))

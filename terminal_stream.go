@@ -22,9 +22,22 @@ var terminalMarkdownStyle = func() glamour.TermRendererOption {
 	style.Document.BlockSuffix = ""
 	style.Document.Color = nil
 	style.Document.Margin = &zero
-	style.H1.Prefix = "# "
+	headings := []*string{
+		&style.H1.Prefix,
+		&style.H2.Prefix,
+		&style.H3.Prefix,
+		&style.H4.Prefix,
+		&style.H5.Prefix,
+		&style.H6.Prefix,
+	}
+	for _, prefix := range headings {
+		*prefix = ""
+	}
 	style.H1.Suffix = ""
 	style.H1.BackgroundColor = nil
+	style.Code.Prefix = ""
+	style.Code.Suffix = ""
+	style.Code.BackgroundColor = nil
 	style.CodeBlock.Margin = &zero
 	return glamour.WithStyles(style)
 }()
