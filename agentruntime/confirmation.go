@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"harness-api/confirmation"
+	"github.com/mrbryside/agentcli/confirmation"
 )
 
 type pendingConfirmation struct {

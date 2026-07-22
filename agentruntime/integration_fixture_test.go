@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	. "harness-api/agentruntime"
+	. "github.com/mrbryside/agentcli/agentruntime"
 )
 
 const integrationTimeout = 3 * time.Second

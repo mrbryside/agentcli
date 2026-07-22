@@ -1,6 +1,6 @@
 package agentruntime
 
-import "harness-api/storage"
+import "github.com/mrbryside/agentcli/storage"
 
 // EffectType identifies a command that the Run coordinator interprets.
 type EffectType string

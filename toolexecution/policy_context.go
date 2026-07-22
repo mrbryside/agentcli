@@ -3,7 +3,7 @@ package toolexecution
 import (
 	"context"
 
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 type permissionPolicyContextKey struct{}

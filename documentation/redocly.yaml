@@ -1,5 +1,5 @@
 apis:
-  harness-agent@v1:
+  agentcli@v1:
     root: ./static/openapi/swagger.json
 
 extends:

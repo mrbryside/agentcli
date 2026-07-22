@@ -2,8 +2,8 @@ package permission_test
 
 import (
 	"errors"
-	. "harness-api/permission"
-	"harness-api/storage/inmemory"
+	. "github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 	"testing"
 	"time"
 )

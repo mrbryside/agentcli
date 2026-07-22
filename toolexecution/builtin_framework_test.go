@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {

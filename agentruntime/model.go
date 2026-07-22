@@ -3,7 +3,7 @@ package agentruntime
 import (
 	"context"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 // ModelRequest is the provider-neutral input for one provider stream round.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 // PermissionConfig describes a fixed permission requirement for a custom

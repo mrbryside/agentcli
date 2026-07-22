@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"harness-api/agentruntime"
+	"github.com/mrbryside/agentcli/agentruntime"
 )
 
 func (e *Executor) worker(root context.Context, jobs <-chan workerJob, results chan<- agentruntime.ToolResultEnvelope, workers *sync.WaitGroup) {

@@ -16,9 +16,9 @@ import (
     "fmt"
     "log"
 
-    "harness-api/agentcli"
-    "harness-api/agentruntime"
-    "harness-api/provider"
+    "github.com/mrbryside/agentcli"
+    "github.com/mrbryside/agentcli/agentruntime"
+    "github.com/mrbryside/agentcli/provider"
 )
 
 type lookupInput struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 func TestToolResultRouterRoutesBySessionAndTurn(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/agentruntime"
+	"github.com/mrbryside/agentcli/agentruntime"
 )
 
 func TestExecutorRunsWorkersInParallel(t *testing.T) {

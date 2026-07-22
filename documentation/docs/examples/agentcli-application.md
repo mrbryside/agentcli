@@ -70,10 +70,10 @@ import (
     "syscall"
     "time"
 
-    "harness-api/agentcli"
-    "harness-api/confirmation"
-    "harness-api/permission"
-    "harness-api/toolexecution"
+    "github.com/mrbryside/agentcli"
+    "github.com/mrbryside/agentcli/confirmation"
+    "github.com/mrbryside/agentcli/permission"
+    "github.com/mrbryside/agentcli/toolexecution"
 )
 
 type publishInput struct {

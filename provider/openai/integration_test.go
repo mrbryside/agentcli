@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 func TestOpenAIProviderStreamsEventsAndAggregatesResult(t *testing.T) {

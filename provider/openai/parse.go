@@ -3,7 +3,7 @@ package openai
 import (
 	openaiclient "github.com/sashabaranov/go-openai"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 // Parse converts one OpenAI streaming chunk into provider-neutral events.

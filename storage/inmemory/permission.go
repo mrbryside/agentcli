@@ -1,7 +1,7 @@
 package inmemory
 
 import (
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 	"sort"
 	"sync"
 	"time"

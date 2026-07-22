@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"harness-api/agentruntime"
+	"github.com/mrbryside/agentcli/agentruntime"
 )
 
 func TestRegistryRegisterDefinitionsAndLookup(t *testing.T) {

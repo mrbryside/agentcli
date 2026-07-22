@@ -15,12 +15,18 @@ sidebar_position: 1
 
 ## Use the Go module
 
-Inside this repository, package imports use the module path `harness-api`:
+Add the package to your application:
+
+```bash
+go get github.com/mrbryside/agentcli
+```
+
+Import the root package directly:
 
 ```go
 import (
-    "harness-api/agentcli"
-    "harness-api/agentruntime"
+    "github.com/mrbryside/agentcli"
+    "github.com/mrbryside/agentcli/agentruntime"
 )
 ```
 

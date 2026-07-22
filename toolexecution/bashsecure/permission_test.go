@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 func TestDescribePermissionClassifiesReadOnlyCommandsAsNonCritical(t *testing.T) {

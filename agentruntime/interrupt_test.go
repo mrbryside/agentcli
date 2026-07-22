@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/provider"
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 func TestRunInterruptCancelsProviderAndIsIdempotent(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"harness-api/agentcli"
-	"harness-api/confirmation"
-	"harness-api/toolexecution"
+	"github.com/mrbryside/agentcli"
+	"github.com/mrbryside/agentcli/confirmation"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 const maximumConfirmationDemoActionLength = 240

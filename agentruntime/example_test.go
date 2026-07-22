@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"harness-api/agentruntime"
-	openaiadapter "harness-api/agentruntime/modeladapter/openai"
-	"harness-api/provider"
-	provideropenai "harness-api/provider/openai"
-	"harness-api/storage/inmemory"
-	"harness-api/toolexecution"
+	"github.com/mrbryside/agentcli/agentruntime"
+	openaiadapter "github.com/mrbryside/agentcli/agentruntime/modeladapter/openai"
+	"github.com/mrbryside/agentcli/provider"
+	provideropenai "github.com/mrbryside/agentcli/provider/openai"
+	"github.com/mrbryside/agentcli/storage/inmemory"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 // ExampleRuntime wires the caller-owned tool channels, workers, storage, and

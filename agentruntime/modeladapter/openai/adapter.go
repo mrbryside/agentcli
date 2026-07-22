@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"harness-api/agentruntime"
-	"harness-api/provider"
-	provideropenai "harness-api/provider/openai"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/provider"
+	provideropenai "github.com/mrbryside/agentcli/provider/openai"
 
 	sdkopenai "github.com/sashabaranov/go-openai"
 )

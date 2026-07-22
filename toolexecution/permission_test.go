@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/agentruntime"
-	"harness-api/permission"
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 func TestPermissionAdmissionDoesNotOccupyWorker(t *testing.T) {

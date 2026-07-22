@@ -1,6 +1,6 @@
 package agentruntime
 
-import "harness-api/provider"
+import "github.com/mrbryside/agentcli/provider"
 
 // RunResult is the aggregate outcome of a completed agent turn.
 type RunResult struct {

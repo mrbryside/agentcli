@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	. "harness-api/agentruntime"
-	openaiadapter "harness-api/agentruntime/modeladapter/openai"
-	provideropenai "harness-api/provider/openai"
-	"harness-api/storage"
-	"harness-api/storage/inmemory"
-	"harness-api/toolexecution"
+	. "github.com/mrbryside/agentcli/agentruntime"
+	openaiadapter "github.com/mrbryside/agentcli/agentruntime/modeladapter/openai"
+	provideropenai "github.com/mrbryside/agentcli/provider/openai"
+	"github.com/mrbryside/agentcli/storage"
+	"github.com/mrbryside/agentcli/storage/inmemory"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 func TestIntegrationToolRoundTrip(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	generic "github.com/mrbryside/agentcli/provider"
 	sdkopenai "github.com/sashabaranov/go-openai"
-	generic "harness-api/provider"
 )
 
 // Config contains immutable OpenAI provider configuration.

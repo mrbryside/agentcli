@@ -1,7 +1,7 @@
 package agentruntime
 
 import (
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 	"time"
 )
 

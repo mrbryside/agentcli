@@ -1,17 +1,17 @@
 const config = {
-  title: 'Harness Agent CLI',
+  title: 'AgentCLI',
   tagline: 'Provider-neutral agent runtime, tools, events, and HTTP APIs for Go',
   favicon: 'img/favicon.svg',
-  url: 'https://example.invalid',
-  baseUrl: '/',
+  url: 'https://mrbryside.github.io',
+  baseUrl: '/agentcli/',
   onBrokenLinks: 'throw',
   markdown: {
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },
   },
-  organizationName: 'harness-api',
-  projectName: 'harness-api',
+  organizationName: 'mrbryside',
+  projectName: 'agentcli',
   presets: [
     [
       'classic',
@@ -34,7 +34,7 @@ const config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Harness Agent CLI',
+      title: 'AgentCLI',
       items: [
         {to: '/', label: 'Get started', position: 'left'},
         {to: '/tools/custom-tools', label: 'Custom tools', position: 'left'},
@@ -67,7 +67,7 @@ const config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Harness Agent CLI`,
+      copyright: `Copyright © ${new Date().getFullYear()} AgentCLI`,
     },
     prism: {
       additionalLanguages: ['bash', 'go', 'json', 'yaml'],

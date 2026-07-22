@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"sync"
 
-	"harness-api/agentruntime"
-	"harness-api/confirmation"
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/confirmation"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 // Handler executes a tool call with its JSON arguments.

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"harness-api/confirmation"
-	"harness-api/permission"
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/confirmation"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 // Config supplies the runtime's provider, transcript store, and explicitly

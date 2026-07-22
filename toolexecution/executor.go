@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"harness-api/agentruntime"
-	"harness-api/confirmation"
-	"harness-api/permission"
-	"harness-api/storage"
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/confirmation"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/storage"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 // Executor consumes shared tool requests with a bounded worker pool.

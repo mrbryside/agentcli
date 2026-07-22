@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"harness-api/confirmation"
+	"github.com/mrbryside/agentcli/confirmation"
 )
 
 type ConfirmationStorage struct {

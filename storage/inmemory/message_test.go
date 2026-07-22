@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 func TestMessageStorageAppendAndListPreserveOrder(t *testing.T) {

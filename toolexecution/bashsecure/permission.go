@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 
 	"mvdan.cc/sh/v3/syntax"
 )

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 func TestResultRequiresTerminalEvent(t *testing.T) {

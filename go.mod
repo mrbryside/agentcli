@@ -1,4 +1,4 @@
-module harness-api
+module github.com/mrbryside/agentcli
 
 go 1.26.3
 

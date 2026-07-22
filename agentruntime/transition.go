@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"harness-api/provider"
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 // Effects derives the coordinator commands for event using only the previous

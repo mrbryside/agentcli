@@ -3,7 +3,7 @@ package storage
 import (
 	"time"
 
-	"harness-api/confirmation"
+	"github.com/mrbryside/agentcli/confirmation"
 )
 
 // ConfirmationStorage persists Yes/No confirmation lifecycle state

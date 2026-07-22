@@ -9,6 +9,16 @@ It includes two ready-to-use integration surfaces:
 - `agent.RunTerminal(...)` for an interactive local playground.
 - `agent.RunServer(...)` for an Echo JSON and SSE API.
 
+## Install
+
+```sh
+go get github.com/mrbryside/agentcli
+```
+
+```go
+import "github.com/mrbryside/agentcli"
+```
+
 ## Project configuration
 
 Create `.agentcli/config.yaml`:

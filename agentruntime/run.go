@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"harness-api/permission"
-	"harness-api/provider"
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 // Run owns the in-memory history and subscriptions for one agent turn. Its

@@ -3,10 +3,10 @@ package agentruntime
 import (
 	"encoding/json"
 
-	"harness-api/confirmation"
-	"harness-api/permission"
-	"harness-api/provider"
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/confirmation"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 // EventType identifies a fact in an agent turn's event history.

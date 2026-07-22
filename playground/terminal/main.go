@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"harness-api/agentcli"
+	"github.com/mrbryside/agentcli"
 )
 
 func main() {

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/permission"
-	"harness-api/provider"
-	"harness-api/storage"
-	"harness-api/storage/inmemory"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage"
+	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
 type runtimeModel struct{}

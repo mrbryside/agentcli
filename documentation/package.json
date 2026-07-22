@@ -1,11 +1,11 @@
 {
-  "name": "harness-api-documentation",
+  "name": "agentcli-documentation",
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "api:generate": "go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo swagger.go --dir ../agentcli --output static/openapi --outputTypes json,yaml --parseDependency",
-    "api:lint": "redocly lint harness-agent@v1",
-    "api:render": "redocly build-docs harness-agent@v1 --output static/redoc/index.html --title 'Harness Agent HTTP API' --template redoc-template.hbs",
+    "api:generate": "go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo swagger.go --dir .. --output static/openapi --outputTypes json,yaml --parseDependency",
+    "api:lint": "redocly lint agentcli@v1",
+    "api:render": "redocly build-docs agentcli@v1 --output static/redoc/index.html --title 'AgentCLI HTTP API' --template redoc-template.hbs",
     "api:docs": "npm run api:generate && npm run api:lint && npm run api:render",
     "start": "npm run api:docs && docusaurus start",
     "build": "npm run api:docs && docusaurus build",

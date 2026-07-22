@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"harness-api/agentruntime"
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 const (

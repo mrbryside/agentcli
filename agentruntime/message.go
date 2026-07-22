@@ -1,7 +1,7 @@
 // Package agentruntime coordinates provider-neutral agent turns.
 package agentruntime
 
-import "harness-api/storage"
+import "github.com/mrbryside/agentcli/storage"
 
 // Message and its related types are re-exported from storage so callers can
 // use the runtime without importing both packages for ordinary requests.

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 // PermissionController is the single immutable policy snapshot shared by an

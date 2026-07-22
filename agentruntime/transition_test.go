@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 func TestEffectsLifecycleOrder(t *testing.T) {

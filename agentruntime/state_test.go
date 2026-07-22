@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"harness-api/provider"
+	"github.com/mrbryside/agentcli/provider"
 )
 
 func TestStateAppendsWithoutChangingPriorState(t *testing.T) {

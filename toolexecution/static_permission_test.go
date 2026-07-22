@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/agentruntime"
-	"harness-api/permission"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/permission"
 )
 
 func TestStaticPermissionClonesActionsDefaultsRiskAndPreservesArguments(t *testing.T) {

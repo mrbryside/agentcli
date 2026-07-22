@@ -6,9 +6,9 @@
     "swagger": "2.0",
     "info": {
         "description": "Provider-neutral HTTP and server-sent-events API for running agent turns, reading retained messages, resolving tool decisions, and managing subagents.",
-        "title": "Harness Agent HTTP API",
+        "title": "AgentCLI HTTP API",
         "contact": {
-            "name": "Harness Agent API support"
+            "name": "AgentCLI API support"
         },
         "license": {
             "name": "MIT",

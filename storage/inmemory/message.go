@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"harness-api/storage"
+	"github.com/mrbryside/agentcli/storage"
 )
 
 // MessageStorage stores ordered transcripts in process memory.

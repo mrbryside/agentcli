@@ -15,10 +15,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"harness-api/agentruntime"
-	"harness-api/permission"
-	"harness-api/toolexecution"
-	"harness-api/toolexecution/bashsecure"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/toolexecution"
+	"github.com/mrbryside/agentcli/toolexecution/bashsecure"
 )
 
 const (

@@ -3,9 +3,9 @@ package provider_test
 import (
 	"context"
 
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/provider/openai"
 	sdkopenai "github.com/sashabaranov/go-openai"
-	"harness-api/provider"
-	"harness-api/provider/openai"
 )
 
 // ExampleStartStream verifies the public wiring without making a network

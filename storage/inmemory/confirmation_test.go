@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"harness-api/confirmation"
+	"github.com/mrbryside/agentcli/confirmation"
 )
 
 func TestConfirmationStorageTracksLateYesNoAndCancellation(t *testing.T) {

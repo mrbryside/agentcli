@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"encoding/json"
-	. "harness-api/agentruntime"
-	"harness-api/permission"
-	"harness-api/provider"
-	"harness-api/storage/inmemory"
-	"harness-api/toolexecution"
+	. "github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/permission"
+	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage/inmemory"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 func TestPermissionAllowOnceDelayedAnswerAndModelContinuation(t *testing.T) {
