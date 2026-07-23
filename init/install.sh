@@ -18,6 +18,10 @@ esac
 
 target=$folder
 
+tools_url=${AGENTCLI_TOOLS_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tools.go}
+temporary_tools=$(mktemp)
+trap 'rm -f "$temporary_tools"' 0 1 2 3 15
+
 printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
 IFS= read -r module </dev/tty || fail 'could not read the Go module path'
 
@@ -27,7 +31,10 @@ esac
 
 [ ! -e "$target" ] || fail "$target already exists; refusing to overwrite it"
 
+curl -fsSL "$tools_url" >"$temporary_tools" || fail 'could not download the starter read and glob tools'
+
 mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
+mv "$temporary_tools" "$target/tools.go"
 
 cat >"$target/go.mod" <<EOF
 module $module
@@ -73,6 +80,8 @@ func run() (runErr error) {
 	agent, err := agentcli.New(ctx,
 		agentcli.WithProject(project),
 		agentcli.WithNonInteractive(initialPrompt != ""),
+		agentcli.WithTool(newGlobTool(projectRoot)),
+		agentcli.WithTool(newReadTool(projectRoot)),
 	)
 	if err != nil {
 		return fmt.Errorf("create agent CLI: %w", err)
@@ -89,6 +98,9 @@ provider: openai
 model: gpt-4.1-mini
 skills:
   - interview
+tools:
+  - glob
+  - read
 ---
 
 Understand the requested outcome, use the available capabilities deliberately,
@@ -127,6 +139,9 @@ name: researcher
 description: Use for substantial technical research requiring evidence or trade-off comparison; not for simple answers or code generation.
 provider: openai
 model: gpt-4.1-mini
+tools:
+  - glob
+  - read
 ---
 
 You are a research subagent. Identify the important facts, trade-offs, and
