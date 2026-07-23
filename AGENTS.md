@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: d8f2b1d59f097fc035c60e43d73eaec25ed1ab1d`
+`Last documented commit: fba744954962bc05093b78d70052f8e1b58fc9fc`
 
 ## Project structure
 
