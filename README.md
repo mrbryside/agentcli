@@ -25,18 +25,11 @@ import "github.com/mrbryside/agentcli"
 ### Scaffold a terminal agent project
 
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
-project with an example skill and researcher subagent. It asks for the Go
-module path used in `go.mod`.
+project with an example skill and researcher subagent. It asks for the project
+folder name and then the Go module path used in `go.mod`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/install.sh | sh -s -- my-agent
-```
-
-For automation, supply the module path directly. Pin the URL to a release tag
-or commit SHA when using it in a production setup.
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/install.sh | sh -s -- my-agent --module github.com/you/my-agent
+curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
 ```
 
 Then copy the provider configuration, set the API key, and start the app. Go

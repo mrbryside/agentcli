@@ -2,69 +2,30 @@
 # Bootstrap a minimal terminal application built with agentcli.
 set -eu
 
-usage() {
-  cat <<'EOF'
-Usage: install.sh [directory] [--module module/path]
-
-Creates a terminal agent starter project. If --module is omitted, the script
-asks for the Go module path through the terminal.
-EOF
-}
-
 fail() {
   printf '%s\n' "agentcli installer: $*" >&2
   exit 1
 }
 
-module=''
-target=''
+[ -r /dev/tty ] || fail 'a terminal is required to create a project'
 
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --module)
-      [ "$#" -gt 1 ] || fail '--module requires a Go module path'
-      module=$2
-      shift 2
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    --*)
-      fail "unknown option $1"
-      ;;
-    *)
-      [ -z "$target" ] || fail 'accepts at most one directory'
-      target=$1
-      shift
-      ;;
-  esac
-done
+printf '%s' 'Project folder name (for example my-agent): ' >/dev/tty
+IFS= read -r folder </dev/tty || fail 'could not read the project folder name'
 
-if [ -z "$target" ]; then
-  target=.
-fi
+case "$folder" in
+  ''|.|..|*[!A-Za-z0-9._-]*) fail "invalid project folder name $folder" ;;
+esac
 
-if [ -z "$module" ]; then
-  [ -r /dev/tty ] || fail 'a terminal is required to ask for the module path; pass --module instead'
-  printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
-  IFS= read -r module </dev/tty || fail 'could not read the Go module path'
-fi
+target=$folder
+
+printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
+IFS= read -r module </dev/tty || fail 'could not read the Go module path'
 
 case "$module" in
   ''|/*|*/|*[!A-Za-z0-9./_-]*) fail "invalid Go module path $module" ;;
 esac
 
-for file in \
-  go.mod \
-  main.go \
-  .agentcli/MAIN.md \
-  .agentcli/config.example.yaml \
-  .agentcli/skill/interview/SKILL.md \
-  .agentcli/agent/researcher/researcher.md
-do
-  [ ! -e "$target/$file" ] || fail "$target/$file already exists; refusing to overwrite it"
-done
+[ ! -e "$target" ] || fail "$target already exists; refusing to overwrite it"
 
 mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
 
