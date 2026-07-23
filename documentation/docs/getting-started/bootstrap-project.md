@@ -16,7 +16,6 @@ The installer reads from your terminal and asks for:
 ```text
 Project folder name (for example my-agent):
 Go module path (for example github.com/you/my-agent):
-OpenAI API key (leave blank to configure .env later):
 ```
 
 No `sh -s --` argument is required. The selected project folder must not
@@ -28,8 +27,6 @@ The starter contains:
 
 ```text
 my-agent/
-├── .env                         # only when a key was supplied
-├── .gitignore
 ├── go.mod
 ├── main.go
 ├── tool_glob.go
@@ -43,9 +40,9 @@ my-agent/
         └── researcher/researcher.md
 ```
 
-The generated application loads `OPENAI_API_KEY` from `.env` when the process
-environment does not already define it. `.env` is ignored by Git, and a key
-entered during installation is written with restrictive file permissions.
+The installer never asks for, writes, or loads provider credentials.
+`${OPENAI_API_KEY}` in the generated configuration is resolved only from the
+process environment.
 
 The installer detects the local `go env GOVERSION` for `go.mod` and runs
 `go mod tidy` when Go is available. If Go is not installed yet, the module
@@ -113,18 +110,12 @@ need to open the child view.
 
 ## Run the project
 
-After replacing the placeholders:
+After replacing the placeholders, export the provider key and run the app:
 
 ```sh
 cd my-agent
+export OPENAI_API_KEY='replace-with-a-real-key'
 go run .
-```
-
-If the API key was left blank during installation, create `.env` first:
-
-```sh
-printf 'OPENAI_API_KEY=%s\n' 'replace-with-a-real-key' > .env
-chmod 600 .env
 ```
 
 Continue with [Project configuration](project-configuration.md) for provider,

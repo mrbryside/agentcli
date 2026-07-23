@@ -44,16 +44,6 @@ if command -v go >/dev/null 2>&1; then
   esac
 fi
 
-printf '%s' 'OpenAI API key (leave blank to configure .env later): ' >/dev/tty
-stty -echo </dev/tty
-if ! IFS= read -r openai_api_key </dev/tty; then
-  stty echo </dev/tty
-  printf '\n' >/dev/tty
-  fail 'could not read the OpenAI API key'
-fi
-stty echo </dev/tty
-printf '\n' >/dev/tty
-
 curl -fsSL "$tool_read_url" >"$temporary_tool_read" || fail 'could not download the starter read tool'
 curl -fsSL "$tool_glob_url" >"$temporary_tool_glob" || fail 'could not download the starter glob tool'
 
@@ -73,12 +63,10 @@ cat >"$target/main.go" <<'EOF'
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mrbryside/agentcli"
@@ -100,9 +88,6 @@ func run() (runErr error) {
 	if err != nil {
 		return fmt.Errorf("resolve project directory: %w", err)
 	}
-	if err := loadDotEnv(filepath.Join(projectRoot, ".env")); err != nil {
-		return err
-	}
 	project, err := agentcli.LoadProject(projectRoot)
 	if err != nil {
 		return fmt.Errorf("load agent project: %w", err)
@@ -119,37 +104,6 @@ func run() (runErr error) {
 	defer func() { runErr = errors.Join(runErr, agent.Close()) }()
 
 	return agent.RunTerminal(agentcli.WithTerminalInitialPrompt(initialPrompt))
-}
-
-func loadDotEnv(filePath string) error {
-	file, err := os.Open(filePath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open .env: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4<<10), 64<<10)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, found := strings.Cut(line, "=")
-		if !found || strings.TrimSpace(key) != "OPENAI_API_KEY" {
-			continue
-		}
-		if _, set := os.LookupEnv("OPENAI_API_KEY"); !set {
-			os.Setenv("OPENAI_API_KEY", strings.Trim(strings.TrimSpace(value), "\\\"'"))
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read .env: %w", err)
-	}
-	return nil
 }
 EOF
 
@@ -169,8 +123,8 @@ and give the user a clear, self-contained result.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
-# OPENAI_API_KEY is loaded from .env when present, or from the process
-# environment. Keep live provider keys out of this file.
+# OPENAI_API_KEY is loaded from the process environment.
+# Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
@@ -181,14 +135,6 @@ providers:
     api_key: ${OPENAI_API_KEY}
     request_timeout: 2m
 EOF
-
-cat >"$target/.gitignore" <<'EOF'
-.env
-EOF
-
-if [ -n "$openai_api_key" ]; then
-  (umask 077 && printf 'OPENAI_API_KEY=%s\n' "$openai_api_key" >"$target/.env")
-fi
 
 cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'
 ---
@@ -219,7 +165,7 @@ EOF
 
 if [ "$go_available" = true ]; then
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
-  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
-  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 fi

@@ -46,9 +46,10 @@ existing module, run:
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
 ```
 
-The installer prompts for the target folder, Go module path, and optional API
-key. It creates a Terminal application, project configuration, example skill,
-researcher subagent, and bounded `read`/`glob` tools. See
+The installer prompts only for the target folder and Go module path. It never
+requests or persists provider credentials. It creates a Terminal application,
+project configuration, example skill, researcher subagent, and bounded
+`read`/`glob` tools. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout and the
 required `replace-provider` and `replace-model` substitutions.
 

@@ -6,16 +6,17 @@
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
 ```
 
-It requires a terminal and prompts through `/dev/tty` for the project folder,
-Go module path, and optional OpenAI API key. It accepts no required positional
-arguments. The target must not already exist. Folder and module names are
-validated before any project files are created.
+It requires a terminal and prompts through `/dev/tty` only for the project
+folder and Go module path. It does not request or persist provider credentials
+and accepts no required positional arguments. The target must not already
+exist. Folder and module names are validated before any project files are
+created.
 
 The installer detects `go env GOVERSION` and writes that version to `go.mod`;
 when Go is unavailable it falls back to `1.26.3`. With Go available it runs
-`go mod tidy` before reporting success. A supplied key is written to `.env`
-under a restrictive umask, `.env` is gitignored, and generated `main.go` loads
-`OPENAI_API_KEY` before calling `LoadProject`.
+`go mod tidy` before reporting success. Generated configuration references
+`${OPENAI_API_KEY}`, which must be supplied through the process environment;
+generated code has no `.env` loader.
 
 Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
 OpenAI-compatible provider under the explicit placeholder alias
