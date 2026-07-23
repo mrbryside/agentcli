@@ -124,14 +124,13 @@ func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testin
 	}
 	var closed struct {
 		Subagent     toolexecution.SubagentToolSummary `json:"subagent"`
-		FinishTurn   bool                              `json:"finish_turn"`
 		TurnBehavior string                            `json:"turn_behavior"`
 		Instruction  string                            `json:"instruction"`
 	}
 	if err := json.Unmarshal(closedJSON, &closed); err != nil {
 		t.Fatal(err)
 	}
-	if closed.Subagent.Status != storage.SubagentStatusClosed || !closed.FinishTurn || closed.TurnBehavior != "end_turn" || !strings.Contains(closed.Instruction, "final cleanup") {
+	if closed.Subagent.Status != storage.SubagentStatusClosed || closed.TurnBehavior != "continue_turn" || !strings.Contains(closed.Instruction, "normal provider round") {
 		t.Fatalf("default close result = %s", closedJSON)
 	}
 }

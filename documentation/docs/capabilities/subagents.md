@@ -69,13 +69,12 @@ repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. They, `close_subagent`, and `force_close_subagent` accept `finish_turn`, defaulting to `true`. The
-model uses `false` only when it has already planned more decomposition or
-start/send/close operations after the current tool batch, and uses `true` on
-the final dispatch or cleanup, when none remain, or when unsure. The runtime
-ends the parent turn when every successful controlled operation in the batch
-requests it. This prevents speculative parent questions while still allowing
-detailed sequential delegation and cleanup. The child turn outcome
+work. They and `force_close_subagent` accept `finish_turn`, defaulting to
+`true`. The model uses `false` only when it has already planned more
+decomposition or operations after the current tool batch, and uses `true` on
+the final dispatch, when none remain, or when unsure. `close_subagent` has no
+`finish_turn` option and always continues to a normal provider round after
+cleanup. The child turn outcome
 arrives through a separate callback containing:
 
 - parent and child identity;
@@ -85,7 +84,7 @@ arrives through a separate callback containing:
 - terminal error when the child failed;
 - durable transcript cursor metadata.
 
-Each model-facing start, send, close, or force-close result echoes the resolved control state:
+Each model-facing start, send, or force-close result echoes the resolved control state:
 
 ```json
 {
@@ -95,9 +94,10 @@ Each model-facing start, send, close, or force-close result echoes the resolved 
 }
 ```
 
-Final dispatches and cleanup operations return `finish_turn: true` and
+Final dispatches and force-close operations return `finish_turn: true` and
 `turn_behavior: "end_turn"`. A `selection_required` result always reports
-`false` and `continue_turn`.
+`false` and `continue_turn`. A normal close returns only
+`turn_behavior: "continue_turn"` plus an instruction to deliver the callback.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
 turn continues only long enough for the parent to ask which `display_name` the
@@ -220,19 +220,16 @@ HTTP `409 conflict`. This prevents a fast child from being closed in the same
 parent turn that started it and prevents cleanup from suppressing an unread
 callback.
 
-When a parent closes completed work during its callback turn, it should include
-the callback result in user-visible content in the same provider response as
-the `close_subagent` call. A root completion guard distinguishes the two cases:
+When a parent closes completed work during its callback turn,
+`close_subagent` always keeps the turn open:
 
 ```text
-result content + close → callback already delivered → finish normally
-silent close          → one tool-free repair → deliver callback → finish
+close → normal provider continuation → deliver callback → finish
 ```
 
-Content streamed alongside the close tool call counts as delivered, so the
-repair does not repeat an answer the user already saw. The repair tool allowlist
-is explicitly empty, preventing another close, send, or status call, and it is
-bounded to one attempt.
+This is the ordinary tool-result continuation path, not a completion repair or
+retry. If content was already streamed alongside the close call, the parent
+must not repeat it.
 
 Context reminders are stable within one parent turn. If a child finishes
 between provider rounds, the active turn continues seeing its original

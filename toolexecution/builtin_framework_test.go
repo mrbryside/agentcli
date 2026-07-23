@@ -49,12 +49,17 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(string(tool.Definition.InputSchema), `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
-		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == CloseSubagentToolName || tool.Definition.Name == ForceCloseSubagentToolName) && tool.TurnBehavior != EndTurn {
+		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName) && tool.TurnBehavior != EndTurn {
 			t.Fatalf("subagent controlled tool %q turn behavior = %q, want end_turn", tool.Definition.Name, tool.TurnBehavior)
 		}
-		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == CloseSubagentToolName || tool.Definition.Name == ForceCloseSubagentToolName {
+		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName {
 			if !strings.Contains(tool.Definition.Description, "finish_turn defaults to true") || !strings.Contains(string(tool.Definition.InputSchema), `"finish_turn"`) || !strings.Contains(string(tool.Definition.InputSchema), `"default":true`) {
 				t.Fatalf("subagent controlled tool %q does not explain finish_turn: %#v", tool.Definition.Name, tool.Definition)
+			}
+		}
+		if tool.Definition.Name == CloseSubagentToolName {
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(string(tool.Definition.InputSchema), `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+				t.Fatalf("close_subagent must always continue without finish_turn: %#v", tool)
 			}
 		}
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && !strings.Contains(tool.Definition.Description, "continue decomposing") {
@@ -120,7 +125,13 @@ func TestSubagentDispatchTurnBehavior(t *testing.T) {
 		}
 	}
 	for _, tool := range NewSubagentToolBridge().Tools() {
-		if tool.Definition.Name != CloseSubagentToolName && tool.Definition.Name != ForceCloseSubagentToolName {
+		if tool.Definition.Name == CloseSubagentToolName {
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil {
+				t.Fatalf("close behavior = (%q, %v), want static continue", tool.TurnBehavior, tool.resultTurnBehavior != nil)
+			}
+			continue
+		}
+		if tool.Definition.Name != ForceCloseSubagentToolName {
 			continue
 		}
 		if tool.resultTurnBehavior == nil {

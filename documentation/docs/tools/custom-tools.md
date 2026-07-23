@@ -116,17 +116,19 @@ waiting. Its resolved `finish_turn` still controls `EndTurn` or `ContinueTurn`;
 real validation, ownership, storage, and execution failures remain failed tool
 results.
 
-`start_subagent`, `send_subagent_message`, and `close_subagent` expose a
+`start_subagent`, `send_subagent_message`, and `force_close_subagent` expose a
 model-facing `finish_turn` argument. It defaults to `true`, applying `EndTurn`
-after a final dispatch or cleanup. The model sets it to `false` only while it
-has a concrete plan to continue decomposing work or issue more start/send/close
-operations after the current tool batch. It must set `true` on the final
-operation, when no more subagent operations are planned, or when unsure. A
+after a final dispatch or force-close. The model sets it to `false` only while
+it has a concrete plan to continue decomposing work or issue more operations
+after the current tool batch. It must set `true` on the final operation, when
+no more subagent operations are planned, or when unsure. A
 `selection_required` start always continues because no child work was
 dispatched and the model must ask which existing child the user means. Their
 model-facing tool results echo the resolved `finish_turn`
 boolean and a `turn_behavior` label of `continue_turn` or `end_turn`, plus an
-instruction matching that decision.
+instruction matching that decision. `close_subagent` has no `finish_turn`
+argument; it always returns `continue_turn` so the callback can be delivered in
+the next normal provider round.
 
 ## Dynamic permission metadata
 

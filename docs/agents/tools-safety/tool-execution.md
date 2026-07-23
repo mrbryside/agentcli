@@ -10,12 +10,13 @@ does so only when the complete result batch succeeded and every result uses
 `EndTurn`; any continue or non-success result starts another provider step.
 Typed tools select static behavior with
 `agentcli.ToolTurnBehavior(agentcli.EndTurn)`; raw tools set
-`toolexecution.Tool.TurnBehavior`. Framework start/send tools derive behavior
-from their `finish_turn` argument (default true): false is reserved for planned
-additional decomposition, dispatch, or cleanup, and true marks the final/no-more/uncertain
-case. This applies to `start_subagent`, `send_subagent_message`,
-`close_subagent`, and `force_close_subagent`. `start_subagent` overrides to `ContinueTurn` for `selection_required`,
-where no dispatch occurred.
+`toolexecution.Tool.TurnBehavior`. Framework start/send and force-close tools
+derive behavior from their `finish_turn` argument (default true): false is
+reserved for planned additional decomposition or dispatch, and true marks the
+final/no-more/uncertain case. `start_subagent` overrides to `ContinueTurn` for
+`selection_required`, where no dispatch occurred. `close_subagent` has no
+`finish_turn` option and always uses `ContinueTurn`, giving the parent one
+normal provider round after cleanup.
 
 `agentcli.ToolRequiredAtTurnEnd()` marks a typed custom tool as a finalizer and
 also gives it `EndTurn` behavior. If a turn attempts to complete without a

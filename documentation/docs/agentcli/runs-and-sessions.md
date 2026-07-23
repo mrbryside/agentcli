@@ -112,10 +112,9 @@ A non-nil allowlist restricts that request and all of its follow-up rounds.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce one `report_subagent_outcome` repair without re-running domain tools.
-Root callback turns use a separate delivery guard: an answer emitted alongside
-a final cleanup tool counts as delivered, while a silent callback turn receives
-one tool-free provider round to report its authoritative result. This prevents
-silent completion without duplicating content that was already streamed.
+Root callback turns do not use a completion repair. `close_subagent` always
+returns `ContinueTurn`, so successful cleanup naturally starts another provider
+round in the same turn for the user-visible result.
 
 ## Run status
 

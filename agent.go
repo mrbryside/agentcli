@@ -156,8 +156,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	var completionGuard agentruntime.CompletionGuard
 	if configuration.childAgent {
 		completionGuard = subagentOutcomeCompletionGuard
-	} else {
-		completionGuard = callbackDeliveryCompletionGuard
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	for _, tool := range registeredTools {

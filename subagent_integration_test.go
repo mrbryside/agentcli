@@ -257,14 +257,14 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 }
 
-func TestSubagentIntegrationSilentCloseRepairsWithUserVisibleAnswer(t *testing.T) {
-	parentModel := &silentCloseCallbackParentModel{}
+func TestSubagentIntegrationCloseContinuesWithUserVisibleAnswer(t *testing.T) {
+	parentModel := &continuingCloseCallbackParentModel{}
 	childModel := newIntegrationCompletedChildModel("verified child result", "The delegated work completed.")
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
 	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
 
 	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
-		SessionID: "parent", TurnID: "parent-silent-close",
+		SessionID: "parent", TurnID: "parent-close-continuation",
 		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate and close when complete"},
 	})
 	if err != nil {
@@ -296,8 +296,8 @@ func TestSubagentIntegrationSilentCloseRepairsWithUserVisibleAnswer(t *testing.T
 	if result.Content != "The delegated work completed. Verified child result." {
 		t.Fatalf("callback delivery result = %#v", result)
 	}
-	if continuation.CompletionRepairCount() != 1 {
-		t.Fatalf("callback delivery repairs = %d, want 1", continuation.CompletionRepairCount())
+	if continuation.CompletionRepairCount() != 0 {
+		t.Fatalf("callback delivery repairs = %d, want 0", continuation.CompletionRepairCount())
 	}
 	record, err := agent.subagents.getOwned(context.Background(), "parent", callback.SubagentID)
 	if err != nil {
@@ -308,11 +308,11 @@ func TestSubagentIntegrationSilentCloseRepairsWithUserVisibleAnswer(t *testing.T
 	}
 	requests := parentModel.Requests()
 	if len(requests) != 3 {
-		t.Fatalf("parent provider requests = %d, want start, silent close, delivery repair", len(requests))
+		t.Fatalf("parent provider requests = %d, want start, close, normal continuation", len(requests))
 	}
-	repair := requests[2]
-	if len(repair.Tools) != 0 || !strings.Contains(integrationReminderContents(repair.ContextReminders), "no user-visible assistant response") {
-		t.Fatalf("delivery repair request = %#v", repair)
+	continuationRequest := requests[2]
+	if len(continuationRequest.Tools) == 0 || strings.Contains(integrationReminderContents(continuationRequest.ContextReminders), "no user-visible assistant response") {
+		t.Fatalf("normal continuation request = %#v", continuationRequest)
 	}
 }
 
@@ -615,12 +615,12 @@ type outcomeRepairIntegrationModel struct {
 	requests []agentruntime.ModelRequest
 }
 
-type silentCloseCallbackParentModel struct {
+type continuingCloseCallbackParentModel struct {
 	mu       sync.Mutex
 	requests []agentruntime.ModelRequest
 }
 
-func (m *silentCloseCallbackParentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	index := len(m.requests)
 	m.requests = append(m.requests, request)
@@ -636,7 +636,7 @@ func (m *silentCloseCallbackParentModel) Start(_ context.Context, request agentr
 		callbackID := integrationCallbackSubagentID(request.Messages)
 		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
 			ID: "close-child", Name: CloseSubagentToolName,
-			Arguments: map[string]any{"subagent_id": callbackID, "finish_turn": true},
+			Arguments: map[string]any{"subagent_id": callbackID},
 		}}, Finished: true}
 	default:
 		result = provider.StreamResult{Content: "The delegated work completed. Verified child result.", Finished: true}
@@ -644,7 +644,7 @@ func (m *silentCloseCallbackParentModel) Start(_ context.Context, request agentr
 	return scriptedStream{result: result}, nil
 }
 
-func (m *silentCloseCallbackParentModel) Requests() []agentruntime.ModelRequest {
+func (m *continuingCloseCallbackParentModel) Requests() []agentruntime.ModelRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]agentruntime.ModelRequest(nil), m.requests...)
