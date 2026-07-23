@@ -67,6 +67,7 @@ agentcli.ToolConfirmation(typedDescriptor)
 agentcli.ToolSchema(rawObjectSchema)
 agentcli.ToolTurnBehavior(agentcli.ContinueTurn)
 agentcli.ToolTurnBehavior(agentcli.EndTurn)
+agentcli.ToolRequiredAtTurnEnd()
 ```
 
 `NewCustomTool` constructs a `toolexecution.Tool` without adding it to an agent.
@@ -124,6 +125,10 @@ agent.ListSubagents(ctx, parentSessionID, includeClosed)
 agent.CloseSubagent(ctx, parentSessionID, subagentID)
 agent.InterruptSubagent(ctx, parentSessionID, subagentID, reason)
 agent.SubscribeSubagentCallbacks(ctx)
+agent.SubscribeSubagentPermissions(ctx)
+agent.PendingSubagentPermissions(ctx, parentSessionID)
+agent.SubscribeSubagentConfirmations(ctx)
+agent.PendingSubagentConfirmations(ctx, parentSessionID)
 agent.ContinueSubagentCallbackSubscribed(ctx, callback)
 agent.ReadSubagent(ctx, parentSessionID, subagentID, afterMessageID)
 agent.WaitSubagent(ctx, parentSessionID, subagentIDs, afterVersions)
@@ -136,6 +141,12 @@ normal correlated decision:
 agent.ResolveSubagentPermission(ctx, parentID, childID, decision)
 agent.ResolveSubagentConfirmation(ctx, parentID, childID, decision)
 ```
+
+Standard children evaluate the parent's permission policy and mode. Permission
+and confirmation requests are sent to the parent event stream and remain
+recoverable through `PendingSubagentPermissions` and
+`PendingSubagentConfirmations`; the parent session UI, not a child UI or the
+main model, supplies the decision.
 
 ## Reference terminal
 

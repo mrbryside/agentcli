@@ -37,6 +37,21 @@ go mod download
 go test ./...
 ```
 
+## Generate a terminal project
+
+For a complete starter application instead of adding the library to an
+existing module, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
+```
+
+The installer prompts for the target folder, Go module path, and optional API
+key. It creates a Terminal application, project configuration, example skill,
+researcher subagent, and bounded `read`/`glob` tools. See
+[Bootstrap a project](bootstrap-project.md) for the generated layout and the
+required `replace-provider` and `replace-model` substitutions.
+
 ## Configure a live provider
 
 Copy the safe template and export the referenced key:

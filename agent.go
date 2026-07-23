@@ -159,6 +159,13 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	} else {
 		completionGuard = callbackDeliveryCompletionGuard
 	}
+	requiredAtTurnEnd := make([]string, 0)
+	for _, tool := range registeredTools {
+		if tool.RequiredAtTurnEnd {
+			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
+		}
+	}
+	completionGuard = completionGuardWithRequiredTools(completionGuard, requiredAtTurnEnd)
 	if manager != nil {
 		reminderProvider = composeContextReminderProviders(reminderProvider, subagentReminderProvider(manager))
 	}
@@ -344,6 +351,56 @@ func (a *Agent) SubscribeSubagentCallbacks(ctx context.Context) <-chan SubagentC
 		return closed
 	}
 	return a.subagents.subscribeCallbacks(ctx)
+}
+
+// SubscribeSubagentConfirmations returns live child confirmation lifecycle
+// events addressed to parent sessions. Call PendingSubagentConfirmations when
+// attaching or reconnecting so a request cannot be missed.
+func (a *Agent) SubscribeSubagentConfirmations(ctx context.Context) <-chan SubagentConfirmationEvent {
+	if a == nil || a.subagents == nil {
+		closed := make(chan SubagentConfirmationEvent)
+		close(closed)
+		return closed
+	}
+	return a.subagents.subscribeConfirmations(ctx)
+}
+
+// PendingSubagentConfirmations returns durable pending confirmation requests
+// for children owned by parentSessionID.
+func (a *Agent) PendingSubagentConfirmations(ctx context.Context, parentSessionID string) ([]SubagentConfirmationEvent, error) {
+	if a == nil || a.subagents == nil {
+		return []SubagentConfirmationEvent{}, nil
+	}
+	manager, err := a.subagentManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.pendingConfirmations(nonNilContext(ctx), parentSessionID)
+}
+
+// SubscribeSubagentPermissions returns live child permission lifecycle events
+// addressed to parent sessions. Call PendingSubagentPermissions when attaching
+// or reconnecting so a request cannot be missed.
+func (a *Agent) SubscribeSubagentPermissions(ctx context.Context) <-chan SubagentPermissionEvent {
+	if a == nil || a.subagents == nil {
+		closed := make(chan SubagentPermissionEvent)
+		close(closed)
+		return closed
+	}
+	return a.subagents.subscribePermissions(ctx)
+}
+
+// PendingSubagentPermissions returns durable pending permission requests for
+// children owned by parentSessionID.
+func (a *Agent) PendingSubagentPermissions(ctx context.Context, parentSessionID string) ([]SubagentPermissionEvent, error) {
+	if a == nil || a.subagents == nil {
+		return []SubagentPermissionEvent{}, nil
+	}
+	manager, err := a.subagentManager()
+	if err != nil {
+		return nil, err
+	}
+	return manager.pendingPermissions(nonNilContext(ctx), parentSessionID)
 }
 
 // ContinueSubagentCallbackSubscribed starts a parent turn from a trusted

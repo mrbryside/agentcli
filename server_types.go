@@ -19,8 +19,10 @@ const RunStatusQueued agentruntime.RunStatus = "queued"
 type ServerTurnSource string
 
 const (
-	ServerTurnSourceUser             ServerTurnSource = "user"
-	ServerTurnSourceSubagentCallback ServerTurnSource = "subagent_callback"
+	ServerTurnSourceUser                 ServerTurnSource = "user"
+	ServerTurnSourceSubagentCallback     ServerTurnSource = "subagent_callback"
+	ServerTurnSourceSubagentConfirmation ServerTurnSource = "subagent_confirmation"
+	ServerTurnSourceSubagentPermission   ServerTurnSource = "subagent_permission"
 )
 
 // SessionActivityType identifies server lifecycle records around ordinary
@@ -29,11 +31,13 @@ const (
 type SessionActivityType string
 
 const (
-	SessionActivityTurnQueued    SessionActivityType = "turn_queued"
-	SessionActivityTurnAdmitted  SessionActivityType = "turn_admitted"
-	SessionActivityTurnCancelled SessionActivityType = "turn_cancelled"
-	SessionActivityTurnRejected  SessionActivityType = "turn_rejected"
-	SessionActivityTurnEvent     SessionActivityType = "turn_event"
+	SessionActivityTurnQueued           SessionActivityType = "turn_queued"
+	SessionActivityTurnAdmitted         SessionActivityType = "turn_admitted"
+	SessionActivityTurnCancelled        SessionActivityType = "turn_cancelled"
+	SessionActivityTurnRejected         SessionActivityType = "turn_rejected"
+	SessionActivityTurnEvent            SessionActivityType = "turn_event"
+	SessionActivitySubagentConfirmation SessionActivityType = "subagent_confirmation"
+	SessionActivitySubagentPermission   SessionActivityType = "subagent_permission"
 )
 
 // StartTurnRequest is the JSON body accepted by POST /v1/sessions/{id}/turns.
@@ -75,21 +79,53 @@ type SubagentCallbackReference struct {
 	NextStep       string                 `json:"next_step,omitempty"`
 }
 
+type SubagentConfirmationReference struct {
+	Type           SubagentConfirmationEventType      `json:"type"`
+	SubagentID     string                             `json:"subagent_id"`
+	DisplayName    string                             `json:"display_name,omitempty"`
+	DefinitionName string                             `json:"definition_name"`
+	ChildSessionID string                             `json:"child_session_id"`
+	ChildTurnID    string                             `json:"child_turn_id"`
+	Confirmation   *ConfirmationRequestResponse       `json:"confirmation,omitempty"`
+	Decision       *ConfirmationDecisionResponseValue `json:"decision,omitempty"`
+}
+
+type PendingSubagentConfirmationsResponse struct {
+	Confirmations []SubagentConfirmationReference `json:"confirmations"`
+}
+
+type SubagentPermissionReference struct {
+	Type           SubagentPermissionEventType `json:"type"`
+	SubagentID     string                      `json:"subagent_id"`
+	DisplayName    string                      `json:"display_name,omitempty"`
+	DefinitionName string                      `json:"definition_name"`
+	ChildSessionID string                      `json:"child_session_id"`
+	ChildTurnID    string                      `json:"child_turn_id"`
+	Permission     *PermissionRequestResponse  `json:"permission,omitempty"`
+	Decision       *DecisionResponse           `json:"decision,omitempty"`
+}
+
+type PendingSubagentPermissionsResponse struct {
+	Permissions []SubagentPermissionReference `json:"permissions"`
+}
+
 // SessionEventResponse is the session-wide SSE envelope. Cursor is monotonic
 // across every root turn in one session and is independent from the
 // per-turn RuntimeEvent.Sequence cursor.
 type SessionEventResponse struct {
-	Cursor           uint64                     `json:"cursor"`
-	Type             SessionActivityType        `json:"type"`
-	Source           ServerTurnSource           `json:"source"`
-	SessionID        string                     `json:"session_id"`
-	TurnID           string                     `json:"turn_id"`
-	QueuePosition    int                        `json:"queue_position,omitempty"`
-	TurnURL          string                     `json:"turn_url"`
-	EventsURL        string                     `json:"events_url"`
-	Error            string                     `json:"error,omitempty"`
-	SubagentCallback *SubagentCallbackReference `json:"subagent_callback,omitempty"`
-	RuntimeEvent     *EventResponse             `json:"runtime_event,omitempty"`
+	Cursor               uint64                         `json:"cursor"`
+	Type                 SessionActivityType            `json:"type"`
+	Source               ServerTurnSource               `json:"source"`
+	SessionID            string                         `json:"session_id"`
+	TurnID               string                         `json:"turn_id"`
+	QueuePosition        int                            `json:"queue_position,omitempty"`
+	TurnURL              string                         `json:"turn_url,omitempty"`
+	EventsURL            string                         `json:"events_url,omitempty"`
+	Error                string                         `json:"error,omitempty"`
+	SubagentCallback     *SubagentCallbackReference     `json:"subagent_callback,omitempty"`
+	SubagentConfirmation *SubagentConfirmationReference `json:"subagent_confirmation,omitempty"`
+	SubagentPermission   *SubagentPermissionReference   `json:"subagent_permission,omitempty"`
+	RuntimeEvent         *EventResponse                 `json:"runtime_event,omitempty"`
 }
 
 type InterruptRequest struct {

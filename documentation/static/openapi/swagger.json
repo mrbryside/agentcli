@@ -220,6 +220,78 @@
                 }
             }
         },
+        "/v1/sessions/{parentSessionID}/subagent-confirmations": {
+            "get": {
+                "description": "Returns durable pending child confirmation requests so clients can recover after attaching late or reconnecting.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Confirmations"
+                ],
+                "summary": "List pending confirmations for a parent session",
+                "operationId": "listPendingSubagentConfirmations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PendingSubagentConfirmationsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/{parentSessionID}/subagent-permissions": {
+            "get": {
+                "description": "Returns durable pending child permission requests so clients can recover after attaching late or reconnecting.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Permissions"
+                ],
+                "summary": "List pending permissions for a parent session",
+                "operationId": "listPendingSubagentPermissions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent session ID",
+                        "name": "parentSessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.PendingSubagentPermissionsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/agentcli.APIErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/sessions/{parentSessionID}/subagents": {
             "get": {
                 "produces": [
@@ -1455,6 +1527,28 @@
                 }
             }
         },
+        "agentcli.PendingSubagentConfirmationsResponse": {
+            "type": "object",
+            "properties": {
+                "confirmations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.SubagentConfirmationReference"
+                    }
+                }
+            }
+        },
+        "agentcli.PendingSubagentPermissionsResponse": {
+            "type": "object",
+            "properties": {
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.SubagentPermissionReference"
+                    }
+                }
+            }
+        },
         "agentcli.PermissionDecisionRequest": {
             "type": "object",
             "required": [
@@ -1636,11 +1730,15 @@
             "type": "string",
             "enum": [
                 "user",
-                "subagent_callback"
+                "subagent_callback",
+                "subagent_confirmation",
+                "subagent_permission"
             ],
             "x-enum-varnames": [
                 "ServerTurnSourceUser",
-                "ServerTurnSourceSubagentCallback"
+                "ServerTurnSourceSubagentCallback",
+                "ServerTurnSourceSubagentConfirmation",
+                "ServerTurnSourceSubagentPermission"
             ]
         },
         "agentcli.SessionActivityType": {
@@ -1650,14 +1748,18 @@
                 "turn_admitted",
                 "turn_cancelled",
                 "turn_rejected",
-                "turn_event"
+                "turn_event",
+                "subagent_confirmation",
+                "subagent_permission"
             ],
             "x-enum-varnames": [
                 "SessionActivityTurnQueued",
                 "SessionActivityTurnAdmitted",
                 "SessionActivityTurnCancelled",
                 "SessionActivityTurnRejected",
-                "SessionActivityTurnEvent"
+                "SessionActivityTurnEvent",
+                "SessionActivitySubagentConfirmation",
+                "SessionActivitySubagentPermission"
             ]
         },
         "agentcli.SessionEventResponse": {
@@ -1686,6 +1788,12 @@
                 },
                 "subagent_callback": {
                     "$ref": "#/definitions/agentcli.SubagentCallbackReference"
+                },
+                "subagent_confirmation": {
+                    "$ref": "#/definitions/agentcli.SubagentConfirmationReference"
+                },
+                "subagent_permission": {
+                    "$ref": "#/definitions/agentcli.SubagentPermissionReference"
                 },
                 "turn_id": {
                     "type": "string"
@@ -1796,6 +1904,50 @@
                 "SubagentCallbackFailed"
             ]
         },
+        "agentcli.SubagentConfirmationEventType": {
+            "type": "string",
+            "enum": [
+                "requested",
+                "resolved",
+                "cancelled",
+                "expired"
+            ],
+            "x-enum-varnames": [
+                "SubagentConfirmationRequested",
+                "SubagentConfirmationResolved",
+                "SubagentConfirmationCancelled",
+                "SubagentConfirmationExpired"
+            ]
+        },
+        "agentcli.SubagentConfirmationReference": {
+            "type": "object",
+            "properties": {
+                "child_session_id": {
+                    "type": "string"
+                },
+                "child_turn_id": {
+                    "type": "string"
+                },
+                "confirmation": {
+                    "$ref": "#/definitions/agentcli.ConfirmationRequestResponse"
+                },
+                "decision": {
+                    "$ref": "#/definitions/agentcli.ConfirmationDecisionResponseValue"
+                },
+                "definition_name": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "subagent_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/agentcli.SubagentConfirmationEventType"
+                }
+            }
+        },
         "agentcli.SubagentDefinitionResponse": {
             "type": "object",
             "properties": {
@@ -1847,6 +1999,50 @@
                 },
                 "subagent": {
                     "$ref": "#/definitions/agentcli.SubagentResponse"
+                }
+            }
+        },
+        "agentcli.SubagentPermissionEventType": {
+            "type": "string",
+            "enum": [
+                "requested",
+                "resolved",
+                "cancelled",
+                "expired"
+            ],
+            "x-enum-varnames": [
+                "SubagentPermissionRequested",
+                "SubagentPermissionResolved",
+                "SubagentPermissionCancelled",
+                "SubagentPermissionExpired"
+            ]
+        },
+        "agentcli.SubagentPermissionReference": {
+            "type": "object",
+            "properties": {
+                "child_session_id": {
+                    "type": "string"
+                },
+                "child_turn_id": {
+                    "type": "string"
+                },
+                "decision": {
+                    "$ref": "#/definitions/agentcli.DecisionResponse"
+                },
+                "definition_name": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "permission": {
+                    "$ref": "#/definitions/agentcli.PermissionRequestResponse"
+                },
+                "subagent_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/agentcli.SubagentPermissionEventType"
                 }
             }
         },

@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: c738046f7fd77c23ba4fd184990bf33794b056a9`
+`Last documented commit: d8f2b1d59f097fc035c60e43d73eaec25ed1ab1d`
 
 ## Project structure
 
@@ -10,6 +10,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | --- | --- |
 | `.agentcli/` | Example project definitions: `MAIN.md`, provider config template, skills, and subagents. |
 | `.github/workflows/` | GitHub Actions automation, including Docusaurus deployment to GitHub Pages. |
+| `init/` | Curl bootstrap installer and separately downloadable `read`/`glob` Go tool templates for generated starter projects. |
 | Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, custom tools, subagents, Terminal UI, and Echo HTTP/SSE server. |
 | `Makefile` | Convenience entry points for the terminal playground and documentation install/build/dev workflows. |
 | `agentruntime/` | Session/turn coordination, retained agent events, live subscriptions, interruption, and state/effect/result folding. |

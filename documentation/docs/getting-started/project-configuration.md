@@ -5,6 +5,12 @@ sidebar_position: 2
 
 # Project configuration
 
+Projects created by the curl bootstrapper begin with `replace-provider` and
+`replace-model` placeholders. Replace the provider alias consistently in
+`config.yaml`, `MAIN.md`, and every subagent definition, then replace each
+model value before running the project. See
+[Bootstrap a project](bootstrap-project.md) for the generated layout.
+
 `agentcli.LoadProject(root)` takes an immutable snapshot of project-owned
 inputs:
 

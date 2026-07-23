@@ -166,6 +166,20 @@ definitions:
           $ref: '#/definitions/agentcli.MessageResponse'
         type: array
     type: object
+  agentcli.PendingSubagentConfirmationsResponse:
+    properties:
+      confirmations:
+        items:
+          $ref: '#/definitions/agentcli.SubagentConfirmationReference'
+        type: array
+    type: object
+  agentcli.PendingSubagentPermissionsResponse:
+    properties:
+      permissions:
+        items:
+          $ref: '#/definitions/agentcli.SubagentPermissionReference'
+        type: array
+    type: object
   agentcli.PermissionDecisionRequest:
     properties:
       call_id:
@@ -286,10 +300,14 @@ definitions:
     enum:
     - user
     - subagent_callback
+    - subagent_confirmation
+    - subagent_permission
     type: string
     x-enum-varnames:
     - ServerTurnSourceUser
     - ServerTurnSourceSubagentCallback
+    - ServerTurnSourceSubagentConfirmation
+    - ServerTurnSourceSubagentPermission
   agentcli.SessionActivityType:
     enum:
     - turn_queued
@@ -297,6 +315,8 @@ definitions:
     - turn_cancelled
     - turn_rejected
     - turn_event
+    - subagent_confirmation
+    - subagent_permission
     type: string
     x-enum-varnames:
     - SessionActivityTurnQueued
@@ -304,6 +324,8 @@ definitions:
     - SessionActivityTurnCancelled
     - SessionActivityTurnRejected
     - SessionActivityTurnEvent
+    - SessionActivitySubagentConfirmation
+    - SessionActivitySubagentPermission
   agentcli.SessionEventResponse:
     properties:
       cursor:
@@ -322,6 +344,10 @@ definitions:
         $ref: '#/definitions/agentcli.ServerTurnSource'
       subagent_callback:
         $ref: '#/definitions/agentcli.SubagentCallbackReference'
+      subagent_confirmation:
+        $ref: '#/definitions/agentcli.SubagentConfirmationReference'
+      subagent_permission:
+        $ref: '#/definitions/agentcli.SubagentPermissionReference'
       turn_id:
         type: string
       turn_url:
@@ -395,6 +421,37 @@ definitions:
     - SubagentCallbackCompleted
     - SubagentCallbackIncomplete
     - SubagentCallbackFailed
+  agentcli.SubagentConfirmationEventType:
+    enum:
+    - requested
+    - resolved
+    - cancelled
+    - expired
+    type: string
+    x-enum-varnames:
+    - SubagentConfirmationRequested
+    - SubagentConfirmationResolved
+    - SubagentConfirmationCancelled
+    - SubagentConfirmationExpired
+  agentcli.SubagentConfirmationReference:
+    properties:
+      child_session_id:
+        type: string
+      child_turn_id:
+        type: string
+      confirmation:
+        $ref: '#/definitions/agentcli.ConfirmationRequestResponse'
+      decision:
+        $ref: '#/definitions/agentcli.ConfirmationDecisionResponseValue'
+      definition_name:
+        type: string
+      display_name:
+        type: string
+      subagent_id:
+        type: string
+      type:
+        $ref: '#/definitions/agentcli.SubagentConfirmationEventType'
+    type: object
   agentcli.SubagentDefinitionResponse:
     properties:
       description:
@@ -429,6 +486,37 @@ definitions:
         type: array
       subagent:
         $ref: '#/definitions/agentcli.SubagentResponse'
+    type: object
+  agentcli.SubagentPermissionEventType:
+    enum:
+    - requested
+    - resolved
+    - cancelled
+    - expired
+    type: string
+    x-enum-varnames:
+    - SubagentPermissionRequested
+    - SubagentPermissionResolved
+    - SubagentPermissionCancelled
+    - SubagentPermissionExpired
+  agentcli.SubagentPermissionReference:
+    properties:
+      child_session_id:
+        type: string
+      child_turn_id:
+        type: string
+      decision:
+        $ref: '#/definitions/agentcli.DecisionResponse'
+      definition_name:
+        type: string
+      display_name:
+        type: string
+      permission:
+        $ref: '#/definitions/agentcli.PermissionRequestResponse'
+      subagent_id:
+        type: string
+      type:
+        $ref: '#/definitions/agentcli.SubagentPermissionEventType'
     type: object
   agentcli.SubagentResponse:
     properties:
@@ -890,6 +978,56 @@ paths:
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
       summary: Resolve a root tool permission
+      tags:
+      - Permissions
+  /v1/sessions/{parentSessionID}/subagent-confirmations:
+    get:
+      description: Returns durable pending child confirmation requests so clients
+        can recover after attaching late or reconnecting.
+      operationId: listPendingSubagentConfirmations
+      parameters:
+      - description: Parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PendingSubagentConfirmationsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: List pending confirmations for a parent session
+      tags:
+      - Confirmations
+  /v1/sessions/{parentSessionID}/subagent-permissions:
+    get:
+      description: Returns durable pending child permission requests so clients can
+        recover after attaching late or reconnecting.
+      operationId: listPendingSubagentPermissions
+      parameters:
+      - description: Parent session ID
+        in: path
+        name: parentSessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/agentcli.PendingSubagentPermissionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/agentcli.APIErrorResponse'
+      summary: List pending permissions for a parent session
       tags:
       - Permissions
   /v1/sessions/{parentSessionID}/subagents:

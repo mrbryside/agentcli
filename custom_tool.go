@@ -24,6 +24,7 @@ type CustomToolOption func(*customToolConfig) error
 type customToolConfig struct {
 	schema               json.RawMessage
 	turnBehavior         toolexecution.TurnBehavior
+	requiredAtTurnEnd    bool
 	permission           toolexecution.PermissionDescriptor
 	permissionWithPolicy toolexecution.PermissionPolicyDescriptor
 	confirmation         toolexecution.ConfirmationDescriptor
@@ -61,6 +62,9 @@ func NewCustomTool[Input, Output any](name, description string, handler func(con
 			return toolexecution.Tool{}, fmt.Errorf("custom tool %q option %d: %w", name, index, err)
 		}
 	}
+	if configuration.requiredAtTurnEnd {
+		configuration.turnBehavior = EndTurn
+	}
 	if configuration.schema == nil {
 		schema, err := inferCustomToolSchema(reflect.TypeFor[Input]())
 		if err != nil {
@@ -86,10 +90,23 @@ func NewCustomTool[Input, Output any](name, description string, handler func(con
 			return encoded, nil
 		},
 		TurnBehavior:         configuration.turnBehavior,
+		RequiredAtTurnEnd:    configuration.requiredAtTurnEnd,
 		Permission:           configuration.permission,
 		PermissionWithPolicy: configuration.permissionWithPolicy,
 		Confirmation:         configuration.confirmation,
 	}, nil
+}
+
+// ToolRequiredAtTurnEnd makes this custom tool a turn finalizer. A successful
+// invocation ends the turn. If the model attempts to finish without invoking
+// it successfully, the runtime gives the model one restricted repair round
+// containing only the missing finalizer tools.
+func ToolRequiredAtTurnEnd() CustomToolOption {
+	return func(configuration *customToolConfig) error {
+		configuration.requiredAtTurnEnd = true
+		configuration.turnBehavior = EndTurn
+		return nil
+	}
 }
 
 // ToolTurnBehavior controls what happens after a successful custom-tool

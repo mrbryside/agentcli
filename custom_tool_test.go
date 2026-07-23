@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/confirmation"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/provider"
@@ -118,6 +121,50 @@ func TestNewCustomToolConfiguresTurnBehavior(t *testing.T) {
 	}
 }
 
+func TestNewCustomToolConfiguresRequiredEndTurnFinalizer(t *testing.T) {
+	tool, err := NewCustomTool("finalize", "Finalizes the turn.", func(_ context.Context, input customToolTestInput) (customToolTestOutput, error) {
+		return customToolTestOutput{Summary: input.Topic}, nil
+	}, ToolRequiredAtTurnEnd(), ToolTurnBehavior(ContinueTurn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tool.RequiredAtTurnEnd || tool.TurnBehavior != toolexecution.EndTurn {
+		t.Fatalf("finalizer metadata = required:%t behavior:%q", tool.RequiredAtTurnEnd, tool.TurnBehavior)
+	}
+}
+
+func TestWithCustomToolRequiredAtTurnEndRepairsMissingCall(t *testing.T) {
+	model := &finalizerRepairModel{}
+	var calls atomic.Int32
+	agent, err := New(context.Background(),
+		WithModel(model),
+		WithCustomTool("finalize", "Finalizes the turn.", func(_ context.Context, input customToolTestInput) (customToolTestOutput, error) {
+			calls.Add(1)
+			return customToolTestOutput{Summary: input.Topic}, nil
+		}, ToolRequiredAtTurnEnd()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	run, err := agent.Start(context.Background(), userRequest("required-finalizer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || run.CompletionRepairCount() != 1 {
+		t.Fatalf("finalizer calls=%d repairs=%d", calls.Load(), run.CompletionRepairCount())
+	}
+	requests := model.Requests()
+	if len(requests) != 2 || len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "finalize" {
+		t.Fatalf("repair requests = %#v", requests)
+	}
+}
+
 func TestWithCustomToolEndTurnSkipsSecondModelCall(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "enqueue-1", Name: "enqueue", Arguments: map[string]any{"topic": "Go"},
@@ -178,6 +225,30 @@ func TestNewCustomToolRejectsInvalidConfiguration(t *testing.T) {
 	if _, err := NewCustomTool("nil-confirm", "", func(context.Context, customToolTestInput) (struct{}, error) { return struct{}{}, nil }, ToolConfirmation[customToolTestInput](nil)); err == nil {
 		t.Fatal("nil confirmation descriptor accepted")
 	}
+}
+
+type finalizerRepairModel struct {
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+}
+
+func (model *finalizerRepairModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	model.mu.Lock()
+	index := len(model.requests)
+	model.requests = append(model.requests, request)
+	model.mu.Unlock()
+	if index == 0 {
+		return scriptedStream{result: provider.StreamResult{Content: "attempted early finish", Finished: true}}, nil
+	}
+	return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+		ID: "finalize-1", Name: "finalize", Arguments: map[string]any{"topic": "done"},
+	}}, Finished: true}}, nil
+}
+
+func (model *finalizerRepairModel) Requests() []agentruntime.ModelRequest {
+	model.mu.Lock()
+	defer model.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), model.requests...)
 }
 
 func TestWithCustomToolReportsConfigurationDuringAgentInitialization(t *testing.T) {

@@ -17,6 +17,12 @@ case. This applies to `start_subagent`, `send_subagent_message`,
 `close_subagent`, and `force_close_subagent`. `start_subagent` overrides to `ContinueTurn` for `selection_required`,
 where no dispatch occurred.
 
+`agentcli.ToolRequiredAtTurnEnd()` marks a typed custom tool as a finalizer and
+also gives it `EndTurn` behavior. If a turn attempts to complete without a
+successful invocation, the completion guard gives the model one repair round
+restricted to all missing finalizers. Omitting or failing one again fails the
+turn instead of silently violating the requirement.
+
 Framework tools (`load_skill` and root-only subagent tools) are owned by `toolexecution` and wired by `agentcli`. Application tools remain caller-owned; the framework does not silently register filesystem or shell tools.
 
 `force_close_subagent` is an ordinary framework tool, not a confirmation tool.

@@ -192,6 +192,10 @@ func NewServer(agent *Agent, options ...ServerOption) (*Server, error) {
 	if config.autoContinueSubagents {
 		go server.continueSubagentCallbacks()
 	}
+	subagentConfirmations := agent.SubscribeSubagentConfirmations(serverContext)
+	go server.forwardSubagentConfirmations(subagentConfirmations)
+	subagentPermissions := agent.SubscribeSubagentPermissions(serverContext)
+	go server.forwardSubagentPermissions(subagentPermissions)
 	return server, nil
 }
 

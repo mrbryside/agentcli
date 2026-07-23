@@ -101,6 +101,17 @@ Depending on `type`, it additionally contains exactly relevant fields:
 | `confirmation` | Confirmation request/cancel/expiry events. |
 | `confirmation_decision` | `confirmation_resolved`. |
 
+The session-wide stream also emits `subagent_confirmation`. Its
+`subagent_confirmation` payload contains parent/child correlation plus the
+child confirmation request or decision. These records are retained by the
+server session cursor. After reconnecting, clients should additionally query
+`GET /v1/sessions/{parentSessionID}/subagent-confirmations` for any durable
+pending request that predates the server subscription.
+
+Child permission requests follow the same pattern through the
+`subagent_permission` session event and
+`GET /v1/sessions/{parentSessionID}/subagent-permissions`.
+
 ## Runtime event catalog
 
 `run_started` is the first admitted-turn event. Exactly one of

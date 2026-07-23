@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/confirmation"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/storage/inmemory"
 )
@@ -59,6 +60,128 @@ func TestPermissionAdmissionDoesNotOccupyWorker(t *testing.T) {
 	close(requests)
 	cancel()
 	<-done
+}
+
+func TestApprovalAdmissionPublishesOnePromptAndReusesSessionGrant(t *testing.T) {
+	registry := NewRegistry()
+	mustRegister(t, registry, Tool{
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"ran":true}`), nil
+		},
+		Permission: func(json.RawMessage) (permission.Description, error) {
+			return permission.Description{Actions: []permission.Action{permission.FilesystemWrite}, Risk: permission.RiskHigh}, nil
+		},
+	})
+	requests := make(chan agentruntime.ToolRequest, 2)
+	results := make(chan agentruntime.ToolResultEnvelope, 2)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	prompts := make(chan permission.Request, 2)
+	decisions := make(chan permission.Decision, 1)
+	executor, err := NewExecutor(registry, 2, Config{
+		PermissionEnabled: true, PermissionRequests: prompts, PermissionDecisions: decisions,
+		Policy: permission.Policy{Mode: permission.CriticalOnly},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- executor.Run(ctx, requests, results, interrupts) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	requests <- toolRequest("session", "turn", "first", "guarded", `{}`)
+	requests <- toolRequest("session", "turn", "second", "guarded", `{}`)
+	first := waitPermissionRequest(t, prompts)
+	select {
+	case prompt := <-prompts:
+		t.Fatalf("second prompt published before first decision: %+v", prompt)
+	case <-time.After(20 * time.Millisecond):
+	}
+	decisions <- permission.Decision{
+		PermissionID: first.ID, SessionID: first.SessionID, TurnID: first.TurnID,
+		CallID: first.CallID, Type: permission.AllowSession,
+	}
+	for range 2 {
+		if result := waitResult(t, results); result.Result.Status != agentruntime.ToolResultSucceeded {
+			t.Fatalf("result = %+v", result)
+		}
+	}
+	select {
+	case prompt := <-prompts:
+		t.Fatalf("session grant did not cover deferred call: %+v", prompt)
+	default:
+	}
+}
+
+func TestApprovalAdmissionSerializesPermissionAndConfirmation(t *testing.T) {
+	registry := NewRegistry()
+	mustRegister(t, registry, Tool{
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"guarded":true}`), nil
+		},
+		Permission: func(json.RawMessage) (permission.Description, error) {
+			return permission.Description{Actions: []permission.Action{permission.ProcessExecute}, Risk: permission.RiskHigh}, nil
+		},
+	})
+	mustRegister(t, registry, Tool{
+		Definition: agentruntime.ToolDefinition{Name: "confirmed", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"confirmed":true}`), nil
+		},
+		Confirmation: func(json.RawMessage) (confirmation.Description, error) {
+			return confirmation.Description{Message: "Continue?"}, nil
+		},
+	})
+	requests := make(chan agentruntime.ToolRequest, 2)
+	results := make(chan agentruntime.ToolResultEnvelope, 2)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	permissionPrompts := make(chan permission.Request, 2)
+	permissionDecisions := make(chan permission.Decision, 1)
+	confirmationPrompts := make(chan confirmation.Request, 2)
+	confirmationDecisions := make(chan confirmation.Decision, 1)
+	executor, err := NewExecutor(registry, 2, Config{
+		PermissionEnabled: true, PermissionRequests: permissionPrompts, PermissionDecisions: permissionDecisions,
+		ConfirmationEnabled: true, ConfirmationRequests: confirmationPrompts, ConfirmationDecisions: confirmationDecisions,
+		Policy: permission.Policy{Mode: permission.CriticalOnly},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- executor.Run(ctx, requests, results, interrupts) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	requests <- toolRequest("session", "turn", "permission", "guarded", `{}`)
+	requests <- toolRequest("session", "turn", "confirmation", "confirmed", `{}`)
+	first := waitPermissionRequest(t, permissionPrompts)
+	select {
+	case prompt := <-confirmationPrompts:
+		t.Fatalf("confirmation published while permission was pending: %+v", prompt)
+	case <-time.After(20 * time.Millisecond):
+	}
+	permissionDecisions <- permission.Decision{
+		PermissionID: first.ID, SessionID: first.SessionID, TurnID: first.TurnID,
+		CallID: first.CallID, Type: permission.AllowOnce,
+	}
+	confirmationPrompt := waitConfirmationRequest(t, confirmationPrompts)
+	confirmationDecisions <- confirmation.Decision{
+		ConfirmationID: confirmationPrompt.ID, SessionID: confirmationPrompt.SessionID,
+		TurnID: confirmationPrompt.TurnID, CallID: confirmationPrompt.CallID, Answer: confirmation.Yes,
+	}
+	for range 2 {
+		if result := waitResult(t, results); result.Result.Status != agentruntime.ToolResultSucceeded {
+			t.Fatalf("result = %+v", result)
+		}
+	}
 }
 
 func TestPermissionModeChangeKeepsPendingPromptAndAppliesToNewRequests(t *testing.T) {
@@ -382,5 +505,27 @@ func mustRegister(t *testing.T, registry *Registry, tool Tool) {
 	t.Helper()
 	if err := registry.Register(tool); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func waitPermissionRequest(t *testing.T, prompts <-chan permission.Request) permission.Request {
+	t.Helper()
+	select {
+	case prompt := <-prompts:
+		return prompt
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for permission prompt")
+		return permission.Request{}
+	}
+}
+
+func waitConfirmationRequest(t *testing.T, prompts <-chan confirmation.Request) confirmation.Request {
+	t.Helper()
+	select {
+	case prompt := <-prompts:
+		return prompt
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for confirmation prompt")
+		return confirmation.Request{}
 	}
 }

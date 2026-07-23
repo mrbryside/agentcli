@@ -86,6 +86,22 @@ The available values are:
 | `agentcli.ContinueTurn` | Default. Store the result and call the provider again. |
 | `agentcli.EndTurn` | Store a successful result and complete the turn immediately. |
 
+For a tool that must finalize every turn, use
+`agentcli.ToolRequiredAtTurnEnd()`. It also applies `EndTurn`. If the model
+tries to finish without a successful call, the runtime performs one repair
+provider round exposing only the missing finalizer tools. Every missing
+finalizer must be called in that response; a second omission or failure fails
+the turn.
+
+```go
+agentcli.WithCustomTool(
+    "save_turn_summary",
+    "Persist the final structured summary for this turn.",
+    saveTurnSummary,
+    agentcli.ToolRequiredAtTurnEnd(),
+)
+```
+
 The runtime always waits for every result in the current parallel tool-call
 batch before deciding. It completes the turn only when every result succeeded
 and every tool in that batch uses `EndTurn`. A `ContinueTurn` result keeps the

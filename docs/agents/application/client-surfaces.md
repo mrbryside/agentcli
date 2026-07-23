@@ -6,6 +6,15 @@
 
 Both surfaces operate on the same Agent semantics: transcripts are read separately from run events; permission and confirmation decisions require exact IDs; interruptions target a session and turn; subagent ownership is scoped to the parent session.
 
+The Terminal subscribes to parent-addressed child permission and confirmation
+events and renders them in the main session even when the child view is not
+open. The HTTP server publishes the same lifecycles as retained
+`subagent_permission` and `subagent_confirmation` records on the parent session
+SSE stream. Clients that attach after request creation recover with
+`GET /v1/sessions/{parentSessionID}/subagent-permissions` and
+`GET /v1/sessions/{parentSessionID}/subagent-confirmations`, then resolve using
+the existing nested child decision endpoints.
+
 Child views have two equivalent integration paths. Remote applications use the Echo child-record/message endpoints and retained per-turn SSE streams. In-process Go applications use `ListSubagents`, `ListMessages`, `SubagentRun`, and the run subscribe-then-replay fence directly. UI transcript reads must use `ListMessages`; `ReadSubagent` advances the parent model's observation cursor and is not a rendering API. Switching views changes visible state only and must not cancel background child streams.
 
 Back to [application/index.md](index.md).

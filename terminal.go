@@ -135,15 +135,39 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 		permissionSubagent:   make(map[permission.ID]string),
 		confirmationSubagent: make(map[confirmation.ID]string),
 	}
-	if config.initialPrompt != "" {
-		return client.runTurn(a.context, config.initialPrompt, nil, nil)
+	terminalContext, cancelTerminal := context.WithCancel(a.context)
+	defer cancelTerminal()
+	permissionEvents := a.SubscribeSubagentPermissions(terminalContext)
+	pendingPermissions, err := a.PendingSubagentPermissions(terminalContext, config.sessionID)
+	if err != nil {
+		return fmt.Errorf("load pending subagent permissions: %w", err)
 	}
-	return client.runInteractive(a.context, config.input)
+	confirmationEvents := a.SubscribeSubagentConfirmations(terminalContext)
+	pendingConfirmations, err := a.PendingSubagentConfirmations(terminalContext, config.sessionID)
+	if err != nil {
+		return fmt.Errorf("load pending subagent confirmations: %w", err)
+	}
+	if config.initialPrompt != "" {
+		for _, event := range pendingPermissions {
+			client.observeSubagentPermission(event)
+		}
+		for _, event := range pendingConfirmations {
+			client.observeSubagentConfirmation(event)
+		}
+		go client.monitorSubagentPermissions(terminalContext, permissionEvents)
+		go client.monitorSubagentConfirmations(terminalContext, confirmationEvents)
+		return client.runTurn(terminalContext, config.initialPrompt, nil, nil)
+	}
+	return client.runInteractive(terminalContext, config.input, pendingPermissions, permissionEvents, pendingConfirmations, confirmationEvents)
 }
 
 type terminalAgent interface {
 	StartSubscribed(context.Context, agentruntime.Request) (*agentruntime.Run, agentruntime.EventSubscription, error)
 	SubscribeSubagentCallbacks(context.Context) <-chan SubagentCallback
+	SubscribeSubagentPermissions(context.Context) <-chan SubagentPermissionEvent
+	PendingSubagentPermissions(context.Context, string) ([]SubagentPermissionEvent, error)
+	SubscribeSubagentConfirmations(context.Context) <-chan SubagentConfirmationEvent
+	PendingSubagentConfirmations(context.Context, string) ([]SubagentConfirmationEvent, error)
 	ContinueSubagentCallbackSubscribed(context.Context, SubagentCallback) (*agentruntime.Run, agentruntime.EventSubscription, error)
 	ResolvePermission(context.Context, permission.Decision) error
 	ResolveConfirmation(context.Context, confirmation.Decision) error
@@ -157,6 +181,114 @@ type terminalAgent interface {
 	SendSubagentMessage(context.Context, string, string, string) (storage.Subagent, error)
 	CloseSubagent(context.Context, string, string) (storage.Subagent, error)
 	SubagentRun(context.Context, string, string, string) (*agentruntime.Run, error)
+}
+
+func (c *terminalClient) monitorSubagentPermissions(ctx context.Context, events <-chan SubagentPermissionEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			c.observeSubagentPermission(event)
+		}
+	}
+}
+
+func (c *terminalClient) observeSubagentPermission(event SubagentPermissionEvent) {
+	switch event.Type {
+	case SubagentPermissionRequested:
+		if event.Request == nil || event.ParentSessionID != c.sessionID {
+			return
+		}
+		request := cloneSubagentPermissionRequest(*event.Request)
+		c.stateMu.Lock()
+		_, exists := c.pendingPermissions[request.ID]
+		if !exists {
+			c.permissionOrder = append(c.permissionOrder, request.ID)
+		}
+		c.pendingPermissions[request.ID] = request
+		c.permissionSubagent[request.ID] = event.SubagentID
+		c.stateMu.Unlock()
+		if exists {
+			return
+		}
+		if !c.renderInView("", func() {
+			if loading := c.currentRootLoading(); loading != nil {
+				loading.Stop()
+			}
+			c.terminal.permission(request)
+		}) {
+			c.rootNotice("Permission pending", event.DisplayName+" · "+request.ToolName)
+		}
+	case SubagentPermissionResolved, SubagentPermissionCancelled, SubagentPermissionExpired:
+		c.stateMu.Lock()
+		if event.Request != nil {
+			delete(c.pendingPermissions, event.Request.ID)
+			delete(c.permissionSubagent, event.Request.ID)
+		}
+		if event.Decision != nil {
+			delete(c.pendingPermissions, event.Decision.PermissionID)
+			delete(c.permissionSubagent, event.Decision.PermissionID)
+		}
+		c.stateMu.Unlock()
+	}
+}
+
+func (c *terminalClient) monitorSubagentConfirmations(ctx context.Context, events <-chan SubagentConfirmationEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			c.observeSubagentConfirmation(event)
+		}
+	}
+}
+
+func (c *terminalClient) observeSubagentConfirmation(event SubagentConfirmationEvent) {
+	switch event.Type {
+	case SubagentConfirmationRequested:
+		if event.Request == nil || event.ParentSessionID != c.sessionID {
+			return
+		}
+		request := *event.Request
+		c.stateMu.Lock()
+		_, exists := c.pendingConfirmations[request.ID]
+		if !exists {
+			c.confirmationOrder = append(c.confirmationOrder, request.ID)
+		}
+		c.pendingConfirmations[request.ID] = request
+		c.confirmationSubagent[request.ID] = event.SubagentID
+		c.stateMu.Unlock()
+		if exists {
+			return
+		}
+		if !c.renderInView("", func() {
+			if loading := c.currentRootLoading(); loading != nil {
+				loading.Stop()
+			}
+			c.terminal.confirmation(request)
+		}) {
+			c.rootNotice("Confirmation pending", event.DisplayName+" · "+request.ToolName)
+		}
+	case SubagentConfirmationResolved, SubagentConfirmationCancelled, SubagentConfirmationExpired:
+		c.stateMu.Lock()
+		if event.Request != nil {
+			delete(c.pendingConfirmations, event.Request.ID)
+			delete(c.confirmationSubagent, event.Request.ID)
+		}
+		if event.Decision != nil {
+			delete(c.pendingConfirmations, event.Decision.ConfirmationID)
+			delete(c.confirmationSubagent, event.Decision.ConfirmationID)
+		}
+		c.stateMu.Unlock()
+	}
 }
 
 type terminalClient struct {
@@ -189,7 +321,14 @@ type terminalClient struct {
 	exitArmedUntil       time.Time
 }
 
-func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) error {
+func (c *terminalClient) runInteractive(
+	ctx context.Context,
+	input io.Reader,
+	pendingPermissions []SubagentPermissionEvent,
+	permissionEvents <-chan SubagentPermissionEvent,
+	pendingConfirmations []SubagentConfirmationEvent,
+	confirmationEvents <-chan SubagentConfirmationEvent,
+) error {
 	inputSession, err := terminalInput(input, &c.terminal)
 	if err != nil {
 		return fmt.Errorf("initialize terminal input: %w", err)
@@ -199,6 +338,14 @@ func (c *terminalClient) runInteractive(ctx context.Context, input io.Reader) er
 	c.reasoningToggleInput = inputSession.reasoningToggles
 	c.switchView("")
 	c.terminal.banner(c.modelName, c.sessionID)
+	for _, event := range pendingPermissions {
+		c.observeSubagentPermission(event)
+	}
+	for _, event := range pendingConfirmations {
+		c.observeSubagentConfirmation(event)
+	}
+	go c.monitorSubagentPermissions(ctx, permissionEvents)
+	go c.monitorSubagentConfirmations(ctx, confirmationEvents)
 	lines := inputSession.lines
 	callbacks := c.agent.SubscribeSubagentCallbacks(ctx)
 

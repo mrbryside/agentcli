@@ -39,6 +39,16 @@ type subagentManager struct {
 	nextCallbackSubscriber uint64
 	callbackSubscribers    map[uint64]*subagentCallbackSubscriber
 	callbacksClosed        bool
+
+	confirmationMu             sync.Mutex
+	nextConfirmationSubscriber uint64
+	confirmationSubscribers    map[uint64]*subagentConfirmationSubscriber
+	confirmationsClosed        bool
+
+	permissionMu             sync.Mutex
+	nextPermissionSubscriber uint64
+	permissionSubscribers    map[uint64]*subagentPermissionSubscriber
+	permissionsClosed        bool
 }
 
 type managedSubagent struct {
@@ -68,6 +78,8 @@ func newSubagentManager(parent *Agent, configuration config) (*subagentManager, 
 		parent: parent, store: configuration.subagents, project: configuration.project,
 		config: configuration, ctx: parent.context, instances: make(map[string]*managedSubagent),
 		changed: make(chan struct{}), callbackSubscribers: make(map[uint64]*subagentCallbackSubscriber),
+		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
+		permissionSubscribers:   make(map[uint64]*subagentPermissionSubscriber),
 	}, nil
 }
 
@@ -244,6 +256,8 @@ func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, er
 		WithConfirmationStorage(m.config.confirmations),
 		WithPermissionPolicy(m.config.permissionPolicy),
 		WithPermissionMode(m.parent.PermissionMode()),
+		// Interactive permission and confirmation requests are escalated to
+		// the parent session instead of requiring a child-session UI.
 		WithNonInteractive(m.config.nonInteractive),
 		WithToolWorkers(m.config.toolWorkers),
 		WithChannelBuffer(m.config.channelBuffer),
@@ -1031,7 +1045,13 @@ func (m *subagentManager) waitForInitialInput(sessionID, turnID string, run *age
 }
 
 func (m *subagentManager) monitor(id string, instance *managedSubagent, run *agentruntime.Run, subscription agentruntime.EventSubscription) {
-	for range subscription.Events {
+	for event := range subscription.Events {
+		if permissionEvent, ok := m.subagentPermissionEvent(id, event); ok {
+			m.publishPermission(permissionEvent)
+		}
+		if confirmationEvent, ok := m.subagentConfirmationEvent(id, event); ok {
+			m.publishConfirmation(confirmationEvent)
+		}
 		m.signalChanged()
 	}
 	instance.mu.Lock()
@@ -1161,6 +1181,8 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 // order prevents a parent tool wait from being stranded on a child executor.
 func (m *subagentManager) Close() error {
 	m.closeCallbacks()
+	m.closeConfirmations()
+	m.closePermissions()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

@@ -5,6 +5,7 @@ module.exports = {
       label: 'Getting started',
       items: [
         'getting-started/installation',
+        'getting-started/bootstrap-project',
         'getting-started/project-configuration',
         'getting-started/first-agent',
       ],

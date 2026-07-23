@@ -80,6 +80,17 @@ type pendingConfirmation struct {
 	prompt    confirmation.Request
 }
 
+// deferredApproval keeps approval-requiring calls in provider order without
+// publishing more than one permission or confirmation prompt at a time.
+// Permission descriptions are re-evaluated after earlier decisions so a new
+// session/project grant can admit later calls without redundant prompts.
+type deferredApproval struct {
+	request    agentruntime.ToolRequest
+	admission  policySnapshot
+	permission *permission.Description
+	confirm    confirmation.Description
+}
+
 var errConfirmationDeclined = errors.New("confirmation declined")
 
 // NewExecutor creates a tool executor with workerCount parallel workers.
@@ -167,12 +178,43 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 	var pending []workerJob
 	pendingPermissions := map[permission.ID]pendingPermission{}
 	pendingConfirmations := map[confirmation.ID]pendingConfirmation{}
+	deferredApprovals := []deferredApproval{}
 	expiredPermissions := make(chan permission.ID, 64)
 	expiredConfirmations := make(chan confirmation.ID, 64)
 	grants := []permissionGrant{}
 	decisions := e.config.PermissionDecisions
 	confirmationDecisions := e.config.ConfirmationDecisions
-	for requests != nil || len(pending) != 0 || len(pendingPermissions) != 0 || len(pendingConfirmations) != 0 {
+	for requests != nil || len(pending) != 0 || len(pendingPermissions) != 0 || len(pendingConfirmations) != 0 || len(deferredApprovals) != 0 {
+		for {
+			progressed := false
+			for index := 0; index < len(deferredApprovals); {
+				deferred := deferredApprovals[index]
+				if approvalPendingForSession(pendingPermissions, pendingConfirmations, deferred.request.SessionID) {
+					index++
+					continue
+				}
+				deferredApprovals = append(deferredApprovals[:index], deferredApprovals[index+1:]...)
+				if job, ready := e.admitDeferredApproval(
+					ctx,
+					deferred,
+					grants,
+					decisions != nil,
+					confirmationDecisions != nil,
+					pendingPermissions,
+					pendingConfirmations,
+					expiredPermissions,
+					expiredConfirmations,
+					results,
+				); ready {
+					pending = append(pending, job)
+				}
+				progressed = true
+			}
+			if !progressed {
+				break
+			}
+		}
+
 		var jobChannel chan<- workerJob
 		var next workerJob
 		if len(pending) != 0 {
@@ -222,6 +264,10 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 			if decision.Type == permission.AllowSession || decision.Type == permission.AllowProject {
 				grants = append(grants, permissionGrant{scope: decision.Type, sessionID: request.SessionID, projectID: e.config.ProjectID, actions: append([]permission.Action(nil), pendingPermission.prompt.Actions...)})
 			}
+			if pendingPermission.confirm.Message != "" && confirmationDecisions == nil {
+				e.sendResult(ctx, results, declinedResult(request, "confirmation channel closed"))
+				continue
+			}
 			job, ready, confirmErr := e.admitConfirmation(ctx, request, pendingPermission.admission, pendingPermission.confirm, pendingConfirmations, expiredConfirmations)
 			if confirmErr != nil {
 				e.sendResult(ctx, results, confirmationAdmissionResult(request, confirmErr))
@@ -268,6 +314,13 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 					delete(pendingConfirmations, id)
 				}
 			}
+			kept := deferredApprovals[:0]
+			for _, deferred := range deferredApprovals {
+				if deferred.request.SessionID != interrupt.SessionID || deferred.request.TurnID != interrupt.TurnID {
+					kept = append(kept, deferred)
+				}
+			}
+			deferredApprovals = kept
 		case request, ok := <-requests:
 			if !ok {
 				requests = nil
@@ -304,69 +357,42 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 				e.sendResult(ctx, results, failedResult(request, err))
 				continue
 			}
-			if len(description.Actions) == 0 {
-				job, ready, confirmErr := e.admitConfirmation(ctx, request, admission, confirmationDescription, pendingConfirmations, expiredConfirmations)
-				if confirmErr != nil {
-					e.sendResult(ctx, results, confirmationAdmissionResult(request, confirmErr))
-				} else if ready {
-					pending = append(pending, job)
+			var deferredPermission *permission.Description
+			if registered && e.config.PermissionEnabled && len(description.Actions) != 0 {
+				if description.Risk == "" {
+					description.Risk = permission.RiskMedium
 				}
-				continue
-			}
-			if !e.config.PermissionEnabled {
-				job, ready, confirmErr := e.admitConfirmation(ctx, request, admission, confirmationDescription, pendingConfirmations, expiredConfirmations)
-				if confirmErr != nil {
-					e.sendResult(ctx, results, confirmationAdmissionResult(request, confirmErr))
-				} else if ready {
-					pending = append(pending, job)
+				evaluation := permission.Request{
+					SessionID: request.SessionID, TurnID: request.TurnID,
+					CallID: request.Call.CallID, ToolName: request.Call.Name,
+					Actions: description.Actions, Risk: description.Risk,
+					Details: description.Details, Reason: description.Reason,
 				}
-				continue
-			}
-			id, err := permission.NewID()
-			if err != nil {
-				e.sendResult(ctx, results, deniedResult(request))
-				continue
-			}
-			now := e.config.Now().UTC()
-			if description.Risk == "" {
-				description.Risk = permission.RiskMedium
-			}
-			prompt := permission.Request{ID: id, SessionID: request.SessionID, TurnID: request.TurnID, CallID: request.Call.CallID, ToolName: request.Call.Name, Actions: description.Actions, Risk: description.Risk, Details: description.Details, Reason: description.Reason, CreatedAt: now}
-			if e.config.PermissionTimeout > 0 {
-				expiry := now.Add(e.config.PermissionTimeout)
-				prompt.ExpiresAt = &expiry
-			}
-			outcome := permission.Evaluate(prompt, admission.policy)
-			if hasGrant(grants, prompt, e.config.ProjectID) {
-				outcome = permission.OutcomeAllow
-			}
-			if e.config.NonInteractive && outcome == permission.OutcomeAsk {
-				outcome = permission.OutcomeDeny
-			}
-			switch outcome {
-			case permission.OutcomeAllow:
-				job, ready, confirmErr := e.admitConfirmation(ctx, request, admission, confirmationDescription, pendingConfirmations, expiredConfirmations)
-				if confirmErr != nil {
-					e.sendResult(ctx, results, confirmationAdmissionResult(request, confirmErr))
-				} else if ready {
-					pending = append(pending, job)
+				outcome := permission.Evaluate(evaluation, admission.policy)
+				if hasGrant(grants, evaluation, e.config.ProjectID) {
+					outcome = permission.OutcomeAllow
 				}
-			case permission.OutcomeDeny:
-				e.sendResult(ctx, results, deniedResult(request))
-			default:
-				if err := e.config.Store.Create(prompt); err != nil {
+				if e.config.NonInteractive && outcome == permission.OutcomeAsk {
+					outcome = permission.OutcomeDeny
+				}
+				if outcome == permission.OutcomeDeny {
 					e.sendResult(ctx, results, deniedResult(request))
 					continue
 				}
-				if safeSendPermission(ctx, e.config.PermissionRequests, prompt) {
-					pendingPermissions[id] = pendingPermission{request: request, admission: admission, prompt: clonePermissionRequest(prompt), confirm: confirmationDescription}
-					if prompt.ExpiresAt != nil {
-						go e.expireAfter(ctx, id, *prompt.ExpiresAt, expiredPermissions)
-					}
-				} else {
-					e.sendResult(ctx, results, deniedResult(request))
+				if outcome == permission.OutcomeAsk {
+					value := description
+					value.Actions = append([]permission.Action(nil), description.Actions...)
+					deferredPermission = &value
 				}
 			}
+			if deferredPermission == nil && confirmationDescription.Message == "" {
+				pending = append(pending, e.newJob(ctx, request, admission))
+				continue
+			}
+			deferredApprovals = append(deferredApprovals, deferredApproval{
+				request: request, admission: admission,
+				permission: deferredPermission, confirm: confirmationDescription,
+			})
 		case jobChannel <- next:
 			pending = pending[1:]
 		}
@@ -375,6 +401,111 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 	close(jobs)
 	workers.Wait()
 	return nil
+}
+
+func (e *Executor) admitDeferredApproval(
+	ctx context.Context,
+	deferred deferredApproval,
+	grants []permissionGrant,
+	permissionTransportOpen bool,
+	confirmationTransportOpen bool,
+	pendingPermissions map[permission.ID]pendingPermission,
+	pendingConfirmations map[confirmation.ID]pendingConfirmation,
+	expiredPermissions chan<- permission.ID,
+	expiredConfirmations chan<- confirmation.ID,
+	results chan<- agentruntime.ToolResultEnvelope,
+) (workerJob, bool) {
+	if deferred.permission != nil {
+		description := *deferred.permission
+		now := e.config.Now().UTC()
+		prompt := permission.Request{
+			SessionID: deferred.request.SessionID, TurnID: deferred.request.TurnID,
+			CallID: deferred.request.Call.CallID, ToolName: deferred.request.Call.Name,
+			Actions: append([]permission.Action(nil), description.Actions...),
+			Risk:    description.Risk, Details: description.Details, Reason: description.Reason,
+			CreatedAt: now,
+		}
+		outcome := permission.Evaluate(prompt, deferred.admission.policy)
+		if hasGrant(grants, prompt, e.config.ProjectID) {
+			outcome = permission.OutcomeAllow
+		}
+		if e.config.NonInteractive && outcome == permission.OutcomeAsk {
+			outcome = permission.OutcomeDeny
+		}
+		switch outcome {
+		case permission.OutcomeDeny:
+			e.sendResult(ctx, results, deniedResult(deferred.request))
+			return workerJob{}, false
+		case permission.OutcomeAsk:
+			if !permissionTransportOpen {
+				e.sendResult(ctx, results, deniedResult(deferred.request))
+				return workerJob{}, false
+			}
+			id, err := permission.NewID()
+			if err != nil {
+				e.sendResult(ctx, results, deniedResult(deferred.request))
+				return workerJob{}, false
+			}
+			prompt.ID = id
+			if e.config.PermissionTimeout > 0 {
+				expiry := now.Add(e.config.PermissionTimeout)
+				prompt.ExpiresAt = &expiry
+			}
+			if err := e.config.Store.Create(prompt); err != nil {
+				e.sendResult(ctx, results, deniedResult(deferred.request))
+				return workerJob{}, false
+			}
+			if !safeSendPermission(ctx, e.config.PermissionRequests, prompt) {
+				e.config.Store.Cancel(deferred.request.SessionID, deferred.request.TurnID)
+				e.sendResult(ctx, results, deniedResult(deferred.request))
+				return workerJob{}, false
+			}
+			pendingPermissions[id] = pendingPermission{
+				request: deferred.request, admission: deferred.admission,
+				prompt: clonePermissionRequest(prompt), confirm: deferred.confirm,
+			}
+			if prompt.ExpiresAt != nil {
+				go e.expireAfter(ctx, id, *prompt.ExpiresAt, expiredPermissions)
+			}
+			return workerJob{}, false
+		}
+	}
+
+	if deferred.confirm.Message != "" && e.config.ConfirmationEnabled && !confirmationTransportOpen {
+		e.sendResult(ctx, results, declinedResult(deferred.request, "confirmation channel closed"))
+		return workerJob{}, false
+	}
+	job, ready, err := e.admitConfirmation(
+		ctx,
+		deferred.request,
+		deferred.admission,
+		deferred.confirm,
+		pendingConfirmations,
+		expiredConfirmations,
+	)
+	if err != nil {
+		e.sendResult(ctx, results, confirmationAdmissionResult(deferred.request, err))
+		return workerJob{}, false
+	}
+	return job, ready
+}
+
+func approvalPendingForSession(
+	pendingPermissions map[permission.ID]pendingPermission,
+	pendingConfirmations map[confirmation.ID]pendingConfirmation,
+	sessionID string,
+) bool {
+	for _, pending := range pendingPermissions {
+		if pending.request.SessionID == sessionID {
+			return true
+		}
+	}
+	for _, pending := range pendingConfirmations {
+		if pending.request.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func safeSendPermission(ctx context.Context, requests chan<- permission.Request, request permission.Request) (sent bool) {

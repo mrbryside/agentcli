@@ -29,6 +29,8 @@ func (server *Server) subagentRoutes() {
 	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/turns/:turnID/interrupt", server.interruptSubagentTurn)
 	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/permissions/:permissionID/decisions", server.resolveSubagentPermission)
 	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/confirmations/:confirmationID/decisions", server.resolveSubagentConfirmation)
+	server.echo.GET("/v1/sessions/:parentSessionID/subagent-confirmations", server.listPendingSubagentConfirmations)
+	server.echo.GET("/v1/sessions/:parentSessionID/subagent-permissions", server.listPendingSubagentPermissions)
 }
 
 // listSubagentDefinitions godoc

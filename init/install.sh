@@ -18,9 +18,11 @@ esac
 
 target=$folder
 
-tools_url=${AGENTCLI_TOOLS_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tools.go}
-temporary_tools=$(mktemp)
-trap 'rm -f "$temporary_tools"' 0 1 2 3 15
+tool_read_url=${AGENTCLI_TOOL_READ_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_read.go}
+tool_glob_url=${AGENTCLI_TOOL_GLOB_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_glob.go}
+temporary_tool_read=$(mktemp)
+temporary_tool_glob=$(mktemp)
+trap 'rm -f "$temporary_tool_read" "$temporary_tool_glob"' 0 1 2 3 15
 
 printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
 IFS= read -r module </dev/tty || fail 'could not read the Go module path'
@@ -31,15 +33,38 @@ esac
 
 [ ! -e "$target" ] || fail "$target already exists; refusing to overwrite it"
 
-curl -fsSL "$tools_url" >"$temporary_tools" || fail 'could not download the starter read and glob tools'
+go_version=1.26.3
+go_available=false
+if command -v go >/dev/null 2>&1; then
+  go_available=true
+  detected_go_version=$(go env GOVERSION 2>/dev/null | sed 's/^go//')
+  case "$detected_go_version" in
+    ''|*[!0-9.]*) ;;
+    *) go_version=$detected_go_version ;;
+  esac
+fi
+
+printf '%s' 'OpenAI API key (leave blank to configure .env later): ' >/dev/tty
+stty -echo </dev/tty
+if ! IFS= read -r openai_api_key </dev/tty; then
+  stty echo </dev/tty
+  printf '\n' >/dev/tty
+  fail 'could not read the OpenAI API key'
+fi
+stty echo </dev/tty
+printf '\n' >/dev/tty
+
+curl -fsSL "$tool_read_url" >"$temporary_tool_read" || fail 'could not download the starter read tool'
+curl -fsSL "$tool_glob_url" >"$temporary_tool_glob" || fail 'could not download the starter glob tool'
 
 mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
-mv "$temporary_tools" "$target/tools.go"
+mv "$temporary_tool_read" "$target/tool_read.go"
+mv "$temporary_tool_glob" "$target/tool_glob.go"
 
 cat >"$target/go.mod" <<EOF
 module $module
 
-go 1.26.3
+go $go_version
 
 require github.com/mrbryside/agentcli v0.0.9
 EOF
@@ -48,10 +73,12 @@ cat >"$target/main.go" <<'EOF'
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mrbryside/agentcli"
@@ -73,13 +100,16 @@ func run() (runErr error) {
 	if err != nil {
 		return fmt.Errorf("resolve project directory: %w", err)
 	}
+	if err := loadDotEnv(filepath.Join(projectRoot, ".env")); err != nil {
+		return err
+	}
 	project, err := agentcli.LoadProject(projectRoot)
 	if err != nil {
 		return fmt.Errorf("load agent project: %w", err)
 	}
 	agent, err := agentcli.New(ctx,
 		agentcli.WithProject(project),
-		agentcli.WithNonInteractive(initialPrompt != ""),
+		agentcli.WithNonInteractive(false),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
 	)
@@ -90,12 +120,43 @@ func run() (runErr error) {
 
 	return agent.RunTerminal(agentcli.WithTerminalInitialPrompt(initialPrompt))
 }
+
+func loadDotEnv(filePath string) error {
+	file, err := os.Open(filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open .env: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4<<10), 64<<10)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found || strings.TrimSpace(key) != "OPENAI_API_KEY" {
+			continue
+		}
+		if _, set := os.LookupEnv("OPENAI_API_KEY"); !set {
+			os.Setenv("OPENAI_API_KEY", strings.Trim(strings.TrimSpace(value), "\\\"'"))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read .env: %w", err)
+	}
+	return nil
+}
 EOF
 
 cat >"$target/.agentcli/MAIN.md" <<'EOF'
 ---
-provider: openai
-model: gpt-4.1-mini
+provider: replace-provider
+model: replace-model
 skills:
   - interview
 tools:
@@ -107,19 +168,27 @@ Understand the requested outcome, use the available capabilities deliberately,
 and give the user a clear, self-contained result.
 EOF
 
-cat >"$target/.agentcli/config.example.yaml" <<'EOF'
-# Copy this file to .agentcli/config.yaml. Keep live provider keys in process
-# environment variables; ${VARIABLE} references are expanded at load time.
-permission_mode: default
+cat >"$target/.agentcli/config.yaml" <<'EOF'
+# OPENAI_API_KEY is loaded from .env when present, or from the process
+# environment. Keep live provider keys out of this file.
+permission_mode: criticalOnly
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 providers:
-  openai:
+  replace-provider:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
     request_timeout: 2m
 EOF
+
+cat >"$target/.gitignore" <<'EOF'
+.env
+EOF
+
+if [ -n "$openai_api_key" ]; then
+  (umask 077 && printf 'OPENAI_API_KEY=%s\n' "$openai_api_key" >"$target/.env")
+fi
 
 cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'
 ---
@@ -137,8 +206,8 @@ cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'
 ---
 name: researcher
 description: Use for substantial technical research requiring evidence or trade-off comparison; not for simple answers or code generation.
-provider: openai
-model: gpt-4.1-mini
+provider: replace-provider
+model: replace-model
 tools:
   - glob
   - read
@@ -148,4 +217,9 @@ You are a research subagent. Identify the important facts, trade-offs, and
 uncertainties, then give the parent a concise recommendation.
 EOF
 
-printf '\nCreated agentcli starter in %s\n\nNext steps:\n  cd %s\n  cp .agentcli/config.example.yaml .agentcli/config.yaml\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$target"
+if [ "$go_available" = true ]; then
+  (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  go run .\n' "$target" "$go_version" "$target"
+else
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  go run .\n' "$target" "$go_version" "$target"
+fi

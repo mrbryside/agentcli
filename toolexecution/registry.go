@@ -27,11 +27,13 @@ const (
 // Tool combines a provider-neutral definition with its implementation.
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
-// policy or mode.
+// policy or mode. RequiredAtTurnEnd asks agentcli's completion guard to require
+// one successful invocation in every turn where the tool is exposed.
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
 	TurnBehavior         TurnBehavior
+	RequiredAtTurnEnd    bool
 	Permission           PermissionDescriptor
 	PermissionWithPolicy PermissionPolicyDescriptor
 	Confirmation         ConfirmationDescriptor

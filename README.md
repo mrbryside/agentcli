@@ -27,8 +27,15 @@ import "github.com/mrbryside/agentcli"
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
 project with an example skill and researcher subagent. Both receive bounded
 `glob` and `read` tools. `read` returns at most 2,000 lines and a
-`next_offset` when more content remains. It asks for the project folder name
-and then the Go module path used in `go.mod`.
+`next_offset` when more content remains. Their source is generated separately
+as `tool_read.go` and `tool_glob.go`. The installer asks for the project folder
+name and then the Go module path used in `go.mod`. It detects the installed Go
+version for that file, falling back to `1.26.3` when Go is not installed. It
+also optionally writes an OpenAI API key to a local, ignored `.env` file; the
+generated application loads that value before reading `.agentcli/config.yaml`.
+Generated projects start in `criticalOnly` permission mode. When Go is
+available, the installer also runs `go mod tidy` so the project can start
+immediately.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
@@ -39,8 +46,6 @@ is only needed at this point:
 
 ```sh
 cd my-agent
-cp .agentcli/config.example.yaml .agentcli/config.yaml
-export OPENAI_API_KEY=...
 go run .
 ```
 

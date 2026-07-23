@@ -705,6 +705,22 @@ func (*terminalAgentStub) SubscribeSubagentCallbacks(context.Context) <-chan Sub
 	return make(chan SubagentCallback)
 }
 
+func (*terminalAgentStub) SubscribeSubagentPermissions(context.Context) <-chan SubagentPermissionEvent {
+	return make(chan SubagentPermissionEvent)
+}
+
+func (*terminalAgentStub) PendingSubagentPermissions(context.Context, string) ([]SubagentPermissionEvent, error) {
+	return nil, nil
+}
+
+func (*terminalAgentStub) SubscribeSubagentConfirmations(context.Context) <-chan SubagentConfirmationEvent {
+	return make(chan SubagentConfirmationEvent)
+}
+
+func (*terminalAgentStub) PendingSubagentConfirmations(context.Context, string) ([]SubagentConfirmationEvent, error) {
+	return nil, nil
+}
+
 func (*terminalAgentStub) ContinueSubagentCallbackSubscribed(context.Context, SubagentCallback) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	return nil, agentruntime.EventSubscription{}, nil
 }
