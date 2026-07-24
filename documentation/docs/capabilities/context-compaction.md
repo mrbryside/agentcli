@@ -110,13 +110,13 @@ output-limit metadata. A summarizer that implements the optional metadata
 capability is validated as well. Unknown required limits fail startup rather
 than being guessed.
 
-Project provider profiles can declare limits once under
-`models.<model-id>`. Explicit config has priority. For an unknown model without
-config, startup checks the authenticated provider `/models` endpoint first and
-falls back to `models.dev` only when the deployment supplies no valid limits.
-If both sources fail, startup reports the provider/model and a YAML snippet to
-add. This provider-scoped metadata is reused by main, compaction, and child
-model construction.
+The `compaction` mapping may declare `context_window_tokens` and
+`max_output_tokens` once as shared limits for project-created main, summarizer,
+and child models. Explicit limits have priority. When they are omitted,
+startup checks each model's authenticated provider `/models` endpoint first
+and falls back to `models.dev` only when the deployment supplies no valid
+limits. If both sources fail, startup reports the provider/model and a
+`compaction` YAML snippet to add.
 
 The default `GenericContextEstimator` works across providers and estimates all
 generic request surfaces conservatively, including multilingual text and tool
@@ -129,7 +129,7 @@ agent, err := agentcli.New(ctx,
 )
 ```
 
-For a custom adapter that cannot use provider-scoped config or discovery,
+For a custom adapter that cannot use compaction-scoped config or discovery,
 construct it with `openai.Config.MetadataResolver`, then override the
 project-selected main model or summarizer:
 

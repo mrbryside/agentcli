@@ -76,6 +76,8 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
+  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
+  max_output_tokens: 65000
 
 providers:
   primary:
@@ -83,25 +85,20 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    models: # Remove this block if the selected model is not a custom model.
-      private-model:
-        context_window_tokens: 120000
-        max_output_tokens: 65000
 ```
 
 Provider names such as `primary` are aliases. The required `type` selects the
 adapter; `openai` is currently supported.
 
 The optional `compaction` mapping selects a separate summarizer through an
-existing provider alias. Its only keys are `auto`, `provider`, and `model`;
-there are no YAML token-budget settings. Compaction preserves the complete
-stored transcript and appends internal checkpoints that resumed sessions keep
-projecting, even after `auto: false` disables future compactions. Enabled
-compaction requires known main-model context metadata; a summarizer that
-exposes metadata is validated too. Provider-scoped `models` entries take
-priority for custom IDs. Otherwise startup checks provider `/models` first,
-then falls back to models.dev, and fails with an actionable config snippet if
-both sources lack valid metadata. See
+existing provider alias. Optional `context_window_tokens` and
+`max_output_tokens` are shared limits for the main model, summarizer, and
+subagents. They take priority for custom deployments; when omitted, startup
+checks provider `/models` first, then falls back to models.dev, and fails with
+an actionable config snippet if both sources lack valid metadata. Compaction
+preserves the complete stored transcript and appends internal checkpoints that
+resumed sessions keep projecting, even after `auto: false` disables future
+compactions. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)
 for lifecycle and failure behavior.
 

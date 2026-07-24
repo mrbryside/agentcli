@@ -72,6 +72,8 @@ compaction:
   auto: true
   provider: replace-provider
   model: replace-model
+  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
+  max_output_tokens: 65000
 
 providers:
   replace-provider:
@@ -79,10 +81,6 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    models: # Remove this block if the selected model is not a custom model.
-      replace-model:
-        context_window_tokens: 120000
-        max_output_tokens: 65000
 
   guardrails:
     type: openai
@@ -94,9 +92,10 @@ providers:
 The generated compaction mapping is enabled explicitly and initially reuses
 the starter's provider/model placeholders for its separate summarizer. Replace
 those placeholders before running the project. Remove the mapping or set
-`auto: false` to prevent new checkpoints. Only `auto`, `provider`, and `model`
-are accepted. The summarizer receives no application tools, and the full
-original transcript remains stored. See
+`auto: false` to prevent new checkpoints. The two optional token-limit fields
+are shared by project-created main, summarizer, and subagent adapters. The
+summarizer receives no application tools, and the full original transcript
+remains stored. See
 [Context compaction](../capabilities/context-compaction.md) for model metadata,
 request projection, events, subagent behavior, and resume semantics.
 
@@ -105,8 +104,8 @@ profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
 `replace-model` in the compaction mapping, `MAIN.md`, and every subagent
 definition with a model supported by that provider. The starter includes
 120,000-token context and 65,000-token output limits for a custom
-`replace-model`; remove the inline-commented `models` block when the selected
-model is not custom.
+`replace-model`; remove the inline-commented limits from `compaction` when the
+selected model is not custom.
 `tool_report_discord.go` separately selects the `guardrails` profile and
 `replace-guard-model`; replace its connection settings and model without
 changing the main agent configuration. Provider aliases are

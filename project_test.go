@@ -336,20 +336,20 @@ func TestLoadProjectCompactionConfigDefaultsAndResolvesModel(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
   provider: openai
   model: compact-model
+  context_window_tokens: 8192
+  max_output_tokens: 1024
 providers:
   openai:
     type: openai
     api_key: test-key
-    models:
-      gpt-test: {context_window_tokens: 8192, max_output_tokens: 1024}
-      compact-model: {context_window_tokens: 8192, max_output_tokens: 1024}
 `)
 	project, err := LoadProject(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	compaction, configured := project.Compaction()
-	if !configured || !compaction.Auto || compaction.Provider != "openai" || compaction.Model != "compact-model" {
+	if !configured || !compaction.Auto || compaction.Provider != "openai" || compaction.Model != "compact-model" ||
+		compaction.ContextWindowTokens != 8192 || compaction.MaxOutputTokens != 1024 {
 		t.Fatalf("compaction = %#v, configured = %t", compaction, configured)
 	}
 	compaction.Provider = "mutated"
@@ -370,13 +370,12 @@ func TestPublicCompactionOptionsOverrideProjectDefaults(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
   provider: openai
   model: compact-model
+  context_window_tokens: 8192
+  max_output_tokens: 1024
 providers:
   openai:
     type: openai
     api_key: test-key
-    models:
-      gpt-test: {context_window_tokens: 8192, max_output_tokens: 1024}
-      compact-model: {context_window_tokens: 8192, max_output_tokens: 1024}
 `)
 	project, err := LoadProject(root)
 	if err != nil {
@@ -455,6 +454,7 @@ func TestLoadProjectCompactionConfigValidation(t *testing.T) {
 		{name: "missing model", yaml: "compaction: {provider: openai}\n", want: "compaction model is required"},
 		{name: "unknown provider", yaml: "compaction: {provider: missing, model: compact-model}\n", want: `compaction provider "missing" is not configured`},
 		{name: "unknown field", yaml: "compaction: {provider: openai, model: compact-model, budget: 1}\n", want: "field budget"},
+		{name: "invalid metadata", yaml: "compaction: {provider: openai, model: compact-model, context_window_tokens: 10, max_output_tokens: 11}\n", want: "maximum output tokens cannot exceed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := projectFixture(t)

@@ -42,12 +42,15 @@ type ProjectConfig struct {
 }
 
 // CompactionConfig selects the project provider profile and model used to
-// compact an agent transcript. A nil value means compaction is disabled;
-// when the section is present Auto defaults to true.
+// compact an agent transcript. Optional token limits are shared by every
+// project-created model participating in compaction. A nil value means
+// compaction is disabled; when the section is present Auto defaults to true.
 type CompactionConfig struct {
-	Auto     bool   `yaml:"auto"`
-	Provider string `yaml:"provider"`
-	Model    string `yaml:"model"`
+	Auto                bool   `yaml:"auto"`
+	Provider            string `yaml:"provider"`
+	Model               string `yaml:"model"`
+	ContextWindowTokens int    `yaml:"context_window_tokens"`
+	MaxOutputTokens     int    `yaml:"max_output_tokens"`
 }
 
 // UnmarshalYAML makes an explicitly configured compaction section opt in by
@@ -59,7 +62,7 @@ func (config *CompactionConfig) UnmarshalYAML(value *yaml.Node) error {
 	}
 	for index := 0; index < len(value.Content); index += 2 {
 		key := value.Content[index].Value
-		if key != "auto" && key != "provider" && key != "model" {
+		if key != "auto" && key != "provider" && key != "model" && key != "context_window_tokens" && key != "max_output_tokens" {
 			return fmt.Errorf("field %s not found in type agentcli.CompactionConfig", key)
 		}
 	}
@@ -82,18 +85,10 @@ const (
 )
 
 type ProviderConfig struct {
-	Type           ProviderType                   `yaml:"type"`
-	URL            string                         `yaml:"url"`
-	APIKey         string                         `yaml:"api_key"`
-	RequestTimeout string                         `yaml:"request_timeout"`
-	Models         map[string]ModelMetadataConfig `yaml:"models"`
-}
-
-// ModelMetadataConfig declares provider-specific model limits. Explicit
-// project values take precedence over metadata discovery.
-type ModelMetadataConfig struct {
-	ContextWindowTokens int `yaml:"context_window_tokens"`
-	MaxOutputTokens     int `yaml:"max_output_tokens"`
+	Type           ProviderType `yaml:"type"`
+	URL            string       `yaml:"url"`
+	APIKey         string       `yaml:"api_key"`
+	RequestTimeout string       `yaml:"request_timeout"`
 }
 
 // Skill is one .agentcli/skill/<name>/SKILL.md file. Only name and
@@ -118,6 +113,7 @@ type Project struct {
 	providerName  string
 	modelName     string
 	compaction    *CompactionConfig
+	modelMetadata map[projectModelReference]agentruntime.ModelMetadata
 	toolNames     []string
 	restrictTools bool
 	timeout       time.Duration
@@ -194,8 +190,9 @@ func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 		root: absoluteRoot, agents: string(agentsBytes), main: mainDefinition, config: config,
 		skills: rootSkills, allSkills: allSkills, subagents: subagents,
 		providerName: providerName, modelName: modelName,
-		compaction: cloneCompactionConfig(config.Compaction),
-		toolNames:  append([]string{}, mainDefinition.Tools...), restrictTools: true,
+		compaction:    cloneCompactionConfig(config.Compaction),
+		modelMetadata: make(map[projectModelReference]agentruntime.ModelMetadata),
+		toolNames:     append([]string{}, mainDefinition.Tools...), restrictTools: true,
 		timeout: timeout,
 	}
 	if project.compaction != nil && project.compaction.Auto {
@@ -272,7 +269,7 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	switch providerConfig.Type {
 	case ProviderTypeOpenAI:
 		adapterConfig := openaiadapter.Config{Model: model}
-		if metadata, ok := configuredModelMetadata(providerConfig, model); ok {
+		if metadata, ok := project.modelMetadata[projectModelReference{provider: providerName, model: model}]; ok {
 			adapterConfig.MetadataResolver = func(string) (agentruntime.ModelMetadata, error) {
 				return metadata, nil
 			}
@@ -491,6 +488,9 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 			return "", "", ProviderConfig{}, 0, err
 		}
 	}
+	if _, _, err := configuredCompactionMetadata(config.Compaction); err != nil {
+		return "", "", ProviderConfig{}, 0, err
+	}
 	providerName := strings.TrimSpace(main.Provider)
 	providerConfig, found := config.Providers[providerName]
 	if !found {
@@ -538,9 +538,6 @@ func validateProviderConfig(providerName string, providerConfig ProviderConfig) 
 	}
 	if strings.TrimSpace(providerConfig.APIKey) == "" {
 		return 0, fmt.Errorf("provider %q api_key is required", providerName)
-	}
-	if err := validateConfiguredModelMetadata(providerName, providerConfig.Models); err != nil {
-		return 0, err
 	}
 	timeout := 2 * time.Minute
 	if providerConfig.RequestTimeout != "" {

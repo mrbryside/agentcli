@@ -13,11 +13,12 @@ multilingual text. Provider-specific adapters may provide a more exact
 estimator without exposing SDK types in runtime.
 
 The OpenAI-compatible adapter can resolve known aliases for directly
-constructed adapters. Project provider profiles declare model limits under
-`models`. When compaction needs a model without an explicit entry, project
-loading checks the provider `/models` endpoint first, then falls back to
-`models.dev` only when the deployment returns no valid limits. Both discovery
-failures produce an actionable startup error; limits are never guessed.
+constructed adapters. Project compaction policy may declare one shared set of
+limits for main, summarizer, and child adapters. Without those explicit
+limits, project loading checks the provider `/models` endpoint first, then
+falls back to `models.dev` only when the deployment returns no valid limits.
+Both discovery failures produce an actionable startup error; limits are never
+guessed.
 Applications can still construct a custom adapter with
 `openai.Config.MetadataResolver` and pass it through
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. An application can pass a

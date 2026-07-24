@@ -46,6 +46,8 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
+  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
+  max_output_tokens: 65000
 
 providers:
   primary:
@@ -53,10 +55,6 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    models: # Remove this block if the selected model is not a custom model.
-      private-model:
-        context_window_tokens: 120000
-        max_output_tokens: 65000
 
   openrouter:
     type: openai
@@ -79,32 +77,28 @@ project value when constructing an Agent.
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
 
-The optional provider-scoped `models` map declares reusable limits for custom
-model IDs. Explicit values always win and are validated before any network
-request. If compaction needs metadata for a model without an entry, project
-loading requests the provider's authenticated `/models` endpoint first because
-it describes the active deployment. Only when that returns no valid limits
-does loading request `https://models.dev/api.json`. If neither source returns
-valid, unambiguous limits, startup fails with the exact
-`providers.<name>.models.<model>` snippet to add.
-
 ## Automatic transcript compaction
 
-The optional `compaction` mapping has only these keys: `auto`, `provider`, and
-`model`; unknown keys are rejected. Omitting it disables new compactions. If
-the mapping is present, `auto` defaults to `true`; use `auto: false` to keep
-the mapping but disable creation of future checkpoints.
+The optional `compaction` mapping accepts `auto`, `provider`, `model`,
+`context_window_tokens`, and `max_output_tokens`; unknown keys are rejected.
+Omitting it disables new compactions. If the mapping is present, `auto`
+defaults to `true`; use `auto: false` to keep the mapping but disable creation
+of future checkpoints.
 
 `provider` must be an existing provider-profile alias such as `primary`, and
 `model` is the separate summarizer model. It is resolved through the same
 factory as the main agent and subagents; the alias's `type` still chooses the
-adapter. No context or summary-budget fields are configurable in YAML: the
-runtime derives internal budgets from model limits.
+adapter. Optional `context_window_tokens` and `max_output_tokens` declare one
+validated set of shared model limits for the compaction policy. These limits
+are injected into project-created main, summarizer, and subagent adapters, and
+the runtime derives internal budgets from them.
 
 With compaction enabled, the main model must expose valid context-window and
-output metadata. Main, summarizer, and subagent models are resolved from the
-same provider-scoped metadata path. Models use explicit `models` entries or
-startup discovery. Unknown, invalid, or ambiguous metadata fails startup
+output metadata. Explicit compaction limits take priority and avoid metadata
+network requests. When they are omitted, each required model is resolved by
+requesting its authenticated provider `/models` endpoint first because that
+describes the active deployment, then `https://models.dev/api.json`. Unknown,
+invalid, or ambiguous metadata fails startup with a `compaction` snippet
 rather than being guessed.
 Applications can still override project-selected adapters with
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. The optional

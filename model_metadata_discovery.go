@@ -88,15 +88,7 @@ func (project *Project) resolveRequiredModelMetadata(ctx context.Context) error 
 		resolved = append(resolved, result)
 	}
 	for _, result := range resolved {
-		providerConfig := project.config.Providers[result.reference.provider]
-		if providerConfig.Models == nil {
-			providerConfig.Models = make(map[string]ModelMetadataConfig)
-		}
-		providerConfig.Models[result.reference.model] = ModelMetadataConfig{
-			ContextWindowTokens: result.metadata.ContextWindowTokens,
-			MaxOutputTokens:     result.metadata.MaxOutputTokens,
-		}
-		project.config.Providers[result.reference.provider] = providerConfig
+		project.modelMetadata[result.reference] = result.metadata
 	}
 	return nil
 }
@@ -139,7 +131,9 @@ func (project *Project) resolveModelMetadata(ctx context.Context, reference proj
 	if !ok {
 		return agentruntime.ModelMetadata{}, fmt.Errorf("provider %q is not configured", reference.provider)
 	}
-	if metadata, configured := configuredModelMetadata(providerConfig, reference.model); configured {
+	if metadata, configured, err := configuredCompactionMetadata(project.compaction); err != nil {
+		return agentruntime.ModelMetadata{}, err
+	} else if configured {
 		return metadata, nil
 	}
 
@@ -315,50 +309,26 @@ func fetchModelMetadataJSON(client *http.Client, request *http.Request, target a
 	return nil
 }
 
-func configuredModelMetadata(providerConfig ProviderConfig, modelName string) (agentruntime.ModelMetadata, bool) {
-	for configuredName, configured := range providerConfig.Models {
-		if !strings.EqualFold(strings.TrimSpace(configuredName), strings.TrimSpace(modelName)) {
-			continue
-		}
-		return agentruntime.ModelMetadata{
-			ContextWindowTokens: configured.ContextWindowTokens,
-			MaxOutputTokens:     configured.MaxOutputTokens,
-		}, true
+func configuredCompactionMetadata(config *CompactionConfig) (agentruntime.ModelMetadata, bool, error) {
+	if config == nil || (config.ContextWindowTokens == 0 && config.MaxOutputTokens == 0) {
+		return agentruntime.ModelMetadata{}, false, nil
 	}
-	return agentruntime.ModelMetadata{}, false
-}
-
-func validateConfiguredModelMetadata(providerName string, models map[string]ModelMetadataConfig) error {
-	normalized := make(map[string]string, len(models))
-	for modelName, configured := range models {
-		trimmed := strings.TrimSpace(modelName)
-		if trimmed == "" {
-			return fmt.Errorf("provider %q model name is required", providerName)
-		}
-		lower := strings.ToLower(trimmed)
-		if prior, duplicate := normalized[lower]; duplicate {
-			return fmt.Errorf("provider %q models %q and %q differ only by case", providerName, prior, modelName)
-		}
-		normalized[lower] = modelName
-		metadata := agentruntime.ModelMetadata{
-			ContextWindowTokens: configured.ContextWindowTokens,
-			MaxOutputTokens:     configured.MaxOutputTokens,
-		}
-		if err := metadata.Validate(); err != nil {
-			return fmt.Errorf("provider %q model %q metadata: %w", providerName, modelName, err)
-		}
+	metadata := agentruntime.ModelMetadata{
+		ContextWindowTokens: config.ContextWindowTokens,
+		MaxOutputTokens:     config.MaxOutputTokens,
 	}
-	return nil
+	if err := metadata.Validate(); err != nil {
+		return agentruntime.ModelMetadata{}, false, fmt.Errorf("compaction metadata: %w", err)
+	}
+	return metadata, true, nil
 }
 
 func unresolvedModelMetadataError(reference projectModelReference, cause error) error {
 	return fmt.Errorf(
-		"model metadata is unavailable for provider %q model %q: %w; add explicit metadata to .agentcli/config.yaml:\nproviders:\n  %q:\n    models:\n      %q:\n        context_window_tokens: 262144\n        max_output_tokens: 65536",
+		"model metadata is unavailable for provider %q model %q: %w; add shared limits to .agentcli/config.yaml:\ncompaction:\n  context_window_tokens: 120000\n  max_output_tokens: 65000",
 		reference.provider,
 		reference.model,
 		cause,
-		reference.provider,
-		reference.model,
 	)
 }
 

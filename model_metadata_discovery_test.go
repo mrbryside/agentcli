@@ -122,7 +122,7 @@ func TestFetchModelsDevMetadataPrefersProviderTypeOverGlobalMatches(t *testing.T
 	}
 }
 
-func TestLoadProjectUsesConfiguredProviderModelMetadataWithoutDiscovery(t *testing.T) {
+func TestLoadProjectUsesConfiguredCompactionMetadataWithoutDiscovery(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		requests.Add(1)
@@ -133,18 +133,13 @@ func TestLoadProjectUsesConfiguredProviderModelMetadataWithoutDiscovery(t *testi
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
   provider: private
   model: compact-model
+  context_window_tokens: 131072
+  max_output_tokens: 16384
 providers:
   private:
     type: openai
     url: `+server.URL+`/v1
     api_key: test-key
-    models:
-      gpt-test:
-        context_window_tokens: 131072
-        max_output_tokens: 16384
-      compact-model:
-        context_window_tokens: 65536
-        max_output_tokens: 8192
 `)
 	writeMainAgentDefinition(t, root, "private", "gpt-test", "skills: [reviewing-go, testing-go]")
 
@@ -170,40 +165,63 @@ providers:
 	if metadata != (agentruntime.ModelMetadata{ContextWindowTokens: 131072, MaxOutputTokens: 16384}) {
 		t.Fatalf("metadata = %#v", metadata)
 	}
+	compactionModel, err := project.CompactionModel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactionProvider, ok := compactionModel.(agentruntime.ModelMetadataProvider)
+	if !ok {
+		t.Fatal("configured compaction model does not expose metadata")
+	}
+	compactionMetadata, err := compactionProvider.ModelMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compactionMetadata != metadata {
+		t.Fatalf("compaction metadata = %#v; want %#v", compactionMetadata, metadata)
+	}
 }
 
-func TestConfiguredProviderModelMetadataValidation(t *testing.T) {
+func TestConfiguredCompactionMetadataValidation(t *testing.T) {
 	tests := []struct {
 		name   string
-		models map[string]ModelMetadataConfig
+		config *CompactionConfig
 		want   string
 	}{
 		{
+			name:   "not configured",
+			config: &CompactionConfig{},
+		},
+		{
 			name:   "missing context",
-			models: map[string]ModelMetadataConfig{"model": {MaxOutputTokens: 1024}},
+			config: &CompactionConfig{MaxOutputTokens: 1024},
 			want:   "context window tokens must be positive",
 		},
 		{
-			name: "output exceeds context",
-			models: map[string]ModelMetadataConfig{
-				"model": {ContextWindowTokens: 1024, MaxOutputTokens: 2048},
-			},
-			want: "maximum output tokens cannot exceed",
+			name:   "output exceeds context",
+			config: &CompactionConfig{ContextWindowTokens: 1024, MaxOutputTokens: 2048},
+			want:   "maximum output tokens cannot exceed",
 		},
 		{
-			name: "case insensitive duplicate",
-			models: map[string]ModelMetadataConfig{
-				"Model": {ContextWindowTokens: 1024},
-				"model": {ContextWindowTokens: 1024},
-			},
-			want: "differ only by case",
+			name:   "valid",
+			config: &CompactionConfig{ContextWindowTokens: 120000, MaxOutputTokens: 65000},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateConfiguredModelMetadata("private", test.models)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v; want %q", err, test.want)
+			_, configured, err := configuredCompactionMetadata(test.config)
+			if test.want != "" {
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error = %v; want %q", err, test.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantConfigured := test.name == "valid"
+			if configured != wantConfigured {
+				t.Fatalf("configured = %t; want %t", configured, wantConfigured)
 			}
 		})
 	}
@@ -216,9 +234,7 @@ func TestUnresolvedModelMetadataErrorIncludesConfigExample(t *testing.T) {
 	)
 	for _, expected := range []string{
 		`provider "private" model "unknown-model"`,
-		"providers:",
-		`"private":`,
-		`"unknown-model":`,
+		"compaction:",
 		"context_window_tokens:",
 		"max_output_tokens:",
 	} {

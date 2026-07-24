@@ -57,8 +57,8 @@ and calls `agent.RunTerminal`. It reads provider, model, and compaction
 settings from the repository root `.agentcli/config.yaml`; there is no separate
 playground config. For a clean setup, copy `.agentcli/config.example.yaml` and
 replace both its main-agent and compaction model placeholders. The repository
-playground profile declares a 120,000-token context window and 65,000-token
-output limit for its custom model. When the Terminal UI opens, the resolved
+playground compaction mapping declares a 120,000-token context window and
+65,000-token output limit for its custom model. When the Terminal UI opens, the resolved
 context window appears beside the model name in the banner, such as
 `qwen3.6-35b · 120k context`; unavailable metadata appears as `- context`.
 

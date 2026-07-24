@@ -75,8 +75,9 @@ Common options:
 ### Custom compaction adapters
 
 `WithModel` and `WithCompactionModel` can override the model selected by a
-project. Provider-scoped `models` config and startup discovery cover ordinary
-project-selected private models. For a fully custom adapter, build it with
+project. Shared limits in the project `compaction` mapping and startup
+discovery cover ordinary project-selected private models. For a fully custom
+adapter, build it with
 `openai.Config.MetadataResolver`, then pass that adapter to the appropriate
 option. The resolver supplies provider-neutral context-window and output
 limits; compaction refuses to guess those limits. Use
