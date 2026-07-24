@@ -8,6 +8,11 @@ The live renderer in `terminal_stream.go` appends provider fragments to Markdown
 
 Reasoning is stored separately from assistant content. It is collapsed by default, rendered dimly only when present, and toggled globally with `Ctrl+O`. Loading is a transient status indicator rather than synthetic reasoning or assistant text.
 
+The opening and redrawn root banner appends the context-window size reported by
+the active model's `ModelMetadataProvider` to the configured model name, for
+example `qwen3.6-35b · 120k context`. Missing or invalid metadata is visible as
+`- context` rather than removing the field.
+
 Interactive controls are:
 
 - `Shift+Enter`: insert a newline without submitting.

@@ -13,6 +13,10 @@ The terminal is not a separate runtime. It uses the same model, tools,
 permission policy, storage, skills, subagents, sessions, turns, and events as
 the Go and HTTP APIs.
 
+The opening banner shows the model and its resolved context window, for example
+`qwen3.6-35b · 120k context`. If the active model does not expose valid
+metadata, the field remains visible as `- context`.
+
 ## Start an interactive terminal
 
 ```go

@@ -12,7 +12,11 @@ the feature guides.
 
 ```go
 project, err := agentcli.LoadProject(root)
+project, err := agentcli.LoadProjectContext(ctx, root)
 ```
+
+Use `LoadProjectContext` when the caller needs to bound or cancel startup model
+metadata discovery. `LoadProject` applies the library's bounded default.
 
 Useful immutable accessors:
 
@@ -71,10 +75,11 @@ Common options:
 ### Custom compaction adapters
 
 `WithModel` and `WithCompactionModel` can override the model selected by a
-project. This is the escape hatch for an OpenAI-compatible private model: build
-your adapter with `openai.Config.MetadataResolver`, then pass that adapter to
-the appropriate option. The resolver supplies provider-neutral context-window
-and output limits; compaction refuses to guess those limits. Use
+project. Provider-scoped `models` config and startup discovery cover ordinary
+project-selected private models. For a fully custom adapter, build it with
+`openai.Config.MetadataResolver`, then pass that adapter to the appropriate
+option. The resolver supplies provider-neutral context-window and output
+limits; compaction refuses to guess those limits. Use
 `WithContextEstimator` as well only when the provider can offer a more accurate
 estimate than the default conservative generic estimator.
 

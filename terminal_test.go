@@ -577,6 +577,31 @@ func TestAgentRunTerminalUsesSelectedSessionAndLeavesAgentOpen(t *testing.T) {
 	}
 }
 
+func TestTerminalModelLabelIncludesContextWindow(t *testing.T) {
+	model := &terminalMetadataModel{
+		scriptedModel: &scriptedModel{},
+		metadata:      agentruntime.ModelMetadata{ContextWindowTokens: 120_000, MaxOutputTokens: 65_000},
+	}
+	if got, want := terminalModelLabel("qwen3.6-35b", model), "qwen3.6-35b · 120k context"; got != want {
+		t.Fatalf("terminalModelLabel() = %q, want %q", got, want)
+	}
+}
+
+func TestTerminalModelLabelShowsDashWithoutMetadata(t *testing.T) {
+	if got, want := terminalModelLabel("custom", &scriptedModel{}), "custom · - context"; got != want {
+		t.Fatalf("terminalModelLabel() = %q, want %q", got, want)
+	}
+}
+
+type terminalMetadataModel struct {
+	*scriptedModel
+	metadata agentruntime.ModelMetadata
+}
+
+func (model *terminalMetadataModel) ModelMetadata() (agentruntime.ModelMetadata, error) {
+	return model.metadata, nil
+}
+
 func TestAgentRunTerminalRejectsInvalidOptions(t *testing.T) {
 	agent, err := New(context.Background(), WithModel(&scriptedModel{}))
 	if err != nil {

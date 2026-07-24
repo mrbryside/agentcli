@@ -195,6 +195,10 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    models: # Remove this block if the selected model is not a custom model.
+      replace-model:
+        context_window_tokens: 120000
+        max_output_tokens: 65000
 
   guardrails:
     type: openai

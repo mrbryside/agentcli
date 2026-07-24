@@ -9,6 +9,14 @@ tools, and verification flow are documented in
 
 `LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
 
+Provider profiles may declare reusable model limits under
+`models.<model-id>.context_window_tokens` and `max_output_tokens`. When
+compaction requires a model and no explicit entry exists, project
+loading checks the provider's authenticated `/models` endpoint first because
+it represents the active deployment. It falls back to `models.dev` only when
+the provider supplies no valid limits. If neither source supplies unambiguous
+limits, loading fails with a config snippet instead of guessing.
+
 Applications explicitly register executable capabilities through `WithTool`;
 project Markdown only selects names from the registered catalog. The root
 package exposes `Tool`, `ToolDefinition`, schema builders,
@@ -25,8 +33,10 @@ compactions. When the mapping is present, `auto` defaults to `true`; set
 `model` selects the separate summarizer. It is constructed through the same
 project model factory used by main and child agents.
 
-Compaction has no YAML token-budget knobs. The runtime derives its internal
-input, recent-history, and summary budgets from model context/output metadata.
+Compaction has no YAML token-budget knobs. Provider-scoped `models` entries
+describe model capabilities reusable by main, child, guard, and compaction
+adapters; the runtime derives its internal input, recent-history, and summary
+budgets from that metadata.
 When it is enabled, construction requires known valid limits for the main
 model. If the summarizer exposes `ModelMetadataProvider`, its limits are also
 validated at startup; a summarizer without that optional capability uses the

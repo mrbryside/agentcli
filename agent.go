@@ -21,6 +21,7 @@ import (
 // Agent owns one runtime and its private tool executor.
 type Agent struct {
 	runtime       *agentruntime.Runtime
+	model         agentruntime.Model
 	messages      storage.MessageStorage
 	project       *Project
 	context       context.Context
@@ -149,7 +150,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	confirmationDecisions := make(chan confirmation.Decision, configuration.channelBuffer)
 
 	closing, closeSignal := context.WithCancel(context.Background())
-	agent := &Agent{messages: configuration.messages, project: configuration.project, context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal, executorDone: make(chan struct{})}
+	agent := &Agent{model: configuration.model, messages: configuration.messages, project: configuration.project, context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal, executorDone: make(chan struct{})}
 	var manager *subagentManager
 	if rootHasSubagents {
 		manager, err = newSubagentManager(agent, configuration)

@@ -83,6 +83,10 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    models: # Remove this block if the selected model is not a custom model.
+      private-model:
+        context_window_tokens: 120000
+        max_output_tokens: 65000
 ```
 
 Provider names such as `primary` are aliases. The required `type` selects the
@@ -93,9 +97,11 @@ existing provider alias. Its only keys are `auto`, `provider`, and `model`;
 there are no YAML token-budget settings. Compaction preserves the complete
 stored transcript and appends internal checkpoints that resumed sessions keep
 projecting, even after `auto: false` disables future compactions. Enabled
-compaction requires known main-model context metadata; a summarizer that exposes
-metadata is validated too. OpenAI-compatible custom models need a metadata
-resolver when they are not in the built-in catalog. See
+compaction requires known main-model context metadata; a summarizer that
+exposes metadata is validated too. Provider-scoped `models` entries take
+priority for custom IDs. Otherwise startup checks provider `/models` first,
+then falls back to models.dev, and fails with an actionable config snippet if
+both sources lack valid metadata. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)
 for lifecycle and failure behavior.
 

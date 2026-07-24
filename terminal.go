@@ -122,6 +122,7 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 		}
 		skills = a.project.Skills()
 	}
+	modelName = terminalModelLabel(modelName, a.model)
 	client := &terminalClient{
 		agent:                a,
 		terminal:             newTerminal(config.output),
@@ -160,6 +161,27 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 		return client.runTurn(terminalContext, config.initialPrompt, nil, nil)
 	}
 	return client.runInteractive(terminalContext, config.input, pendingPermissions, permissionEvents, pendingConfirmations, confirmationEvents)
+}
+
+func terminalModelLabel(name string, model agentruntime.Model) string {
+	contextWindow := "-"
+	if metadataProvider, ok := model.(agentruntime.ModelMetadataProvider); ok {
+		if metadata, err := metadataProvider.ModelMetadata(); err == nil && metadata.Validate() == nil {
+			contextWindow = formatTerminalTokenCount(metadata.ContextWindowTokens)
+		}
+	}
+	return fmt.Sprintf("%s · %s context", name, contextWindow)
+}
+
+func formatTerminalTokenCount(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", float64(tokens)/1_000_000), "0"), ".") + "M"
+	case tokens >= 1_000:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", float64(tokens)/1_000), "0"), ".") + "k"
+	default:
+		return fmt.Sprintf("%d", tokens)
+	}
 }
 
 type terminalAgent interface {

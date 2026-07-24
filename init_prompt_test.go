@@ -62,6 +62,20 @@ func TestInstallerEnablesCompactionWithStarterPlaceholders(t *testing.T) {
 	}
 }
 
+func TestInstallerIncludesCustomModelMetadataDefaults(t *testing.T) {
+	content, err := os.ReadFile("init/install.sh")
+	if err != nil {
+		t.Fatalf("read installer: %v", err)
+	}
+	const required = `models: # Remove this block if the selected model is not a custom model.
+      replace-model:
+        context_window_tokens: 120000
+        max_output_tokens: 65000`
+	if !strings.Contains(string(content), required) {
+		t.Fatalf("installer custom model metadata does not contain:\n%s", required)
+	}
+}
+
 func TestInstallerMainAllowsOnlyReportDiscord(t *testing.T) {
 	content, err := os.ReadFile("init/install.sh")
 	if err != nil {

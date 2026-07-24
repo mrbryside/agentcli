@@ -340,6 +340,9 @@ providers:
   openai:
     type: openai
     api_key: test-key
+    models:
+      gpt-test: {context_window_tokens: 8192, max_output_tokens: 1024}
+      compact-model: {context_window_tokens: 8192, max_output_tokens: 1024}
 `)
 	project, err := LoadProject(root)
 	if err != nil {
@@ -371,6 +374,9 @@ providers:
   openai:
     type: openai
     api_key: test-key
+    models:
+      gpt-test: {context_window_tokens: 8192, max_output_tokens: 1024}
+      compact-model: {context_window_tokens: 8192, max_output_tokens: 1024}
 `)
 	project, err := LoadProject(root)
 	if err != nil {

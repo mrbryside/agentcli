@@ -53,6 +53,10 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    models: # Remove this block if the selected model is not a custom model.
+      private-model:
+        context_window_tokens: 120000
+        max_output_tokens: 65000
 
   openrouter:
     type: openai
@@ -75,6 +79,15 @@ project value when constructing an Agent.
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
 
+The optional provider-scoped `models` map declares reusable limits for custom
+model IDs. Explicit values always win and are validated before any network
+request. If compaction needs metadata for a model without an entry, project
+loading requests the provider's authenticated `/models` endpoint first because
+it describes the active deployment. Only when that returns no valid limits
+does loading request `https://models.dev/api.json`. If neither source returns
+valid, unambiguous limits, startup fails with the exact
+`providers.<name>.models.<model>` snippet to add.
+
 ## Automatic transcript compaction
 
 The optional `compaction` mapping has only these keys: `auto`, `provider`, and
@@ -89,14 +102,12 @@ adapter. No context or summary-budget fields are configurable in YAML: the
 runtime derives internal budgets from model limits.
 
 With compaction enabled, the main model must expose valid context-window and
-output metadata. If the summarizer exposes the optional metadata capability,
-its limits are also validated during startup; unknown or invalid metadata fails
-startup rather than being guessed. A summarizer without that optional
-capability remains supported with the runtime's internal summary cap. For the
-OpenAI-compatible adapter, built-in metadata covers known aliases. For a custom
-compatible model, construct an adapter with `openai.Config.MetadataResolver`
-and pass it with `agentcli.WithModel` or `agentcli.WithCompactionModel` to
-override the project-selected main model or summarizer. The optional
+output metadata. Main, summarizer, and subagent models are resolved from the
+same provider-scoped metadata path. Models use explicit `models` entries or
+startup discovery. Unknown, invalid, or ambiguous metadata fails startup
+rather than being guessed.
+Applications can still override project-selected adapters with
+`agentcli.WithModel` or `agentcli.WithCompactionModel`. The optional
 `agentcli.WithContextEstimator` similarly accepts a provider-aware estimator
 when the default conservative generic estimate is not precise enough.
 

@@ -70,10 +70,11 @@ continues receiving the normal child callback lifecycle.
 
 The main model must implement `ModelMetadataProvider` when compaction is
 enabled. A summarizer that implements the optional capability is validated too.
-The OpenAI-compatible adapter has a conservative built-in exact-alias catalog;
-private or compatible model IDs require `openai.Config.MetadataResolver`.
-Applications can override project-selected adapters through
-`agentcli.WithModel` and `agentcli.WithCompactionModel`.
+Project-selected models use provider-scoped config first, then the provider
+`/models` endpoint, then `models.dev`. Directly constructed OpenAI-compatible
+adapters retain their exact-alias catalog. Applications can still override
+project-selected adapters through `agentcli.WithModel` and
+`agentcli.WithCompactionModel`.
 
 Relevant implementation:
 

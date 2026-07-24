@@ -2,6 +2,7 @@ package agentcli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -81,10 +82,18 @@ const (
 )
 
 type ProviderConfig struct {
-	Type           ProviderType `yaml:"type"`
-	URL            string       `yaml:"url"`
-	APIKey         string       `yaml:"api_key"`
-	RequestTimeout string       `yaml:"request_timeout"`
+	Type           ProviderType                   `yaml:"type"`
+	URL            string                         `yaml:"url"`
+	APIKey         string                         `yaml:"api_key"`
+	RequestTimeout string                         `yaml:"request_timeout"`
+	Models         map[string]ModelMetadataConfig `yaml:"models"`
+}
+
+// ModelMetadataConfig declares provider-specific model limits. Explicit
+// project values take precedence over metadata discovery.
+type ModelMetadataConfig struct {
+	ContextWindowTokens int `yaml:"context_window_tokens"`
+	MaxOutputTokens     int `yaml:"max_output_tokens"`
 }
 
 // Skill is one .agentcli/skill/<name>/SKILL.md file. Only name and
@@ -117,6 +126,19 @@ type Project struct {
 // LoadProject reads AGENTS.md, .agentcli/MAIN.md, .agentcli/config.yaml, and
 // the configured skill and subagent definitions under root.
 func LoadProject(root string) (*Project, error) {
+	return LoadProjectContext(context.Background(), root)
+}
+
+// LoadProjectContext loads and validates one project. When automatic
+// compaction needs metadata that is not configured, discovery checks the
+// provider /models endpoint before falling back to models.dev under ctx.
+func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("project root is required")
 	}
@@ -168,14 +190,20 @@ func LoadProject(root string) (*Project, error) {
 		return nil, err
 	}
 	config.Providers[providerName] = providerConfig
-	return &Project{
+	project := &Project{
 		root: absoluteRoot, agents: string(agentsBytes), main: mainDefinition, config: config,
 		skills: rootSkills, allSkills: allSkills, subagents: subagents,
 		providerName: providerName, modelName: modelName,
 		compaction: cloneCompactionConfig(config.Compaction),
 		toolNames:  append([]string{}, mainDefinition.Tools...), restrictTools: true,
 		timeout: timeout,
-	}, nil
+	}
+	if project.compaction != nil && project.compaction.Auto {
+		if err := project.resolveRequiredModelMetadata(ctx); err != nil {
+			return nil, fmt.Errorf("resolve project model metadata: %w", err)
+		}
+	}
+	return project, nil
 }
 
 // WithProject applies a loaded project to Agent.New. It selects the configured
@@ -243,11 +271,17 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	}
 	switch providerConfig.Type {
 	case ProviderTypeOpenAI:
+		adapterConfig := openaiadapter.Config{Model: model}
+		if metadata, ok := configuredModelMetadata(providerConfig, model); ok {
+			adapterConfig.MetadataResolver = func(string) (agentruntime.ModelMetadata, error) {
+				return metadata, nil
+			}
+		}
 		return openaiadapter.New(
 			provideropenai.NewProvider(provideropenai.Config{
 				URL: providerConfig.URL, APIKey: providerConfig.APIKey, Timeout: timeout,
 			}),
-			openaiadapter.Config{Model: model},
+			adapterConfig,
 		), nil
 	default:
 		return nil, unsupportedProviderType(providerName, providerConfig.Type)
@@ -504,6 +538,9 @@ func validateProviderConfig(providerName string, providerConfig ProviderConfig) 
 	}
 	if strings.TrimSpace(providerConfig.APIKey) == "" {
 		return 0, fmt.Errorf("provider %q api_key is required", providerName)
+	}
+	if err := validateConfiguredModelMetadata(providerName, providerConfig.Models); err != nil {
+		return 0, err
 	}
 	timeout := 2 * time.Minute
 	if providerConfig.RequestTimeout != "" {

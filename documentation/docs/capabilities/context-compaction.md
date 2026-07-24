@@ -110,6 +110,14 @@ output-limit metadata. A summarizer that implements the optional metadata
 capability is validated as well. Unknown required limits fail startup rather
 than being guessed.
 
+Project provider profiles can declare limits once under
+`models.<model-id>`. Explicit config has priority. For an unknown model without
+config, startup checks the authenticated provider `/models` endpoint first and
+falls back to `models.dev` only when the deployment supplies no valid limits.
+If both sources fail, startup reports the provider/model and a YAML snippet to
+add. This provider-scoped metadata is reused by main, compaction, and child
+model construction.
+
 The default `GenericContextEstimator` works across providers and estimates all
 generic request surfaces conservatively, including multilingual text and tool
 schemas. Applications with a provider-specific tokenizer can replace it:
@@ -121,9 +129,9 @@ agent, err := agentcli.New(ctx,
 )
 ```
 
-For a private OpenAI-compatible model, construct the adapter with
-`openai.Config.MetadataResolver`, then override the project-selected main model
-or summarizer:
+For a custom adapter that cannot use provider-scoped config or discovery,
+construct it with `openai.Config.MetadataResolver`, then override the
+project-selected main model or summarizer:
 
 ```go
 agent, err := agentcli.New(ctx,

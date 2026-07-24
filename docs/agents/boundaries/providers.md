@@ -12,12 +12,15 @@ generic request surface, charging non-ASCII UTF-8 bytes conservatively for
 multilingual text. Provider-specific adapters may provide a more exact
 estimator without exposing SDK types in runtime.
 
-The OpenAI-compatible adapter resolves known exact model aliases (and dated
-versions) from its built-in metadata catalog. Compatible or private models must
-provide `openai.Config.MetadataResolver`; limits are never guessed for an
-arbitrary model identifier. Construct that custom adapter in application code
-and pass it through `agentcli.WithModel` or `agentcli.WithCompactionModel` to
-override a project-selected main model or summarizer. An application can pass a
+The OpenAI-compatible adapter can resolve known aliases for directly
+constructed adapters. Project provider profiles declare model limits under
+`models`. When compaction needs a model without an explicit entry, project
+loading checks the provider `/models` endpoint first, then falls back to
+`models.dev` only when the deployment returns no valid limits. Both discovery
+failures produce an actionable startup error; limits are never guessed.
+Applications can still construct a custom adapter with
+`openai.Config.MetadataResolver` and pass it through
+`agentcli.WithModel` or `agentcli.WithCompactionModel`. An application can pass a
 provider-aware `agentruntime.ContextEstimator` through
 `agentcli.WithContextEstimator` when its adapter can estimate more exactly than
 the conservative generic estimator. This is especially important when

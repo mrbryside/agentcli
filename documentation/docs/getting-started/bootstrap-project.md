@@ -79,6 +79,10 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    models: # Remove this block if the selected model is not a custom model.
+      replace-model:
+        context_window_tokens: 120000
+        max_output_tokens: 65000
 
   guardrails:
     type: openai
@@ -99,7 +103,10 @@ request projection, events, subagent behavior, and resume semantics.
 Replace `replace-provider` consistently in the compaction mapping, provider
 profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
 `replace-model` in the compaction mapping, `MAIN.md`, and every subagent
-definition with a model supported by that provider.
+definition with a model supported by that provider. The starter includes
+120,000-token context and 65,000-token output limits for a custom
+`replace-model`; remove the inline-commented `models` block when the selected
+model is not custom.
 `tool_report_discord.go` separately selects the `guardrails` profile and
 `replace-guard-model`; replace its connection settings and model without
 changing the main agent configuration. Provider aliases are
