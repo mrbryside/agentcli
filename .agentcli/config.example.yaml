@@ -1,6 +1,7 @@
 # Copy this file to .agentcli/config.yaml. Keep live provider keys in process
 # environment variables; ${VARIABLE} references are expanded at load time.
 permission_mode: default
+max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 
@@ -10,7 +11,7 @@ providers:
   your_provider_name:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 
   # openrouter:

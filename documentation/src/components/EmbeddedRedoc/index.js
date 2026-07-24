@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import BrowserOnly from '@docusaurus/BrowserOnly';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {useColorMode} from '@docusaurus/theme-common';
 
@@ -103,7 +104,7 @@ function loadRedoc() {
   });
 }
 
-export default function EmbeddedRedoc() {
+function EmbeddedRedocClient() {
   const containerRef = useRef(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -167,5 +168,18 @@ export default function EmbeddedRedoc() {
       )}
       <div className="redoclyEmbeddedContent" ref={containerRef} />
     </div>
+  );
+}
+
+export default function EmbeddedRedoc() {
+  return (
+    <BrowserOnly
+      fallback={
+        <div className="redoclyEmbeddedReference">
+          <div className="redoclyLoading">Loading API documentation…</div>
+        </div>
+      }>
+      {() => <EmbeddedRedocClient />}
+    </BrowserOnly>
   );
 }

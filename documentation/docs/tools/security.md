@@ -13,6 +13,8 @@ tool itself creates a stronger boundary. Neither an LLM prompt nor
 
 Validate every model-supplied value as if it came from an external API client:
 
+- use `DecodeArguments` as a strict JSON shape boundary, then perform semantic
+  validation separately;
 - resolve paths and reject symlink escapes;
 - use argument arrays instead of concatenated shell strings;
 - allowlist protocols and hosts before network requests;
@@ -43,6 +45,17 @@ paths, matches one exact `old_string` occurrence, and refuses zero or ambiguous
 matches. It checks the file snapshot again before an atomic same-directory
 rename, so it does not silently overwrite a concurrent change. The handler
 never uses remove-then-rename and preserves ordinary permission bits.
+
+Permission and confirmation descriptors must normalize and bound
+argument-derived display text. The handler must revalidate target state after
+approval because descriptors and schemas are not execution boundaries.
+
+The generated `report_discord` finalizer is a deterministic local mock and
+therefore declares no network permission. Replacing it with a real Discord
+integration requires an explicit network permission design, credential
+handling, confirmation policy, idempotency, and retry strategy. Avoid making
+an external mutation a mandatory finalizer unless duplicate delivery and
+provider repair are safe by design.
 
 ## Shell tools
 

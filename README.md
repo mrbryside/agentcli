@@ -41,8 +41,8 @@ installer also runs `go mod tidy` so the project can start immediately.
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
 ```
 
-Then copy the provider configuration, set the API key, and start the app. Go
-is only needed at this point:
+Then replace the generated provider/model placeholders, set the API key, and
+start the app. Go is only needed at this point:
 
 ```sh
 cd my-agent

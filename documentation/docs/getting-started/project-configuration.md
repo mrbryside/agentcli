@@ -32,16 +32,18 @@ This makes configuration mistakes visible before the first model request.
 
 ## Provider configuration
 
-`.agentcli/config.yaml` owns connections and the initial permission mode:
+`.agentcli/config.yaml` owns connections, the initial permission mode, and the
+optional per-parent open-subagent quota:
 
 ```yaml
 permission_mode: default
+max_subagents: 4
 
 providers:
   primary:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 
   openrouter:
@@ -56,6 +58,11 @@ refer to the alias, while the required `type` field selects the adapter. Both
 `primary` and `openrouter` above use `type: openai`, so their names can change
 without changing protocol behavior. `openai` is currently the only supported
 type; missing or unsupported types fail during `LoadProject`.
+
+`max_subagents` limits non-closed child instances per parent session. A positive
+value sets the quota; omitting it or setting it to `0` keeps the default of 4.
+Negative values are rejected. The Go option `WithMaxSubagents` can override the
+project value when constructing an Agent.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
@@ -85,12 +92,18 @@ none of that capability. An explicit empty list is rejected to avoid confusing
 "configured empty" state.
 
 Listing a custom tool does not create its handler. The Go application must also
-register that exact name with `WithCustomTool` or `WithTool`; otherwise
+register that exact name with `agentcli.WithTool`; otherwise
 `agentcli.New` returns an error such as:
 
 ```text
 root agent requires custom tool "publish_report", but it is not registered
 ```
+
+Registration makes a handler available to the application catalog; each agent
+allowlist determines whether that model can see it. A required end-of-turn tool
+is required only for agents whose allowlist exposes it. The generated
+researcher intentionally exposes `glob` and `read`, not `edit` or
+`report_discord`.
 
 ## Project instructions
 

@@ -8,20 +8,11 @@ sidebar_position: 2
 Test custom handlers independently, then test one full agent turn with a local
 scripted model. Live provider tests should be a separate opt-in layer.
 
-## Typed tool unit test
+## Raw tool unit test
 
 ```go
 func TestLookupTool(t *testing.T) {
-    tool, err := agentcli.NewCustomTool(
-        "lookup_topic",
-        "Look up a topic.",
-        func(_ context.Context, input lookupInput) (lookupOutput, error) {
-            return lookupOutput{Topic: input.Topic}, nil
-        },
-    )
-    if err != nil {
-        t.Fatal(err)
-    }
+    tool := newLookupTool()
 
     output, err := tool.Handler(
         context.Background(),
@@ -43,7 +34,12 @@ func TestLookupTool(t *testing.T) {
 }
 ```
 
-Also inspect `tool.Definition.InputSchema` so struct-tag regressions are visible.
+Also inspect `tool.Definition.InputSchema` so explicit schema and parameter
+description regressions are visible. Test non-object input, unknown fields,
+multiple values, malformed JSON, and missing required values separately.
+
+For context-aware tools, attach deterministic invocation metadata with
+`agentcli.WithToolInvocation`.
 
 ## Permission test
 
@@ -72,6 +68,15 @@ sessions, and a tool configured with both permission and confirmation.
 The `playground/terminal` package's `confirm_demo` is a complete executable
 example. Its colocated tests cover output encoding, unknown fields, bounded
 display input, and cancelled contexts.
+
+## Required finalizer test
+
+Use a scripted provider to return text without the required tool, then assert
+the repair request restricts the allowlist to missing finalizers and
+specifically selects the only missing tool. Return a successful standalone
+call and assert completion without another provider step. Also cover three
+consecutive no-progress repairs, multiple finalizers, mixed continuing batches,
+and progress resetting the repair budget.
 
 ## HTTP test
 

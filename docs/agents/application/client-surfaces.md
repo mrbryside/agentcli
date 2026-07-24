@@ -8,7 +8,9 @@ Both surfaces operate on the same Agent semantics: transcripts are read separate
 
 The Terminal subscribes to parent-addressed child permission and confirmation
 events and renders them in the main session even when the child view is not
-open. The HTTP server publishes the same lifecycles as retained
+open. Root/child permissions and confirmations share one visible global FIFO;
+only the oldest request is actionable, and a shortcut for a different
+decision type cannot consume it. The HTTP server publishes the same lifecycles as retained
 `subagent_permission` and `subagent_confirmation` records on the parent session
 SSE stream. Clients that attach after request creation recover with
 `GET /v1/sessions/{parentSessionID}/subagent-permissions` and

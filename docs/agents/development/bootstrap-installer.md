@@ -39,9 +39,10 @@ Tests may override their source URLs with `AGENTCLI_TOOL_READ_URL`,
 `AGENTCLI_TOOL_GLOB_URL`, `AGENTCLI_TOOL_EDIT_URL`, and
 `AGENTCLI_TOOL_REPORT_DISCORD_URL`.
 
-Both templates must use the public root facade (`agentcli.Tool`,
+All templates use the public root facade (`agentcli.Tool`,
 `ToolDefinition`, `ToolParameter`, and `ObjectSchema`) rather than raw JSON
-schemas or internal-package imports.
+schemas or internal-package imports. Their raw handlers decode with
+`agentcli.DecodeArguments`.
 
 The generated edit tool performs one exact `old_string` to `new_string`
 replacement in an existing bounded UTF-8 file. It rejects zero or ambiguous

@@ -88,7 +88,7 @@ runtime event catalog.
 ```go
 agent, err := agentcli.New(ctx,
     agentcli.WithProject(project),
-    agentcli.WithCustomTool("lookup_order", "Read an order", lookupOrder),
+    agentcli.WithTool(newLookupOrderTool()),
 )
 if err != nil {
     return err

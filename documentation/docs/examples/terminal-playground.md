@@ -14,7 +14,7 @@ the framework UI contract.
 ```go
 agent, err := agentcli.New(ctx,
     agentcli.WithProject(project),
-    agentcli.WithCustomTool("lookup", "Look up a topic.", lookup),
+    agentcli.WithTool(newLookupTool()),
 )
 if err != nil {
     return err
@@ -83,11 +83,13 @@ go run ./playground/terminal "Explain this repository"
 | `/clear` | Redraw the active example view. |
 | `/exit` | Stop the example. |
 
-Answer the oldest permission with `1` through `4`, or use `/allow ID`,
-`/allow-session ID`, `/allow-project ID`, or `/deny ID`.
+The Terminal shows one global FIFO approval across root/child permissions and
+confirmations. Answer a visible permission with `1` through `4`, or use
+`/allow ID`, `/allow-session ID`, `/allow-project ID`, or `/deny ID`. Answer a
+visible confirmation with `y` or `n`, or use `/confirm ID` and `/decline ID`.
 
-Answer the oldest confirmation with `y` or `n`, or use `/confirm ID` and
-`/decline ID`.
+See [Custom tools](../tools/custom-tools.md) for the complete explicit schema,
+strict decoder, handler, and result implementation.
 
 Press `Esc` to interrupt an active root or subagent response while leaving the
 playground open. Ctrl+C is reserved for exiting: the first press shows a warning

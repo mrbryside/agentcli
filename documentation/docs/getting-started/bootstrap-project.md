@@ -127,10 +127,11 @@ policy rule says otherwise. When a subagent permission or confirmation needs a
 decision, the request is surfaced in the parent Terminal session; you do not
 need to open the child view.
 
-The generated tools use the public typed schema API: `agentcli.Tool`,
-`agentcli.ToolParameter`, and `agentcli.ObjectSchema`. Their handlers still
-receive raw JSON, so custom decoding remains straightforward without importing
-runtime implementation packages.
+The generated tools use the public explicit schema API: `agentcli.Tool`,
+`agentcli.ToolDefinition`, `agentcli.ToolParameter`, and
+`agentcli.ObjectSchema`. Their raw handlers use `agentcli.DecodeArguments`,
+and `main.go` registers each one with `agentcli.WithTool`, so generated code
+does not import runtime implementation packages.
 
 ## Run the project
 

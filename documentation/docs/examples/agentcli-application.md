@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Build an agentcli application
 
-This example combines project configuration, a typed custom tool, dynamic
+This example combines project configuration, an explicit custom tool, dynamic
 confirmation, permissions, streaming events, and the HTTP server.
 
 ## Files
@@ -27,7 +27,7 @@ providers:
   primary:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 ```
 
@@ -61,6 +61,7 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "errors"
     "fmt"
     "log"
@@ -71,53 +72,74 @@ import (
     "time"
 
     "github.com/mrbryside/agentcli"
-    "github.com/mrbryside/agentcli/confirmation"
-    "github.com/mrbryside/agentcli/permission"
-    "github.com/mrbryside/agentcli/toolexecution"
 )
 
-type publishInput struct {
-    Title       string `json:"title" description:"Report title" minLength:"1" maxLength:"120"`
-    Destination string `json:"destination" description:"Publication destination" minLength:"1" maxLength:"200"`
+type publishArguments struct {
+    Title       string `json:"title"`
+    Destination string `json:"destination"`
 }
 
-type publishOutput struct {
-    Published   bool   `json:"published"`
-    Destination string `json:"destination"`
+type publishParameters struct {
+    Title       agentcli.ToolParameter
+    Destination agentcli.ToolParameter
 }
 
 type publisher struct{}
 
-func (publisher) publish(ctx context.Context, input publishInput) (publishOutput, error) {
+func (publisher) publish(ctx context.Context, input publishArguments) (json.RawMessage, error) {
     if err := ctx.Err(); err != nil {
-        return publishOutput{}, err
+        return nil, err
     }
-    // Replace this deterministic example with an application API call.
-    return publishOutput{Published: true, Destination: input.Destination}, nil
+    return json.Marshal(map[string]any{
+        "published": true, "destination": input.Destination,
+    })
 }
 
-func withPublishTool(service publisher) agentcli.Option {
-    return agentcli.WithCustomTool(
-        "publish_report",
-        "Publish a prepared report to an application destination.",
-        service.publish,
-        agentcli.StaticToolPermission(toolexecution.PermissionConfig{
-            Actions: []permission.Action{permission.NetworkAccess},
-            Risk:    permission.RiskHigh,
+func publishTool(service publisher) agentcli.Tool {
+    decode := func(raw json.RawMessage) (publishArguments, error) {
+        var input publishArguments
+        err := agentcli.DecodeArguments(raw, &input)
+        return input, err
+    }
+    return agentcli.Tool{
+        Definition: agentcli.ToolDefinition{
+            Name:        "publish_report",
+            Description: "Publish a prepared report to an application destination.",
+            InputSchema: agentcli.ObjectSchema(publishParameters{
+                Title: agentcli.StringParameter("Report title").
+                    Required().MinLength(1).MaxLength(120),
+                Destination: agentcli.StringParameter("Publication destination").
+                    Required().MinLength(1).MaxLength(200),
+            }),
+        },
+        Handler: func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+            input, err := decode(raw)
+            if err != nil {
+                return nil, err
+            }
+            return service.publish(ctx, input)
+        },
+        Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
+            Actions: []agentcli.PermissionAction{agentcli.NetworkAccess},
+            Risk:    agentcli.RiskHigh,
             Reason:  "Publishes data outside the local application.",
         }),
-        agentcli.ToolConfirmation(func(input publishInput) (confirmation.Description, error) {
+        Confirmation: func(raw json.RawMessage) (agentcli.ToolConfirmationDescription, error) {
+            input, err := decode(raw)
+            if err != nil {
+                return agentcli.ToolConfirmationDescription{}, err
+            }
             destination := strings.TrimSpace(input.Destination)
             if destination == "" {
-                return confirmation.Description{}, errors.New("destination is required")
+                return agentcli.ToolConfirmationDescription{}, errors.New("destination is required")
             }
-            return confirmation.Description{
+            return agentcli.ToolConfirmationDescription{
                 Title:   "Publish report",
                 Message: "Publish this report now?",
                 Details: fmt.Sprintf("Title: %s\nDestination: %s", input.Title, destination),
             }, nil
-        }),
-    )
+        },
+    }
 }
 
 func main() {
@@ -135,7 +157,7 @@ func main() {
 
     agent, err := agentcli.New(ctx,
         agentcli.WithProject(project),
-        withPublishTool(publisher{}),
+        agentcli.WithTool(publishTool(publisher{})),
     )
     if err != nil {
         log.Fatal(err)
@@ -169,7 +191,7 @@ func main() {
 Start the application:
 
 ```bash
-export OPENAI_API_KEY='...'
+export API_KEY='...'
 go run .
 ```
 

@@ -5,319 +5,186 @@ sidebar_position: 1
 
 # Custom tools
 
-Application tools are explicitly registered Go functions. Skills cannot create
-handlers, and project Markdown cannot enable an unregistered executable
-capability.
+`WithTool` is the application-tool registration API. A tool explicitly owns
+its model-facing definition, raw JSON handler, turn behavior, finalizer flag,
+and optional permission and confirmation descriptors.
 
-## Low-level raw-handler API
-
-Use `WithTool` when you want to own JSON decoding but still want a typed,
-described schema. The public facade keeps this declaration in the `agentcli`
-package; the handler remains the familiar raw JSON handler.
+## Define a tool
 
 ```go
-type readParameters struct {
-    Path   agentcli.ToolParameter
-    Offset agentcli.ToolParameter
-    Limit  agentcli.ToolParameter
+type lookupArguments struct {
+    Topic *string `json:"topic"`
 }
 
-readTool := agentcli.Tool{
-    Definition: agentcli.ToolDefinition{
-        Name: "read",
-        Description: "Read a project text file.",
-        InputSchema: agentcli.ObjectSchema(readParameters{
-            Path: agentcli.StringParameter("Project-relative path").Required().MinLength(1),
-            Offset: agentcli.IntegerParameter("First 1-based line").Minimum(1),
-            Limit: agentcli.IntegerParameter("Maximum lines").Minimum(1).Maximum(2000),
-        }),
-    },
-    Handler: func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-        // Decode and execute the application-specific operation.
-    },
-    Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
-        Actions: []agentcli.PermissionAction{agentcli.FilesystemRead},
-        Risk: agentcli.RiskLow,
-    }),
+type lookupResult struct {
+    Topic   string `json:"topic"`
+    Summary string `json:"summary"`
 }
 
-agent, err := agentcli.New(ctx, agentcli.WithTool(readTool))
-```
-
-`ToolParameter` carries the field description and required marker. Its
-`Schema` field accepts any `InputSchema` for advanced declarations; `Parameter`
-attaches a description to an existing schema. `ObjectSchema` uses `json` tags
-when supplied and otherwise turns exported field names into `lower_snake_case`.
-Use `TryObjectSchema` if a dynamically assembled declaration should return an
-error instead of panicking during initialization.
-
-## Handler context
-
-Every tool handler receives a context containing the current invocation
-metadata. Read it through the public facade:
-
-```go
-invocation, ok := agentcli.ToolInvocationFromContext(ctx)
-if !ok {
-    return nil, errors.New("tool invocation context is unavailable")
-}
-
-fmt.Println(invocation.SessionID)
-fmt.Println(invocation.TurnID)
-fmt.Println(invocation.CallID)
-fmt.Println(invocation.ToolName)
-```
-
-`agentcli.ToolInvocation` contains:
-
-| Field | Meaning |
-| --- | --- |
-| `SessionID` | Session that owns the current run. |
-| `TurnID` | Current user/model turn. |
-| `CallID` | Unique provider tool-call ID for this invocation. |
-| `ToolName` | Registered name of the executing tool. |
-
-The executor attaches this context after admission and before invoking the
-handler. Treat these values as metadata, not user input. `WithToolInvocation`
-is available for direct handler tests and adapters; normal applications do not
-need to attach it themselves.
-
-The executor also attaches the immutable permission-policy snapshot used for
-admission:
-
-```go
-policy, ok := agentcli.ToolPermissionPolicyFromContext(ctx)
-```
-
-Use this only for policy-aware classification or diagnostics. Do not mutate it
-or use it as a replacement for authorization checks. Cancellation and deadline
-signals remain available through the standard `ctx.Done()` and `ctx.Err()` APIs.
-
-## Recommended typed API
-
-`WithCustomTool` removes raw schema, decode, and encode boilerplate:
-
-```go
-type weatherInput struct {
-    City string `json:"city" description:"City and country" minLength:"1" maxLength:"120"`
-    Unit string `json:"unit,omitempty" description:"Temperature unit" enum:"celsius,fahrenheit"`
-}
-
-type weatherOutput struct {
-    City        string  `json:"city"`
-    Temperature float64 `json:"temperature"`
-    Unit        string  `json:"unit"`
-}
-
-func withWeatherTool(client *WeatherClient) agentcli.Option {
-    return agentcli.WithCustomTool(
-        "get_weather",
-        "Get current weather for a city.",
-        func(ctx context.Context, input weatherInput) (weatherOutput, error) {
-            return client.Current(ctx, input.City, input.Unit)
+func newLookupTool() agentcli.Tool {
+    return agentcli.Tool{
+        Definition: agentcli.ToolDefinition{
+            Name:        "lookup_topic",
+            Description: "Look up application-owned information about one topic.",
+            InputSchema: agentcli.ObjectSchema(struct {
+                Topic agentcli.ToolParameter
+            }{
+                Topic: agentcli.StringParameter("Topic to look up").
+                    Required().
+                    MinLength(1).
+                    MaxLength(120),
+            }),
         },
-        agentcli.StaticToolPermission(toolexecution.PermissionConfig{
-            Actions: []permission.Action{permission.NetworkAccess},
-            Risk:    permission.RiskMedium,
-            Reason:  "Fetches live weather from the configured weather service.",
-        }),
-    )
+        Handler: lookupTopic,
+    }
+}
+
+func lookupTopic(
+    ctx context.Context,
+    raw json.RawMessage,
+) (json.RawMessage, error) {
+    if err := ctx.Err(); err != nil {
+        return nil, err
+    }
+
+    var input lookupArguments
+    if err := agentcli.DecodeArguments(raw, &input); err != nil {
+        return nil, err
+    }
+    if input.Topic == nil || strings.TrimSpace(*input.Topic) == "" {
+        return nil, errors.New("topic is required")
+    }
+
+    topic := strings.TrimSpace(*input.Topic)
+    if len(topic) > 120 {
+        return nil, errors.New("topic must be at most 120 bytes")
+    }
+    return json.Marshal(lookupResult{
+        Topic:   topic,
+        Summary: "Application-owned information about " + topic,
+    })
 }
 ```
 
-Register it during initialization:
+The schema is the provider contract. `DecodeArguments` is the strict runtime
+shape boundary. Pointer fields distinguish missing values from zero values,
+while the handler still validates business and security rules and marshals its
+own result.
+
+Register the tool and allowlist the same name in project Markdown:
 
 ```go
 agent, err := agentcli.New(ctx,
     agentcli.WithProject(project),
-    withWeatherTool(weatherClient),
+    agentcli.WithTool(newLookupTool()),
 )
 ```
 
-The framework:
+```yaml
+tools:
+  - lookup_topic
+```
 
-1. infers an object JSON Schema from `weatherInput`;
-2. rejects malformed JSON and unknown fields;
-3. decodes arguments into `weatherInput`;
-4. calls the typed handler with the turn-scoped context;
-5. encodes `weatherOutput` as the tool result;
-6. returns handler errors as failed tool results so the model can respond.
+See [Input schemas](./input-schemas.md) for every parameter helper,
+constraint, advanced `InputSchema`, and the `RawInputSchema` escape hatch.
+
+## Handler context
+
+Admitted handlers receive correlated invocation metadata:
+
+```go
+invocation, ok := agentcli.ToolInvocationFromContext(ctx)
+```
+
+`ToolInvocation` contains `SessionID`, `TurnID`, `CallID`, and `ToolName`.
+`WithToolInvocation` exists for direct handler tests and adapters. The immutable
+admission policy is available through `ToolPermissionPolicyFromContext`.
+Metadata and policy are not user input or substitutes for authorization.
 
 ## Continue or end the turn
 
-Tools continue the normal agent loop by default: after a successful result is
-stored, the provider receives the updated transcript and may produce text or
-request more tools.
-
-For asynchronous dispatch tools, the follow-up provider step can be wrong. It
-may speculate about work that has only been queued or duplicate a later
-callback. Configure `EndTurn` to store the successful result and complete the
-current turn without another provider call:
+`ContinueTurn` is the zero-value default. After success, the provider sees the
+stored result and continues:
 
 ```go
-agentcli.WithCustomTool(
-    "enqueue_report",
-    "Queue a report for asynchronous generation.",
-    enqueueReport,
-    agentcli.ToolTurnBehavior(agentcli.EndTurn),
-)
+TurnBehavior: agentcli.ContinueTurn,
 ```
 
-The available values are:
-
-| Behavior | Result |
-| --- | --- |
-| `agentcli.ContinueTurn` | Default. Store the result and call the provider again. |
-| `agentcli.EndTurn` | Store a successful result and complete the turn immediately. |
-
-For a tool that must finalize every turn, use
-`agentcli.ToolRequiredAtTurnEnd()`. It also applies `EndTurn`. If the model
-tries to finish without a successful call, the runtime performs up to three
-bounded repair provider rounds exposing only the missing finalizer tools. Every
-missing finalizer must be called in each repair response; the turn fails only
-after the bounded repair limit is exhausted.
+`EndTurn` permits completion without another provider request:
 
 ```go
-agentcli.WithCustomTool(
-    "save_turn_summary",
-    "Persist the final structured summary for this turn.",
-    saveTurnSummary,
-    agentcli.ToolRequiredAtTurnEnd(),
-)
+TurnBehavior: agentcli.EndTurn,
 ```
 
-The runtime always waits for every result in the current parallel tool-call
-batch before deciding. It completes the turn only when every result succeeded
-and every tool in that batch uses `EndTurn`. A `ContinueTurn` result keeps the
-loop open, and failed, interrupted, denied, or declined results continue to the
-provider so it can explain or recover from the error.
+The runtime waits for every call in a parallel batch. It ends the turn only
+when all results succeeded and all called tools resolve to `EndTurn`. A mixed,
+failed, denied, declined, or interrupted batch continues.
 
-Framework tools may represent an expected admission conflict as a successful
-structured result when provider recovery would be harmful. For example,
-`send_subagent_message` returns `action: callback_pending` and `accepted: false`
-instead of a failed result when the child's authoritative callback is already
-waiting. Its resolved `finish_turn` still controls `EndTurn` or `ContinueTurn`;
-real validation, ownership, storage, and execution failures remain failed tool
-results.
+## Required end-of-turn tools
 
-`start_subagent`, `send_subagent_message`, and `force_close_subagent` expose a
-model-facing `finish_turn` argument. It defaults to `true`, applying `EndTurn`
-after a final dispatch or force-close. The model sets it to `false` only while
-it has a concrete plan to continue decomposing work or issue more operations
-after the current tool batch. It must set `true` on the final operation, when
-no more subagent operations are planned, or when unsure. A
-`selection_required` start always continues because no child work was
-dispatched and the model must ask which existing child the user means. Their
-model-facing tool results echo the resolved `finish_turn`
-boolean and a `turn_behavior` label of `continue_turn` or `end_turn`, plus an
-instruction matching that decision. `close_subagent` has no `finish_turn`
-argument; it always returns `continue_turn` so the callback can be delivered in
-the next normal provider round.
-
-## Dynamic permission metadata
-
-Use typed arguments when the capability details depend on the request:
+Set both fields for a tool that must finalize every turn in which it is
+exposed:
 
 ```go
-agentcli.ToolPermission(func(input writeInput) (permission.Description, error) {
-    return permission.Description{
-        Actions: []permission.Action{permission.FilesystemWrite},
-        Risk:    permission.RiskMedium,
-        Reason:  "Writes the user-selected report.",
-        Details: "Path: " + input.Path,
-    }, nil
-})
-```
-
-For policy-aware classification, use `ToolPermissionWithPolicy`. The policy is
-an immutable snapshot captured when the tool request enters execution.
-
-## Yes/No confirmation
-
-Confirmation is independent from permission:
-
-```go
-agentcli.ToolConfirmation(func(input publishInput) (confirmation.Description, error) {
-    return confirmation.Description{
-        Title:   "Publish report",
-        Message: "Publish this report now?",
-        Details: "Destination: " + input.Destination,
-    }, nil
-})
-```
-
-If both permission and confirmation are configured, permission admission runs
-first. Confirmation appears immediately before execution. The handler receives
-the same strictly decoded input after a correlated Yes decision.
-
-## Build a tool before agent options
-
-Use `NewCustomTool` when another component needs the low-level value:
-
-```go
-tool, err := agentcli.NewCustomTool(
-    "lookup_topic",
-    "Look up a topic.",
-    lookupTopic,
-)
-if err != nil {
-    return err
+agentcli.Tool{
+    Definition:        definition,
+    Handler:           handler,
+    TurnBehavior:      agentcli.EndTurn,
+    RequiredAtTurnEnd: true,
 }
-
-agent, err := agentcli.New(ctx, agentcli.WithTool(tool))
 ```
 
-`NewCustomTool` and `WithCustomTool` have the same generic inference and
-functional options. The latter reports construction errors from `agentcli.New`
-with the option index.
+The registry rejects a required finalizer without static `EndTurn`. Only a
+successful terminal all-`EndTurn` batch satisfies completion; an earlier call
+or a mixed continuing batch does not. While a finalizer is missing, normal
+rounds request a tool without hiding domain tools. If the model still finishes,
+the completion guard restricts repair rounds to missing finalizers and uses a
+specific one-shot tool choice when only one remains. It permits up to three
+consecutive no-progress repairs; progress resets that budget.
 
-## Advanced raw API
+Tool choice is provider request policy, not direct execution. A provider that
+ignores it can still exhaust the bounded guard and fail the turn. Required
+finalizers should therefore be described as standalone final actions.
 
-`WithTool(agentcli.Tool{...})` remains available for handlers that already
-operate on raw JSON or require an unusual schema. Use `RawInputSchema` only as
-an explicit escape hatch:
+Several finalizers are supported. The terminal batch must successfully include
+every still-missing finalizer and contain no continuing tool.
+
+## Permissions and confirmations
+
+A static capability declaration uses the root facade:
 
 ```go
-schema, err := agentcli.RawInputSchema(json.RawMessage(`{"type":"object","x-vendor-rule":true}`))
-if err != nil {
-    return err
-}
-
-agentcli.WithTool(agentcli.Tool{
-    Definition: agentcli.ToolDefinition{
-        Name:        "advanced_tool",
-        Description: "An application-defined advanced tool.",
-        InputSchema: schema,
-    },
-    Handler: func(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
-        return json.RawMessage(`{"ok":true}`), nil
-    },
-    TurnBehavior: agentcli.EndTurn,
-})
+Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
+    Actions: []agentcli.PermissionAction{agentcli.FilesystemRead},
+    Risk:    agentcli.RiskLow,
+    Reason:  "Reads one bounded project text file.",
+}),
 ```
 
-Use this only when typed construction is insufficient. Raw handlers own strict
-decoding, validation, result encoding, and safe display of argument-derived
-metadata.
+`Permission`, `PermissionWithPolicy`, and `Confirmation` fields accept raw JSON
+descriptors. Decode and normalize their arguments before constructing
+user-visible details. When both gates exist, permission is resolved first and
+confirmation is published immediately before handler execution.
 
-## Tool allowlists
+See [Permissions and confirmations](./permissions-and-confirmations.md) for
+complete dynamic examples and mode behavior.
 
-Registration and model availability are separate:
+## Project allowlists
 
-- Go registration gives the executor a handler.
-- `MAIN.md` `tools` decides which registered tools the root model sees.
-- A subagent definition's `tools` decides which registered tools that child
+- `WithTool` registers the handler globally.
+- `MAIN.md` selects which registered application tools the root sees.
+- A subagent definition selects which registered application tools that child
   sees.
 
-Subagents never receive root-only framework management tools, so they cannot
-spawn nested subagents.
+Required finalizer behavior applies only to agents that expose that tool.
+Subagents never receive root-only management tools and cannot nest.
 
-## Handler rules
+## Handler checklist
 
 - Honor cancellation through `ctx`.
-- Validate semantic constraints; JSON Schema primarily guides and constrains
-  model-generated arguments.
-- Return structured output instead of prose when possible.
-- Never trust paths, URLs, or commands simply because a model supplied them.
-- Avoid including secrets in tool output, errors, permission details, or
-  confirmation details because those values may be stored or shown to users.
+- Treat model arguments as untrusted.
+- Use `DecodeArguments`, then validate semantics and target state.
+- Bound I/O, execution time, and output.
+- Normalize argument-derived permission/confirmation text.
+- Return structured JSON where practical.
+- Do not treat schemas, prompts, permissions, or confirmations as a sandbox.

@@ -7,8 +7,12 @@ assembly API. Its prompts, placeholders, generated files, bounded starter
 tools, and verification flow are documented in
 [bootstrap-installer.md](../development/bootstrap-installer.md).
 
-`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, unknown profiles or skills, and registered-tool allowlist mismatches.
+`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
 
-Applications explicitly register executable tools through `WithCustomTool` or advanced `WithTool`; project Markdown only selects among registered capabilities. Keep public configuration functional and keep provider-specific types behind adapters.
+Applications explicitly register executable capabilities through `WithTool`;
+project Markdown only selects names from the registered catalog. The root
+package exposes `Tool`, `ToolDefinition`, schema builders,
+`DecodeArguments`, admission aliases, and turn behavior so ordinary
+applications do not need runtime-package imports.
 
 Back to [application/index.md](index.md).

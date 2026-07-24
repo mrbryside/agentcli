@@ -58,16 +58,17 @@ required `replace-provider` and `replace-model` substitutions.
 
 ## Configure a live provider
 
-Copy the safe template and export the referenced key:
+For this repository playground or an existing module, copy the example once.
+Generated projects already contain the destination file:
 
 ```bash
 cp .agentcli/config.example.yaml .agentcli/config.yaml
-export OPENAI_API_KEY='replace-with-a-real-key'
+export API_KEY='replace-with-a-real-key'
 ```
 
-Do not replace `${OPENAI_API_KEY}` with a committed secret. Project loading
-expands environment-variable references but intentionally does not load a
-`.env` file.
+Keep the environment reference in YAML instead of committing a secret.
+Project loading expands environment-variable references but intentionally does
+not load or ask for a `.env` file.
 
 Run the interactive terminal playground:
 

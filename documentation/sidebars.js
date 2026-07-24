@@ -36,7 +36,7 @@ module.exports = {
       label: 'Tools and safety',
       items: [
         'tools/custom-tools',
-        'tools/schema-inference',
+        'tools/input-schemas',
         'tools/permissions-and-confirmations',
         'tools/security',
       ],

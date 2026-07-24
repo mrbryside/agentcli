@@ -60,8 +60,8 @@ plan
 unrestricted
 ```
 
-When a permission prompt is visible, the numeric shortcuts answer the oldest
-pending request:
+When a permission prompt is the single visible approval, numeric shortcuts
+answer it:
 
 | Input | Decision |
 | --- | --- |
@@ -80,8 +80,10 @@ Use the explicit ID commands when several root or child requests are pending.
 | `/confirm ID` | Answer Yes to one confirmation. |
 | `/decline ID` | Answer No to one confirmation. |
 
-Typing `y` or `n` answers the oldest pending confirmation. Confirmations are
-separate from permissions and are never bypassed by unrestricted mode.
+Typing `y` or `n` answers the visible confirmation. Root/child permissions and
+confirmations share one global FIFO, so only the oldest request is actionable.
+A shortcut for the wrong kind is ignored rather than resolving another queued
+request. Confirmations are never bypassed by unrestricted mode.
 
 ## Interrupt and exit behavior
 

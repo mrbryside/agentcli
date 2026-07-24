@@ -43,8 +43,7 @@ Common options:
 | --- | --- |
 | `WithProject` | Apply provider/model/prompts/mode/skills/subagents from disk. |
 | `WithModel` | Supply a model without project loading. |
-| `WithCustomTool` | Register a typed tool with functional options. |
-| `WithTool` | Register an advanced raw tool. |
+| `WithTool` | Register an application-owned `agentcli.Tool`. |
 | `WithPermissionMode` | Set initial mode. |
 | `WithPermissionPolicy` | Supply explicit capability rules. |
 | `WithNonInteractive` | Independent unattended-run flag: convert permission `ask` to `deny` and decline confirmations without changing permission mode. |
@@ -76,24 +75,31 @@ The immutable admission policy is available with
 policy-aware behavior, but should not mutate it or treat it as a substitute for
 permission checks.
 
-## Typed tool options
+## Application tools
 
-```go
-agentcli.StaticToolPermission(config)
-agentcli.ToolPermission(typedDescriptor)
-agentcli.ToolPermissionWithPolicy(typedDescriptor)
-agentcli.ToolConfirmation(typedDescriptor)
-agentcli.ToolSchema(rawObjectSchema)
-agentcli.ToolTurnBehavior(agentcli.ContinueTurn)
-agentcli.ToolTurnBehavior(agentcli.EndTurn)
-agentcli.ToolRequiredAtTurnEnd()
-```
+| API | Purpose |
+| --- | --- |
+| `WithTool(tool)` | Register one application-defined tool. |
+| `Tool` | Definition, handler, behavior, finalizer, and admission metadata. |
+| `ToolDefinition` | Model-facing name, description, and input schema. |
+| `ObjectSchema(parameters)` | Build a closed object schema. |
+| `TryObjectSchema(parameters)` | Build a schema without panic. |
+| `InputSchema` | Typed JSON Schema vocabulary. |
+| `RawInputSchema(raw)` | Validate an advanced raw object schema. |
+| `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
+| `ToolStaticPermission(config)` | Build a static permission descriptor. |
+| `ContinueTurn`, `EndTurn` | Select successful result behavior. |
 
-`NewCustomTool` constructs a `toolexecution.Tool` without adding it to an agent.
-`ContinueTurn` is the default. `EndTurn` stores a successful tool result and
-allows the current turn to complete without another provider call when every
-result in that batch also succeeds with `EndTurn`; mixed or non-success batches
-continue so the model can dispatch more work or report the failure.
+`Tool` fields are `Definition`, `Handler`, `TurnBehavior`,
+`RequiredAtTurnEnd`, `Permission`, `PermissionWithPolicy`, and `Confirmation`.
+The schema helpers cover string, integer, number, boolean, null, object, and
+array parameters with individual descriptions and constraints.
+
+`ContinueTurn` is the zero-value default. `EndTurn` allows completion when the
+entire result batch succeeded and every result ends the turn. A required
+finalizer sets `RequiredAtTurnEnd: true` and `TurnBehavior: EndTurn`; the
+registry rejects any other combination. Missing finalizers use bounded repair
+rounds with an allowlist restricted to the missing tools.
 
 ## Turns
 

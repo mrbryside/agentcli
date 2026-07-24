@@ -40,7 +40,10 @@ may answer it in the selected child view or return to the root and use its ID:
 /confirm confirm_...
 ```
 
-When several requests exist, prefer ID-based commands over `1`–`4` or `y`/`n`.
+The Terminal queues root and child permissions and confirmations together and
+shows one question at a time. Resolve the visible request to advance the FIFO.
+Use ID commands when selecting a known pending request from a listing;
+shortcuts apply only to the visible request of the matching kind.
 
 ## No visible model output
 

@@ -73,8 +73,9 @@ work. They and `force_close_subagent` accept `finish_turn`, defaulting to
 `true`. The model uses `false` only when it has already planned more
 decomposition or operations after the current tool batch, and uses `true` on
 the final dispatch, when none remain, or when unsure. `close_subagent` has no
-`finish_turn` option and always continues to a normal provider round after
-cleanup. The child turn outcome
+`finish_turn` option. A successful close or the first controlled lifecycle
+conflict continues; repeating the same conflict for that child in the same
+parent turn ends the turn to prevent a retry loop. The child turn outcome
 arrives through a separate callback containing:
 
 - parent and child identity;
@@ -218,13 +219,14 @@ whose latest callback cursor has been consumed. They reject running,
 incomplete, and callback-pending children with a storage lifecycle error /
 HTTP `409 conflict`. The model-facing tool converts these expected lifecycle
 conflicts into a successful controlled result with `closed: false` and an
-instruction not to retry, preventing a provider loop; direct Go and HTTP
-callers retain the lifecycle error. This prevents a fast child from being
+instruction not to retry; direct Go and HTTP callers retain the lifecycle
+error. The first conflict continues, while repeating the same child conflict in
+that parent turn resolves to `end_turn`. This prevents a fast child from being
 closed in the same parent turn that started it and prevents cleanup from
 suppressing an unread callback.
 
-When a parent closes completed work during its callback turn,
-`close_subagent` always keeps the turn open:
+When a parent successfully closes completed work during its callback turn,
+`close_subagent` keeps the turn open:
 
 ```text
 close → normal provider continuation → deliver callback → finish
