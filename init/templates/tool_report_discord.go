@@ -21,7 +21,7 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "Required final report for every main-agent turn. After all other work and tool results are complete, call this tool exactly once with the complete user-facing response. Use it only as a standalone final action; do not call it early or batch it with another tool. Set report=false when the response contains only internal system or subagent lifecycle details that should not be reported."
+const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Put the complete user-facing response in message and nowhere else. Exclude internal system or subagent lifecycle details; if no user-facing content remains, set report=false, otherwise omit report or set it to true. If rejected, retry with corrected arguments."
 
 type reportDiscordArguments struct {
 	Message *string `json:"message"`

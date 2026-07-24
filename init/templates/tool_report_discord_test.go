@@ -22,7 +22,12 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	if !strings.Contains(tool.Definition.Description, "complete user-facing response") || !strings.Contains(tool.Definition.Description, "report=false") || strings.Contains(tool.Definition.Description, "report/") || strings.Contains(tool.Definition.Description, "network") {
+	for _, required := range []string{"successful standalone", "complete user-facing response", "nowhere else", "report=false", "retry with corrected arguments"} {
+		if !strings.Contains(tool.Definition.Description, required) {
+			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
+		}
+	}
+	if strings.Contains(tool.Definition.Description, "report/") || strings.Contains(tool.Definition.Description, "network") {
 		t.Fatalf("description = %q", tool.Definition.Description)
 	}
 	schema, err := json.Marshal(tool.Definition.InputSchema)

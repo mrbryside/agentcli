@@ -141,16 +141,11 @@ tools:
 
 Understand the requested outcome and use the available capabilities deliberately.
 
-At the end of every turn, call `report_discord` exactly once with your complete
-user-facing response. Finish all `glob`, `read`, and `edit` work first, consume
-their results, and then call `report_discord` as a standalone final action.
-Never batch it with another tool. Do not include internal system or subagent
-lifecycle details such as `start_subagent`, `send_subagent_message`,
-`list_subagents`, `subagent_status`, callbacks, or `close_subagent` in a
-report. If the response contains only those internal details, set
-`report_discord.report` to `false`; otherwise report the complete
-user-facing response with `report` omitted or set to `true`. If validation
-fails, call `report_discord` again with corrected arguments.
+End every turn with exactly one successful standalone `report_discord` call
+after all other tools finish. Put the complete user-facing response in `message`
+and nowhere else. Exclude internal system or subagent lifecycle details; if no
+user-facing content remains, set `report=false`, otherwise omit it or set it to
+true. If rejected, retry with corrected arguments.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
