@@ -25,7 +25,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.ToolOutputGuardModel != nil {
 		t.Fatalf("tool output guard model = %#v, want main-model fallback", tool.ToolOutputGuardModel)
 	}
-	for _, required := range []string{"arguments.message", `status is "reported"`, `"skipped"`, "call report_discord again", "Do not repeat sensitive content"} {
+	for _, required := range []string{"arguments.message", "skipReport is true", "skipReport is omitted or false", `status is "reported"`, `"skipped"`, "call report_discord again", "Do not repeat sensitive content"} {
 		if !strings.Contains(tool.ToolOutputGuardPrompt, required) {
 			t.Fatalf("output guard prompt %q does not contain %q", tool.ToolOutputGuardPrompt, required)
 		}
@@ -33,7 +33,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	for _, required := range []string{"successful standalone", "Do not send conversational", "only through this final call's message argument", "report=false", "retry with corrected arguments"} {
+	for _, required := range []string{"successful standalone", "Do not send conversational", "only through this final call's message argument", "Decide whether this turn", "skipReport=true", "no report is necessary", "omit skipReport or set it to false", "retry with corrected arguments"} {
 		if !strings.Contains(tool.Definition.Description, required) {
 			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
 		}
@@ -45,7 +45,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"report"`, `"type":"boolean"`, `"required":["message"]`} {
+	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`} {
 		if !strings.Contains(string(schema), expected) {
 			t.Fatalf("schema %s missing %s", schema, expected)
 		}
@@ -66,7 +66,7 @@ func TestReportDiscordIsDeterministicAndDoesNotSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := tool.Handler(ctx, arguments)
+	second, err := tool.Handler(ctx, json.RawMessage(`{"message":"Build complete.","skipReport":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestReportDiscordCanSkipInternalLifecycleReport(t *testing.T) {
 		CallID:    "call-skip",
 		ToolName:  "report_discord",
 	})
-	output, err := tool.Handler(ctx, json.RawMessage(`{"message":"Started subagent Robin.","report":false}`))
+	output, err := tool.Handler(ctx, json.RawMessage(`{"message":"No user-facing report is necessary for this turn.","skipReport":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +130,7 @@ func TestReportDiscordValidatesRawArguments(t *testing.T) {
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"message":"   "}`),
 		json.RawMessage(`{"message":"ok","unknown":true}`),
+		json.RawMessage(`{"message":"ok","report":false}`),
 		json.RawMessage(`{"message":"` + strings.Repeat("x", maximumDiscordMessageRunes+1) + `"}`),
 		json.RawMessage(`{"message":"bad\u0000text"}`),
 	} {

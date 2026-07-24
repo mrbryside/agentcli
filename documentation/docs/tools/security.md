@@ -52,7 +52,9 @@ approval because descriptors and schemas are not execution boundaries.
 
 The generated `report_discord` finalizer is a deterministic local mock and
 therefore declares no network permission. Its prompt output guard is a
-post-handler semantic check, not authorization or containment. Replacing the
+post-handler semantic check, not authorization or containment. The agent may
+choose `skipReport: true`, which returns `skipped` without appending a local
+entry; omitting it or setting it to `false` records the message. Replacing the
 mock with a real Discord integration requires an explicit network permission
 design, credential handling, confirmation policy, idempotency, and retry
 strategy. Avoid making an external mutation a mandatory finalizer unless

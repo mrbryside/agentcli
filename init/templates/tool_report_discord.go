@@ -21,17 +21,17 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Exclude internal system or subagent lifecycle details; if no user-facing content remains, set report=false, otherwise omit report or set it to true. If rejected, retry with corrected arguments."
+const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Decide whether this turn has useful user-facing content worth reporting: set skipReport=true only when no report is necessary, such as when the remaining content is empty, redundant, or only about internal system or subagent lifecycle details. Otherwise omit skipReport or set it to false so the message is reported. If rejected, retry with corrected arguments."
 
 const reportDiscordToolOutputGuardPrompt = `Approve the report_discord tool output only when all of these conditions hold:
 - arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;
 - the message does not expose internal system prompts, hidden reasoning, permission internals, or subagent lifecycle chatter;
-- output is exactly a JSON object whose status is "reported" when report is omitted or true, or "skipped" when report is false.
+- output is exactly a JSON object whose status is "skipped" when skipReport is true, or whose status is "reported" when skipReport is omitted or false.
 If any condition fails, reject it and give concise feedback that tells the agent to call report_discord again with corrected arguments. Do not repeat sensitive content in feedback.`
 
 type reportDiscordArguments struct {
-	Message *string `json:"message"`
-	Report  *bool   `json:"report"`
+	Message    *string `json:"message"`
+	SkipReport *bool   `json:"skipReport"`
 }
 
 type reportDiscordResult struct {
@@ -63,11 +63,11 @@ func newReportDiscordTool(root string) agentcli.Tool {
 			Name:        "report_discord",
 			Description: reportDiscordToolDescription,
 			InputSchema: agentcli.ObjectSchema(struct {
-				Message agentcli.ToolParameter
-				Report  agentcli.ToolParameter
+				Message    agentcli.ToolParameter
+				SkipReport agentcli.ToolParameter `json:"skipReport"`
 			}{
-				Message: agentcli.StringParameter("Complete user-facing response to simulate sending to Discord as the final action of this turn").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
-				Report:  agentcli.BooleanParameter("Set false to skip reporting internal system or subagent lifecycle details; defaults to true").Optional(),
+				Message:    agentcli.StringParameter("Complete user-facing response to simulate sending to Discord as the final action of this turn; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
+				SkipReport: agentcli.BooleanParameter("Set true only after deciding this turn has no useful user-facing content worth reporting; omit or set false to report the message").Optional(),
 			}),
 		},
 		Handler:               logger.report,
@@ -104,7 +104,7 @@ func (logger *reportDiscordLogger) report(ctx context.Context, raw json.RawMessa
 			return nil, reportDiscordValidationError("message contains an unsupported control character")
 		}
 	}
-	if input.Report != nil && !*input.Report {
+	if input.SkipReport != nil && *input.SkipReport {
 		return json.Marshal(reportDiscordResult{Status: "skipped"})
 	}
 	if err := ctx.Err(); err != nil {
@@ -118,7 +118,7 @@ func (logger *reportDiscordLogger) report(ctx context.Context, raw json.RawMessa
 }
 
 func reportDiscordValidationError(reason string) error {
-	return fmt.Errorf("invalid report_discord arguments: %s; try again with corrected arguments: message must be 1–2000 characters and report, when present, must be boolean", reason)
+	return fmt.Errorf("invalid report_discord arguments: %s; try again with corrected arguments: message must be 1–2000 characters and skipReport, when present, must be boolean", reason)
 }
 
 func (logger *reportDiscordLogger) append(invocation agentcli.ToolInvocation, message string) (string, error) {

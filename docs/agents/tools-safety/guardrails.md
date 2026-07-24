@@ -87,7 +87,8 @@ before handler side effects.
 
 The generated `report_discord` tool is a network-free demonstration. Its
 prompt guard checks message bounds, disclosure policy, and output/argument
-consistency. It uses the main model fallback and returns rejection as finalizer
+consistency, including `skipReport: true` → `skipped` and omitted/false →
+`reported`. It uses the main model fallback and returns rejection as finalizer
 feedback.
 
 Back to [tools-safety/index.md](index.md).

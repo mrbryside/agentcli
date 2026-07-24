@@ -55,10 +55,15 @@ is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
 Generated instructions forbid direct conversational, progress, or final
 messages to the user; the finalizer's `message` argument is the only
-user-facing delivery channel.
+user-facing delivery channel. The agent decides whether a report is useful:
+omitting `skipReport` or setting it to `false` records `message`, while
+`skipReport: true` returns `skipped` without creating or appending a report
+entry. The message remains required in the skip case and briefly explains why
+no report is necessary.
 Its embedded `ToolOutputGuardPrompt` checks message limits, disclosure policy,
-and output/argument consistency. It uses the Agent model fallback; rejection
-becomes a failed finalizer result with retry feedback.
+and output/argument consistency for both `reported` and `skipped`. It uses the
+Agent model fallback; rejection becomes a failed finalizer result with retry
+feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

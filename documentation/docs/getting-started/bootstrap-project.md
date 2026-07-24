@@ -117,14 +117,28 @@ researcher selects only `glob` and `read`:
   exactly once as the standalone final action with the complete user-facing
   response. The generated prompt forbids direct conversational, progress, or
   final messages to the user; user-facing content must be delivered only
-  through the final call's `message` argument. The tool performs no network
-  I/O and appends each payload to
+  through the final call's `message` argument. The agent may set
+  `skipReport: true` after deciding that the turn has no useful user-facing
+  content worth reporting; omitting it or setting it to `false` records the
+  message. The tool performs no network I/O and appends each reported payload to
   `report/{session}.json`, and is not available to the researcher. Its public
   result only reports completion; the session/turn/call metadata remains in
   the local log. A built-in prompt output guard checks message bounds,
   disclosure policy, and that the status result matches the submitted
   message. Rejection becomes a failed tool result with feedback so the main
   agent can issue a corrected finalizer call.
+
+The report decision has explicit positive skip semantics:
+
+| `skipReport` | Result status | Report file |
+| --- | --- | --- |
+| omitted or `false` | `reported` | Appends `message` to `report/{session}.json`. |
+| `true` | `skipped` | Does not create or append a report entry. |
+
+`message` remains required in both cases. When skipping, it briefly states why
+no report is necessary, but the handler does not record it. The old `report`
+field is not accepted; strict argument decoding rejects it so an inverted
+boolean cannot silently select the wrong behavior.
 
 Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project

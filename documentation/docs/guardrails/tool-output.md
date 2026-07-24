@@ -133,5 +133,13 @@ key when the agent may retry.
 The generated `report_discord` tool demonstrates a prompt output guard using
 the main model fallback. It is a local network-free mock, validates arguments
 before appending, and asks the guard to verify the result/argument
-relationship. A rejected check returns feedback to the main agent so it can
-issue a corrected finalizer call.
+relationship: `skipReport: true` must return `skipped`, while an omitted or
+false value must return `reported`. A rejected check returns feedback to the
+main agent so it can issue a corrected finalizer call.
+
+The report decision is owned by the agent, not the guard. The agent sets
+`skipReport: true` only after deciding that the turn has no useful user-facing
+content worth reporting. The handler then returns `skipped` without appending
+to the report file. Otherwise the agent omits the option or sets it to `false`,
+and the handler appends the message before returning `reported`. The prompt
+guard verifies that argument/result relationship after the handler runs.

@@ -31,12 +31,16 @@ network-free `report_discord` finalizer with a prompt output guard; the
 researcher stays read-only with `glob` and `read`. `read` returns at most 2,000
 lines and a `next_offset` when more content remains. Their source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
-`tool_report_discord.go`. The installer asks for the project folder
-name and then the Go module path used in `go.mod`. It detects the installed Go
-version for that file, falling back to `1.26.3` when Go is not installed.
-Generated projects start in `criticalOnly` permission mode and read provider
-credentials only from the process environment. When Go is available, the
-installer also runs `go mod tidy` so the project can start immediately.
+`tool_report_discord.go`. The finalizer is still called once at the end of every
+turn, but the agent decides whether a report is useful: omitting
+`skipReport` or setting it to `false` records `message`, while
+`skipReport: true` returns `skipped` without writing a report entry. The
+installer asks for the project folder name and then the Go module path used in
+`go.mod`. It detects the installed Go version for that file, falling back to
+`1.26.3` when Go is not installed. Generated projects start in `criticalOnly`
+permission mode and read provider credentials only from the process
+environment. When Go is available, the installer also runs `go mod tidy` so
+the project can start immediately.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
