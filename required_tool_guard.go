@@ -4,14 +4,22 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
 func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, required []string) agentruntime.CompletionGuard {
 	required = append([]string(nil), required...)
+	var mu sync.Mutex
+	type repairProgress struct {
+		missing    []string
+		noProgress int
+	}
+	progress := make(map[string]repairProgress)
 	return func(ctx context.Context, attempt agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
-		missing := missingRequiredTools(attempt.TurnID, attempt.Messages, required)
+		progressKey := attempt.SessionID + "\x00" + attempt.TurnID
+		missing := missingRequiredTools(attempt.TurnID, attempt.Messages, required, attempt.TerminalToolBatch)
 		baseDecision := agentruntime.CompletionDecision{Action: agentruntime.CompletionProceed}
 		var err error
 		if base != nil {
@@ -21,11 +29,28 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 			}
 		}
 		if len(missing) == 0 {
+			mu.Lock()
+			delete(progress, progressKey)
+			mu.Unlock()
 			return baseDecision, nil
 		}
-		if attempt.RepairCount >= defaultCompletionRepairLimit {
+		mu.Lock()
+		state := progress[progressKey]
+		if len(state.missing) > len(missing) {
+			state.noProgress = 0
+		}
+		state.noProgress++
+		state.missing = append(state.missing[:0], missing...)
+		progress[progressKey] = state
+		progressAttempts := state.noProgress
+		exhausted := state.noProgress > defaultCompletionRepairLimit
+		if exhausted {
+			delete(progress, progressKey)
+		}
+		mu.Unlock()
+		if exhausted {
 			return agentruntime.CompletionDecision{}, fmt.Errorf(
-				"required end-of-turn tool was not called successfully after %d repair attempts: %s",
+				"required end-of-turn tool was not called successfully after %d repair attempts without progress: %s",
 				defaultCompletionRepairLimit,
 				strings.Join(missing, ", "),
 			)
@@ -35,9 +60,10 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 			Action: agentruntime.CompletionRetry,
 			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
 				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
-				strings.Join(missing, ", "), attempt.RepairCount+1, defaultCompletionRepairLimit,
+				strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
 			)}},
-			ToolAllowlist: append([]string(nil), missing...),
+			ToolAllowlist:    append([]string(nil), missing...),
+			NormalToolChoice: &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceRequired},
 		}
 		if len(missing) == 1 {
 			decision.ToolChoice = &agentruntime.ToolChoice{
@@ -50,9 +76,20 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		if baseDecision.Action == agentruntime.CompletionRetry {
 			decision.ContextReminders = append(decision.ContextReminders, baseDecision.ContextReminders...)
 			decision.ToolAllowlist = unionToolNames(decision.ToolAllowlist, baseDecision.ToolAllowlist)
+			decision.NormalToolChoice = mergeRepairToolChoices(decision.NormalToolChoice, baseDecision.NormalToolChoice)
 			decision.ToolChoice = mergeRepairToolChoices(decision.ToolChoice, baseDecision.ToolChoice)
 		}
 		return decision, nil
+	}
+}
+
+func requiredToolChoiceProvider(required []string) agentruntime.ToolChoiceProvider {
+	required = append([]string(nil), required...)
+	return func(_ context.Context, attempt agentruntime.CompletionAttempt) (*agentruntime.ToolChoice, error) {
+		if len(required) == 0 || len(missingRequiredTools(attempt.TurnID, attempt.Messages, required, attempt.TerminalToolBatch)) == 0 {
+			return nil, nil
+		}
+		return &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceRequired}, nil
 	}
 }
 
@@ -71,12 +108,22 @@ func mergeRepairToolChoices(first, second *agentruntime.ToolChoice) *agentruntim
 	return &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceRequired}
 }
 
-func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string) []string {
-	succeeded := make(map[string]struct{}, len(required))
-	for _, message := range messages {
+func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string, terminalToolBatch bool) []string {
+	// Only the terminal result batch can finalize a turn. A successful required
+	// call from an earlier continuing round is deliberately ignored.
+	if !terminalToolBatch {
+		return append([]string(nil), required...)
+	}
+	start := len(messages)
+	for start > 0 {
+		message := messages[start-1]
 		if message.TurnID != turnID || message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil {
-			continue
+			break
 		}
+		start--
+	}
+	succeeded := make(map[string]struct{}, len(required))
+	for _, message := range messages[start:] {
 		if message.ToolResult.Status == agentruntime.ToolResultSucceeded {
 			succeeded[message.ToolResult.Name] = struct{}{}
 		}

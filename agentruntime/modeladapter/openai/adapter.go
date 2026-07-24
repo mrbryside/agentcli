@@ -61,7 +61,9 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 		}
 	}
 	if len(request.ContextReminders) != 0 {
-		if !appendContextRemindersToLatestUser(messages, request.ContextReminders) {
+		var appended bool
+		messages, appended = appendContextRemindersAtConversationTail(messages, request.ContextReminders)
+		if !appended {
 			for _, reminder := range request.ContextReminders {
 				systemMessages = append(systemMessages, provideropenai.Message{Role: "system", Content: formatContextReminder(reminder)})
 			}
@@ -113,20 +115,37 @@ func transformToolChoice(choice *agentruntime.ToolChoice) (any, error) {
 	}
 }
 
-// appendContextRemindersToLatestUser keeps all tool-call/result messages in
-// their original order and changes only the last user message in the
-// provider-owned converted transcript.
-func appendContextRemindersToLatestUser(messages []provideropenai.Message, reminders []agentruntime.ContextReminder) bool {
+// appendContextRemindersAtConversationTail keeps tool-call/result adjacency
+// intact while ensuring a repair request does not end with consecutive
+// assistant messages. Providers such as LiteLLM-backed Qwen endpoints reject
+// that otherwise-valid OpenAI transcript shape.
+func appendContextRemindersAtConversationTail(messages []provideropenai.Message, reminders []agentruntime.ContextReminder) ([]provideropenai.Message, bool) {
+	foundUser := false
 	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Role != "user" {
-			continue
+		if messages[index].Role == "user" {
+			foundUser = true
+			break
 		}
-		for _, reminder := range reminders {
-			messages[index].Content += "\n\n" + formatContextReminder(reminder)
-		}
-		return true
 	}
-	return false
+	if !foundUser {
+		return messages, false
+	}
+
+	content := ""
+	for _, reminder := range reminders {
+		if content != "" {
+			content += "\n\n"
+		}
+		content += formatContextReminder(reminder)
+	}
+	last := len(messages) - 1
+	if messages[last].Role == "user" {
+		for _, reminder := range reminders {
+			messages[last].Content += "\n\n" + formatContextReminder(reminder)
+		}
+		return messages, true
+	}
+	return append(messages, provideropenai.Message{Role: "user", Content: content}), true
 }
 
 func formatContextReminder(reminder agentruntime.ContextReminder) string {

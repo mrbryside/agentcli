@@ -237,7 +237,7 @@ func TestTransformMessagesDropsLegacyEmptyTextMessages(t *testing.T) {
 }
 
 func TestAdapterPlacesContextRemindersWithoutMutatingTranscript(t *testing.T) {
-	t.Run("latest user preserves tool adjacency", func(t *testing.T) {
+	t.Run("tail reminder preserves tool adjacency", func(t *testing.T) {
 		fake := &fakeProvider{}
 		adapter := New(fake, Config{Model: "gpt-test"})
 		messages := []agentruntime.Message{
@@ -258,15 +258,59 @@ func TestAdapterPlacesContextRemindersWithoutMutatingTranscript(t *testing.T) {
 			t.Fatalf("provider requests = %d, want 1", len(fake.requests))
 		}
 		got := fake.requests[0].Messages
-		if len(got) != 5 || got[2].Role != "user" {
+		if len(got) != 6 || got[2].Role != "user" || got[2].Content != "latest user" {
 			t.Fatalf("provider messages = %#v", got)
 		}
-		wantContent := "latest user\n\n<system-reminder>\n<active_subagents>one</active_subagents>\n</system-reminder>\n\n<system-reminder>\nsecond\n</system-reminder>"
-		if got[2].Content != wantContent {
-			t.Fatalf("latest user content = %q, want %q", got[2].Content, wantContent)
+		wantContent := "<system-reminder>\n<active_subagents>one</active_subagents>\n</system-reminder>\n\n<system-reminder>\nsecond\n</system-reminder>"
+		if got[5].Role != "user" || got[5].Content != wantContent {
+			t.Fatalf("tail reminder = %#v, want content %q", got[5], wantContent)
 		}
 		if got[3].Role != "assistant" || len(got[3].ToolCalls) != 1 || got[3].ToolCalls[0].ID != "call-1" || got[4].Role != "tool" || got[4].ToolCallID != "call-1" {
 			t.Fatalf("tool call/result adjacency changed: %#v", got[3:])
+		}
+	})
+
+	t.Run("repair reminder separates trailing assistant messages", func(t *testing.T) {
+		fake := &fakeProvider{}
+		adapter := New(fake, Config{Model: "qwen-test"})
+		messages := []agentruntime.Message{
+			{Type: agentruntime.MessageTypeUser, Content: "hello"},
+			{Type: agentruntime.MessageTypeAssistant, Content: "first answer"},
+			{Type: agentruntime.MessageTypeAssistant, Content: "repair answer"},
+		}
+		if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{
+			Messages:         messages,
+			ContextReminders: []agentruntime.ContextReminder{{Content: "call report_discord"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := fake.requests[0].Messages
+		if len(got) != 4 {
+			t.Fatalf("provider messages = %#v", got)
+		}
+		for index, role := range []string{"user", "assistant", "assistant", "user"} {
+			if got[index].Role != role {
+				t.Fatalf("message %d role = %q, want %q: %#v", index, got[index].Role, role, got)
+			}
+		}
+		if got[3].Content != "<system-reminder>\ncall report_discord\n</system-reminder>" {
+			t.Fatalf("repair reminder = %#v", got[3])
+		}
+	})
+
+	t.Run("trailing user receives reminder in place", func(t *testing.T) {
+		fake := &fakeProvider{}
+		adapter := New(fake, Config{Model: "gpt-test"})
+		if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{
+			Messages:         []agentruntime.Message{{Type: agentruntime.MessageTypeUser, Content: "hello"}},
+			ContextReminders: []agentruntime.ContextReminder{{Content: "trusted"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := fake.requests[0].Messages
+		want := "hello\n\n<system-reminder>\ntrusted\n</system-reminder>"
+		if len(got) != 1 || got[0].Role != "user" || got[0].Content != want {
+			t.Fatalf("provider messages = %#v, want trailing user reminder", got)
 		}
 	})
 

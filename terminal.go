@@ -134,6 +134,7 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 		permissionOrder:      make([]permission.ID, 0),
 		permissionSubagent:   make(map[permission.ID]string),
 		confirmationSubagent: make(map[confirmation.ID]string),
+		approvalOrder:        make([]terminalApproval, 0),
 	}
 	terminalContext, cancelTerminal := context.WithCancel(a.context)
 	defer cancelTerminal()
@@ -215,14 +216,7 @@ func (c *terminalClient) observeSubagentPermission(event SubagentPermissionEvent
 		if exists {
 			return
 		}
-		if !c.renderInView("", func() {
-			if loading := c.currentRootLoading(); loading != nil {
-				loading.Stop()
-			}
-			c.terminal.permission(request)
-		}) {
-			c.rootNotice("Permission pending", event.DisplayName+" · "+request.ToolName)
-		}
+		c.queueApproval(terminalApprovalPermission, string(request.ID))
 	case SubagentPermissionResolved, SubagentPermissionCancelled, SubagentPermissionExpired:
 		c.stateMu.Lock()
 		if event.Request != nil {
@@ -234,6 +228,12 @@ func (c *terminalClient) observeSubagentPermission(event SubagentPermissionEvent
 			delete(c.permissionSubagent, event.Decision.PermissionID)
 		}
 		c.stateMu.Unlock()
+		if event.Request != nil {
+			c.completeApproval(terminalApprovalPermission, string(event.Request.ID))
+		}
+		if event.Decision != nil {
+			c.completeApproval(terminalApprovalPermission, string(event.Decision.PermissionID))
+		}
 	}
 }
 
@@ -269,14 +269,7 @@ func (c *terminalClient) observeSubagentConfirmation(event SubagentConfirmationE
 		if exists {
 			return
 		}
-		if !c.renderInView("", func() {
-			if loading := c.currentRootLoading(); loading != nil {
-				loading.Stop()
-			}
-			c.terminal.confirmation(request)
-		}) {
-			c.rootNotice("Confirmation pending", event.DisplayName+" · "+request.ToolName)
-		}
+		c.queueApproval(terminalApprovalConfirmation, string(request.ID))
 	case SubagentConfirmationResolved, SubagentConfirmationCancelled, SubagentConfirmationExpired:
 		c.stateMu.Lock()
 		if event.Request != nil {
@@ -288,6 +281,12 @@ func (c *terminalClient) observeSubagentConfirmation(event SubagentConfirmationE
 			delete(c.confirmationSubagent, event.Decision.ConfirmationID)
 		}
 		c.stateMu.Unlock()
+		if event.Request != nil {
+			c.completeApproval(terminalApprovalConfirmation, string(event.Request.ID))
+		}
+		if event.Decision != nil {
+			c.completeApproval(terminalApprovalConfirmation, string(event.Decision.ConfirmationID))
+		}
 	}
 }
 
@@ -307,6 +306,8 @@ type terminalClient struct {
 	pendingConfirmations map[confirmation.ID]confirmation.Request
 	confirmationOrder    []confirmation.ID
 	confirmationSubagent map[confirmation.ID]string
+	approvalOrder        []terminalApproval
+	activeApproval       *terminalApproval
 	runActive            bool
 	viewContext          context.Context
 	viewCancel           context.CancelFunc
@@ -319,6 +320,94 @@ type terminalClient struct {
 	escapeInput          <-chan struct{}
 	reasoningToggleInput <-chan struct{}
 	exitArmedUntil       time.Time
+}
+
+type terminalApprovalKind string
+
+const (
+	terminalApprovalPermission   terminalApprovalKind = "permission"
+	terminalApprovalConfirmation terminalApprovalKind = "confirmation"
+)
+
+type terminalApproval struct {
+	kind terminalApprovalKind
+	id   string
+}
+
+// queueApproval serializes every root and subagent approval into one visible
+// prompt stream. The owner maps remain the source of resolution correlation.
+func (c *terminalClient) queueApproval(kind terminalApprovalKind, id string) {
+	c.stateMu.Lock()
+	c.approvalOrder = append(c.approvalOrder, terminalApproval{kind: kind, id: id})
+	c.stateMu.Unlock()
+	c.presentNextApproval()
+}
+
+func (c *terminalClient) presentNextApproval() {
+	c.stateMu.Lock()
+	if c.activeApproval != nil {
+		c.stateMu.Unlock()
+		return
+	}
+	var active *terminalApproval
+	var permissionRequest permission.Request
+	var confirmationRequest confirmation.Request
+	for len(c.approvalOrder) > 0 {
+		candidate := c.approvalOrder[0]
+		c.approvalOrder = c.approvalOrder[1:]
+		switch candidate.kind {
+		case terminalApprovalPermission:
+			request, found := c.pendingPermissions[permission.ID(candidate.id)]
+			if !found {
+				continue
+			}
+			permissionRequest = request
+		case terminalApprovalConfirmation:
+			request, found := c.pendingConfirmations[confirmation.ID(candidate.id)]
+			if !found {
+				continue
+			}
+			confirmationRequest = request
+		default:
+			continue
+		}
+		copy := candidate
+		active = &copy
+		break
+	}
+	c.activeApproval = active
+	c.stateMu.Unlock()
+	if active == nil {
+		return
+	}
+	c.renderInView("", func() {
+		if loading := c.currentRootLoading(); loading != nil {
+			loading.Stop()
+		}
+		if active.kind == terminalApprovalPermission {
+			c.terminal.permission(permissionRequest)
+		} else {
+			c.terminal.confirmation(confirmationRequest)
+		}
+	})
+}
+
+func (c *terminalClient) completeApproval(kind terminalApprovalKind, id string) {
+	c.stateMu.Lock()
+	if c.activeApproval != nil && c.activeApproval.kind == kind && c.activeApproval.id == id {
+		c.activeApproval = nil
+	}
+	c.stateMu.Unlock()
+	c.presentNextApproval()
+}
+
+func (c *terminalClient) activeApprovalSnapshot() (terminalApproval, bool) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.activeApproval == nil {
+		return terminalApproval{}, false
+	}
+	return *c.activeApproval, true
 }
 
 func (c *terminalClient) runInteractive(
@@ -457,6 +546,34 @@ func (c *terminalClient) runInteractive(
 }
 
 func (c *terminalClient) command(input string) (handled, exit bool) {
+	if active, found := c.activeApprovalSnapshot(); found {
+		switch active.kind {
+		case terminalApprovalConfirmation:
+			if answer, ok := confirmationChoice(input); ok {
+				if request, exists := c.pendingConfirmation(confirmation.ID(active.id)); exists {
+					c.resolveConfirmation(confirmation.ID(active.id), request, answer)
+				}
+				return true, false
+			}
+			if !strings.HasPrefix(strings.TrimSpace(input), "/") {
+				c.terminal.error(errors.New("answer the active confirmation with yes or no"))
+				return true, false
+			}
+		case terminalApprovalPermission:
+			if kind, ok := permissionChoice(input); ok {
+				if request, exists := c.pendingPermission(permission.ID(active.id)); exists {
+					c.resolvePermission(permission.ID(active.id), request, kind)
+				}
+				return true, false
+			}
+			if !strings.HasPrefix(strings.TrimSpace(input), "/") {
+				c.terminal.error(errors.New("answer the active permission with 1, 2, 3, or 4"))
+				return true, false
+			}
+		}
+	}
+	// Compatibility for callers that construct a terminalClient with pending
+	// state directly (the interactive path always has an active approval).
 	if answer, ok := confirmationChoice(input); ok {
 		if id, request, found := c.nextPendingConfirmation(); found {
 			c.resolveConfirmation(id, request, answer)
@@ -464,13 +581,10 @@ func (c *terminalClient) command(input string) (handled, exit bool) {
 		}
 	}
 	if kind, ok := permissionChoice(input); ok {
-		id, request, found := c.nextPendingPermission()
-		if !found {
-			c.terminal.error(errors.New("no pending permission"))
+		if id, request, found := c.nextPendingPermission(); found {
+			c.resolvePermission(id, request, kind)
 			return true, false
 		}
-		c.resolvePermission(id, request, kind)
-		return true, false
 	}
 	fields := strings.Fields(input)
 	if len(fields) > 0 {
@@ -803,6 +917,7 @@ func (c *terminalClient) resolveConfirmation(id confirmation.ID, request confirm
 	delete(c.pendingConfirmations, id)
 	delete(c.confirmationSubagent, id)
 	c.stateMu.Unlock()
+	c.completeApproval(terminalApprovalConfirmation, string(id))
 }
 
 func (c *terminalClient) pendingConfirmation(id confirmation.ID) (confirmation.Request, bool) {
@@ -860,6 +975,7 @@ func (c *terminalClient) resolvePermission(id permission.ID, request permission.
 	delete(c.pendingPermissions, id)
 	delete(c.permissionSubagent, id)
 	c.stateMu.Unlock()
+	c.completeApproval(terminalApprovalPermission, string(id))
 }
 
 func (c *terminalClient) pendingPermission(id permission.ID) (permission.Request, bool) {
@@ -1486,7 +1602,8 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 				loading.Stop()
 			}
 			c.stateMu.Lock()
-			if _, exists := c.pendingPermissions[event.Permission.ID]; !exists {
+			_, exists := c.pendingPermissions[event.Permission.ID]
+			if !exists {
 				c.permissionOrder = append(c.permissionOrder, event.Permission.ID)
 			}
 			c.pendingPermissions[event.Permission.ID] = *event.Permission
@@ -1497,8 +1614,8 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 				c.permissionSubagent[event.Permission.ID] = subagentID
 			}
 			c.stateMu.Unlock()
-			if visible {
-				c.terminal.permission(*event.Permission)
+			if !exists {
+				c.queueApproval(terminalApprovalPermission, string(event.Permission.ID))
 			}
 		}
 	case agentruntime.AgentPermissionResolved, agentruntime.AgentPermissionCancelled, agentruntime.AgentPermissionExpired:
@@ -1512,7 +1629,13 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			delete(c.permissionSubagent, event.Decision.PermissionID)
 		}
 		c.stateMu.Unlock()
-		if visible {
+		if event.Permission != nil {
+			c.completeApproval(terminalApprovalPermission, string(event.Permission.ID))
+		}
+		if event.Decision != nil {
+			c.completeApproval(terminalApprovalPermission, string(event.Decision.PermissionID))
+		}
+		if _, approvalActive := c.activeApprovalSnapshot(); visible && !approvalActive {
 			loading.Start("")
 		}
 	case agentruntime.AgentConfirmationRequested:
@@ -1521,7 +1644,8 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 				loading.Stop()
 			}
 			c.stateMu.Lock()
-			if _, exists := c.pendingConfirmations[event.Confirmation.ID]; !exists {
+			_, exists := c.pendingConfirmations[event.Confirmation.ID]
+			if !exists {
 				c.confirmationOrder = append(c.confirmationOrder, event.Confirmation.ID)
 			}
 			c.pendingConfirmations[event.Confirmation.ID] = *event.Confirmation
@@ -1532,8 +1656,8 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 				c.confirmationSubagent[event.Confirmation.ID] = subagentID
 			}
 			c.stateMu.Unlock()
-			if visible {
-				c.terminal.confirmation(*event.Confirmation)
+			if !exists {
+				c.queueApproval(terminalApprovalConfirmation, string(event.Confirmation.ID))
 			}
 		}
 	case agentruntime.AgentConfirmationResolved, agentruntime.AgentConfirmationCancelled, agentruntime.AgentConfirmationExpired:
@@ -1547,7 +1671,13 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			delete(c.confirmationSubagent, event.ConfirmationDecision.ConfirmationID)
 		}
 		c.stateMu.Unlock()
-		if visible {
+		if event.Confirmation != nil {
+			c.completeApproval(terminalApprovalConfirmation, string(event.Confirmation.ID))
+		}
+		if event.ConfirmationDecision != nil {
+			c.completeApproval(terminalApprovalConfirmation, string(event.ConfirmationDecision.ConfirmationID))
+		}
+		if _, approvalActive := c.activeApprovalSnapshot(); visible && !approvalActive {
 			loading.Start("")
 		}
 	case agentruntime.RunCompleted, agentruntime.RunFailed:

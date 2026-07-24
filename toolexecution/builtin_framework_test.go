@@ -59,8 +59,8 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			}
 		}
 		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
-				t.Fatalf("close_subagent must always continue without finish_turn: %#v", tool)
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+				t.Fatalf("close_subagent must continue on its first lifecycle result without finish_turn: %#v", tool)
 			}
 		}
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && !strings.Contains(tool.Definition.Description, "continue decomposing") {
@@ -128,8 +128,14 @@ func TestSubagentDispatchTurnBehavior(t *testing.T) {
 	}
 	for _, tool := range NewSubagentToolBridge().Tools() {
 		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil {
-				t.Fatalf("close behavior = (%q, %v), want static continue", tool.TurnBehavior, tool.resultTurnBehavior != nil)
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil {
+				t.Fatalf("close behavior = (%q, %v), want dynamic bounded conflict handling", tool.TurnBehavior, tool.resultTurnBehavior != nil)
+			}
+			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"continue_turn"}`)); got != ContinueTurn {
+				t.Fatalf("first close conflict behavior = %q, want continue", got)
+			}
+			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"end_turn"}`)); got != EndTurn {
+				t.Fatalf("repeated close conflict behavior = %q, want end_turn", got)
 			}
 			continue
 		}
@@ -145,5 +151,20 @@ func TestSubagentDispatchTurnBehavior(t *testing.T) {
 		if got := tool.resultTurnBehavior(json.RawMessage(`{}`), nil); got != EndTurn {
 			t.Fatalf("default %s behavior = %q, want end_turn", tool.Definition.Name, got)
 		}
+	}
+}
+
+func TestRepeatedCloseConflictEndsOnlyTheCurrentTurn(t *testing.T) {
+	bridge := NewSubagentToolBridge()
+	firstTurn := Invocation{SessionID: "session", TurnID: "turn-1"}
+	if got := bridge.closeConflictTurnBehavior(firstTurn, "child"); got != "continue_turn" {
+		t.Fatalf("first conflict = %q, want continue_turn", got)
+	}
+	if got := bridge.closeConflictTurnBehavior(firstTurn, "child"); got != "end_turn" {
+		t.Fatalf("repeated conflict = %q, want end_turn", got)
+	}
+	secondTurn := Invocation{SessionID: "session", TurnID: "turn-2"}
+	if got := bridge.closeConflictTurnBehavior(secondTurn, "child"); got != "continue_turn" {
+		t.Fatalf("new-turn conflict = %q, want continue_turn", got)
 	}
 }

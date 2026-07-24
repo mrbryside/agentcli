@@ -20,23 +20,30 @@ const (
 // CompletionAttempt is a defensive snapshot taken after the provider's
 // latest assistant message or terminal tool batch has been persisted.
 type CompletionAttempt struct {
-	SessionID     string
-	TurnID        string
-	Messages      []Message
-	ProviderSteps int
-	RepairCount   int
+	SessionID string
+	TurnID    string
+	Messages  []Message
+	// TerminalToolBatch is true only when Messages ends in the current
+	// successful all-EndTurn tool batch. It distinguishes that batch from a
+	// prior or mixed continuing round.
+	TerminalToolBatch bool
+	ProviderSteps     int
+	RepairCount       int
 }
 
 // CompletionDecision is the pure result of a CompletionGuard. Retry reminders
 // are injected only into the next provider request and are never persisted.
 // A non-nil ToolAllowlist restricts every provider round after retry begins;
-// an empty non-nil allowlist exposes no tools. ToolChoice can additionally
-// force the provider to call one of the retry tools.
+// an empty non-nil allowlist exposes no tools. ToolChoice can force the next
+// repair request, while NormalToolChoice applies to its later provider rounds.
 type CompletionDecision struct {
 	Action           CompletionAction
 	ContextReminders []ContextReminder
 	ToolAllowlist    []string
-	ToolChoice       *ToolChoice
+	// NormalToolChoice applies after the first repair request.
+	NormalToolChoice *ToolChoice
+	// ToolChoice applies to the next repair request only.
+	ToolChoice *ToolChoice
 }
 
 // CompletionGuard can defer terminal completion after persisted output has
@@ -46,7 +53,7 @@ type CompletionGuard func(context.Context, CompletionAttempt) (CompletionDecisio
 func validateCompletionDecision(decision CompletionDecision, available []ToolDefinition) error {
 	switch decision.Action {
 	case CompletionProceed:
-		if len(decision.ContextReminders) != 0 || decision.ToolAllowlist != nil || decision.ToolChoice != nil {
+		if len(decision.ContextReminders) != 0 || decision.ToolAllowlist != nil || decision.NormalToolChoice != nil || decision.ToolChoice != nil {
 			return fmt.Errorf("proceed completion decision cannot include retry configuration")
 		}
 		return nil
@@ -88,6 +95,17 @@ func validateCompletionDecision(decision CompletionDecision, available []ToolDef
 					return fmt.Errorf("retry tool choice %q is not in the tool allowlist", decision.ToolChoice.Name)
 				}
 			}
+		}
+	}
+	if decision.NormalToolChoice != nil {
+		if err := decision.NormalToolChoice.Validate(); err != nil {
+			return fmt.Errorf("normal retry tool choice: %w", err)
+		}
+		if decision.NormalToolChoice.Mode == ToolChoiceRequired && decision.ToolAllowlist != nil && len(decision.ToolAllowlist) == 0 {
+			return fmt.Errorf("normal required tool choice cannot use an empty tool allowlist")
+		}
+		if decision.NormalToolChoice.Mode == ToolChoiceSpecific {
+			return fmt.Errorf("normal retry tool choice cannot be specific")
 		}
 	}
 	for index, reminder := range decision.ContextReminders {
@@ -134,6 +152,10 @@ func cloneCompletionDecision(decision CompletionDecision) CompletionDecision {
 	if decision.ToolChoice != nil {
 		choice := *decision.ToolChoice
 		decision.ToolChoice = &choice
+	}
+	if decision.NormalToolChoice != nil {
+		choice := *decision.NormalToolChoice
+		decision.NormalToolChoice = &choice
 	}
 	return decision
 }

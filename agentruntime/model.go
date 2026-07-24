@@ -80,6 +80,10 @@ type ContextReminderRequest struct {
 // round. Implementations must not mutate the stored transcript.
 type ContextReminderProvider func(context.Context, ContextReminderRequest) ([]ContextReminder, error)
 
+// ToolChoiceProvider supplies an ordinary provider-round tool policy. Unlike
+// CompletionDecision.ToolChoice, it is not a one-shot completion repair.
+type ToolChoiceProvider func(context.Context, CompletionAttempt) (*ToolChoice, error)
+
 // ModelStream is the provider stream interface consumed by Runtime.
 type ModelStream interface {
 	Subscribe(context.Context) <-chan provider.StreamEvent

@@ -111,17 +111,29 @@ guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
 }
 ```
 
-The retry reminder is ephemeral and appears only on the next provider request.
-A non-nil allowlist restricts that request and all of its follow-up rounds. A
-specific `ToolChoice` additionally forces the provider adapter to call the
-named tool; an allowlist by itself does not force a call because providers may
+The retry reminder and a specific `ToolChoice` are ephemeral: each applies
+only to the next provider request. A non-nil allowlist restricts that request
+and all of its follow-up rounds. This lets a child write its final answer after
+`report_subagent_outcome` succeeds without being forced to invoke the outcome
+tool again. An allowlist by itself does not force a call because providers may
 still choose a normal assistant response.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
-enforce one `report_subagent_outcome` repair without re-running domain tools.
-Root callback turns do not use a completion repair. `close_subagent` always
-returns `ContinueTurn`, so successful cleanup naturally starts another provider
-round in the same turn for the user-visible result.
+enforce up to three `report_subagent_outcome` repairs without re-running domain
+tools. Required end-of-turn finalizers are satisfied only by the final
+all-successful, all-`EndTurn` tool batch; an early or mixed continuing batch
+must be finalized again. While a finalizer remains unsatisfied, normal rounds
+request any available tool, and repair rounds narrow that to the missing
+finalizer. Providers that ignore this request policy can still emit text, so
+the bounded completion guard remains the compatibility fallback.
+OpenAI-compatible adapters append a repair reminder as an ephemeral
+user-role message when assistant output already ends the transcript, avoiding
+provider rejection of multiple trailing assistant messages.
+Root callback turns do not use a completion repair. A successful
+`close_subagent`, or its first controlled lifecycle conflict, returns
+`ContinueTurn`, so cleanup naturally starts another provider round for the
+user-visible result. Repeating the same lifecycle conflict in that parent turn
+ends the turn instead of allowing an unbounded close loop.
 
 ## Run status
 

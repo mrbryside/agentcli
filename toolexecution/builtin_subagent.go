@@ -104,11 +104,14 @@ type SubagentStatusSnapshot struct {
 // SubagentToolBridge allows tools to be registered before agentcli can create
 // and bind its controller. Handlers resolve the controller at invocation time.
 type SubagentToolBridge struct {
-	mu         sync.RWMutex
-	controller SubagentController
+	mu             sync.RWMutex
+	controller     SubagentController
+	closeConflicts map[string]int
 }
 
-func NewSubagentToolBridge() *SubagentToolBridge { return &SubagentToolBridge{} }
+func NewSubagentToolBridge() *SubagentToolBridge {
+	return &SubagentToolBridge{closeConflicts: make(map[string]int)}
+}
 
 func (bridge *SubagentToolBridge) Bind(controller SubagentController) {
 	bridge.mu.Lock()
@@ -149,6 +152,8 @@ func (bridge *SubagentToolBridge) tool(name, description, schema string, handler
 		tool.resultTurnBehavior = startSubagentTurnBehavior
 	} else if name == SendSubagentMessageToolName || name == ForceCloseSubagentToolName {
 		tool.resultTurnBehavior = subagentDispatchTurnBehavior
+	} else if name == CloseSubagentToolName {
+		tool.resultTurnBehavior = closeSubagentTurnBehavior
 	}
 	return tool
 }
@@ -457,10 +462,12 @@ func (bridge *SubagentToolBridge) close(ctx context.Context, arguments json.RawM
 	record, err := controller.CloseSubagent(ctx, invocation.SessionID, input.ID)
 	if err != nil {
 		if result, handled := closeLifecycleConflict(err); handled {
+			result.TurnBehavior = bridge.closeConflictTurnBehavior(invocation, input.ID)
 			return json.Marshal(result)
 		}
 		return nil, err
 	}
+	bridge.clearCloseConflict(invocation, input.ID)
 	return json.Marshal(struct {
 		Subagent     SubagentToolSummary `json:"subagent"`
 		TurnBehavior string              `json:"turn_behavior"`
@@ -473,10 +480,40 @@ func (bridge *SubagentToolBridge) close(ctx context.Context, arguments json.RawM
 }
 
 type closeSubagentConflictResult struct {
-	Closed      bool   `json:"closed"`
-	Action      string `json:"action"`
-	Reason      string `json:"reason"`
-	Instruction string `json:"instruction"`
+	Closed       bool   `json:"closed"`
+	Action       string `json:"action"`
+	Reason       string `json:"reason"`
+	Instruction  string `json:"instruction"`
+	TurnBehavior string `json:"turn_behavior"`
+}
+
+func (bridge *SubagentToolBridge) closeConflictTurnBehavior(invocation Invocation, id string) string {
+	key := invocation.SessionID + "\x00" + invocation.TurnID + "\x00" + id
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	bridge.closeConflicts[key]++
+	if bridge.closeConflicts[key] == 1 {
+		return "continue_turn"
+	}
+	delete(bridge.closeConflicts, key)
+	return "end_turn"
+}
+
+func (bridge *SubagentToolBridge) clearCloseConflict(invocation Invocation, id string) {
+	key := invocation.SessionID + "\x00" + invocation.TurnID + "\x00" + id
+	bridge.mu.Lock()
+	delete(bridge.closeConflicts, key)
+	bridge.mu.Unlock()
+}
+
+func closeSubagentTurnBehavior(_ json.RawMessage, output json.RawMessage) TurnBehavior {
+	var result struct {
+		TurnBehavior string `json:"turn_behavior"`
+	}
+	if json.Unmarshal(output, &result) == nil && result.TurnBehavior == "end_turn" {
+		return EndTurn
+	}
+	return ContinueTurn
 }
 
 func closeLifecycleConflict(err error) (closeSubagentConflictResult, bool) {

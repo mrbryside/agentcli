@@ -19,10 +19,19 @@ final/no-more/uncertain case. `start_subagent` overrides to `ContinueTurn` for
 normal provider round after cleanup.
 
 `agentcli.ToolRequiredAtTurnEnd()` marks a typed custom tool as a finalizer and
-also gives it `EndTurn` behavior. If a turn attempts to complete without a
-successful invocation, the completion guard gives the model up to three repair
-rounds restricted to all missing finalizers. Omitting or failing one after the
-bounded limit fails the turn instead of silently violating the requirement.
+also gives it `EndTurn` behavior. Only the successful all-`EndTurn` result
+batch immediately preceding completion satisfies it; an earlier invocation in
+a continuing round does not. If a turn attempts to complete without a
+successful terminal invocation, ordinary provider rounds require *some* tool
+while all normal tools remain exposed. This prevents compliant providers from
+emitting a text-only answer before the finalizer, without forcing the
+finalizer before ordinary work is complete. A repair narrows the tool list to
+the missing finalizers and uses a one-shot specific/required choice; its
+allowlist remains for later rounds but the forced choice does not. Providers
+that ignore tool-choice still rely on the completion guard fallback. The guard
+allows up to three consecutive no-progress repair rounds; successful progress
+resets that budget. Omitting or failing one after the bounded limit fails the
+turn instead of silently violating the requirement.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by `toolexecution` and wired by `agentcli`. Application tools remain caller-owned; the framework does not silently register filesystem or shell tools.
 

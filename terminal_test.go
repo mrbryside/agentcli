@@ -232,6 +232,54 @@ func TestNextPendingPermissionUsesDisplayOrderAndSkipsResolved(t *testing.T) {
 	}
 }
 
+func TestTerminalApprovalQueueRendersOneGlobalPromptAtATime(t *testing.T) {
+	var output bytes.Buffer
+	permissionRequest := permission.Request{ID: "permission", ToolName: "write", Details: "file"}
+	confirmationRequest := confirmation.Request{ID: "confirmation", ToolName: "publish", Title: "Publish"}
+	client := terminalClient{
+		terminal:             terminal{out: &output},
+		pendingPermissions:   map[permission.ID]permission.Request{permissionRequest.ID: permissionRequest},
+		pendingConfirmations: map[confirmation.ID]confirmation.Request{confirmationRequest.ID: confirmationRequest},
+	}
+	client.queueApproval(terminalApprovalPermission, string(permissionRequest.ID))
+	client.queueApproval(terminalApprovalConfirmation, string(confirmationRequest.ID))
+	if got := output.String(); !strings.Contains(got, "permission write") || strings.Contains(got, "Publish") {
+		t.Fatalf("first rendered approval = %q, want only permission", got)
+	}
+	client.completeApproval(terminalApprovalPermission, string(permissionRequest.ID))
+	if got := output.String(); !strings.Contains(got, "Publish") {
+		t.Fatalf("next rendered approval = %q, want confirmation", got)
+	}
+}
+
+func TestTerminalApprovalQueueDoesNotResolveAnotherApprovalKind(t *testing.T) {
+	var output bytes.Buffer
+	confirmationRequest := confirmation.Request{ID: "confirmation", ToolName: "publish", Title: "Publish"}
+	permissionRequest := permission.Request{ID: "permission", ToolName: "write"}
+	client := terminalClient{
+		terminal:             terminal{out: &output},
+		pendingConfirmations: map[confirmation.ID]confirmation.Request{confirmationRequest.ID: confirmationRequest},
+		pendingPermissions:   map[permission.ID]permission.Request{permissionRequest.ID: permissionRequest},
+		permissionOrder:      []permission.ID{permissionRequest.ID},
+	}
+	client.queueApproval(terminalApprovalConfirmation, string(confirmationRequest.ID))
+	client.queueApproval(terminalApprovalPermission, string(permissionRequest.ID))
+
+	if handled, exit := client.command("1"); !handled || exit {
+		t.Fatalf("mismatched approval answer = (%v, %v), want handled without exit", handled, exit)
+	}
+	active, found := client.activeApprovalSnapshot()
+	if !found || active.kind != terminalApprovalConfirmation || active.id != string(confirmationRequest.ID) {
+		t.Fatalf("active approval = (%#v, %v), want original confirmation", active, found)
+	}
+	if _, found := client.pendingPermission(permissionRequest.ID); !found {
+		t.Fatal("queued permission was incorrectly resolved")
+	}
+	if !strings.Contains(output.String(), "answer the active confirmation with yes or no") {
+		t.Fatalf("output = %q, want active-confirmation guidance", output.String())
+	}
+}
+
 func TestTerminalConfirmationUsesYesNoAndRoutesOwnedChild(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{}

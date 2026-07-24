@@ -174,6 +174,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		SystemPrompts:           append([]string(nil), configuration.systemPrompts...),
 		ContextReminderProvider: reminderProvider,
 		CompletionGuard:         completionGuard,
+		ToolChoiceProvider:      requiredToolChoiceProvider(requiredAtTurnEnd),
 		Tools:                   registry.Definitions(),
 		ToolRequests:            toolRequests,
 		ToolResults:             toolResults,
