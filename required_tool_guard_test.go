@@ -49,6 +49,9 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
 		t.Fatalf("repair tools = %#v", requests[1].Tools)
 	}
+	if requests[1].ToolChoice == nil || requests[1].ToolChoice.Mode != agentruntime.ToolChoiceSpecific || requests[1].ToolChoice.Name != "report" {
+		t.Fatalf("repair tool choice = %#v", requests[1].ToolChoice)
+	}
 }
 
 type requiredFinalizerModel struct {

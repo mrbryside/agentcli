@@ -610,7 +610,7 @@ type scriptedRuntimeModel struct {
 func (m *scriptedRuntimeModel) Start(_ context.Context, request ModelRequest) (ModelStream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests = append(m.requests, ModelRequest{SessionID: request.SessionID, TurnID: request.TurnID, SystemPrompts: append([]string(nil), request.SystemPrompts...), ContextReminders: cloneContextReminders(request.ContextReminders), Messages: storage.CloneMessages(request.Messages), Tools: cloneToolDefinitions(request.Tools)})
+	m.requests = append(m.requests, ModelRequest{SessionID: request.SessionID, TurnID: request.TurnID, SystemPrompts: append([]string(nil), request.SystemPrompts...), ContextReminders: cloneContextReminders(request.ContextReminders), Messages: storage.CloneMessages(request.Messages), Tools: cloneToolDefinitions(request.Tools), ToolChoice: cloneToolChoice(request.ToolChoice)})
 	if m.startErr != nil {
 		return nil, m.startErr
 	}
@@ -627,7 +627,7 @@ func (m *scriptedRuntimeModel) Requests() []ModelRequest {
 	defer m.mu.Unlock()
 	requests := make([]ModelRequest, len(m.requests))
 	for index, request := range m.requests {
-		requests[index] = ModelRequest{SessionID: request.SessionID, TurnID: request.TurnID, SystemPrompts: append([]string(nil), request.SystemPrompts...), ContextReminders: cloneContextReminders(request.ContextReminders), Messages: storage.CloneMessages(request.Messages), Tools: cloneToolDefinitions(request.Tools)}
+		requests[index] = ModelRequest{SessionID: request.SessionID, TurnID: request.TurnID, SystemPrompts: append([]string(nil), request.SystemPrompts...), ContextReminders: cloneContextReminders(request.ContextReminders), Messages: storage.CloneMessages(request.Messages), Tools: cloneToolDefinitions(request.Tools), ToolChoice: cloneToolChoice(request.ToolChoice)}
 	}
 	return requests
 }

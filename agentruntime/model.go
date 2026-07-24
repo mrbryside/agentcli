@@ -2,9 +2,47 @@ package agentruntime
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mrbryside/agentcli/provider"
 )
+
+// ToolChoiceMode controls whether a provider may choose a tool for a model
+// response. Providers map these provider-neutral values to their native
+// request shape.
+type ToolChoiceMode string
+
+const (
+	ToolChoiceAuto     ToolChoiceMode = "auto"
+	ToolChoiceNone     ToolChoiceMode = "none"
+	ToolChoiceRequired ToolChoiceMode = "required"
+	ToolChoiceSpecific ToolChoiceMode = "specific"
+)
+
+// ToolChoice is an optional provider-neutral tool selection instruction. A
+// specific choice forces the named tool; the other modes control whether the
+// model may call tools without naming one.
+type ToolChoice struct {
+	Mode ToolChoiceMode
+	Name string
+}
+
+// Validate checks that the choice can be represented by a provider adapter.
+func (choice ToolChoice) Validate() error {
+	switch choice.Mode {
+	case ToolChoiceAuto, ToolChoiceNone, ToolChoiceRequired:
+		if choice.Name != "" {
+			return fmt.Errorf("tool choice mode %q cannot include a tool name", choice.Mode)
+		}
+	case ToolChoiceSpecific:
+		if choice.Name == "" {
+			return fmt.Errorf("specific tool choice requires a tool name")
+		}
+	default:
+		return fmt.Errorf("unknown tool choice mode %q", choice.Mode)
+	}
+	return nil
+}
 
 // ModelRequest is the provider-neutral input for one provider stream round.
 type ModelRequest struct {
@@ -19,6 +57,10 @@ type ModelRequest struct {
 	ContextReminders []ContextReminder
 	Messages         []Message
 	Tools            []ToolDefinition
+	// ToolChoice is optional. A nil value lets the provider choose its
+	// default behavior; a specific choice can force one tool during a repair
+	// round.
+	ToolChoice *ToolChoice
 }
 
 // ContextReminder is trusted runtime context supplied alongside, but outside

@@ -30,11 +30,13 @@ type CompletionAttempt struct {
 // CompletionDecision is the pure result of a CompletionGuard. Retry reminders
 // are injected only into the next provider request and are never persisted.
 // A non-nil ToolAllowlist restricts every provider round after retry begins;
-// an empty non-nil allowlist exposes no tools.
+// an empty non-nil allowlist exposes no tools. ToolChoice can additionally
+// force the provider to call one of the retry tools.
 type CompletionDecision struct {
 	Action           CompletionAction
 	ContextReminders []ContextReminder
 	ToolAllowlist    []string
+	ToolChoice       *ToolChoice
 }
 
 // CompletionGuard can defer terminal completion after persisted output has
@@ -44,7 +46,7 @@ type CompletionGuard func(context.Context, CompletionAttempt) (CompletionDecisio
 func validateCompletionDecision(decision CompletionDecision, available []ToolDefinition) error {
 	switch decision.Action {
 	case CompletionProceed:
-		if len(decision.ContextReminders) != 0 || decision.ToolAllowlist != nil {
+		if len(decision.ContextReminders) != 0 || decision.ToolAllowlist != nil || decision.ToolChoice != nil {
 			return fmt.Errorf("proceed completion decision cannot include retry configuration")
 		}
 		return nil
@@ -55,6 +57,38 @@ func validateCompletionDecision(decision CompletionDecision, available []ToolDef
 
 	if len(decision.ContextReminders) == 0 {
 		return fmt.Errorf("retry completion decision requires a context reminder")
+	}
+	if decision.ToolChoice != nil {
+		if err := decision.ToolChoice.Validate(); err != nil {
+			return fmt.Errorf("retry tool choice: %w", err)
+		}
+		if decision.ToolChoice.Mode == ToolChoiceRequired && decision.ToolAllowlist != nil && len(decision.ToolAllowlist) == 0 {
+			return fmt.Errorf("required tool choice cannot use an empty tool allowlist")
+		}
+		if decision.ToolChoice.Mode == ToolChoiceSpecific {
+			found := false
+			for _, tool := range available {
+				if tool.Name == decision.ToolChoice.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("retry tool choice references unknown tool %q", decision.ToolChoice.Name)
+			}
+			if decision.ToolAllowlist != nil {
+				found = false
+				for _, name := range decision.ToolAllowlist {
+					if name == decision.ToolChoice.Name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return fmt.Errorf("retry tool choice %q is not in the tool allowlist", decision.ToolChoice.Name)
+				}
+			}
+		}
 	}
 	for index, reminder := range decision.ContextReminders {
 		if strings.TrimSpace(reminder.Content) == "" {
@@ -96,6 +130,10 @@ func cloneCompletionDecision(decision CompletionDecision) CompletionDecision {
 		allowlist := make([]string, len(decision.ToolAllowlist))
 		copy(allowlist, decision.ToolAllowlist)
 		decision.ToolAllowlist = allowlist
+	}
+	if decision.ToolChoice != nil {
+		choice := *decision.ToolChoice
+		decision.ToolChoice = &choice
 	}
 	return decision
 }

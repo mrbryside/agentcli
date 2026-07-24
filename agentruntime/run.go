@@ -47,6 +47,7 @@ type Run struct {
 	completionReminder        []ContextReminder
 	completionToolsRestricted bool
 	completionToolAllowlist   []string
+	completionToolChoice      *ToolChoice
 	terminalNotify            chan struct{}
 	finished                  chan struct{}
 	finishOnce                sync.Once
@@ -635,8 +636,12 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	}
 	reminders = append(reminders, r.takeCompletionReminder()...)
 	tools := cloneToolDefinitions(runtime.tools)
-	if restricted, allowlist := r.completionToolRestriction(); restricted {
-		tools = filterCompletionTools(tools, allowlist)
+	var requestToolChoice *ToolChoice
+	if restricted, allowlist, choice := r.completionToolRestriction(); restricted {
+		if allowlist != nil {
+			tools = filterCompletionTools(tools, allowlist)
+		}
+		requestToolChoice = cloneToolChoice(choice)
 	}
 
 	r.cancelProvider()
@@ -648,6 +653,7 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		ContextReminders: cloneContextReminders(reminders),
 		Messages:         storage.CloneMessages(messages),
 		Tools:            tools,
+		ToolChoice:       requestToolChoice,
 	})
 	if err != nil {
 		cancel()
@@ -709,10 +715,13 @@ func (r *Run) setCompletionRepair(decision CompletionDecision) {
 	r.mu.Lock()
 	r.completionRepairs++
 	r.completionReminder = cloneContextReminders(decision.ContextReminders)
-	if decision.ToolAllowlist != nil {
+	if decision.ToolAllowlist != nil || decision.ToolChoice != nil {
 		r.completionToolsRestricted = true
+	}
+	if decision.ToolAllowlist != nil {
 		r.completionToolAllowlist = append([]string(nil), decision.ToolAllowlist...)
 	}
+	r.completionToolChoice = cloneToolChoice(decision.ToolChoice)
 	r.mu.Unlock()
 }
 
@@ -724,10 +733,10 @@ func (r *Run) takeCompletionReminder() []ContextReminder {
 	return reminders
 }
 
-func (r *Run) completionToolRestriction() (bool, []string) {
+func (r *Run) completionToolRestriction() (bool, []string, *ToolChoice) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...)
+	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...), cloneToolChoice(r.completionToolChoice)
 }
 
 func filterCompletionTools(tools []ToolDefinition, allowlist []string) []ToolDefinition {
@@ -751,6 +760,14 @@ func cloneContextReminders(reminders []ContextReminder) []ContextReminder {
 	cloned := make([]ContextReminder, len(reminders))
 	copy(cloned, reminders)
 	return cloned
+}
+
+func cloneToolChoice(choice *ToolChoice) *ToolChoice {
+	if choice == nil {
+		return nil
+	}
+	clone := *choice
+	return &clone
 }
 
 // provider state belongs to the loop except the cancel function, which can be

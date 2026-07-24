@@ -144,6 +144,7 @@ func toSDKRequest(request Request, configuredTools []Tool) (sdkopenai.ChatComple
 		Model:       request.Model,
 		Messages:    messages,
 		Tools:       tools,
+		ToolChoice:  request.ToolChoice,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		Stream:      true,

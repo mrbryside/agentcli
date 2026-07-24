@@ -21,5 +21,9 @@ func subagentOutcomeCompletionGuard(_ context.Context, attempt agentruntime.Comp
 		Action:           agentruntime.CompletionRetry,
 		ContextReminders: []agentruntime.ContextReminder{{Content: subagentOutcomeRepairReminder}},
 		ToolAllowlist:    []string{toolexecution.SubagentOutcomeToolName},
+		ToolChoice: &agentruntime.ToolChoice{
+			Mode: agentruntime.ToolChoiceSpecific,
+			Name: toolexecution.SubagentOutcomeToolName,
+		},
 	}, nil
 }

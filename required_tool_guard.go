@@ -33,17 +33,41 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		decision := agentruntime.CompletionDecision{
 			Action: agentruntime.CompletionRetry,
 			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
-				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not repeat prior work or any already-successful tool call. This is the only repair opportunity.",
+				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is the only repair opportunity.",
 				strings.Join(missing, ", "),
 			)}},
 			ToolAllowlist: append([]string(nil), missing...),
 		}
+		if len(missing) == 1 {
+			decision.ToolChoice = &agentruntime.ToolChoice{
+				Mode: agentruntime.ToolChoiceSpecific,
+				Name: missing[0],
+			}
+		} else {
+			decision.ToolChoice = &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceRequired}
+		}
 		if baseDecision.Action == agentruntime.CompletionRetry {
 			decision.ContextReminders = append(decision.ContextReminders, baseDecision.ContextReminders...)
 			decision.ToolAllowlist = unionToolNames(decision.ToolAllowlist, baseDecision.ToolAllowlist)
+			decision.ToolChoice = mergeRepairToolChoices(decision.ToolChoice, baseDecision.ToolChoice)
 		}
 		return decision, nil
 	}
+}
+
+func mergeRepairToolChoices(first, second *agentruntime.ToolChoice) *agentruntime.ToolChoice {
+	if first == nil {
+		if second == nil {
+			return nil
+		}
+		clone := *second
+		return &clone
+	}
+	if second == nil || (first.Mode == second.Mode && first.Name == second.Name) {
+		clone := *first
+		return &clone
+	}
+	return &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceRequired}
 }
 
 func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string) []string {
