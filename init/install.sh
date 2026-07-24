@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.27
+agentcli_fallback_version=v0.0.32
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -180,6 +180,13 @@ cat >"$target/.agentcli/config.yaml" <<'EOF'
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
+# Automatic transcript compaction uses the same provider/model placeholders as
+# the starter agents. Remove this mapping or set auto: false to disable it.
+compaction:
+  auto: true
+  provider: replace-provider
+  model: replace-model
+
 # Agent identities and models live in MAIN.md, subagent definitions, and tool
 # declarations. Provider profiles here own connection settings only.
 providers:
@@ -228,7 +235,7 @@ if [ "$go_available" = true ]; then
 	# silently install an older API without DecodeArguments.
 	(cd "$target" && GOPROXY=direct GONOSUMDB=github.com/mrbryside/agentcli go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
-  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace main provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
-  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace main provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 fi

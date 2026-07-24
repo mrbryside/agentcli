@@ -20,6 +20,9 @@ const (
 	MessageTypeAssistant    = storage.MessageTypeAssistant
 	MessageTypeToolCall     = storage.MessageTypeToolCall
 	MessageTypeToolResult   = storage.MessageTypeToolResult
+	// MessageTypeCompactionCheckpoint is an internal, append-only summary
+	// record used to project bounded provider context on later turns.
+	MessageTypeCompactionCheckpoint = storage.MessageTypeCompactionCheckpoint
 
 	ToolResultSucceeded   = storage.ToolResultSucceeded
 	ToolResultFailed      = storage.ToolResultFailed

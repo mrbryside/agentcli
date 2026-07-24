@@ -37,6 +37,13 @@ func TestValidateMessage(t *testing.T) {
 		Output: json.RawMessage(`{"temperature":30}`),
 	}
 
+	checkpoint := validMessage(MessageTypeCompactionCheckpoint)
+	checkpoint.CompactionCheckpoint = &CompactionCheckpoint{
+		Summary:                "Earlier work completed successfully.",
+		CoversThroughMessageID: "message-10",
+		TailStartMessageID:     "message-11",
+	}
+
 	tests := []struct {
 		name    string
 		message Message
@@ -49,6 +56,48 @@ func TestValidateMessage(t *testing.T) {
 		{name: "tool calls", message: toolCalls},
 		{name: "tool calls with reasoning", message: func() Message { m := toolCalls; m.Reasoning = "selecting a tool"; return m }()},
 		{name: "tool result", message: toolResult},
+		{name: "compaction checkpoint", message: checkpoint},
+		{name: "compaction checkpoint accepts unknown boundaries for runtime validation", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: "summary", CoversThroughMessageID: "unknown-earlier", TailStartMessageID: "unknown-later"}
+			return m
+		}()},
+		{name: "missing compaction checkpoint", message: validMessage(MessageTypeCompactionCheckpoint), wantErr: ErrInvalidMessage},
+		{name: "empty checkpoint summary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{CoversThroughMessageID: "message-10", TailStartMessageID: "message-11"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "whitespace checkpoint summary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: " \t", CoversThroughMessageID: "message-10", TailStartMessageID: "message-11"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "missing covers-through boundary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: "summary", TailStartMessageID: "message-11"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "whitespace covers-through boundary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: "summary", CoversThroughMessageID: " \t", TailStartMessageID: "message-11"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "missing tail-start boundary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: "summary", CoversThroughMessageID: "message-10"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "whitespace tail-start boundary", message: func() Message {
+			m := checkpoint
+			m.CompactionCheckpoint = &CompactionCheckpoint{Summary: "summary", CoversThroughMessageID: "message-10", TailStartMessageID: " \t"}
+			return m
+		}(), wantErr: ErrInvalidMessage},
+		{name: "checkpoint with content", message: func() Message { m := checkpoint; m.Content = "not allowed"; return m }(), wantErr: ErrInvalidMessage},
+		{name: "checkpoint with reasoning", message: func() Message { m := checkpoint; m.Reasoning = "not allowed"; return m }(), wantErr: ErrInvalidMessage},
+		{name: "checkpoint with tool calls", message: func() Message { m := checkpoint; m.ToolCalls = toolCalls.ToolCalls; return m }(), wantErr: ErrInvalidMessage},
+		{name: "checkpoint with tool result", message: func() Message { m := checkpoint; m.ToolResult = toolResult.ToolResult; return m }(), wantErr: ErrInvalidMessage},
+		{name: "user with checkpoint", message: func() Message { m := content; m.CompactionCheckpoint = checkpoint.CompactionCheckpoint; return m }(), wantErr: ErrInvalidMessage},
 		{name: "user reasoning", message: func() Message { m := content; m.Reasoning = "private"; return m }(), wantErr: ErrInvalidMessage},
 		{name: "tool result reasoning", message: func() Message { m := toolResult; m.Reasoning = "private"; return m }(), wantErr: ErrInvalidMessage},
 		{name: "empty message ID", message: func() Message { m := content; m.ID = ""; return m }(), wantErr: ErrInvalidMessage},
@@ -122,6 +171,23 @@ func TestCloneMessageDoesNotShareMutableValues(t *testing.T) {
 	}
 	if string(message.ToolResult.Output) != `{"Xk":true}` {
 		t.Fatalf("input tool output changed through clone = %s", message.ToolResult.Output)
+	}
+}
+
+func TestCloneMessageDoesNotShareCompactionCheckpoint(t *testing.T) {
+	message := Message{
+		ID: "checkpoint-1", SessionID: "session-1", TurnID: "turn-1", Type: MessageTypeCompactionCheckpoint,
+		CompactionCheckpoint: &CompactionCheckpoint{Summary: "original", CoversThroughMessageID: "message-10", TailStartMessageID: "message-11"},
+	}
+	clone := CloneMessage(message)
+
+	clone.CompactionCheckpoint.Summary = "changed"
+	clone.CompactionCheckpoint.CoversThroughMessageID = "changed-message"
+	if message.CompactionCheckpoint.Summary != "original" {
+		t.Fatalf("input summary changed through clone = %q", message.CompactionCheckpoint.Summary)
+	}
+	if message.CompactionCheckpoint.CoversThroughMessageID != "message-10" {
+		t.Fatalf("input boundary changed through clone = %q", message.CompactionCheckpoint.CoversThroughMessageID)
 	}
 }
 

@@ -2,7 +2,21 @@
 
 `agentruntime.Runtime` owns active-run registration and shared routing. One turn may be active per session; different sessions run concurrently. `Runtime.StartSubscribed` validates or generates the turn/message IDs, installs a live subscriber before `RunStarted`, persists the raw generic input, registers a `Run`, and starts its coordinator.
 
-The coordinator repeatedly starts the configured `Model`, consumes provider events, persists assistant/tool-call messages, sends correlated tool requests, waits for tool-result envelopes, and persists results. Successful results normally start another provider round. The run completes without another provider step only when the entire ordered batch succeeded and every result uses `EndTurn`; any `ContinueTurn`, failed, interrupted, denied, or declined result continues so the model can dispatch more work or report the error. Shared tool channels must be buffered and are caller-owned; the runtime never closes them.
+Immediately before each main-model round, an enabled compactor estimates the
+provider-neutral request. If required, it summarizes and checkpoints the older
+prefix before starting the main model. See
+[compaction.md](compaction.md) for projection, storage, event, and failure
+semantics.
+
+The coordinator then repeatedly starts the configured `Model`, consumes
+provider events, persists assistant/tool-call messages, sends correlated tool
+requests, waits for tool-result envelopes, and persists results. Successful
+results normally start another provider round. The run completes without
+another provider step only when the entire ordered batch succeeded and every
+result uses `EndTurn`; any `ContinueTurn`, failed, interrupted, denied, or
+declined result continues so the model can dispatch more work or report the
+error. Shared tool channels must be buffered and are caller-owned; the runtime
+never closes them.
 
 Provider completion first produces an internal `AttemptComplete` effect. With no `CompletionGuard`, this immediately commits `RunCompleted`, preserving the default behavior. A configured guard receives a defensive transcript snapshot only after the latest assistant message or terminal tool-result batch has been persisted. It may proceed or request another provider round with ephemeral reminders and an optional tool allowlist. A non-nil empty allowlist is distinct from nil and deliberately exposes zero tools. The runtime has no provider-level tool-choice abstraction; repair behavior is expressed through prompts/reminders and, when explicitly supplied by a completion guard, an allowlist. Invalid guard decisions fail the run instead of silently weakening the boundary.
 

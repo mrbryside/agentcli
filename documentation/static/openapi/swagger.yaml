@@ -157,7 +157,7 @@ definitions:
       turn_id:
         type: string
       type:
-        $ref: '#/definitions/agentruntime.MessageType'
+        $ref: '#/definitions/storage.MessageType'
     type: object
   agentcli.MessagesResponse:
     properties:
@@ -656,6 +656,9 @@ definitions:
     - confirmation_cancelled
     - confirmation_expired
     - permission_mode_changed
+    - compaction_started
+    - compaction_completed
+    - compaction_failed
     type: string
     x-enum-varnames:
     - RunStarted
@@ -674,28 +677,9 @@ definitions:
     - AgentConfirmationCancelled
     - AgentConfirmationExpired
     - PermissionModeChanged
-  agentruntime.MessageType:
-    enum:
-    - system
-    - user
-    - runtime_event
-    - assistant
-    - tool_call
-    - tool_result
-    - system
-    - user
-    - runtime_event
-    - assistant
-    - tool_call
-    - tool_result
-    type: string
-    x-enum-varnames:
-    - MessageTypeSystem
-    - MessageTypeUser
-    - MessageTypeRuntimeEvent
-    - MessageTypeAssistant
-    - MessageTypeToolCall
-    - MessageTypeToolResult
+    - CompactionStarted
+    - CompactionCompleted
+    - CompactionFailed
   agentruntime.RunStatus:
     enum:
     - active
@@ -813,6 +797,24 @@ definitions:
     - ToolCallCompleted
     - StreamCompleted
     - StreamFailed
+  storage.MessageType:
+    enum:
+    - system
+    - user
+    - runtime_event
+    - assistant
+    - tool_call
+    - tool_result
+    - compaction_checkpoint
+    type: string
+    x-enum-varnames:
+    - MessageTypeSystem
+    - MessageTypeUser
+    - MessageTypeRuntimeEvent
+    - MessageTypeAssistant
+    - MessageTypeToolCall
+    - MessageTypeToolResult
+    - MessageTypeCompactionCheckpoint
   storage.SubagentStatus:
     enum:
     - running

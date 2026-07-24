@@ -47,6 +47,21 @@ func TestInstallerDefinesSeparateGuardrailsProvider(t *testing.T) {
 	}
 }
 
+func TestInstallerEnablesCompactionWithStarterPlaceholders(t *testing.T) {
+	content, err := os.ReadFile("init/install.sh")
+	if err != nil {
+		t.Fatalf("read installer: %v", err)
+	}
+	installer := string(content)
+	const required = `compaction:
+  auto: true
+  provider: replace-provider
+  model: replace-model`
+	if !strings.Contains(installer, required) {
+		t.Fatalf("installer compaction config does not contain:\n%s", required)
+	}
+}
+
 func TestInstallerMainAllowsOnlyReportDiscord(t *testing.T) {
 	content, err := os.ReadFile("init/install.sh")
 	if err != nil {

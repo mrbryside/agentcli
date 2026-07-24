@@ -7,10 +7,10 @@ sidebar_position: 2
 
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
-`config.yaml`, `MAIN.md`, and every subagent definition, then replace each
-model value before running the project. The generated `report_discord` tool
-separately selects the `guardrails` provider profile and
-`replace-guard-model`. See
+the config's compaction/provider mappings, `MAIN.md`, and every subagent
+definition, then replace each main, summarizer, and child model value before
+running the project. The generated `report_discord` tool separately selects
+the `guardrails` provider profile and `replace-guard-model`. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout.
 
 `agentcli.LoadProject(root)` takes an immutable snapshot of project-owned
@@ -34,12 +34,18 @@ This makes configuration mistakes visible before the first model request.
 
 ## Provider configuration
 
-`.agentcli/config.yaml` owns connections, the initial permission mode, and the
-optional per-parent open-subagent quota:
+`.agentcli/config.yaml` owns connections, the initial permission mode, the
+optional per-parent open-subagent quota, and optional transcript compaction:
 
 ```yaml
 permission_mode: default
 max_subagents: 4
+
+# Omit this mapping to disable new compactions. When present, auto defaults to true.
+compaction:
+  auto: true
+  provider: primary
+  model: gpt-4.1-mini
 
 providers:
   primary:
@@ -68,6 +74,39 @@ project value when constructing an Agent.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
+
+## Automatic transcript compaction
+
+The optional `compaction` mapping has only these keys: `auto`, `provider`, and
+`model`; unknown keys are rejected. Omitting it disables new compactions. If
+the mapping is present, `auto` defaults to `true`; use `auto: false` to keep
+the mapping but disable creation of future checkpoints.
+
+`provider` must be an existing provider-profile alias such as `primary`, and
+`model` is the separate summarizer model. It is resolved through the same
+factory as the main agent and subagents; the alias's `type` still chooses the
+adapter. No context or summary-budget fields are configurable in YAML: the
+runtime derives internal budgets from model limits.
+
+With compaction enabled, the main model must expose valid context-window and
+output metadata. If the summarizer exposes the optional metadata capability,
+its limits are also validated during startup; unknown or invalid metadata fails
+startup rather than being guessed. A summarizer without that optional
+capability remains supported with the runtime's internal summary cap. For the
+OpenAI-compatible adapter, built-in metadata covers known aliases. For a custom
+compatible model, construct an adapter with `openai.Config.MetadataResolver`
+and pass it with `agentcli.WithModel` or `agentcli.WithCompactionModel` to
+override the project-selected main model or summarizer. The optional
+`agentcli.WithContextEstimator` similarly accepts a provider-aware estimator
+when the default conservative generic estimate is not precise enough.
+
+Compaction preserves full transcript storage. When a request needs shrinking,
+the runtime appends a cumulative checkpoint and sends the main model that
+summary plus a recent verbatim tail. Resuming the session continues projecting
+the latest stored checkpoint even if `auto` is later disabled; disabling it
+only prevents new checkpoints. See
+[Context compaction](../capabilities/context-compaction.md) for request
+projection, lifecycle events, subagent behavior, and provider-neutral sizing.
 
 ## Main-agent definition
 

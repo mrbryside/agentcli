@@ -7,7 +7,14 @@ go run ./playground/terminal
 go run ./playground/terminal "one-shot prompt"
 ```
 
-The playground loads the root `.agentcli` project, registers only its local `glob`, `read`, and `confirm_demo` tools, then calls `Agent.RunTerminal`. Those tools and their tests belong in `playground/terminal`, not in the reusable `agentcli` package.
+The playground loads the root `.agentcli` project, registers only its local
+`glob`, `read`, and `confirm_demo` tools, then calls `Agent.RunTerminal`. It has
+no second playground-specific config format: provider, model, and compaction
+settings all come from the root `.agentcli/config.yaml`. The tracked
+`.agentcli/config.example.yaml` includes an enabled compaction mapping; copy it
+and replace both the main and compaction model placeholders for a clean manual
+setup. Those tools and their tests belong in `playground/terminal`, not in the
+reusable `agentcli` package.
 
 User documentation lives in `documentation/docs`. HTTP annotations live in root `swagger.go` and the root server handlers; `documentation/package.json` drives Swaggo generation from the module-root `agentcli` package, Redocly validation/rendering, and the Docusaurus build. Generated OpenAPI/Redoc files are tracked, so regenerate them when API annotations or response models change.
 

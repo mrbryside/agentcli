@@ -331,6 +331,165 @@ providers:
 	}
 }
 
+func TestLoadProjectCompactionConfigDefaultsAndResolvesModel(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
+  provider: openai
+  model: compact-model
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compaction, configured := project.Compaction()
+	if !configured || !compaction.Auto || compaction.Provider != "openai" || compaction.Model != "compact-model" {
+		t.Fatalf("compaction = %#v, configured = %t", compaction, configured)
+	}
+	compaction.Provider = "mutated"
+	if current, _ := project.Compaction(); current.Provider != "openai" {
+		t.Fatal("compaction config was not defensively copied")
+	}
+	configuration := defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.compactionModel == nil {
+		t.Fatal("WithProject did not resolve the compaction model")
+	}
+}
+
+func TestPublicCompactionOptionsOverrideProjectDefaults(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
+  provider: openai
+  model: compact-model
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &scriptedModel{}
+	estimator := agentruntime.ContextEstimatorFunc(func(agentruntime.ModelRequest) (agentruntime.ContextEstimate, error) {
+		return agentruntime.ContextEstimate{Tokens: 123}, nil
+	})
+
+	configuration := defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	projectModel := configuration.compactionModel
+	if projectModel == nil {
+		t.Fatal("WithProject did not set its compaction default")
+	}
+	if err := WithCompactionModel(model)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if err := WithContextEstimator(estimator)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.compactionModel != model {
+		t.Fatal("WithCompactionModel did not override the project default")
+	}
+	estimate, err := configuration.contextEstimator.Estimate(agentruntime.ModelRequest{})
+	if err != nil || estimate.Tokens != 123 {
+		t.Fatalf("WithContextEstimator estimate = %#v, %v", estimate, err)
+	}
+
+	configuration = defaultConfig(root)
+	if err := WithCompactionModel(model)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.compactionModel == model {
+		t.Fatal("later WithProject did not win")
+	}
+}
+
+func TestPublicCompactionOptionsRejectNil(t *testing.T) {
+	configuration := defaultConfig(t.TempDir())
+	if err := WithCompactionModel(nil)(&configuration); err == nil || !strings.Contains(err.Error(), "compaction model is required") {
+		t.Fatalf("WithCompactionModel(nil) error = %v", err)
+	}
+	if err := WithContextEstimator(nil)(&configuration); err == nil || !strings.Contains(err.Error(), "context estimator is required") {
+		t.Fatalf("WithContextEstimator(nil) error = %v", err)
+	}
+	var typedNilModel *scriptedModel
+	if err := WithCompactionModel(typedNilModel)(&configuration); err == nil || !strings.Contains(err.Error(), "compaction model is required") {
+		t.Fatalf("WithCompactionModel(typed nil) error = %v", err)
+	}
+	var typedNilEstimator *typedNilContextEstimator
+	if err := WithContextEstimator(typedNilEstimator)(&configuration); err == nil || !strings.Contains(err.Error(), "context estimator is required") {
+		t.Fatalf("WithContextEstimator(typed nil) error = %v", err)
+	}
+}
+
+type typedNilContextEstimator struct{}
+
+func (*typedNilContextEstimator) Estimate(agentruntime.ModelRequest) (agentruntime.ContextEstimate, error) {
+	return agentruntime.ContextEstimate{}, nil
+}
+
+func TestLoadProjectCompactionConfigValidation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{name: "missing provider", yaml: "compaction: {model: compact-model}\n", want: "compaction provider is required"},
+		{name: "missing model", yaml: "compaction: {provider: openai}\n", want: "compaction model is required"},
+		{name: "unknown provider", yaml: "compaction: {provider: missing, model: compact-model}\n", want: `compaction provider "missing" is not configured`},
+		{name: "unknown field", yaml: "compaction: {provider: openai, model: compact-model, budget: 1}\n", want: "field budget"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := projectFixture(t)
+			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), test.yaml+`providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+			if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadProject() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadProjectExplicitlyDisabledCompactionNeedsNoModel(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
+  auto: false
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compaction, configured := project.Compaction()
+	if !configured || compaction.Auto {
+		t.Fatalf("compaction = %#v, configured = %t", compaction, configured)
+	}
+	configuration := defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.compactionModel != nil {
+		t.Fatal("disabled compaction unexpectedly resolved a model")
+	}
+}
+
 func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T) {
 	for _, test := range []struct {
 		name        string

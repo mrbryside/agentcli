@@ -57,6 +57,7 @@ module.exports = {
       items: [
         'capabilities/skills',
         'capabilities/subagents',
+        'capabilities/context-compaction',
       ],
     },
     {

@@ -68,6 +68,11 @@ model: replace-model
 ```yaml
 permission_mode: criticalOnly
 
+compaction:
+  auto: true
+  provider: replace-provider
+  model: replace-model
+
 providers:
   replace-provider:
     type: openai
@@ -82,9 +87,19 @@ providers:
     request_timeout: 30s
 ```
 
-Replace `replace-provider` consistently in `config.yaml`, `MAIN.md`, and every
-file under `.agentcli/agent/`. Replace `replace-model` in `MAIN.md` and every
-subagent definition with a model supported by that provider.
+The generated compaction mapping is enabled explicitly and initially reuses
+the starter's provider/model placeholders for its separate summarizer. Replace
+those placeholders before running the project. Remove the mapping or set
+`auto: false` to prevent new checkpoints. Only `auto`, `provider`, and `model`
+are accepted. The summarizer receives no application tools, and the full
+original transcript remains stored. See
+[Context compaction](../capabilities/context-compaction.md) for model metadata,
+request projection, events, subagent behavior, and resume semantics.
+
+Replace `replace-provider` consistently in the compaction mapping, provider
+profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
+`replace-model` in the compaction mapping, `MAIN.md`, and every subagent
+definition with a model supported by that provider.
 `tool_report_discord.go` separately selects the `guardrails` profile and
 `replace-guard-model`; replace its connection settings and model without
 changing the main agent configuration. Provider aliases are

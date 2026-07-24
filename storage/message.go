@@ -23,6 +23,10 @@ const (
 	MessageTypeAssistant    MessageType = "assistant"
 	MessageTypeToolCall     MessageType = "tool_call"
 	MessageTypeToolResult   MessageType = "tool_result"
+	// MessageTypeCompactionCheckpoint is an internal, append-only cumulative
+	// summary used to project a bounded transcript for a future provider run.
+	// It is not an ordinary conversation message for a provider to render.
+	MessageTypeCompactionCheckpoint MessageType = "compaction_checkpoint"
 )
 
 // ToolCall is a provider-neutral request to invoke a tool.
@@ -52,6 +56,20 @@ type ToolResult struct {
 	Error  string
 }
 
+// CompactionCheckpoint retains the cumulative summary of messages through
+// CoversThroughMessageID and identifies the first original message that must
+// remain verbatim in the projected tail. The IDs are intentionally retained
+// even though the transcript is append-only so a resumed run can reconstruct
+// the same projection deterministically.
+//
+// Storage validates only that these values are present. The runtime validates
+// that they name messages in the same transcript and have legal ordering.
+type CompactionCheckpoint struct {
+	Summary                string
+	CoversThroughMessageID string
+	TailStartMessageID     string
+}
+
 // Message is a provider-neutral value retained in a conversation transcript.
 type Message struct {
 	ID         string
@@ -62,7 +80,9 @@ type Message struct {
 	Reasoning  string
 	ToolCalls  []ToolCall
 	ToolResult *ToolResult
-	CreatedAt  time.Time
+	// CompactionCheckpoint is set only for MessageTypeCompactionCheckpoint.
+	CompactionCheckpoint *CompactionCheckpoint
+	CreatedAt            time.Time
 }
 
 // MessageStorage persists ordered messages for a conversation session.
@@ -91,6 +111,9 @@ func ValidateMessage(message Message) error {
 	}
 	if message.TurnID == "" {
 		return invalidMessage("turn ID is required")
+	}
+	if message.Type != MessageTypeCompactionCheckpoint && message.CompactionCheckpoint != nil {
+		return invalidMessage("%s message cannot include a compaction checkpoint", message.Type)
 	}
 
 	switch message.Type {
@@ -142,10 +165,42 @@ func ValidateMessage(message Message) error {
 		if err := validateToolResult(*message.ToolResult); err != nil {
 			return invalidMessage("tool result: %v", err)
 		}
+	case MessageTypeCompactionCheckpoint:
+		if message.Content != "" {
+			return invalidMessage("compaction-checkpoint message cannot include content")
+		}
+		if message.Reasoning != "" {
+			return invalidMessage("compaction-checkpoint message cannot include reasoning")
+		}
+		if len(message.ToolCalls) != 0 {
+			return invalidMessage("compaction-checkpoint message cannot include tool calls")
+		}
+		if message.ToolResult != nil {
+			return invalidMessage("compaction-checkpoint message cannot include a tool result")
+		}
+		if err := validateCompactionCheckpoint(message.CompactionCheckpoint); err != nil {
+			return invalidMessage("compaction checkpoint: %v", err)
+		}
 	default:
 		return invalidMessage("unknown type %q", message.Type)
 	}
 
+	return nil
+}
+
+func validateCompactionCheckpoint(checkpoint *CompactionCheckpoint) error {
+	if checkpoint == nil {
+		return errors.New("is required")
+	}
+	if strings.TrimSpace(checkpoint.Summary) == "" {
+		return errors.New("summary is required")
+	}
+	if strings.TrimSpace(checkpoint.CoversThroughMessageID) == "" {
+		return errors.New("covers-through message ID is required")
+	}
+	if strings.TrimSpace(checkpoint.TailStartMessageID) == "" {
+		return errors.New("tail-start message ID is required")
+	}
 	return nil
 }
 

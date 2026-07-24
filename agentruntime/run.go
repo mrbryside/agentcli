@@ -697,16 +697,42 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		}
 	}
 
-	r.cancelProvider()
-	providerCtx, cancel := context.WithCancel(ctx)
-	stream, err := runtime.model.Start(providerCtx, ModelRequest{
+	request := ModelRequest{
 		SessionID:        r.sessionID,
 		TurnID:           r.turnID,
 		SystemPrompts:    append([]string(nil), runtime.systemPrompts...),
 		ContextReminders: cloneContextReminders(reminders),
 		Messages:         storage.CloneMessages(messages),
 		Tools:            tools,
-	})
+	}
+	if runtime.compactor != nil {
+		result, compactErr := runtime.compactor.PrepareWithHooks(ctx, CompactionInput{Request: request, MainModelMetadata: runtime.mainModelMetadata}, CompactionHooks{Started: func() {
+			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionStarted})
+		}})
+		if compactErr != nil {
+			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: compactErr})
+			return fmt.Errorf("prepare compaction: %w", compactErr)
+		}
+		request = result.Request
+		if result.Compacted {
+			checkpoint := Message{Type: storage.MessageTypeCompactionCheckpoint, CompactionCheckpoint: result.Checkpoint}
+			if err := r.appendMessages(ctx, runtime, []Message{checkpoint}); err != nil {
+				r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: err})
+				return fmt.Errorf("persist compaction checkpoint: %w", err)
+			}
+			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionCompleted})
+		}
+	} else {
+		var projectErr error
+		request, projectErr = ProjectCompactionCheckpoints(request)
+		if projectErr != nil {
+			return fmt.Errorf("project compaction checkpoint: %w", projectErr)
+		}
+	}
+
+	r.cancelProvider()
+	providerCtx, cancel := context.WithCancel(ctx)
+	stream, err := runtime.model.Start(providerCtx, request)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start provider: %w", err)

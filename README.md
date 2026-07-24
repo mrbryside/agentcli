@@ -71,6 +71,12 @@ Create `.agentcli/config.yaml`:
 permission_mode: default
 max_subagents: 4
 
+# Remove this mapping or set auto: false to disable new compactions.
+compaction:
+  auto: true
+  provider: primary
+  model: gpt-4.1-mini
+
 providers:
   primary:
     type: openai
@@ -81,6 +87,17 @@ providers:
 
 Provider names such as `primary` are aliases. The required `type` selects the
 adapter; `openai` is currently supported.
+
+The optional `compaction` mapping selects a separate summarizer through an
+existing provider alias. Its only keys are `auto`, `provider`, and `model`;
+there are no YAML token-budget settings. Compaction preserves the complete
+stored transcript and appends internal checkpoints that resumed sessions keep
+projecting, even after `auto: false` disables future compactions. Enabled
+compaction requires known main-model context metadata; a summarizer that exposes
+metadata is validated too. OpenAI-compatible custom models need a metadata
+resolver when they are not in the built-in catalog. See
+the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)
+for lifecycle and failure behavior.
 
 Create `.agentcli/MAIN.md`:
 

@@ -266,15 +266,15 @@ type EventResponse struct {
 }
 
 type MessageResponse struct {
-	ID         string                   `json:"id"`
-	SessionID  string                   `json:"session_id"`
-	TurnID     string                   `json:"turn_id"`
-	Type       agentruntime.MessageType `json:"type"`
-	Content    string                   `json:"content,omitempty"`
-	Reasoning  string                   `json:"reasoning,omitempty"`
-	ToolCalls  []ToolCallResponse       `json:"tool_calls,omitempty"`
-	ToolResult *ToolResultResponse      `json:"tool_result,omitempty"`
-	CreatedAt  time.Time                `json:"created_at"`
+	ID         string              `json:"id"`
+	SessionID  string              `json:"session_id"`
+	TurnID     string              `json:"turn_id"`
+	Type       storage.MessageType `json:"type"`
+	Content    string              `json:"content,omitempty"`
+	Reasoning  string              `json:"reasoning,omitempty"`
+	ToolCalls  []ToolCallResponse  `json:"tool_calls,omitempty"`
+	ToolResult *ToolResultResponse `json:"tool_result,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
 }
 
 type ToolCallResponse struct {

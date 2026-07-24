@@ -23,6 +23,13 @@ my-agent/
 
 ```yaml
 permission_mode: default
+
+# Remove this mapping or set auto: false to disable new compactions.
+compaction:
+  auto: true
+  provider: primary
+  model: gpt-4.1-mini
+
 providers:
   primary:
     type: openai

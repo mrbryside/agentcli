@@ -29,9 +29,12 @@ Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
 OpenAI-compatible provider under the explicit placeholder alias
 `replace-provider`. Every generated agent currently selects
 `provider: replace-provider` and `model: replace-model`, so callers must replace
-those identities when targeting a real provider/model. A separate `guardrails`
-provider profile uses `${GUARDRAILS_API_KEY}` and a 30-second provider request
-timeout. The generated `report_discord` tool selects that profile with
+those identities when targeting a real provider/model. The generated
+`compaction` mapping is enabled explicitly with `auto: true` and reuses those
+two placeholders for its separate summarizer; removing the mapping or setting
+`auto: false` disables new checkpoints. A separate `guardrails` provider
+profile uses `${GUARDRAILS_API_KEY}` and a 30-second provider request timeout.
+The generated `report_discord` tool selects that profile with
 `replace-guard-model`. The starter includes `MAIN.md`, an interview skill, and
 a researcher subagent.
 

@@ -176,6 +176,14 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		reminderProvider = composeContextReminderProviders(reminderProvider, subagentReminderProvider(manager))
 	}
 
+	var compactor *agentruntime.Compactor
+	if configuration.compactionModel != nil {
+		estimator := configuration.contextEstimator
+		if estimator == nil {
+			estimator = agentruntime.GenericContextEstimator{}
+		}
+		compactor = &agentruntime.Compactor{Model: configuration.compactionModel, Estimator: estimator}
+	}
 	runtime, err := agentruntime.New(runContext, agentruntime.Config{
 		Model:                   configuration.model,
 		Messages:                configuration.messages,
@@ -197,6 +205,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationRequests:    confirmationRequests,
 		ConfirmationDecisions:   confirmationDecisions,
 		PermissionMode:          configuration.permissionMode,
+		Compactor:               compactor,
 		PermissionModeChanged: func(_, current permission.Mode) error {
 			return policyController.SetMode(current)
 		},

@@ -29,6 +29,8 @@ project.ToolNames()
 project.SystemPrompts()
 project.Model()
 project.ModelFor(providerName, modelName)
+project.Compaction()
+project.CompactionModel()
 ```
 
 ## Agent construction
@@ -43,6 +45,8 @@ Common options:
 | --- | --- |
 | `WithProject` | Apply provider/model/prompts/mode/skills/subagents from disk. |
 | `WithModel` | Supply a model without project loading. |
+| `WithCompactionModel` | Override the project summarizer or supply the tool-free compaction model programmatically. |
+| `WithContextEstimator` | Replace conservative generic token estimation with a provider-aware `agentruntime.ContextEstimator`. |
 | `WithTool` | Register an application-owned `agentcli.Tool`. |
 | `WithPermissionMode` | Set initial mode. |
 | `WithPermissionPolicy` | Supply explicit capability rules. |
@@ -63,6 +67,16 @@ Common options:
 | `WithMaxSubagents` | Bound open children per parent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |
+
+### Custom compaction adapters
+
+`WithModel` and `WithCompactionModel` can override the model selected by a
+project. This is the escape hatch for an OpenAI-compatible private model: build
+your adapter with `openai.Config.MetadataResolver`, then pass that adapter to
+the appropriate option. The resolver supplies provider-neutral context-window
+and output limits; compaction refuses to guess those limits. Use
+`WithContextEstimator` as well only when the provider can offer a more accurate
+estimate than the default conservative generic estimator.
 
 ## Tool handler context
 

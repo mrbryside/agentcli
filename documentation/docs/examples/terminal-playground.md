@@ -53,7 +53,10 @@ construct the Agent with `WithNonInteractive(true)` as well.
 The executable in `playground/terminal` demonstrates the same API. Its files
 contain the caller-owned `glob`, `read`, and `confirm_demo` tools used for
 manual testing, while `main.go` only loads the project, registers those tools,
-and calls `agent.RunTerminal`.
+and calls `agent.RunTerminal`. It reads provider, model, and compaction
+settings from the repository root `.agentcli/config.yaml`; there is no separate
+playground config. For a clean setup, copy `.agentcli/config.example.yaml` and
+replace both its main-agent and compaction model placeholders.
 
 ```bash
 go run ./playground/terminal

@@ -1512,7 +1512,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/agentruntime.MessageType"
+                    "$ref": "#/definitions/storage.MessageType"
                 }
             }
         },
@@ -2248,7 +2248,10 @@
                 "confirmation_resolved",
                 "confirmation_cancelled",
                 "confirmation_expired",
-                "permission_mode_changed"
+                "permission_mode_changed",
+                "compaction_started",
+                "compaction_completed",
+                "compaction_failed"
             ],
             "x-enum-varnames": [
                 "RunStarted",
@@ -2266,32 +2269,10 @@
                 "AgentConfirmationResolved",
                 "AgentConfirmationCancelled",
                 "AgentConfirmationExpired",
-                "PermissionModeChanged"
-            ]
-        },
-        "agentruntime.MessageType": {
-            "type": "string",
-            "enum": [
-                "system",
-                "user",
-                "runtime_event",
-                "assistant",
-                "tool_call",
-                "tool_result",
-                "system",
-                "user",
-                "runtime_event",
-                "assistant",
-                "tool_call",
-                "tool_result"
-            ],
-            "x-enum-varnames": [
-                "MessageTypeSystem",
-                "MessageTypeUser",
-                "MessageTypeRuntimeEvent",
-                "MessageTypeAssistant",
-                "MessageTypeToolCall",
-                "MessageTypeToolResult"
+                "PermissionModeChanged",
+                "CompactionStarted",
+                "CompactionCompleted",
+                "CompactionFailed"
             ]
         },
         "agentruntime.RunStatus": {
@@ -2436,6 +2417,27 @@
                 "ToolCallCompleted",
                 "StreamCompleted",
                 "StreamFailed"
+            ]
+        },
+        "storage.MessageType": {
+            "type": "string",
+            "enum": [
+                "system",
+                "user",
+                "runtime_event",
+                "assistant",
+                "tool_call",
+                "tool_result",
+                "compaction_checkpoint"
+            ],
+            "x-enum-varnames": [
+                "MessageTypeSystem",
+                "MessageTypeUser",
+                "MessageTypeRuntimeEvent",
+                "MessageTypeAssistant",
+                "MessageTypeToolCall",
+                "MessageTypeToolResult",
+                "MessageTypeCompactionCheckpoint"
             ]
         },
         "storage.SubagentStatus": {

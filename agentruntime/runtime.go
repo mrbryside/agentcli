@@ -42,6 +42,9 @@ type Config struct {
 	PermissionModeChanged func(previous, current permission.Mode) error
 	IDGenerator           IDGenerator
 	MaxSteps              int
+	// Compactor enables provider-neutral transcript compaction before each
+	// main-model round. Its zero value is disabled.
+	Compactor *Compactor
 }
 
 // Runtime coordinates active turns for independent sessions. Per-turn event
@@ -69,6 +72,8 @@ type Runtime struct {
 	maxSteps                int
 	permissionMode          permission.Mode
 	permissionModeChanged   func(previous, current permission.Mode) error
+	compactor               *Compactor
+	mainModelMetadata       ModelMetadata
 
 	mu                        sync.RWMutex
 	active                    map[string]*Run
@@ -106,6 +111,38 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	if config.MaxSteps < 0 {
 		return nil, invalidRuntimeConfig("maximum steps cannot be negative")
+	}
+	var mainModelMetadata ModelMetadata
+	if config.Compactor != nil {
+		metadataProvider, ok := config.Model.(ModelMetadataProvider)
+		if !ok {
+			return nil, invalidRuntimeConfig("compaction requires main model metadata")
+		}
+		metadata, err := metadataProvider.ModelMetadata()
+		if err != nil {
+			return nil, fmt.Errorf("resolve main model metadata for compaction: %w", err)
+		}
+		if err := metadata.Validate(); err != nil {
+			return nil, fmt.Errorf("validate main model metadata for compaction: %w", err)
+		}
+		if isNil(config.Compactor.Model) {
+			return nil, invalidRuntimeConfig("compaction model is required")
+		}
+		if compactionMetadataProvider, ok := config.Compactor.Model.(ModelMetadataProvider); ok {
+			compactionMetadata, metadataErr := compactionMetadataProvider.ModelMetadata()
+			if metadataErr != nil {
+				return nil, fmt.Errorf("resolve compaction model metadata: %w", metadataErr)
+			}
+			if metadataErr := compactionMetadata.Validate(); metadataErr != nil {
+				return nil, fmt.Errorf("validate compaction model metadata: %w", metadataErr)
+			}
+		}
+		copy := *config.Compactor
+		if copy.Estimator == nil {
+			copy.Estimator = GenericContextEstimator{}
+		}
+		config.Compactor = &copy
+		mainModelMetadata = metadata
 	}
 	rawInputGuardPrompt := config.InputGuardPrompt
 	rawOutputGuardPrompt := config.OutputGuardPrompt
@@ -189,12 +226,14 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		maxSteps:                  config.MaxSteps,
 		permissionMode:            config.PermissionMode,
 		permissionModeChanged:     config.PermissionModeChanged,
+		compactor:                 config.Compactor,
 		active:                    make(map[string]*Run),
 		pendingPermissions:        make(map[permission.ID]*pendingPermission),
 		permissionDecisionsSeen:   make(map[permission.ID]permission.Decision),
 		pendingConfirmations:      make(map[confirmation.ID]*pendingConfirmation),
 		confirmationDecisionsSeen: make(map[confirmation.ID]confirmation.Decision),
 	}
+	runtime.mainModelMetadata = mainModelMetadata
 	go runtime.routeToolResults()
 	if config.PermissionRequests != nil {
 		go runtime.routePermissionRequests()

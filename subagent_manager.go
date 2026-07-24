@@ -263,6 +263,12 @@ func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, er
 		WithChannelBuffer(m.config.channelBuffer),
 		WithSkillReloadPolicy(m.config.skillReload),
 	}
+	if m.config.compactionModel != nil {
+		options = append(options, WithCompactionModel(m.config.compactionModel))
+	}
+	if m.config.contextEstimator != nil {
+		options = append(options, WithContextEstimator(m.config.contextEstimator))
+	}
 	for _, tool := range filterSubagentTools(definition, m.config.tools) {
 		options = append(options, WithTool(tool))
 	}

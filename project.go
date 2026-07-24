@@ -37,6 +37,38 @@ type ProjectConfig struct {
 	PermissionMode permission.Mode           `yaml:"permission_mode"`
 	MaxSubagents   int                       `yaml:"max_subagents"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
+	Compaction     *CompactionConfig         `yaml:"compaction"`
+}
+
+// CompactionConfig selects the project provider profile and model used to
+// compact an agent transcript. A nil value means compaction is disabled;
+// when the section is present Auto defaults to true.
+type CompactionConfig struct {
+	Auto     bool   `yaml:"auto"`
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+}
+
+// UnmarshalYAML makes an explicitly configured compaction section opt in by
+// default while preserving auto: false as an explicit disable. Custom YAML
+// unmarshalling bypasses Decoder.KnownFields, so keep this section strict.
+func (config *CompactionConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return errors.New("compaction must be a mapping")
+	}
+	for index := 0; index < len(value.Content); index += 2 {
+		key := value.Content[index].Value
+		if key != "auto" && key != "provider" && key != "model" {
+			return fmt.Errorf("field %s not found in type agentcli.CompactionConfig", key)
+		}
+	}
+	type rawCompactionConfig CompactionConfig
+	decoded := rawCompactionConfig{Auto: true}
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*config = CompactionConfig(decoded)
+	return nil
 }
 
 // ProviderType selects the protocol adapter used by a named connection
@@ -76,6 +108,7 @@ type Project struct {
 	subagents     map[string]SubagentDefinition
 	providerName  string
 	modelName     string
+	compaction    *CompactionConfig
 	toolNames     []string
 	restrictTools bool
 	timeout       time.Duration
@@ -139,7 +172,8 @@ func LoadProject(root string) (*Project, error) {
 		root: absoluteRoot, agents: string(agentsBytes), main: mainDefinition, config: config,
 		skills: rootSkills, allSkills: allSkills, subagents: subagents,
 		providerName: providerName, modelName: modelName,
-		toolNames: append([]string{}, mainDefinition.Tools...), restrictTools: true,
+		compaction: cloneCompactionConfig(config.Compaction),
+		toolNames:  append([]string{}, mainDefinition.Tools...), restrictTools: true,
 		timeout: timeout,
 	}, nil
 }
@@ -162,6 +196,13 @@ func WithProject(project *Project) Option {
 		configuration.project = project
 		configuration.permissionMode = project.PermissionMode()
 		configuration.permissionPolicy.Mode = project.PermissionMode()
+		if project.compaction != nil && project.compaction.Auto {
+			compactionModel, err := project.CompactionModel()
+			if err != nil {
+				return fmt.Errorf("resolve compaction model: %w", err)
+			}
+			configuration.compactionModel = compactionModel
+		}
 		if project.MaxSubagents() > 0 {
 			configuration.maxSubagents = project.MaxSubagents()
 		}
@@ -232,6 +273,28 @@ func (project *Project) ModelName() string {
 		return ""
 	}
 	return project.modelName
+}
+
+// Compaction returns the configured transcript-compaction policy. Its boolean
+// result reports whether the compaction section is present. The returned value
+// is safe for callers to modify.
+func (project *Project) Compaction() (CompactionConfig, bool) {
+	if project == nil || project.compaction == nil {
+		return CompactionConfig{}, false
+	}
+	return *cloneCompactionConfig(project.compaction), true
+}
+
+// CompactionModel constructs the configured compaction model through the same
+// provider-profile factory used for agent models.
+func (project *Project) CompactionModel() (agentruntime.Model, error) {
+	if project == nil {
+		return nil, errors.New("project is nil")
+	}
+	if project.compaction == nil || !project.compaction.Auto {
+		return nil, errors.New("compaction is disabled")
+	}
+	return project.ModelFor(project.compaction.Provider, project.compaction.Model)
 }
 
 // ToolNames returns the main agent's configured custom-tool allowlist.
@@ -378,6 +441,22 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 			return "", "", ProviderConfig{}, 0, err
 		}
 	}
+	if compaction := config.Compaction; compaction != nil && compaction.Auto {
+		providerName := strings.TrimSpace(compaction.Provider)
+		if providerName == "" {
+			return "", "", ProviderConfig{}, 0, errors.New("compaction provider is required when compaction is enabled")
+		}
+		if strings.TrimSpace(compaction.Model) == "" {
+			return "", "", ProviderConfig{}, 0, errors.New("compaction model is required when compaction is enabled")
+		}
+		providerConfig, found := config.Providers[providerName]
+		if !found {
+			return "", "", ProviderConfig{}, 0, fmt.Errorf("compaction provider %q is not configured", providerName)
+		}
+		if _, err := validateProviderConfig(providerName, providerConfig); err != nil {
+			return "", "", ProviderConfig{}, 0, err
+		}
+	}
 	providerName := strings.TrimSpace(main.Provider)
 	providerConfig, found := config.Providers[providerName]
 	if !found {
@@ -402,6 +481,18 @@ func expandProjectConfig(config *ProjectConfig) {
 		providerConfig.RequestTimeout = os.ExpandEnv(strings.TrimSpace(providerConfig.RequestTimeout))
 		config.Providers[name] = providerConfig
 	}
+	if config.Compaction != nil {
+		config.Compaction.Provider = os.ExpandEnv(strings.TrimSpace(config.Compaction.Provider))
+		config.Compaction.Model = os.ExpandEnv(strings.TrimSpace(config.Compaction.Model))
+	}
+}
+
+func cloneCompactionConfig(config *CompactionConfig) *CompactionConfig {
+	if config == nil {
+		return nil
+	}
+	clone := *config
+	return &clone
 }
 
 func validateProviderConfig(providerName string, providerConfig ProviderConfig) (time.Duration, error) {

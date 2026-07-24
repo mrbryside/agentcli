@@ -3,6 +3,7 @@ package agentcli
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -53,7 +54,12 @@ type config struct {
 	inputGuardModel         string
 	outputGuardProvider     string
 	outputGuardModel        string
-	toolCallGuardTimeout    time.Duration
+	// compactionModel is resolved by WithProject, or supplied explicitly by
+	// WithCompactionModel. It is kept in assembly config until the runtime owns
+	// the provider-neutral compactor.
+	compactionModel      agentruntime.Model
+	contextEstimator     agentruntime.ContextEstimator
+	toolCallGuardTimeout time.Duration
 }
 
 func defaultConfig(projectRoot string) config {
@@ -150,6 +156,50 @@ func WithModel(model agentruntime.Model) Option {
 	return func(configuration *config) error {
 		configuration.model = model
 		return nil
+	}
+}
+
+// WithCompactionModel supplies the model used only to summarize a transcript
+// before the main model is called. It overrides a compaction model selected by
+// an earlier WithProject, which lets applications use a custom provider
+// adapter (including its own ModelMetadataProvider implementation).
+func WithCompactionModel(model agentruntime.Model) Option {
+	return func(configuration *config) error {
+		if isNilOptionValue(model) {
+			return errors.New("compaction model is required")
+		}
+		configuration.compactionModel = model
+		return nil
+	}
+}
+
+// WithContextEstimator replaces the conservative generic estimator used for
+// automatic transcript compaction. Use it when a provider can calculate input
+// context more precisely. It applies to both root and project-created child
+// agents.
+func WithContextEstimator(estimator agentruntime.ContextEstimator) Option {
+	return func(configuration *config) error {
+		if isNilOptionValue(estimator) {
+			return errors.New("context estimator is required")
+		}
+		configuration.contextEstimator = estimator
+		return nil
+	}
+}
+
+// isNilOptionValue catches a nil pointer stored in an interface. Options are
+// configuration-time boundaries, so accepting one would defer a panic until a
+// compaction run much later.
+func isNilOptionValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
 	}
 }
 

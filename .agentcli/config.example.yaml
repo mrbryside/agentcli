@@ -5,6 +5,13 @@ max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 
+# Automatic transcript compaction. provider must name one of the profiles
+# below. Remove this mapping or set auto: false to disable new compactions.
+compaction:
+  auto: true
+  provider: your_provider_name
+  model: your-compaction-model
+
 # Provider names are application-defined connection profile aliases. The
 # required type selects the protocol adapter independently from that alias.
 providers:

@@ -29,6 +29,9 @@ const (
 	AgentConfirmationCancelled EventType = "confirmation_cancelled"
 	AgentConfirmationExpired   EventType = "confirmation_expired"
 	PermissionModeChanged      EventType = "permission_mode_changed"
+	CompactionStarted          EventType = "compaction_started"
+	CompactionCompleted        EventType = "compaction_completed"
+	CompactionFailed           EventType = "compaction_failed"
 )
 
 // PermissionModeChange describes the permission mode in force for an event.

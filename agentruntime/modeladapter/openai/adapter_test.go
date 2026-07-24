@@ -3,7 +3,9 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -12,6 +14,92 @@ import (
 
 	sdkopenai "github.com/sashabaranov/go-openai"
 )
+
+func TestAdapterModelMetadata(t *testing.T) {
+	t.Run("known aliases", func(t *testing.T) {
+		for _, test := range []struct {
+			model string
+			want  agentruntime.ModelMetadata
+		}{
+			{model: "gpt-4.1-mini-2025-04-14", want: agentruntime.ModelMetadata{ContextWindowTokens: 1_047_576, MaxOutputTokens: 32_768}},
+			{model: "gpt-4o", want: agentruntime.ModelMetadata{ContextWindowTokens: 128_000, MaxOutputTokens: 16_384}},
+		} {
+			t.Run(test.model, func(t *testing.T) {
+				adapter := New(&fakeProvider{}, Config{Model: test.model})
+				metadata, err := adapter.ModelMetadata()
+				if err != nil {
+					t.Fatalf("ModelMetadata: %v", err)
+				}
+				if metadata != test.want {
+					t.Fatalf("metadata = %#v, want %#v", metadata, test.want)
+				}
+			})
+		}
+	})
+
+	t.Run("unknown model is explicit", func(t *testing.T) {
+		adapter := New(&fakeProvider{}, Config{Model: "compatible-model"})
+		if _, err := adapter.ModelMetadata(); err == nil || !strings.Contains(err.Error(), "limits are unknown") || !strings.Contains(err.Error(), "Config.MetadataResolver") {
+			t.Fatalf("ModelMetadata() error = %v, want explicit unknown-limits error", err)
+		}
+		// Unknown OpenAI-compatible models remain usable unless a runtime feature
+		// actually requests their metadata.
+		if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{}); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+	})
+
+	t.Run("custom resolver", func(t *testing.T) {
+		called := false
+		resolverErr := errors.New("unexpected")
+		adapter := New(&fakeProvider{}, Config{
+			Model: "compatible-model",
+			MetadataResolver: func(model string) (agentruntime.ModelMetadata, error) {
+				called = true
+				if model != "compatible-model" {
+					return agentruntime.ModelMetadata{}, resolverErr
+				}
+				return agentruntime.ModelMetadata{ContextWindowTokens: 32_768, MaxOutputTokens: 4_096}, nil
+			},
+		})
+		metadata, err := adapter.ModelMetadata()
+		if err != nil {
+			t.Fatalf("ModelMetadata: %v", err)
+		}
+		if !called || metadata.ContextWindowTokens != 32_768 || metadata.MaxOutputTokens != 4_096 {
+			t.Fatalf("resolver result = %#v, called = %t", metadata, called)
+		}
+	})
+
+	t.Run("invalid custom metadata", func(t *testing.T) {
+		adapter := New(&fakeProvider{}, Config{
+			Model: "compatible-model",
+			MetadataResolver: func(string) (agentruntime.ModelMetadata, error) {
+				return agentruntime.ModelMetadata{ContextWindowTokens: 1, MaxOutputTokens: 2}, nil
+			},
+		})
+		if _, err := adapter.ModelMetadata(); !errors.Is(err, agentruntime.ErrInvalidModelMetadata) {
+			t.Fatalf("ModelMetadata() error = %v, want ErrInvalidModelMetadata", err)
+		}
+	})
+}
+
+func TestAdapterModelMetadataRejectsLookalikes(t *testing.T) {
+	for _, model := range []string{
+		"gpt-4-foo",
+		"gpt-4.1-evil",
+		"gpt-4.1-mini-unknown",
+		"gpt-4o-compatible",
+		"gpt-4.1-2025-13-99",
+	} {
+		t.Run(model, func(t *testing.T) {
+			adapter := New(&fakeProvider{}, Config{Model: model})
+			if _, err := adapter.ModelMetadata(); err == nil || !strings.Contains(err.Error(), "limits are unknown") {
+				t.Fatalf("ModelMetadata() error = %v, want unknown-limits error", err)
+			}
+		})
+	}
+}
 
 func TestAdapterConvertsMessagesToolsAndDelegates(t *testing.T) {
 	fake := &fakeProvider{}
@@ -118,6 +206,24 @@ func TestAdapterConvertsMessagesToolsAndDelegates(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal(parameters, &schema); err != nil || schema["type"] != "object" {
 		t.Fatalf("function parameters = %s, err = %v", parameters, err)
+	}
+}
+
+func TestAdapterRequestMaxOutputTokensOverridesConfig(t *testing.T) {
+	fake := &fakeProvider{}
+	adapter := New(fake, Config{Model: "gpt-test", MaxTokens: 321})
+	if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{MaxOutputTokens: 123}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := fake.requests[0].MaxTokens; got != 123 {
+		t.Fatalf("request MaxTokens = %d, want request limit 123", got)
+	}
+
+	if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{}); err != nil {
+		t.Fatalf("Start with no request limit: %v", err)
+	}
+	if got := fake.requests[1].MaxTokens; got != 321 {
+		t.Fatalf("request MaxTokens = %d, want config fallback 321", got)
 	}
 }
 

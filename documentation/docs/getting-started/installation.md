@@ -77,6 +77,11 @@ Keep the environment reference in YAML instead of committing a secret.
 Project loading expands environment-variable references but intentionally does
 not load or ask for a `.env` file.
 
+The tracked example and curl-generated starter include an enabled
+`compaction` mapping. Replace its provider/model placeholders together with the
+agent definitions, or remove the mapping when automatic compaction is not
+wanted.
+
 Run the interactive terminal playground:
 
 ```bash

@@ -17,9 +17,10 @@ import (
 
 // Config selects the OpenAI model and optional request settings.
 type Config struct {
-	Model       string
-	MaxTokens   int
-	Temperature float32
+	Model            string
+	MaxTokens        int
+	Temperature      float32
+	MetadataResolver ModelMetadataResolver
 }
 
 // Adapter translates generic transcript values only at the OpenAI boundary.
@@ -76,11 +77,15 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 	if err != nil {
 		return nil, err
 	}
+	maxTokens := a.config.MaxTokens
+	if request.MaxOutputTokens > 0 {
+		maxTokens = request.MaxOutputTokens
+	}
 	stream, err := provider.StartStream(ctx, a.provider, provideropenai.Request{
 		Model:       a.config.Model,
 		Messages:    messages,
 		ToolSchema:  tools,
-		MaxTokens:   a.config.MaxTokens,
+		MaxTokens:   maxTokens,
 		Temperature: a.config.Temperature,
 	})
 	if err != nil {

@@ -93,7 +93,7 @@ Depending on `type`, it additionally contains exactly relevant fields:
 | `tool_request` | `tool_call_requested`. |
 | `tool_result` | `tool_result_received`. |
 | `result` | `run_completed`. |
-| `error` | `run_failed` and nested provider errors. |
+| `error` | `compaction_failed`, `run_failed`, and nested provider errors. |
 | `reason` | Interruption/cancellation context. |
 | `permission` | Permission request/cancel/expiry events. |
 | `decision` | `permission_resolved`. |
@@ -133,6 +133,9 @@ Queued turns emit nothing until admitted.
 | `confirmation_cancelled` | `confirmation` | A pending confirmation was cancelled because its run or runtime stopped. |
 | `confirmation_expired` | `confirmation` | No answer arrived before `expires_at`; the tool does not execute. |
 | `permission_mode_changed` | `permission_mode` | Live policy changed; `previous` and `current` identify the transition. Existing in-flight decisions remain correlated to their request. |
+| `compaction_started` | — | The runtime is about to start its separate, tool-free transcript summarizer. No summary text is streamed to the client. |
+| `compaction_completed` | — | The summarizer checkpoint was appended and the next main-model request is projected from that checkpoint plus a recent verbatim tail. |
+| `compaction_failed` | `error` | Compaction preparation, summarization, or checkpoint persistence failed. The affected main-model round is not started and a terminal `run_failed` follows. |
 | `run_completed` | `result` | Terminal success. `result` contains final text, reasoning, tool results, provider-step count, and completion state. |
 | `run_failed` | `error` | Terminal failure, such as a provider error, closed executor, invalid tool result, or maximum-step exhaustion. |
 | `agent_interrupted` | `reason` | Terminal cancellation requested by a caller, server shutdown, or context cancellation. |

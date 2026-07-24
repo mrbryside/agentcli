@@ -164,6 +164,42 @@ func TestMessageStorageListReturnsDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestMessageStorageRetainsCompactionCheckpointInAppendOrder(t *testing.T) {
+	t.Parallel()
+
+	store := NewMessageStorage()
+	before := testMessage("message-1", "session-1", "turn-1", "before checkpoint")
+	checkpoint := storage.Message{
+		ID: "checkpoint-1", SessionID: "session-1", TurnID: "turn-2", Type: storage.MessageTypeCompactionCheckpoint,
+		CompactionCheckpoint: &storage.CompactionCheckpoint{Summary: "cumulative summary", CoversThroughMessageID: "message-1", TailStartMessageID: "message-2"},
+	}
+	after := testMessage("message-2", "session-1", "turn-2", "tail message")
+	if err := store.Append(context.Background(), before, checkpoint, after); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	messages, err := store.List(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if got, want := messageIDs(messages), []string{"message-1", "checkpoint-1", "message-2"}; !equalStrings(got, want) {
+		t.Fatalf("message IDs = %v, want %v", got, want)
+	}
+	messages[1].CompactionCheckpoint.Summary = "mutated"
+	messages[1].CompactionCheckpoint.TailStartMessageID = "mutated-message"
+
+	again, err := store.List(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("second List: %v", err)
+	}
+	if got := again[1].CompactionCheckpoint.Summary; got != "cumulative summary" {
+		t.Fatalf("stored checkpoint summary = %q, want cumulative summary", got)
+	}
+	if got := again[1].CompactionCheckpoint.TailStartMessageID; got != "message-2" {
+		t.Fatalf("stored checkpoint tail start = %q, want message-2", got)
+	}
+}
+
 func TestMessageStorageConcurrentSessionsAreIsolated(t *testing.T) {
 	store := NewMessageStorage()
 	const count = 100

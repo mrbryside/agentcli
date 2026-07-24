@@ -57,11 +57,25 @@ cursor across sessions or child views.
 | `confirmation_requested` | A tool needs invocation-specific Yes/No confirmation. |
 | `confirmation_resolved` | A correlated Yes/No answer was accepted. |
 | `permission_mode_changed` | The global policy mode changed during an active run. |
+| `compaction_started` | A separate tool-free transcript summarizer is starting. |
+| `compaction_completed` | A cumulative checkpoint was persisted and will project the main-model request. |
+| `compaction_failed` | Preparation, summarization, or checkpoint persistence failed; the main-model round does not start. |
 | `agent_interrupted` | Interruption propagated through the turn. |
 | `run_completed` | A successful final result is available. |
 | `run_failed` | Infrastructure, provider, storage, or loop execution failed. |
 
 Permission and confirmation cancellation/expiry events are also retained.
+
+Compaction summaries are internal memory, not assistant output: do not render
+them as streamed content. The transcript remains append-only and can include
+checkpoint messages alongside its complete original history. Resuming a session
+projects its latest checkpoint even when automatic compaction has since been
+disabled. The HTTP message endpoints identify those records with
+`type: "compaction_checkpoint"`, but intentionally omit their summary and
+boundary fields; treat them as opaque internal runtime state.
+
+See [Context compaction](../capabilities/context-compaction.md) for the exact
+event ordering, provider-request projection, and child-session scoping.
 
 ## Provider events
 

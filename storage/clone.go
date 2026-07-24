@@ -17,6 +17,10 @@ func CloneMessage(message Message) Message {
 		result.Output = cloneRawMessage(result.Output)
 		clone.ToolResult = &result
 	}
+	if message.CompactionCheckpoint != nil {
+		checkpoint := *message.CompactionCheckpoint
+		clone.CompactionCheckpoint = &checkpoint
+	}
 	return clone
 }
 
