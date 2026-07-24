@@ -21,10 +21,11 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "Required final report for every main-agent turn. After all other work and tool results are complete, call this tool exactly once with the complete user-facing response. Use it only as a standalone final action; do not call it early or batch it with another tool."
+const reportDiscordToolDescription = "Required final report for every main-agent turn. After all other work and tool results are complete, call this tool exactly once with the complete user-facing response. Use it only as a standalone final action; do not call it early or batch it with another tool. Set report=false when the response contains only internal system or subagent lifecycle details that should not be reported."
 
 type reportDiscordArguments struct {
 	Message *string `json:"message"`
+	Report  *bool   `json:"report"`
 }
 
 type reportDiscordResult struct {
@@ -55,8 +56,12 @@ func newReportDiscordTool(root string) agentcli.Tool {
 		Definition: agentcli.ToolDefinition{
 			Name:        "report_discord",
 			Description: reportDiscordToolDescription,
-			InputSchema: agentcli.ObjectSchema(struct{ Message agentcli.ToolParameter }{
+			InputSchema: agentcli.ObjectSchema(struct {
+				Message agentcli.ToolParameter
+				Report  agentcli.ToolParameter
+			}{
 				Message: agentcli.StringParameter("Complete user-facing response to simulate sending to Discord as the final action of this turn").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
+				Report:  agentcli.BooleanParameter("Set false to skip reporting internal system or subagent lifecycle details; defaults to true").Optional(),
 			}),
 		},
 		Handler:           logger.report,
@@ -75,22 +80,25 @@ func (logger *reportDiscordLogger) report(ctx context.Context, raw json.RawMessa
 	}
 	var input reportDiscordArguments
 	if err := agentcli.DecodeArguments(raw, &input); err != nil {
-		return nil, err
+		return nil, reportDiscordValidationError(err.Error())
 	}
 	if input.Message == nil || strings.TrimSpace(*input.Message) == "" {
-		return nil, errors.New("report message is required")
+		return nil, reportDiscordValidationError("message is required")
 	}
 	message := *input.Message
 	if !utf8.ValidString(message) {
-		return nil, errors.New("report message must be valid UTF-8")
+		return nil, reportDiscordValidationError("message must be valid UTF-8")
 	}
 	if utf8.RuneCountInString(message) > maximumDiscordMessageRunes {
-		return nil, errors.New("report message must be at most 2000 characters")
+		return nil, reportDiscordValidationError("message must be at most 2000 characters")
 	}
 	for _, r := range message {
 		if r == 0 || (unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t') {
-			return nil, errors.New("report message contains an unsupported control character")
+			return nil, reportDiscordValidationError("message contains an unsupported control character")
 		}
+	}
+	if input.Report != nil && !*input.Report {
+		return json.Marshal(reportDiscordResult{Status: "skipped"})
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -100,6 +108,10 @@ func (logger *reportDiscordLogger) report(ctx context.Context, raw json.RawMessa
 		return nil, err
 	}
 	return json.Marshal(reportDiscordResult{Status: "reported"})
+}
+
+func reportDiscordValidationError(reason string) error {
+	return fmt.Errorf("invalid report_discord arguments: %s; try again with corrected arguments: message must be 1–2000 characters and report, when present, must be boolean", reason)
 }
 
 func (logger *reportDiscordLogger) append(invocation agentcli.ToolInvocation, message string) (string, error) {

@@ -22,14 +22,14 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	if !strings.Contains(tool.Definition.Description, "complete user-facing response") || strings.Contains(tool.Definition.Description, "report/") || strings.Contains(tool.Definition.Description, "network") {
+	if !strings.Contains(tool.Definition.Description, "complete user-facing response") || !strings.Contains(tool.Definition.Description, "report=false") || strings.Contains(tool.Definition.Description, "report/") || strings.Contains(tool.Definition.Description, "network") {
 		t.Fatalf("description = %q", tool.Definition.Description)
 	}
 	schema, err := json.Marshal(tool.Definition.InputSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"required":["message"]`} {
+	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"report"`, `"type":"boolean"`, `"required":["message"]`} {
 		if !strings.Contains(string(schema), expected) {
 			t.Fatalf("schema %s missing %s", schema, expected)
 		}
@@ -77,6 +77,31 @@ func TestReportDiscordIsDeterministicAndDoesNotSend(t *testing.T) {
 	}
 }
 
+func TestReportDiscordCanSkipInternalLifecycleReport(t *testing.T) {
+	root := t.TempDir()
+	tool := newReportDiscordTool(root)
+	ctx := agentcli.WithToolInvocation(context.Background(), agentcli.ToolInvocation{
+		SessionID: "session-skip",
+		TurnID:    "turn-skip",
+		CallID:    "call-skip",
+		ToolName:  "report_discord",
+	})
+	output, err := tool.Handler(ctx, json.RawMessage(`{"message":"Started subagent Robin.","report":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result reportDiscordResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped" {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "report")); !os.IsNotExist(err) {
+		t.Fatalf("report directory exists after skipped report: %v", err)
+	}
+}
+
 func TestReportDiscordValidatesRawArguments(t *testing.T) {
 	tool := newReportDiscordTool(t.TempDir())
 	ctx := agentcli.WithToolInvocation(context.Background(), agentcli.ToolInvocation{
@@ -94,6 +119,8 @@ func TestReportDiscordValidatesRawArguments(t *testing.T) {
 	} {
 		if _, err := tool.Handler(ctx, arguments); err == nil {
 			t.Fatalf("accepted invalid arguments: %s", arguments)
+		} else if !strings.Contains(err.Error(), "try again") {
+			t.Fatalf("validation error does not request retry: %v", err)
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
