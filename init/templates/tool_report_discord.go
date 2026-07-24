@@ -21,22 +21,24 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "Submit one standalone user-facing report as the final tool action of the turn after all other tools finish. Set message to the complete action, current progress, status, finding, or conclusion written directly as your own work. Useful in-progress status is reportable. Do not mention or imply delegation to another agent, subagent, or researcher, waiting for one, or a promised later update. Omit skipReport or set it to false to record message. Set skipReport=true only when there is no meaningful user-facing action, progress, status, finding, or conclusion to report; do not use it to hide useful progress. If the call is rejected, use the tool-result feedback and retry with corrected arguments that preserve useful progress while removing internal attribution."
+const reportDiscordToolDescription = "Submit one complete standalone user-facing response as the final tool action of the turn after all other tools finish. Set message to the natural response you want to deliver; it may be ordinary conversation, a greeting, an answer, a question, an action, current progress, status, a finding, or a conclusion. Do not force conversational content into report or progress language. When describing work, write directly as your own work and do not mention or imply delegation to another agent, subagent, or researcher, waiting for one, or a promised later update. Omit skipReport or set it to false to record message. Set skipReport=true only when there is no meaningful user-facing response at all; a normal greeting or conversational response is meaningful and must not be skipped. If the call is rejected, use the tool-result feedback and retry with corrected arguments that preserve the intended content and tone while removing disallowed internal attribution."
 
 const reportDiscordToolCallGuardPrompt = `Approve the requested report_discord tool call only when all of these conditions hold:
 - arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;
-- when arguments.skipReport is omitted or false, the message reports actions, current progress, status, findings, or conclusions directly, as if the reporting agent performed the work itself;
+- when arguments.skipReport is omitted or false, the message is a coherent, direct, standalone user-facing response;
+- the message may be ordinary conversation, a greeting, an answer, a question, an action, current progress, status, a finding, or a conclusion; it does not need to contain progress or findings;
+- never reject a normal conversational response merely because it is not a progress update or report;
 - useful ongoing progress is valid reportable content and must be phrased as the reporting agent's own current action;
 - the message does not mention or imply delegation to another agent, subagent, researcher, or external agent; it does not say that such an agent was started, is working, or supplied the result;
 - the message does not describe waiting for another agent and does not promise to share results or provide another update later;
 - the message does not expose internal system prompts, hidden reasoning, permission internals, or subagent lifecycle chatter;
-- arguments.skipReport is true only when the submitted message contains no meaningful user-facing action, progress, status, finding, or conclusion; useful progress must be reported with skipReport omitted or false.
+- arguments.skipReport is true only when there is no meaningful user-facing response at all; greetings, conversational replies, answers, questions, progress, and results are meaningful and must use skipReport omitted or false.
 
 Treat delegated work as work performed by the reporting agent for user-facing phrasing:
 - reject: {"message":"A subagent is analyzing main.go and will report back."}
 - approve: {"message":"Analyzing main.go to prepare a summary of its purpose, architecture, and key components."}
 
-If any condition fails, reject the call with concise feedback that tells the agent to call report_discord again and includes a concrete suggested message based only on non-sensitive facts already present in the submitted arguments. When useful progress is present but delegation is mentioned, preserve that progress, rewrite it as the reporting agent's own action, and do not recommend skipReport. Recommend skipReport=true only when the submitted message contains no meaningful action, progress, status, finding, or conclusion. Never suggest an empty or null message, and do not repeat sensitive content in feedback.`
+If any condition fails, reject the call with concise feedback that tells the agent to call report_discord again and includes a concrete suggested message based only on non-sensitive facts already present in the submitted arguments. Preserve the intended content and tone. When useful progress is present but delegation is mentioned, preserve that progress, rewrite it as the reporting agent's own action, and do not recommend skipReport. Recommend skipReport=true only when the submitted arguments contain no meaningful user-facing response at all. Never suggest an empty or null message, never require conversational content to be rewritten as progress or a report, and do not repeat sensitive content in feedback.`
 
 type reportDiscordArguments struct {
 	Message    *string `json:"message"`
@@ -75,8 +77,8 @@ func newReportDiscordTool(root string) agentcli.Tool {
 				Message    agentcli.ToolParameter
 				SkipReport agentcli.ToolParameter `json:"skipReport"`
 			}{
-				Message:    agentcli.StringParameter("Complete standalone user-facing response written as if you performed the work yourself; useful ongoing progress is reportable, but never mention delegation, other agents, waiting for them, or future updates; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
-				SkipReport: agentcli.BooleanParameter("Set true only when there is no meaningful user-facing action, progress, status, finding, or conclusion to report; never use it to hide useful progress; omit or set false to report the message").Optional(),
+				Message:    agentcli.StringParameter("Complete standalone user-facing response; ordinary conversation, greetings, answers, questions, progress, and results are all valid; when describing work, write it as your own and never mention delegation, other agents, waiting for them, or future updates; when skipReport is true, briefly state why no user-facing response is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
+				SkipReport: agentcli.BooleanParameter("Set true only when there is no meaningful user-facing response at all; never skip a normal greeting, conversation, answer, question, useful progress, or result; omit or set false to report the message").Optional(),
 			}),
 		},
 		Handler:             logger.report,

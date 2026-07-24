@@ -27,7 +27,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.ToolCallGuardModel != nil {
 		t.Fatalf("tool call guard model = %#v, want main-model fallback", tool.ToolCallGuardModel)
 	}
-	for _, required := range []string{"requested report_discord tool call", "arguments.message", "as if the reporting agent performed the work itself", "useful ongoing progress is valid reportable content", "does not mention or imply delegation", "does not describe waiting", "does not promise", "A subagent is analyzing main.go", "Analyzing main.go to prepare a summary", "arguments.skipReport", "useful progress must be reported", "preserve that progress", "do not recommend skipReport", "concrete suggested message", "Never suggest an empty or null message", "do not repeat sensitive content"} {
+	for _, required := range []string{"requested report_discord tool call", "arguments.message", "coherent, direct, standalone user-facing response", "ordinary conversation, a greeting, an answer, a question", "does not need to contain progress or findings", "never reject a normal conversational response", "useful ongoing progress is valid reportable content", "does not mention or imply delegation", "does not describe waiting", "does not promise", "A subagent is analyzing main.go", "Analyzing main.go to prepare a summary", "arguments.skipReport", "greetings, conversational replies, answers, questions, progress, and results are meaningful", "Preserve the intended content and tone", "do not recommend skipReport", "concrete suggested message", "Never suggest an empty or null message", "never require conversational content to be rewritten as progress or a report", "do not repeat sensitive content"} {
 		if !strings.Contains(tool.ToolCallGuardPrompt, required) {
 			t.Fatalf("call guard prompt %q does not contain %q", tool.ToolCallGuardPrompt, required)
 		}
@@ -35,7 +35,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	for _, required := range []string{"Submit one standalone user-facing report", "final tool action of the turn", "after all other tools finish", "complete action, current progress, status, finding, or conclusion", "written directly as your own work", "Useful in-progress status is reportable", "Do not mention or imply delegation", "waiting for one", "promised later update", "Omit skipReport or set it to false", "Set skipReport=true", "no meaningful user-facing action, progress, status, finding, or conclusion", "do not use it to hide useful progress", "use the tool-result feedback", "preserve useful progress while removing internal attribution"} {
+	for _, required := range []string{"Submit one complete standalone user-facing response", "final tool action of the turn", "after all other tools finish", "ordinary conversation, a greeting, an answer, a question", "Do not force conversational content into report or progress language", "write directly as your own work", "do not mention or imply delegation", "waiting for one", "promised later update", "Omit skipReport or set it to false", "Set skipReport=true", "no meaningful user-facing response at all", "normal greeting or conversational response is meaningful and must not be skipped", "use the tool-result feedback", "preserve the intended content and tone", "removing disallowed internal attribution"} {
 		if !strings.Contains(tool.Definition.Description, required) {
 			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
 		}
@@ -52,7 +52,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`, `useful ongoing progress is reportable`, `never mention delegation, other agents, waiting for them, or future updates`, `never use it to hide useful progress`} {
+	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`, `ordinary conversation, greetings, answers, questions, progress, and results are all valid`, `never mention delegation, other agents, waiting for them, or future updates`, `never skip a normal greeting, conversation, answer, question, useful progress, or result`} {
 		if !strings.Contains(string(schema), expected) {
 			t.Fatalf("schema %s missing %s", schema, expected)
 		}

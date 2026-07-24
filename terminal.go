@@ -343,11 +343,18 @@ func (c *terminalClient) queueApproval(kind terminalApprovalKind, id string) {
 	c.presentNextApproval()
 }
 
-func (c *terminalClient) presentNextApproval() {
+func (c *terminalClient) queueApprovalWhileRendering(kind terminalApprovalKind, id string) {
+	c.stateMu.Lock()
+	c.approvalOrder = append(c.approvalOrder, terminalApproval{kind: kind, id: id})
+	c.stateMu.Unlock()
+	c.presentNextApprovalWhileRendering()
+}
+
+func (c *terminalClient) activateNextApproval() (*terminalApproval, permission.Request, confirmation.Request) {
 	c.stateMu.Lock()
 	if c.activeApproval != nil {
 		c.stateMu.Unlock()
-		return
+		return nil, permission.Request{}, confirmation.Request{}
 	}
 	var active *terminalApproval
 	var permissionRequest permission.Request
@@ -377,28 +384,57 @@ func (c *terminalClient) presentNextApproval() {
 	}
 	c.activeApproval = active
 	c.stateMu.Unlock()
+	return active, permissionRequest, confirmationRequest
+}
+
+func (c *terminalClient) presentNextApproval() {
+	active, permissionRequest, confirmationRequest := c.activateNextApproval()
 	if active == nil {
 		return
 	}
 	c.renderInView("", func() {
-		if loading := c.currentRootLoading(); loading != nil {
-			loading.Stop()
-		}
-		if active.kind == terminalApprovalPermission {
-			c.terminal.permission(permissionRequest)
-		} else {
-			c.terminal.confirmation(confirmationRequest)
-		}
+		c.renderApproval(*active, permissionRequest, confirmationRequest)
 	})
 }
 
-func (c *terminalClient) completeApproval(kind terminalApprovalKind, id string) {
+// presentNextApprovalWhileRendering is used only from renderEventForSubagent,
+// whose caller already owns renderMu. Re-entering renderInView from that path
+// would deadlock on the non-reentrant render mutex.
+func (c *terminalClient) presentNextApprovalWhileRendering() {
+	active, permissionRequest, confirmationRequest := c.activateNextApproval()
+	if active == nil || !c.isActiveView("") {
+		return
+	}
+	c.renderApproval(*active, permissionRequest, confirmationRequest)
+}
+
+func (c *terminalClient) renderApproval(active terminalApproval, permissionRequest permission.Request, confirmationRequest confirmation.Request) {
+	if loading := c.currentRootLoading(); loading != nil {
+		loading.Stop()
+	}
+	if active.kind == terminalApprovalPermission {
+		c.terminal.permission(permissionRequest)
+	} else {
+		c.terminal.confirmation(confirmationRequest)
+	}
+}
+
+func (c *terminalClient) markApprovalComplete(kind terminalApprovalKind, id string) {
 	c.stateMu.Lock()
 	if c.activeApproval != nil && c.activeApproval.kind == kind && c.activeApproval.id == id {
 		c.activeApproval = nil
 	}
 	c.stateMu.Unlock()
+}
+
+func (c *terminalClient) completeApproval(kind terminalApprovalKind, id string) {
+	c.markApprovalComplete(kind, id)
 	c.presentNextApproval()
+}
+
+func (c *terminalClient) completeApprovalWhileRendering(kind terminalApprovalKind, id string) {
+	c.markApprovalComplete(kind, id)
+	c.presentNextApprovalWhileRendering()
 }
 
 func (c *terminalClient) activeApprovalSnapshot() (terminalApproval, bool) {
@@ -1615,7 +1651,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			}
 			c.stateMu.Unlock()
 			if !exists {
-				c.queueApproval(terminalApprovalPermission, string(event.Permission.ID))
+				c.queueApprovalWhileRendering(terminalApprovalPermission, string(event.Permission.ID))
 			}
 		}
 	case agentruntime.AgentPermissionResolved, agentruntime.AgentPermissionCancelled, agentruntime.AgentPermissionExpired:
@@ -1630,10 +1666,10 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 		}
 		c.stateMu.Unlock()
 		if event.Permission != nil {
-			c.completeApproval(terminalApprovalPermission, string(event.Permission.ID))
+			c.completeApprovalWhileRendering(terminalApprovalPermission, string(event.Permission.ID))
 		}
 		if event.Decision != nil {
-			c.completeApproval(terminalApprovalPermission, string(event.Decision.PermissionID))
+			c.completeApprovalWhileRendering(terminalApprovalPermission, string(event.Decision.PermissionID))
 		}
 		if _, approvalActive := c.activeApprovalSnapshot(); visible && !approvalActive {
 			loading.Start("")
@@ -1657,7 +1693,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			}
 			c.stateMu.Unlock()
 			if !exists {
-				c.queueApproval(terminalApprovalConfirmation, string(event.Confirmation.ID))
+				c.queueApprovalWhileRendering(terminalApprovalConfirmation, string(event.Confirmation.ID))
 			}
 		}
 	case agentruntime.AgentConfirmationResolved, agentruntime.AgentConfirmationCancelled, agentruntime.AgentConfirmationExpired:
@@ -1672,10 +1708,10 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 		}
 		c.stateMu.Unlock()
 		if event.Confirmation != nil {
-			c.completeApproval(terminalApprovalConfirmation, string(event.Confirmation.ID))
+			c.completeApprovalWhileRendering(terminalApprovalConfirmation, string(event.Confirmation.ID))
 		}
 		if event.ConfirmationDecision != nil {
-			c.completeApproval(terminalApprovalConfirmation, string(event.ConfirmationDecision.ConfirmationID))
+			c.completeApprovalWhileRendering(terminalApprovalConfirmation, string(event.ConfirmationDecision.ConfirmationID))
 		}
 		if _, approvalActive := c.activeApprovalSnapshot(); visible && !approvalActive {
 			loading.Start("")

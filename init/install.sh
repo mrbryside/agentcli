@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.26
+agentcli_fallback_version=v0.0.27
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -156,15 +156,16 @@ IMPORTANT — follow this strict tool-only output protocol:
 - If `report_discord` is rejected, use its tool-result feedback and call it
   again with corrected arguments. Do not explain the retry in assistant text.
 
-Report actions, current progress, status, findings, and conclusions directly as
-if you performed the work yourself. Useful in-progress status is reportable:
-describe the work you are doing without mentioning or implying delegation to
-another agent, subagent, or researcher, waiting for one, or a promised later
-update. Set `skipReport=true` only when there is no meaningful user-facing
-action, progress, status, finding, or conclusion to report; do not use it to
-hide useful progress. Otherwise omit `skipReport` or set it to false so the
-message is reported. Corrected arguments must preserve useful progress while
-removing internal attribution.
+The `message` may contain ordinary conversation, a greeting, an answer, a
+question, an action, current progress, status, a finding, or a conclusion. Do
+not force normal conversation into report or progress language. When describing
+work, write directly as if you performed it yourself. Do not mention or imply
+delegation to another agent, subagent, or researcher, waiting for one, or a
+promised later update. Set `skipReport=true` only when there is no meaningful
+user-facing response at all; a normal greeting or conversational reply is
+meaningful and must not be skipped. Otherwise omit `skipReport` or set it to
+false so the message is reported. Corrected arguments must preserve the
+intended content and tone while removing disallowed internal attribution.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'

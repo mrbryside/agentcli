@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/confirmation"
@@ -249,6 +250,60 @@ func TestTerminalApprovalQueueRendersOneGlobalPromptAtATime(t *testing.T) {
 	client.completeApproval(terminalApprovalPermission, string(permissionRequest.ID))
 	if got := output.String(); !strings.Contains(got, "Publish") {
 		t.Fatalf("next rendered approval = %q, want confirmation", got)
+	}
+}
+
+func TestTerminalApprovalEventsRenderWithoutReentrantLock(t *testing.T) {
+	var output bytes.Buffer
+	permissionRequest := permission.Request{ID: "permission", ToolName: "edit", Details: "Path: .agentcli/MAIN.md"}
+	confirmationRequest := confirmation.Request{ID: "confirmation", ToolName: "edit", Title: "Confirm exact file edit"}
+	client := terminalClient{
+		terminal:             terminal{out: &output},
+		pendingPermissions:   make(map[permission.ID]permission.Request),
+		pendingConfirmations: make(map[confirmation.ID]confirmation.Request),
+		permissionSubagent:   make(map[permission.ID]string),
+		confirmationSubagent: make(map[confirmation.ID]string),
+	}
+
+	renderTerminalEventWithoutDeadlock(t, &client, agentruntime.AgentEvent{
+		Type:       agentruntime.AgentPermissionRequested,
+		Permission: &permissionRequest,
+	})
+	if got := output.String(); !strings.Contains(got, "permission edit") {
+		t.Fatalf("permission event output = %q", got)
+	}
+
+	renderTerminalEventWithoutDeadlock(t, &client, agentruntime.AgentEvent{
+		Type:         agentruntime.AgentConfirmationRequested,
+		Confirmation: &confirmationRequest,
+	})
+	if got := output.String(); strings.Contains(got, confirmationRequest.Title) {
+		t.Fatalf("confirmation rendered before permission resolved: %q", got)
+	}
+
+	renderTerminalEventWithoutDeadlock(t, &client, agentruntime.AgentEvent{
+		Type:       agentruntime.AgentPermissionResolved,
+		Permission: &permissionRequest,
+	})
+	if got := output.String(); !strings.Contains(got, confirmationRequest.Title) {
+		t.Fatalf("queued confirmation was not rendered after permission resolution: %q", got)
+	}
+}
+
+func renderTerminalEventWithoutDeadlock(t *testing.T, client *terminalClient, event agentruntime.AgentEvent) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		wroteContent := false
+		client.renderInView("", func() {
+			client.renderEvent(event, &wroteContent)
+		})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("terminal event rendering deadlocked")
 	}
 }
 
