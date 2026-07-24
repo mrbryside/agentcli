@@ -112,7 +112,7 @@ already completed `start_subagent` tool call.
 ```go
 for callback := range agent.SubscribeSubagentCallbacks(ctx) {
     run, events, err := agent.ContinueSubagentCallbackSubscribed(ctx, callback)
-    if errors.Is(err, agentruntime.ErrTurnInProgress) {
+    if errors.Is(err, agentcli.ErrTurnInProgress) {
         // Keep the callback queued and retry when the parent session is free.
         continue
     }

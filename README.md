@@ -26,14 +26,14 @@ import "github.com/mrbryside/agentcli"
 
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
 project with an example skill and researcher subagent. The main agent receives
-bounded `glob`, `read`, and double-gated exact-match `edit` tools, plus the
-network-free `report_discord` finalizer with a pre-execution prompt tool-call
-guard; the researcher stays read-only with `glob` and `read`. `read` returns at
-most 2,000
-lines and a `next_offset` when more content remains. Their source is generated
+only the network-free `report_discord` finalizer with a pre-execution prompt
+tool-call guard; the researcher stays read-only with bounded `glob` and `read`.
+The generated application also registers double-gated exact-match `edit`, but
+neither generated agent exposes it by default. `read` returns at most 2,000
+lines and a `next_offset` when more content remains. Tool source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
-`tool_report_discord.go`. The finalizer is still called once at the end of every
-turn, but the agent decides whether a report is useful: omitting
+`tool_report_discord.go`. The finalizer is called once at the end of every turn,
+but the agent decides whether a report is useful: omitting
 `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without writing a report entry. A rejected
 tool call also leaves the report file unchanged. Reported messages must present
@@ -59,6 +59,7 @@ start the app. Go is only needed at this point:
 ```sh
 cd my-agent
 export API_KEY='replace-with-a-real-key'
+export GUARDRAILS_API_KEY='replace-with-a-real-guard-key'
 go run .
 ```
 

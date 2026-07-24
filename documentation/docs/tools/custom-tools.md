@@ -136,10 +136,12 @@ agentcli.Tool{
 
 The registry rejects a required finalizer without static `EndTurn`. Only a
 successful terminal all-`EndTurn` batch satisfies completion; an earlier call
-or a mixed continuing batch does not. While a finalizer is missing, normal
-rounds request a tool without hiding domain tools. If the model still finishes,
-the completion guard adds a reminder naming the missing finalizer. It permits
-up to three consecutive no-progress repairs; progress resets that budget.
+or a mixed continuing batch does not. If the model attempts to finish while a
+finalizer is missing, the completion guard starts another provider round with a
+reminder naming every missing finalizer. The normal tool catalog remains
+available; AgentRuntime does not set provider-specific tool choice or
+automatically reduce the catalog. It permits up to three consecutive
+no-progress repairs; progress resets that budget.
 
 Required finalizers should therefore be described as standalone final actions.
 

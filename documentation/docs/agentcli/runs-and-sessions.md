@@ -64,8 +64,8 @@ runB, _, err := agent.StartSubscribed(ctx, requestB) // session-b
 ```
 
 A second active turn for the same session returns
-`agentruntime.ErrTurnInProgress`. Reusing a persisted turn ID returns
-`agentruntime.ErrTurnExists`.
+`agentcli.ErrTurnInProgress`. Reusing a persisted turn ID returns
+`agentcli.ErrTurnExists`.
 
 That is the deliberate low-level `Agent.Start` contract. It prevents two
 callers from reading the same transcript head and interleaving their messages.
@@ -142,10 +142,12 @@ bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce up to three `report_subagent_outcome` repairs without re-running domain
 tools. Required end-of-turn finalizers are satisfied only by the final
 all-successful, all-`EndTurn` tool batch; an early or mixed continuing batch
-must be finalized again. While a finalizer remains unsatisfied, normal rounds
-request any available tool, and repair rounds narrow that to the missing
-finalizer. Providers that ignore this request policy can still emit text, so
-the bounded completion guard remains the compatibility fallback.
+must be finalized again. If the model attempts to finish while a finalizer
+remains unsatisfied, the completion guard starts a repair round with a reminder
+naming every missing finalizer while keeping the normal tool catalog available.
+AgentRuntime does not send provider-specific tool-choice directives or
+automatically narrow the catalog. The bounded completion guard fails the turn
+after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append a repair reminder as an ephemeral
 user-role message when assistant output already ends the transcript, avoiding
 provider rejection of multiple trailing assistant messages.
