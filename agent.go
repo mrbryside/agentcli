@@ -220,6 +220,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationDecisions: confirmationDecisions,
 		ConfirmationStore:     configuration.confirmations,
 		ToolCallGuardModel:    configuration.model,
+		ToolCallGuardTimeout:  configuration.toolCallGuardTimeout,
 		ToolCallGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
 			if configuration.project == nil {
 				return nil, errors.New("tool-call guard provider requires a project with provider profiles")

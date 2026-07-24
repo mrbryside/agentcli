@@ -48,6 +48,7 @@ Common options:
 | `WithPermissionPolicy` | Supply explicit capability rules. |
 | `WithNonInteractive` | Independent unattended-run flag: convert permission `ask` to `deny` and decline confirmations without changing permission mode. |
 | `WithToolWorkers` | Set handler worker concurrency; default 4. |
+| `WithToolCallGuardTimeout` | Bound each tool-call guard; default 30 seconds. |
 | `WithChannelBuffer` | Set internal transport buffer; default 64. |
 | `WithInputGuard` | Validate or replace normalized input with application code before persistence. |
 | `WithOutputGuard` | Validate final assistant output and return repair feedback. |

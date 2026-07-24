@@ -32,10 +32,12 @@ then to a safe generic retry instruction.
 Every prompt check is a separate provider request:
 
 - no tools are included;
-- no tools are included in the request;
 - the policy is a trusted system prompt;
 - the candidate input, assistant message, or tool name/arguments are encoded
-  as the single user payload;
+  in one user message;
+- a final trusted user message tells the guard to decide
+  immediately, minimize reasoning, and return a concise fail-closed verdict
+  instead of continuing uncertain analysis;
 - prompt checks do not enter AgentRuntime recursively and do not create a new
   conversation turn.
 

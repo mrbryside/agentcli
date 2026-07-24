@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/provider"
@@ -124,7 +125,7 @@ func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testin
 	if len(requests) != 1 || len(requests[0].Tools) != 0 {
 		t.Fatalf("guard request = %#v", requests)
 	}
-	if len(requests[0].Messages) != 1 || !strings.Contains(requests[0].Messages[0].Content, `"tool_name":"lookup"`) || !strings.Contains(requests[0].Messages[0].Content, `"query":"go"`) || strings.Contains(requests[0].Messages[0].Content, `"output"`) || !strings.Contains(requests[0].SystemPrompts[0], "Require a narrow query") {
+	if len(requests[0].Messages) != 2 || !strings.Contains(requests[0].Messages[0].Content, `"tool_name":"lookup"`) || !strings.Contains(requests[0].Messages[0].Content, `"query":"go"`) || strings.Contains(requests[0].Messages[0].Content, `"output"`) || !strings.Contains(requests[0].Messages[1].Content, "<guard_response_rules>") || !strings.Contains(requests[0].SystemPrompts[0], "Require a narrow query") {
 		t.Fatalf("guard request = %#v", requests[0])
 	}
 }
@@ -149,6 +150,35 @@ func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "finalize", `{}`))
 	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != EndTurn {
 		t.Fatalf("prompt-guarded result = %#v", result)
+	}
+}
+
+func TestToolCallPromptGuardTimeoutPreventsHandler(t *testing.T) {
+	registry := NewRegistry()
+	handlerCalls := 0
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "slow_guard", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handlerCalls++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+		ToolCallGuardPrompt: "Check this call.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{
+		ToolCallGuardModel:   blockingToolGuardModel{},
+		ToolCallGuardTimeout: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "slow_guard", `{}`))
+	if result.Result.Status != agentruntime.ToolResultFailed || !strings.Contains(result.Result.Error, "context deadline exceeded") {
+		t.Fatalf("result = %#v, want timed-out guard failure", result)
+	}
+	if handlerCalls != 0 {
+		t.Fatalf("handler calls = %d, want 0 after guard timeout", handlerCalls)
 	}
 }
 
@@ -345,4 +375,20 @@ func (stream toolGuardStream) Subscribe(context.Context) <-chan provider.StreamE
 
 func (stream toolGuardStream) Result() (provider.StreamResult, error) {
 	return provider.StreamResult{Content: stream.content, Finished: true}, nil
+}
+
+type blockingToolGuardModel struct{}
+
+func (blockingToolGuardModel) Start(context.Context, agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	return blockingToolGuardStream{}, nil
+}
+
+type blockingToolGuardStream struct{}
+
+func (blockingToolGuardStream) Subscribe(context.Context) <-chan provider.StreamEvent {
+	return make(chan provider.StreamEvent)
+}
+
+func (blockingToolGuardStream) Result() (provider.StreamResult, error) {
+	return provider.StreamResult{}, context.DeadlineExceeded
 }

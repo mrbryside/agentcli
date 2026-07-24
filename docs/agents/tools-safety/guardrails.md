@@ -47,8 +47,13 @@ Direct executor users provide a fallback `Config.ToolCallGuardModel` and an
 optional `Config.ToolCallGuardModelResolver`.
 
 Prompt evaluation is one isolated model request with no tools, a trusted
-policy system prompt, and a JSON-encoded candidate as the user message. The
-verdict requires exactly `allowed`, `reason`, and `feedback`.
+policy system prompt, a JSON-encoded candidate user message, and a final trusted
+user message with response rules requesting an immediate, concise decision
+with minimal reasoning. The
+verdict requires exactly `allowed`, `reason`, and `feedback`. Each prompt guard
+evaluation is bounded by a 30-second timeout by default; set
+`WithToolCallGuardTimeout` or `Config.ToolCallGuardTimeout` to change it. A
+timeout fails the tool call before the handler runs, so the agent can retry.
 
 ## Tool feedback loop
 

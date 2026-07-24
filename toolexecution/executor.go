@@ -27,6 +27,8 @@ type Executor struct {
 	policy *PermissionController
 }
 
+const defaultToolCallGuardTimeout = 30 * time.Second
+
 // Config owns permission transports and policy; nil transports preserve legacy execution.
 type Config struct {
 	// PermissionEnabled makes missing or unusable transports a configuration error.
@@ -56,6 +58,9 @@ type Config struct {
 	// ToolCallGuardModelResolver resolves an explicit provider/model pair on
 	// a prompt-guarded tool. Agent construction supplies a project resolver.
 	ToolCallGuardModelResolver func(providerName, modelName string) (agentruntime.Model, error)
+	// ToolCallGuardTimeout bounds each tool-call guard evaluation.
+	// A zero value uses the safe default.
+	ToolCallGuardTimeout time.Duration
 }
 
 type callKey struct {
@@ -112,6 +117,12 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 	config := Config{}
 	if len(configs) > 0 {
 		config = configs[0]
+	}
+	if config.ToolCallGuardTimeout == 0 {
+		config.ToolCallGuardTimeout = defaultToolCallGuardTimeout
+	}
+	if config.ToolCallGuardTimeout < 0 {
+		return nil, errors.New("tool call guard timeout cannot be negative")
 	}
 	if config.Store == nil {
 		config.Store = inmemory.NewPermissionStorage()

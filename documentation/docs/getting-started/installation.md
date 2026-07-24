@@ -48,10 +48,11 @@ curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/instal
 The installer prompts only for the target folder and Go module path. It never
 requests or persists provider credentials. It creates a Terminal application,
 project configuration, example skill, researcher subagent, and bounded
-`read`/`glob`/`edit` tools. The generated `edit` performs one exact unique
-replacement and requires both write permission and confirmation. The main
-agent also receives a network-free `report_discord` mock that is required once
-as the standalone final action of each turn. The agent omits `skipReport` or
+`read`/`glob`/`edit` tools. The researcher receives `read` and `glob`; `edit`
+is registered as an opt-in tool but is not exposed to either generated agent.
+The main agent receives only a network-free `report_discord` mock that is
+required once as the standalone final action of each turn. The agent omits
+`skipReport` or
 sets it to `false` to record the final message, and may set it to `true` after
 deciding the turn has no meaningful user-facing action, progress, status,
 finding, or conclusion. Useful ongoing progress is reported directly as the
@@ -61,7 +62,9 @@ suggestion when the requested payload is non-compliant. Reported messages must
 state progress or results directly without mentioning delegated agents, waiting
 for them, or future updates. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout and the
-required `replace-provider` and `replace-model` substitutions.
+required `replace-provider`, `replace-model`, and `replace-guard-model`
+substitutions. The guard model uses the separately configured `guardrails`
+provider profile.
 
 ## Configure a live provider
 

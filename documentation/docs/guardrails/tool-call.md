@@ -105,7 +105,9 @@ agentcli.Tool{
 Direct users of `toolexecution.NewExecutor` set
 `Config.ToolCallGuardModel` for fallback checks and
 `Config.ToolCallGuardModelResolver` when registered tools can select an
-explicit provider/model pair.
+explicit provider/model pair. Each prompt guard has a 30-second timeout by
+default; root Agents can override it with `WithToolCallGuardTimeout`, while
+direct executor users set `Config.ToolCallGuardTimeout`.
 
 ## Rejection becomes agent feedback
 

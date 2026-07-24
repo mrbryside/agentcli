@@ -173,6 +173,14 @@ type promptGuardVerdict struct {
 	Feedback *string `json:"feedback"`
 }
 
+const promptGuardResponseRules = `<guard_response_rules>
+Decide quickly from the policy and candidate already provided.
+Return the required JSON object immediately.
+Use the minimum reasoning needed; do not explore alternatives or write an explanation.
+If the decision is uncertain or reasoning is taking too long, stop reasoning and return allowed=false with a concise reason and actionable feedback.
+Keep reason and feedback brief.
+</guard_response_rules>`
+
 func newPromptInputGuard(model Model, prompt string) InputGuard {
 	return func(ctx context.Context, attempt InputGuardAttempt) (InputGuardDecision, error) {
 		verdict, err := evaluatePromptGuard(ctx, model, prompt, "input", attempt.Message)
@@ -254,7 +262,10 @@ func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction str
 			"You are the %s guard for an agent. Apply the policy below. Return one JSON object only, with exactly these fields: allowed (boolean), reason (string), feedback (string). Always include all three fields. If allowed is true, feedback must be empty. If allowed is false, feedback must tell the agent how to produce a compliant result without repeating unsafe content.\n\nPolicy:\n%s",
 			direction, strings.TrimSpace(prompt),
 		)},
-		Messages: []Message{{Type: MessageTypeUser, Content: string(encoded)}},
+		Messages: []Message{
+			{Type: MessageTypeUser, Content: string(encoded)},
+			{Type: MessageTypeUser, Content: promptGuardResponseRules},
+		},
 	}
 	stream, err := model.Start(ctx, request)
 	if err != nil {

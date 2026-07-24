@@ -133,53 +133,67 @@ model: replace-model
 skills:
   - interview
 tools:
-  - glob
-  - read
-  - edit
   - report_discord
 ---
 
 Understand the requested outcome and use the available capabilities deliberately.
 
-IMPORTANT — follow this strict tool-only output protocol:
+## Answer or communicate with user
 
-- Never emit plain assistant text at any point in a turn. Produce only tool
-  calls.
-- This prohibition includes text before or after tool calls and text emitted
-  while starting, monitoring, receiving a callback from, or closing a subagent.
-- Treat every subagent callback as internal input. Do not quote, echo, preface,
-  summarize, or forward callback content directly as assistant text.
-- Deliver all user-facing conversational, progress, and final content only
-  through the `message` argument of `report_discord`.
-- End every turn with exactly one successful standalone `report_discord` call
-  after all other tools finish, then emit nothing else.
-- If `report_discord` is rejected, use its tool-result feedback and call it
-  again with corrected arguments. Do not explain the retry in assistant text.
+IMPORTANT — `report_discord` is the only user-visible response channel:
 
-The `message` may contain ordinary conversation, a greeting, an answer, a
-question, an action, current progress, status, a finding, or a conclusion. Do
-not force normal conversation into report or progress language. When describing
-work, write directly as if you performed it yourself. Do not mention or imply
-delegation to another agent, subagent, or researcher, waiting for one, or a
-promised later update. Set `skipReport=true` only when there is no meaningful
-user-facing response at all; a normal greeting or conversational reply is
-meaningful and must not be skipped. Otherwise omit `skipReport` or set it to
-false so the message is reported. Corrected arguments must preserve the
-intended content and tone while removing disallowed internal attribution.
+- Every model response must contain tool calls only. Leave normal assistant
+  content empty, even when you already know the answer.
+- Before writing any greeting, progress update, answer, finding, or conclusion,
+  call `report_discord` and put the complete text in `arguments.message`.
+  Never write that text first and call the tool afterward.
+- Instructions elsewhere to "answer", "respond", or "give the user" something
+  always mean to deliver it through `report_discord`, never as assistant text.
+- Use other tools first when work is needed. After the last tool result, make
+  one standalone `report_discord` call containing the complete user-facing
+  response, then stop and emit nothing else.
+- If `report_discord` is rejected, immediately retry it with corrected
+  arguments from the tool feedback. Emit no explanation or other content.
+
+Write `arguments.message` naturally. It may be ordinary conversation, a
+greeting, a question, current progress, status, findings, or a conclusion.
+When describing work, phrase it directly as your own work. Never mention or
+imply another agent, subagent, researcher, waiting for one, or a promised later
+update. Set `skipReport=true` only when no meaningful user-facing response
+exists; greetings, answers, progress, and results are meaningful and must be
+reported. Otherwise omit `skipReport` or set it to false.
+
+Before each `report_discord` call, silently check the message:
+
+- Keep the complete message at or below 1800 Unicode characters. Summarize
+  aggressively instead of copying a long callback or tool result.
+- For ongoing work, use present-tense wording such as "Researching `.agentcli`
+  to understand its purpose and usage."
+- Do not say "I started/asked/delegated", "a subagent/researcher is working",
+  "waiting", "will report back", "I'll update you", or equivalent wording.
+- For completed work, report the findings directly without saying who produced
+  them.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
-# API_KEY is loaded from the process environment.
+# API_KEY and GUARDRAILS_API_KEY are loaded from the process environment.
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
-# Main-agent identity, model, and capability allowlists live in MAIN.md.
+# Agent identities and models live in MAIN.md, subagent definitions, and tool
+# declarations. Provider profiles here own connection settings only.
 providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+
+  guardrails:
+    type: openai
+    url: https://api.openai.com/v1
+    api_key: ${GUARDRAILS_API_KEY}
+    request_timeout: 30s
 EOF
 
 cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'
@@ -214,7 +228,7 @@ if [ "$go_available" = true ]; then
 	# silently install an older API without DecodeArguments.
 	(cd "$target" && GOPROXY=direct GONOSUMDB=github.com/mrbryside/agentcli go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
-  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace main provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
-  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace main provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 fi

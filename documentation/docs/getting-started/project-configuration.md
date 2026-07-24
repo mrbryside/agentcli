@@ -8,7 +8,9 @@ sidebar_position: 2
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
 `config.yaml`, `MAIN.md`, and every subagent definition, then replace each
-model value before running the project. See
+model value before running the project. The generated `report_discord` tool
+separately selects the `guardrails` provider profile and
+`replace-guard-model`. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout.
 
 `agentcli.LoadProject(root)` takes an immutable snapshot of project-owned

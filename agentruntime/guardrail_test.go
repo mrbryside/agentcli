@@ -205,6 +205,14 @@ func TestPromptInputGuardUsesDefaultModel(t *testing.T) {
 	if len(requests) != 2 || !strings.Contains(requests[0].SystemPrompts[0], "allow ordinary user input") {
 		t.Fatalf("guard model requests = %#v", requests)
 	}
+	if len(requests[0].Messages) != 2 || !strings.Contains(requests[0].Messages[0].Content, `"Content":"hello"`) {
+		t.Fatalf("guard candidate messages = %#v", requests[0].Messages)
+	}
+	for _, required := range []string{"<guard_response_rules>", "Return the required JSON object immediately.", "reasoning is taking too long"} {
+		if !strings.Contains(requests[0].Messages[1].Content, required) {
+			t.Fatalf("guard response rules %q do not contain %q", requests[0].Messages[1].Content, required)
+		}
+	}
 }
 
 func TestPromptOutputGuardRetriesWithModelFeedback(t *testing.T) {

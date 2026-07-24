@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/permission"
@@ -52,6 +53,7 @@ type config struct {
 	inputGuardModel         string
 	outputGuardProvider     string
 	outputGuardModel        string
+	toolCallGuardTimeout    time.Duration
 }
 
 func defaultConfig(projectRoot string) config {
@@ -217,6 +219,18 @@ func WithNonInteractive(nonInteractive bool) Option {
 func WithToolWorkers(count int) Option {
 	return func(configuration *config) error {
 		configuration.toolWorkers = count
+		return nil
+	}
+}
+
+// WithToolCallGuardTimeout bounds each tool-call guard evaluation. The default
+// is 30 seconds.
+func WithToolCallGuardTimeout(timeout time.Duration) Option {
+	return func(configuration *config) error {
+		if timeout <= 0 {
+			return errors.New("tool call guard timeout must be positive")
+		}
+		configuration.toolCallGuardTimeout = timeout
 		return nil
 	}
 }

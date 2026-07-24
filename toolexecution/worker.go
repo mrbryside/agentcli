@@ -3,9 +3,11 @@ package toolexecution
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 )
@@ -77,7 +79,7 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		guard = agentruntime.NewPromptToolCallGuard(e.toolCallGuardModels[request.Call.Name], prompt)
 	}
 	if guard != nil {
-		decision, guardErr := invokeToolCallGuard(ctx, guard, agentruntime.ToolCallGuardAttempt{
+		decision, guardErr := invokeToolCallGuardWithTimeout(ctx, e.config.ToolCallGuardTimeout, guard, agentruntime.ToolCallGuardAttempt{
 			SessionID: request.SessionID,
 			TurnID:    request.TurnID,
 			CallID:    request.Call.CallID,
@@ -118,6 +120,30 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.TurnBehavior = behavior
 	}
 	return result
+}
+
+type toolCallGuardOutcome struct {
+	decision agentruntime.ToolCallGuardDecision
+	err      error
+}
+
+func invokeToolCallGuardWithTimeout(ctx context.Context, timeout time.Duration, guard agentruntime.ToolCallGuard, attempt agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+	guardCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	outcomes := make(chan toolCallGuardOutcome, 1)
+	go func() {
+		decision, err := invokeToolCallGuard(guardCtx, guard, attempt)
+		outcomes <- toolCallGuardOutcome{decision: decision, err: err}
+	}()
+	select {
+	case outcome := <-outcomes:
+		return outcome.decision, outcome.err
+	case <-guardCtx.Done():
+		if errors.Is(guardCtx.Err(), context.DeadlineExceeded) {
+			return agentruntime.ToolCallGuardDecision{}, fmt.Errorf("timed out after %s: %w", timeout, guardCtx.Err())
+		}
+		return agentruntime.ToolCallGuardDecision{}, context.Cause(guardCtx)
+	}
 }
 
 func invokeToolCallGuard(ctx context.Context, guard agentruntime.ToolCallGuard, attempt agentruntime.ToolCallGuardAttempt) (decision agentruntime.ToolCallGuardDecision, err error) {

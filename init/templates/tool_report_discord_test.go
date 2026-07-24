@@ -24,8 +24,10 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)
 	}
-	if tool.ToolCallGuardModel != nil {
-		t.Fatalf("tool call guard model = %#v, want main-model fallback", tool.ToolCallGuardModel)
+	if tool.ToolCallGuardModel == nil ||
+		tool.ToolCallGuardModel.Provider != reportDiscordGuardProvider ||
+		tool.ToolCallGuardModel.Model != reportDiscordGuardModel {
+		t.Fatalf("tool call guard model = %#v, want %q/%q", tool.ToolCallGuardModel, reportDiscordGuardProvider, reportDiscordGuardModel)
 	}
 	for _, required := range []string{"requested report_discord tool call", "arguments.message", "coherent, direct, standalone user-facing response", "ordinary conversation, a greeting, an answer, a question", "does not need to contain progress or findings", "never reject a normal conversational response", "useful ongoing progress is valid reportable content", "does not mention or imply delegation", "does not describe waiting", "does not promise", "A subagent is analyzing main.go", "Analyzing main.go to prepare a summary", "arguments.skipReport", "greetings, conversational replies, answers, questions, progress, and results are meaningful", "Preserve the intended content and tone", "do not recommend skipReport", "concrete suggested message", "Never suggest an empty or null message", "never require conversational content to be rewritten as progress or a report", "do not repeat sensitive content"} {
 		if !strings.Contains(tool.ToolCallGuardPrompt, required) {
@@ -129,6 +131,7 @@ func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
 	root := t.TempDir()
 	tool := newReportDiscordTool(root)
 	tool.ToolCallGuardPrompt = ""
+	tool.ToolCallGuardModel = nil
 	tool.ToolCallGuard = func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 		return agentruntime.ToolCallGuardDecision{
 			Action:   agentruntime.ToolCallReject,

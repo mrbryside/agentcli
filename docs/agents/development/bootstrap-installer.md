@@ -18,8 +18,8 @@ when Go is unavailable it falls back to `1.26.3`. With Go available it resolves
 and skips checksum lookup for this direct Git resolution, so the starter uses
 the newest published semver tag while avoiding a lagging module proxy. `AGENTCLI_VERSION` is an optional test/maintenance override for
 pinning a release or testing an unreleased branch. Generated configuration references
-`${API_KEY}`, which must be supplied through the process environment;
-generated code has no `.env` loader.
+`${API_KEY}` and `${GUARDRAILS_API_KEY}`, which must be supplied through the
+process environment; generated code has no `.env` loader.
 
 When Go is unavailable, the generated `go.mod` pins the current fallback
 release tag so the starter still includes the public API used by its downloaded
@@ -29,8 +29,11 @@ Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
 OpenAI-compatible provider under the explicit placeholder alias
 `replace-provider`. Every generated agent currently selects
 `provider: replace-provider` and `model: replace-model`, so callers must replace
-those identities when targeting a real provider/model. The starter includes
-`MAIN.md`, an interview skill, and a researcher subagent.
+those identities when targeting a real provider/model. A separate `guardrails`
+provider profile uses `${GUARDRAILS_API_KEY}` and a 30-second provider request
+timeout. The generated `report_discord` tool selects that profile with
+`replace-guard-model`. The starter includes `MAIN.md`, an interview skill, and
+a researcher subagent.
 
 `init/templates/tool_read.go`, `init/templates/tool_glob.go`,
 `init/templates/tool_edit.go`, and `init/templates/tool_report_discord.go` are
@@ -48,16 +51,23 @@ The generated edit tool performs one exact `old_string` to `new_string`
 replacement in an existing bounded UTF-8 file. It rejects zero or ambiguous
 matches, symlinks, sensitive paths, and concurrent changes. Its dynamic
 `filesystem.write`/high-risk permission is published before its separate
-invocation confirmation; the researcher allowlist remains read-only.
+invocation confirmation. It remains registered as an opt-in starter tool but is
+not selected by either generated agent. The main agent selects only
+`report_discord`; the researcher allowlist remains `glob` and `read`.
 
 The generated `report_discord` tool is a deterministic, network-free mock. It
 is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
 Generated instructions forbid sending user-facing conversational, progress, or
 final messages outside the tool; the finalizer's `message` argument is the only
-user-facing delivery channel. Useful ongoing progress is reportable and is
-phrased as the main agent's own current action. The agent omits `skipReport` or
-sets it to `false` to record `message`. It sets `skipReport: true` only when
+user-facing delivery channel. They explicitly require empty ordinary assistant
+content and require the first user-facing text to appear inside the tool
+arguments.
+Useful ongoing progress is reportable and is phrased as the main agent's own
+current action. A preflight asks the model to keep messages at or below 1,800
+Unicode characters so the 2,000-character tool limit has headroom. The agent
+omits `skipReport` or sets it to `false` to record `message`. It sets
+`skipReport: true` only when
 there is no meaningful user-facing action, progress, status, finding, or
 conclusion; this returns `skipped` without creating or appending a report entry.
 The message remains required in the skip case and briefly explains why no
@@ -69,8 +79,10 @@ agent's own work and cannot mention delegation, another
 agent/subagent/researcher, waiting for one, or future updates. If useful
 progress includes delegation attribution, rejection feedback preserves the
 progress and provides a concrete direct rewrite instead of recommending
-`skipReport`. It uses the Agent model fallback; rejection leaves the report
-file unchanged and becomes a failed finalizer result with retry feedback.
+`skipReport`. It uses the generated `guardrails` provider profile and
+`replace-guard-model`, independently of the main agent provider/model.
+Rejection leaves the report file unchanged and becomes a failed finalizer
+result with retry feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

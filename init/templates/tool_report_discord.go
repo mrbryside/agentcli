@@ -19,6 +19,8 @@ import (
 const (
 	reportDiscordDestination   = "discord:#agent-reports"
 	maximumDiscordMessageRunes = 2000
+	reportDiscordGuardProvider = "guardrails"
+	reportDiscordGuardModel    = "replace-guard-model"
 )
 
 const reportDiscordToolDescription = "Submit one complete standalone user-facing response as the final tool action of the turn after all other tools finish. Set message to the natural response you want to deliver; it may be ordinary conversation, a greeting, an answer, a question, an action, current progress, status, a finding, or a conclusion. Do not force conversational content into report or progress language. When describing work, write directly as your own work and do not mention or imply delegation to another agent, subagent, or researcher, waiting for one, or a promised later update. Omit skipReport or set it to false to record message. Set skipReport=true only when there is no meaningful user-facing response at all; a normal greeting or conversational response is meaningful and must not be skipped. If the call is rejected, use the tool-result feedback and retry with corrected arguments that preserve the intended content and tone while removing disallowed internal attribution."
@@ -85,6 +87,10 @@ func newReportDiscordTool(root string) agentcli.Tool {
 		TurnBehavior:        agentcli.EndTurn,
 		RequiredAtTurnEnd:   true,
 		ToolCallGuardPrompt: reportDiscordToolCallGuardPrompt,
+		ToolCallGuardModel: &agentcli.GuardModelConfig{
+			Provider: reportDiscordGuardProvider,
+			Model:    reportDiscordGuardModel,
+		},
 	}
 }
 

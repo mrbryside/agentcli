@@ -43,8 +43,8 @@ my-agent/
 ```
 
 The installer never asks for, writes, or loads provider credentials.
-`${API_KEY}` in the generated configuration is resolved only from the
-process environment.
+`${API_KEY}` and `${GUARDRAILS_API_KEY}` in the generated configuration are
+resolved only from the process environment.
 
 The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
 available, it resolves `github.com/mrbryside/agentcli@latest` directly from Git
@@ -74,15 +74,24 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+
+  guardrails:
+    type: openai
+    url: https://api.openai.com/v1
+    api_key: ${GUARDRAILS_API_KEY}
+    request_timeout: 30s
 ```
 
 Replace `replace-provider` consistently in `config.yaml`, `MAIN.md`, and every
 file under `.agentcli/agent/`. Replace `replace-model` in `MAIN.md` and every
-subagent definition with a model supported by that provider. The provider
-alias is application-defined; `type: openai` selects the OpenAI-compatible
-adapter and does not require the alias itself to be `openai`.
+subagent definition with a model supported by that provider.
+`tool_report_discord.go` separately selects the `guardrails` profile and
+`replace-guard-model`; replace its connection settings and model without
+changing the main agent configuration. Provider aliases are
+application-defined; `type: openai` selects the OpenAI-compatible adapter and
+does not require an alias itself to be `openai`.
 
-For example:
+For example, the two profiles may use different services:
 
 ```yaml
 # .agentcli/config.yaml
@@ -91,6 +100,11 @@ providers:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
+
+  guardrails:
+    type: openai
+    url: https://guard-provider.example/v1
+    api_key: ${GUARDRAILS_API_KEY}
 ```
 
 ```yaml
@@ -101,8 +115,9 @@ model: your-model-name
 
 ## Starter tools
 
-The main agent selects `glob`, `read`, `edit`, and `report_discord`; the sample
-researcher selects only `glob` and `read`:
+The main agent selects only `report_discord`; the sample researcher selects
+`glob` and `read`. The generated application also registers `edit` as an opt-in
+starter tool, but neither generated agent exposes it by default:
 
 - `glob` searches only below the project root, supports recursive `**`,
   excludes sensitive paths, defaults to 100 matches, and returns at most 500.
@@ -111,14 +126,17 @@ researcher selects only `glob` and `read`:
 - `edit` replaces exactly one occurrence of `old_string` with `new_string` in
   an existing UTF-8 file. It rejects missing or ambiguous matches, symlinks,
   sensitive paths, and writes outside the project. Each call requires high-risk
-  `filesystem.write` permission and a separate confirmation; the researcher is
-  not allowed to use it.
+  `filesystem.write` permission and a separate confirmation; neither generated
+  agent is allowed to use it until its name is explicitly added to an
+  allowlist.
 - `report_discord` is a deterministic mock finalizer. The main agent calls it
   exactly once as the standalone final action with the complete user-facing
   response. The generated prompt forbids sending user-facing conversational,
   progress, or final messages outside the tool; all such content must be
-  delivered through the final call's `message` argument. Useful in-progress
-  status is valid reportable content. The agent sets `skipReport: true` only
+  delivered through the final call's `message` argument. It explicitly keeps
+  ordinary assistant content empty and targets at most 1,800 Unicode characters
+  so the tool's 2,000-character limit has headroom. Useful in-progress status
+  is valid reportable content. The agent sets `skipReport: true` only
   when there is no meaningful user-facing action, progress, status, finding, or
   conclusion; omitting it or setting it to `false` records the message. The tool
   performs no network I/O and appends each reported payload to
@@ -169,9 +187,10 @@ The generated tools use the public explicit schema API: `agentcli.Tool`,
 and `main.go` registers each one with `agentcli.WithTool`, so generated code
 does not import runtime implementation packages.
 
-The `report_discord` prompt check uses the configured main model and adds one
-model request for each requested call it evaluates before handler execution.
-It is a demonstration policy, not a network or process sandbox. See
+The `report_discord` prompt check uses the separate `guardrails` provider and
+`replace-guard-model`, adding one model request for each requested call it
+evaluates before handler execution. It is a demonstration policy, not a network
+or process sandbox. See
 [Tool-call guards](../guardrails/tool-call.md) before replacing the mock
 with an external integration.
 
@@ -182,6 +201,7 @@ After replacing the placeholders, export the provider key and run the app:
 ```sh
 cd my-agent
 export API_KEY='replace-with-a-real-key'
+export GUARDRAILS_API_KEY='replace-with-a-real-guard-key'
 go run .
 ```
 
