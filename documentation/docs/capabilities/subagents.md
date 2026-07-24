@@ -251,6 +251,16 @@ rejected.
 
 ## Capacity
 
+Set the project-wide default in `.agentcli/config.yaml`:
+
+```yaml
+max_subagents: 4
+```
+
+This limits non-closed children per parent session. Omitting the field uses the
+default of 4; `0` has the same meaning. `WithMaxSubagents` can override it
+programmatically.
+
 ```go
 agentcli.WithMaxSubagents(4)
 ```

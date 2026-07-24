@@ -21,6 +21,7 @@ project.Root()
 project.ProviderName()
 project.ModelName()
 project.PermissionMode()
+project.MaxSubagents()
 project.MainAgent()
 project.Skills()
 project.Subagents()
@@ -53,7 +54,7 @@ Common options:
 | `WithPermissionStorage` | Replace permission/grant storage. |
 | `WithConfirmationStorage` | Replace confirmation storage. |
 | `WithSubagentStorage` | Replace child relationship storage. |
-| `WithMaxSubagents` | Bound open children per parent session. |
+| `WithMaxSubagents` | Bound open children per parent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |
 

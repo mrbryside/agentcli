@@ -56,6 +56,7 @@ Create `.agentcli/config.yaml`:
 
 ```yaml
 permission_mode: default
+max_subagents: 4
 
 providers:
   primary:
