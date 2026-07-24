@@ -27,10 +27,11 @@ import "github.com/mrbryside/agentcli"
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
 project with an example skill and researcher subagent. The main agent receives
 bounded `glob`, `read`, and double-gated exact-match `edit` tools, plus the
-network-free `report_discord` finalizer; the researcher stays read-only with
-`glob` and `read`. `read` returns at most 2,000 lines and a `next_offset` when
-more content remains. Their source is generated separately as `tool_read.go`,
-`tool_glob.go`, `tool_edit.go`, and `tool_report_discord.go`. The installer asks for the project folder
+network-free `report_discord` finalizer with a prompt output guard; the
+researcher stays read-only with `glob` and `read`. `read` returns at most 2,000
+lines and a `next_offset` when more content remains. Their source is generated
+separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
+`tool_report_discord.go`. The installer asks for the project folder
 name and then the Go module path used in `go.mod`. It detects the installed Go
 version for that file, falling back to `1.26.3` when Go is not installed.
 Generated projects start in `criticalOnly` permission mode and read provider

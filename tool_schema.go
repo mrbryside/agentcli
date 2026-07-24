@@ -17,8 +17,19 @@ import (
 // Callers provide an explicit object schema and a raw JSON handler.
 type Tool = toolexecution.Tool
 
+// GuardModelConfig selects a configured project provider and model for a
+// prompt-backed tool guard.
+type GuardModelConfig = toolexecution.GuardModelConfig
+
 // ToolDefinition describes a callable tool.
 type ToolDefinition = agentruntime.ToolDefinition
+
+// Tool-output guard aliases let applications validate successful handler
+// output without importing the runtime package separately.
+type ToolOutputGuard = agentruntime.ToolOutputGuard
+type ToolOutputGuardAttempt = agentruntime.ToolOutputGuardAttempt
+type ToolOutputGuardDecision = agentruntime.ToolOutputGuardDecision
+type ToolOutputGuardAction = agentruntime.ToolOutputGuardAction
 
 // ToolPermissionConfig describes a fixed permission requirement for a tool.
 type ToolPermissionConfig = toolexecution.PermissionConfig
@@ -56,6 +67,11 @@ const ContinueTurn = toolexecution.ContinueTurn
 
 // EndTurn stores a successful result and completes the current turn.
 const EndTurn = toolexecution.EndTurn
+
+const (
+	ToolOutputProceed = agentruntime.ToolOutputProceed
+	ToolOutputReject  = agentruntime.ToolOutputReject
+)
 
 // InputSchema is the complete typed JSON Schema vocabulary for tool input.
 // Use it directly for advanced schemas and ObjectSchema with ToolParameter for

@@ -51,11 +51,12 @@ argument-derived display text. The handler must revalidate target state after
 approval because descriptors and schemas are not execution boundaries.
 
 The generated `report_discord` finalizer is a deterministic local mock and
-therefore declares no network permission. Replacing it with a real Discord
-integration requires an explicit network permission design, credential
-handling, confirmation policy, idempotency, and retry strategy. Avoid making
-an external mutation a mandatory finalizer unless duplicate delivery and
-provider repair are safe by design.
+therefore declares no network permission. Its prompt output guard is a
+post-handler semantic check, not authorization or containment. Replacing the
+mock with a real Discord integration requires an explicit network permission
+design, credential handling, confirmation policy, idempotency, and retry
+strategy. Avoid making an external mutation a mandatory finalizer unless
+duplicate delivery and provider repair are safe by design.
 
 ## Shell tools
 

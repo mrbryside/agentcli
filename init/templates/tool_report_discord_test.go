@@ -19,6 +19,17 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if !tool.RequiredAtTurnEnd || tool.TurnBehavior != agentcli.EndTurn {
 		t.Fatalf("finalizer metadata = required:%t behavior:%q", tool.RequiredAtTurnEnd, tool.TurnBehavior)
 	}
+	if tool.ToolOutputGuard != nil || strings.TrimSpace(tool.ToolOutputGuardPrompt) == "" {
+		t.Fatalf("tool output guard = function:%v prompt:%q", tool.ToolOutputGuard != nil, tool.ToolOutputGuardPrompt)
+	}
+	if tool.ToolOutputGuardModel != nil {
+		t.Fatalf("tool output guard model = %#v, want main-model fallback", tool.ToolOutputGuardModel)
+	}
+	for _, required := range []string{"arguments.message", `status is "reported"`, `"skipped"`, "call report_discord again", "Do not repeat sensitive content"} {
+		if !strings.Contains(tool.ToolOutputGuardPrompt, required) {
+			t.Fatalf("output guard prompt %q does not contain %q", tool.ToolOutputGuardPrompt, required)
+		}
+	}
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}

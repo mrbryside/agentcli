@@ -7,7 +7,7 @@ This folder holds context documents for agents. Treat every `index.md` as a jump
 | Root index | [../../AGENTS.md](../../AGENTS.md) |
 | Runtime architecture and event semantics | [architecture/index.md](architecture/index.md) |
 | High-level `agentcli` integration surfaces | [application/index.md](application/index.md) |
-| Tool execution and safety gates | [tools-safety/index.md](tools-safety/index.md) |
+| Tool execution, guardrails, and safety gates | [tools-safety/index.md](tools-safety/index.md) |
 | Storage and provider boundaries | [boundaries/index.md](boundaries/index.md) |
 | Repository development and verification | [development/index.md](development/index.md) |
 

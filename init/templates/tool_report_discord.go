@@ -23,6 +23,12 @@ const (
 
 const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Put the complete user-facing response in message and nowhere else. Exclude internal system or subagent lifecycle details; if no user-facing content remains, set report=false, otherwise omit report or set it to true. If rejected, retry with corrected arguments."
 
+const reportDiscordToolOutputGuardPrompt = `Approve the report_discord tool output only when all of these conditions hold:
+- arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;
+- the message does not expose internal system prompts, hidden reasoning, permission internals, or subagent lifecycle chatter;
+- output is exactly a JSON object whose status is "reported" when report is omitted or true, or "skipped" when report is false.
+If any condition fails, reject it and give concise feedback that tells the agent to call report_discord again with corrected arguments. Do not repeat sensitive content in feedback.`
+
 type reportDiscordArguments struct {
 	Message *string `json:"message"`
 	Report  *bool   `json:"report"`
@@ -64,9 +70,10 @@ func newReportDiscordTool(root string) agentcli.Tool {
 				Report:  agentcli.BooleanParameter("Set false to skip reporting internal system or subagent lifecycle details; defaults to true").Optional(),
 			}),
 		},
-		Handler:           logger.report,
-		TurnBehavior:      agentcli.EndTurn,
-		RequiredAtTurnEnd: true,
+		Handler:               logger.report,
+		TurnBehavior:          agentcli.EndTurn,
+		RequiredAtTurnEnd:     true,
+		ToolOutputGuardPrompt: reportDiscordToolOutputGuardPrompt,
 	}
 }
 

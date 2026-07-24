@@ -3,6 +3,7 @@ package agentcli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/permission"
@@ -43,6 +44,14 @@ type config struct {
 	maxSubagents            int
 	childAgent              bool
 	contextReminderProvider agentruntime.ContextReminderProvider
+	inputGuard              agentruntime.InputGuard
+	outputGuard             agentruntime.OutputGuard
+	inputGuardPrompt        string
+	outputGuardPrompt       string
+	inputGuardProvider      string
+	inputGuardModel         string
+	outputGuardProvider     string
+	outputGuardModel        string
 }
 
 func defaultConfig(projectRoot string) config {
@@ -102,7 +111,32 @@ func (configuration config) validate() error {
 	if configuration.permissionPolicy.Mode != configuration.permissionMode {
 		return errors.New("permission policy mode must match permission mode")
 	}
+	if configuration.inputGuard != nil && (configuration.inputGuardPrompt != "" || configuration.inputGuardProvider != "") {
+		return errors.New("input function guard cannot be combined with prompt guard settings")
+	}
+	if configuration.outputGuard != nil && (configuration.outputGuardPrompt != "" || configuration.outputGuardProvider != "") {
+		return errors.New("output function guard cannot be combined with prompt guard settings")
+	}
+	if configuration.inputGuardProvider != "" && configuration.inputGuardPrompt == "" {
+		return errors.New("input guard provider requires input guard prompt")
+	}
+	if configuration.outputGuardProvider != "" && configuration.outputGuardPrompt == "" {
+		return errors.New("output guard provider requires output guard prompt")
+	}
 	return nil
+}
+
+func (configuration config) resolveGuardModel(providerName, model string) (agentruntime.Model, error) {
+	if providerName == "" && model == "" {
+		return nil, nil
+	}
+	if providerName == "" || model == "" {
+		return nil, errors.New("guard provider and model must be configured together")
+	}
+	if configuration.project == nil {
+		return nil, errors.New("guard provider requires a project with provider profiles")
+	}
+	return configuration.project.ModelFor(providerName, model)
 }
 
 func isPermissionMode(mode permission.Mode) bool {
@@ -264,6 +298,115 @@ func WithTool(tool toolexecution.Tool) Option {
 func WithContextReminderProvider(provider agentruntime.ContextReminderProvider) Option {
 	return func(configuration *config) error {
 		configuration.contextReminderProvider = provider
+		return nil
+	}
+}
+
+// WithInputGuard supplies code-driven validation for a request before it is
+// persisted or sent to the model. It cannot be combined with
+// WithInputGuardPrompt.
+func WithInputGuard(guard agentruntime.InputGuard) Option {
+	return func(configuration *config) error {
+		if guard == nil {
+			return errors.New("input guard is required")
+		}
+		if configuration.inputGuardPrompt != "" {
+			return errors.New("input guard cannot be combined with input guard prompt")
+		}
+		configuration.inputGuard = guard
+		return nil
+	}
+}
+
+// WithOutputGuard supplies code-driven validation for model output. A retry
+// decision feeds the returned feedback into the next provider round.
+// It cannot be combined with WithOutputGuardPrompt.
+func WithOutputGuard(guard agentruntime.OutputGuard) Option {
+	return func(configuration *config) error {
+		if guard == nil {
+			return errors.New("output guard is required")
+		}
+		if configuration.outputGuardPrompt != "" {
+			return errors.New("output guard cannot be combined with output guard prompt")
+		}
+		configuration.outputGuard = guard
+		return nil
+	}
+}
+
+// WithInputGuardPrompt asks the default agent model to evaluate each input
+// using prompt-defined policy.
+func WithInputGuardPrompt(prompt string) Option {
+	return func(configuration *config) error {
+		prompt = strings.TrimSpace(prompt)
+		if prompt == "" {
+			return errors.New("input guard prompt is required")
+		}
+		if configuration.inputGuard != nil {
+			return errors.New("input guard prompt cannot be combined with input guard")
+		}
+		configuration.inputGuardPrompt = prompt
+		return nil
+	}
+}
+
+// WithInputGuardProvider selects the project provider profile and model used
+// by WithInputGuardPrompt. The provider is resolved after all options have
+// been applied, so WithProject may appear before or after this option.
+func WithInputGuardProvider(providerName, model string) Option {
+	return func(configuration *config) error {
+		providerName = strings.TrimSpace(providerName)
+		model = strings.TrimSpace(model)
+		if providerName == "" {
+			return errors.New("input guard provider is required")
+		}
+		if model == "" {
+			return errors.New("input guard model is required")
+		}
+		if configuration.inputGuard != nil {
+			return errors.New("input guard provider cannot be combined with input guard")
+		}
+		configuration.inputGuardProvider = providerName
+		configuration.inputGuardModel = model
+		return nil
+	}
+}
+
+// WithOutputGuardPrompt asks the default agent model to evaluate each
+// terminal output using prompt-defined policy. A rejected output is retried
+// with model-generated feedback.
+func WithOutputGuardPrompt(prompt string) Option {
+	return func(configuration *config) error {
+		prompt = strings.TrimSpace(prompt)
+		if prompt == "" {
+			return errors.New("output guard prompt is required")
+		}
+		if configuration.outputGuard != nil {
+			return errors.New("output guard prompt cannot be combined with output guard")
+		}
+		configuration.outputGuardPrompt = prompt
+		return nil
+	}
+}
+
+// WithOutputGuardProvider selects the project provider profile and model used
+// by WithOutputGuardPrompt. The provider is resolved after all options have
+// been applied, so WithProject may appear before or after this option.
+func WithOutputGuardProvider(providerName, model string) Option {
+	return func(configuration *config) error {
+		providerName = strings.TrimSpace(providerName)
+		model = strings.TrimSpace(model)
+		if providerName == "" {
+			return errors.New("output guard provider is required")
+		}
+		if model == "" {
+			return errors.New("output guard model is required")
+		}
+		if configuration.outputGuard != nil {
+			return errors.New("output guard provider cannot be combined with output guard")
+		}
+		configuration.outputGuardProvider = providerName
+		configuration.outputGuardModel = model
 		return nil
 	}
 }

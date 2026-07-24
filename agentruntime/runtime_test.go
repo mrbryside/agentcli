@@ -63,6 +63,8 @@ func TestNewValidatesConfigAndAppliesDefaults(t *testing.T) {
 		{"unbuffered requests", func(c Config) Config { c.ToolRequests = make(chan ToolRequest); return c }},
 		{"unbuffered results", func(c Config) Config { c.ToolResults = make(chan ToolResultEnvelope); return c }},
 		{"unbuffered interrupts", func(c Config) Config { c.ToolInterrupts = make(chan ToolInterrupt); return c }},
+		{"empty input guard prompt", func(c Config) Config { c.InputGuardPrompt = " \n\t"; return c }},
+		{"empty output guard prompt", func(c Config) Config { c.OutputGuardPrompt = " \n\t"; return c }},
 	}
 	base := Config{Model: runtimeModel{}, Messages: storage, ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts}
 	for _, test := range tests {

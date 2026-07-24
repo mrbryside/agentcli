@@ -118,7 +118,10 @@ researcher selects only `glob` and `read`:
   response; it performs no network I/O, appends each payload to
   `report/{session}.json`, and is not available to the researcher. Its public
   result only reports completion; the session/turn/call metadata remains in
-  the local log.
+  the local log. A built-in prompt output guard checks message bounds,
+  disclosure policy, and that the status result matches the submitted
+  message. Rejection becomes a failed tool result with feedback so the main
+  agent can issue a corrected finalizer call.
 
 Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project
@@ -132,6 +135,12 @@ The generated tools use the public explicit schema API: `agentcli.Tool`,
 `agentcli.ObjectSchema`. Their raw handlers use `agentcli.DecodeArguments`,
 and `main.go` registers each one with `agentcli.WithTool`, so generated code
 does not import runtime implementation packages.
+
+The `report_discord` prompt check uses the configured main model and adds one
+model request for each successful handler result it evaluates. It is a
+demonstration policy, not a network or process sandbox. See
+[Tool-output guards](../guardrails/tool-output.md) before replacing the mock
+with an external integration.
 
 ## Run the project
 

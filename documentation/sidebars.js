@@ -33,6 +33,16 @@ module.exports = {
     },
     {
       type: 'category',
+      label: 'Guardrails',
+      items: [
+        'guardrails/overview',
+        'guardrails/agent-input-output',
+        'guardrails/tool-output',
+        'guardrails/prompt-contract',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Tools and safety',
       items: [
         'tools/custom-tools',

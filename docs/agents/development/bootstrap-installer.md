@@ -53,6 +53,9 @@ invocation confirmation; the researcher allowlist remains read-only.
 The generated `report_discord` tool is a deterministic, network-free mock. It
 is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
+Its embedded `ToolOutputGuardPrompt` checks message limits, disclosure policy,
+and output/argument consistency. It uses the Agent model fallback; rejection
+becomes a failed finalizer result with retry feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

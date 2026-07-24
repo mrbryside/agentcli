@@ -169,6 +169,47 @@ confirmation is published immediately before handler execution.
 See [Permissions and confirmations](./permissions-and-confirmations.md) for
 complete dynamic examples and mode behavior.
 
+## Guard successful tool output
+
+Each custom tool can configure exactly one output-guard mode:
+
+```go
+ToolOutputGuard: func(
+    ctx context.Context,
+    attempt agentcli.ToolOutputGuardAttempt,
+) (agentcli.ToolOutputGuardDecision, error) {
+    if !outputIsUsable(attempt.Output) {
+        return agentcli.ToolOutputGuardDecision{
+            Action:   agentcli.ToolOutputReject,
+            Feedback: "Call the tool again with a narrower query.",
+        }, nil
+    }
+    return agentcli.ToolOutputGuardDecision{
+        Action: agentcli.ToolOutputProceed,
+    }, nil
+},
+```
+
+Or attach a semantic policy:
+
+```go
+ToolOutputGuardPrompt: `
+Allow only complete results that answer the requested lookup.
+Reject unsafe or irrelevant results with concise retry instructions.
+`,
+ToolOutputGuardModel: &agentcli.GuardModelConfig{
+    Provider: "policy",
+    Model:    "guard-model-small",
+},
+```
+
+A rejection discards the raw handler output and publishes a failed tool result
+whose error contains the feedback. The agent receives that result on the next
+provider round and may call the tool again. The handler has already executed,
+so external side effects must be safe to retry. See
+[Tool-output guards](../guardrails/tool-output.md) for the complete lifecycle,
+failure posture, prompt mode, and finalizer behavior.
+
 ## Project allowlists
 
 - `WithTool` registers the handler globally.

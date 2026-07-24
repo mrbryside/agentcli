@@ -45,6 +45,8 @@ type Run struct {
 	steps                      int
 	completionRepairs          int
 	completionReminder         []ContextReminder
+	outputGuardRetries         int
+	outputGuardReminder        []ContextReminder
 	completionToolsRestricted  bool
 	completionToolAllowlist    []string
 	completionNormalToolChoice *ToolChoice
@@ -636,6 +638,7 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		}
 	}
 	reminders = append(reminders, r.takeCompletionReminder()...)
+	reminders = append(reminders, r.takeOutputGuardReminder()...)
 	tools := cloneToolDefinitions(runtime.tools)
 	var requestToolChoice *ToolChoice
 	if runtime.toolChoiceProvider != nil {
@@ -693,12 +696,37 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 }
 
 func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
-	if runtime.completionGuard == nil {
-		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
-	}
 	messages, err := runtime.messages.List(ctx, r.sessionID)
 	if err != nil {
-		return r.fail(ctx, runtime, fmt.Errorf("inspect completion messages: %w", err))
+		return r.fail(ctx, runtime, fmt.Errorf("inspect output messages: %w", err))
+	}
+	if runtime.outputGuard != nil {
+		if output, ok := latestRunOutput(messages, r.turnID); ok {
+			decision, guardErr := invokeOutputGuard(ctx, runtime.outputGuard, OutputGuardAttempt{
+				SessionID:     r.sessionID,
+				TurnID:        r.turnID,
+				Messages:      storage.CloneMessages(messages),
+				Output:        storage.CloneMessage(output),
+				ProviderSteps: r.providerSteps(),
+				RetryCount:    r.OutputGuardRetryCount(),
+			})
+			if guardErr != nil {
+				return r.fail(ctx, runtime, fmt.Errorf("evaluate output guard: %w", guardErr))
+			}
+			if err := validateOutputGuardDecision(decision); err != nil {
+				return r.fail(ctx, runtime, fmt.Errorf("evaluate output guard: %w", err))
+			}
+			if decision.Action == OutputRetry {
+				r.setOutputGuardRetry(decision.Feedback)
+				if err := r.startProvider(ctx, runtime); err != nil {
+					return r.fail(ctx, runtime, err)
+				}
+				return true
+			}
+		}
+	}
+	if runtime.completionGuard == nil {
+		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
 	}
 	attempt := CompletionAttempt{
 		SessionID: r.sessionID, TurnID: r.turnID, Messages: storage.CloneMessages(messages),
@@ -721,6 +749,39 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 		return r.fail(ctx, runtime, err)
 	}
 	return true
+}
+
+func latestRunOutput(messages []Message, turnID string) (Message, bool) {
+	if len(messages) == 0 {
+		return Message{}, false
+	}
+	last := messages[len(messages)-1]
+	if last.TurnID != turnID || last.Type != MessageTypeAssistant {
+		return Message{}, false
+	}
+	return last, true
+}
+
+// OutputGuardRetryCount reports how many retries the output guard requested.
+func (r *Run) OutputGuardRetryCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.outputGuardRetries
+}
+
+func (r *Run) setOutputGuardRetry(feedback string) {
+	r.mu.Lock()
+	r.outputGuardRetries++
+	r.outputGuardReminder = []ContextReminder{{Content: feedback}}
+	r.mu.Unlock()
+}
+
+func (r *Run) takeOutputGuardReminder() []ContextReminder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reminders := cloneContextReminders(r.outputGuardReminder)
+	r.outputGuardReminder = nil
+	return reminders
 }
 
 func (r *Run) hasTerminalToolBatch(messages []Message) bool {

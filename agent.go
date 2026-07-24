@@ -85,6 +85,14 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	if err := configuration.validate(); err != nil {
 		return nil, err
 	}
+	inputGuardModel, err := configuration.resolveGuardModel(configuration.inputGuardProvider, configuration.inputGuardModel)
+	if err != nil {
+		return nil, fmt.Errorf("resolve input guard model: %w", err)
+	}
+	outputGuardModel, err := configuration.resolveGuardModel(configuration.outputGuardProvider, configuration.outputGuardModel)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output guard model: %w", err)
+	}
 	policyController, err := toolexecution.NewPermissionController(configuration.permissionPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("create permission controller: %w", err)
@@ -174,6 +182,12 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		SystemPrompts:           append([]string(nil), configuration.systemPrompts...),
 		ContextReminderProvider: reminderProvider,
 		CompletionGuard:         completionGuard,
+		InputGuard:              configuration.inputGuard,
+		OutputGuard:             configuration.outputGuard,
+		InputGuardPrompt:        configuration.inputGuardPrompt,
+		OutputGuardPrompt:       configuration.outputGuardPrompt,
+		InputGuardModel:         inputGuardModel,
+		OutputGuardModel:        outputGuardModel,
 		ToolChoiceProvider:      requiredToolChoiceProvider(requiredAtTurnEnd),
 		Tools:                   registry.Definitions(),
 		ToolRequests:            toolRequests,
@@ -206,6 +220,13 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationRequests:  confirmationRequests,
 		ConfirmationDecisions: confirmationDecisions,
 		ConfirmationStore:     configuration.confirmations,
+		ToolOutputGuardModel:  configuration.model,
+		ToolOutputGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
+			if configuration.project == nil {
+				return nil, errors.New("tool-output guard provider requires a project with provider profiles")
+			}
+			return configuration.project.ModelFor(providerName, modelName)
+		},
 	})
 	if err != nil {
 		closeSignal()

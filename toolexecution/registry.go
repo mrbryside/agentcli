@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -14,6 +15,13 @@ import (
 
 // Handler executes a tool call with its JSON arguments.
 type Handler func(context.Context, json.RawMessage) (json.RawMessage, error)
+
+// GuardModelConfig selects one project provider profile and model for a
+// prompt-backed guard. A nil configuration uses the Agent's main model.
+type GuardModelConfig struct {
+	Provider string
+	Model    string
+}
 
 // TurnBehavior controls whether the runtime asks the model to continue after
 // a successful tool result. ContinueTurn is the backwards-compatible default.
@@ -30,14 +38,17 @@ const (
 // policy or mode. RequiredAtTurnEnd asks agentcli's completion guard to require
 // one successful invocation in every turn where the tool is exposed.
 type Tool struct {
-	Definition           agentruntime.ToolDefinition
-	Handler              Handler
-	TurnBehavior         TurnBehavior
-	RequiredAtTurnEnd    bool
-	Permission           PermissionDescriptor
-	PermissionWithPolicy PermissionPolicyDescriptor
-	Confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
+	Definition            agentruntime.ToolDefinition
+	Handler               Handler
+	TurnBehavior          TurnBehavior
+	RequiredAtTurnEnd     bool
+	ToolOutputGuard       agentruntime.ToolOutputGuard
+	ToolOutputGuardPrompt string
+	ToolOutputGuardModel  *GuardModelConfig
+	Permission            PermissionDescriptor
+	PermissionWithPolicy  PermissionPolicyDescriptor
+	Confirmation          ConfirmationDescriptor
+	resultTurnBehavior    func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -63,13 +74,17 @@ type Registry struct {
 }
 
 type registeredTool struct {
-	definition           agentruntime.ToolDefinition
-	handler              Handler
-	turnBehavior         TurnBehavior
-	permission           PermissionDescriptor
-	permissionWithPolicy PermissionPolicyDescriptor
-	confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
+	definition              agentruntime.ToolDefinition
+	handler                 Handler
+	turnBehavior            TurnBehavior
+	toolOutputGuard         agentruntime.ToolOutputGuard
+	toolOutputGuardPrompt   string
+	toolOutputGuardProvider string
+	toolOutputGuardModel    string
+	permission              PermissionDescriptor
+	permissionWithPolicy    PermissionPolicyDescriptor
+	confirmation            ConfirmationDescriptor
+	resultTurnBehavior      func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -92,6 +107,28 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.RequiredAtTurnEnd && tool.TurnBehavior != EndTurn {
 		return fmt.Errorf("tool %q required at turn end must use end turn behavior", tool.Definition.Name)
 	}
+	rawGuardPrompt := tool.ToolOutputGuardPrompt
+	tool.ToolOutputGuardPrompt = strings.TrimSpace(rawGuardPrompt)
+	if rawGuardPrompt != "" && tool.ToolOutputGuardPrompt == "" {
+		return fmt.Errorf("tool %q tool-output guard prompt is empty", tool.Definition.Name)
+	}
+	if tool.ToolOutputGuard != nil && tool.ToolOutputGuardPrompt != "" {
+		return fmt.Errorf("tool %q cannot configure both a tool-output guard and prompt", tool.Definition.Name)
+	}
+	var guardProvider, guardModel string
+	if tool.ToolOutputGuardModel != nil {
+		guardProvider = strings.TrimSpace(tool.ToolOutputGuardModel.Provider)
+		guardModel = strings.TrimSpace(tool.ToolOutputGuardModel.Model)
+		if guardProvider == "" {
+			return fmt.Errorf("tool %q tool-output guard model provider is required", tool.Definition.Name)
+		}
+		if guardModel == "" {
+			return fmt.Errorf("tool %q tool-output guard model name is required", tool.Definition.Name)
+		}
+		if tool.ToolOutputGuardPrompt == "" {
+			return fmt.Errorf("tool %q tool-output guard model requires a prompt guard", tool.Definition.Name)
+		}
+	}
 	if err := validateInputSchema(tool.Definition.InputSchema); err != nil {
 		return fmt.Errorf("tool %q input schema: %w", tool.Definition.Name, err)
 	}
@@ -102,7 +139,13 @@ func (r *Registry) Register(tool Tool) error {
 	if _, exists := r.tools[definition.Name]; exists {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
-	r.tools[definition.Name] = registeredTool{definition: definition, handler: tool.Handler, turnBehavior: tool.TurnBehavior, permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy, confirmation: tool.Confirmation, resultTurnBehavior: tool.resultTurnBehavior}
+	r.tools[definition.Name] = registeredTool{
+		definition: definition, handler: tool.Handler, turnBehavior: tool.TurnBehavior,
+		toolOutputGuard: tool.ToolOutputGuard, toolOutputGuardPrompt: tool.ToolOutputGuardPrompt,
+		toolOutputGuardProvider: guardProvider, toolOutputGuardModel: guardModel,
+		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
+		confirmation: tool.Confirmation, resultTurnBehavior: tool.resultTurnBehavior,
+	}
 	r.order = append(r.order, definition.Name)
 	return nil
 }
@@ -139,6 +182,39 @@ func (r *Registry) lookup(name string) (Handler, bool) {
 	defer r.mu.RUnlock()
 	tool, ok := r.tools[name]
 	return tool.handler, ok
+}
+
+func (r *Registry) outputGuardFor(name string) (agentruntime.ToolOutputGuard, string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[name]
+	if !ok {
+		return nil, "", false
+	}
+	return tool.toolOutputGuard, tool.toolOutputGuardPrompt, true
+}
+
+type promptOutputGuardConfig struct {
+	toolName     string
+	providerName string
+	modelName    string
+}
+
+func (r *Registry) promptOutputGuards() []promptOutputGuardConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	guards := make([]promptOutputGuardConfig, 0)
+	for _, name := range r.order {
+		tool := r.tools[name]
+		if tool.toolOutputGuardPrompt != "" {
+			guards = append(guards, promptOutputGuardConfig{
+				toolName:     name,
+				providerName: tool.toolOutputGuardProvider,
+				modelName:    tool.toolOutputGuardModel,
+			})
+		}
+	}
+	return guards
 }
 
 func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessage) (TurnBehavior, bool) {

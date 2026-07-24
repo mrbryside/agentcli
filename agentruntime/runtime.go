@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,12 @@ type Config struct {
 	SystemPrompts           []string
 	ContextReminderProvider ContextReminderProvider
 	CompletionGuard         CompletionGuard
+	InputGuard              InputGuard
+	OutputGuard             OutputGuard
+	InputGuardPrompt        string
+	OutputGuardPrompt       string
+	InputGuardModel         Model
+	OutputGuardModel        Model
 	ToolChoiceProvider      ToolChoiceProvider
 	Tools                   []ToolDefinition
 	ToolRequests            chan<- ToolRequest
@@ -49,6 +56,8 @@ type Runtime struct {
 	systemPrompts           []string
 	contextReminderProvider ContextReminderProvider
 	completionGuard         CompletionGuard
+	inputGuard              InputGuard
+	outputGuard             OutputGuard
 	toolChoiceProvider      ToolChoiceProvider
 	tools                   []ToolDefinition
 	toolRequests            chan<- ToolRequest
@@ -100,6 +109,42 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if config.MaxSteps < 0 {
 		return nil, invalidRuntimeConfig("maximum steps cannot be negative")
 	}
+	rawInputGuardPrompt := config.InputGuardPrompt
+	rawOutputGuardPrompt := config.OutputGuardPrompt
+	config.InputGuardPrompt = strings.TrimSpace(rawInputGuardPrompt)
+	config.OutputGuardPrompt = strings.TrimSpace(rawOutputGuardPrompt)
+	if rawInputGuardPrompt != "" && config.InputGuardPrompt == "" {
+		return nil, invalidRuntimeConfig("input guard prompt is empty")
+	}
+	if rawOutputGuardPrompt != "" && config.OutputGuardPrompt == "" {
+		return nil, invalidRuntimeConfig("output guard prompt is empty")
+	}
+	if config.InputGuard != nil && config.InputGuardPrompt != "" {
+		return nil, invalidRuntimeConfig("input guard and input guard prompt cannot both be configured")
+	}
+	if config.OutputGuard != nil && config.OutputGuardPrompt != "" {
+		return nil, invalidRuntimeConfig("output guard and output guard prompt cannot both be configured")
+	}
+	if config.InputGuardPrompt != "" {
+		guardModel := config.InputGuardModel
+		if isNil(guardModel) {
+			guardModel = config.Model
+		}
+		if isNil(guardModel) {
+			return nil, invalidRuntimeConfig("input guard prompt requires a model")
+		}
+		config.InputGuard = newPromptInputGuard(guardModel, config.InputGuardPrompt)
+	}
+	if config.OutputGuardPrompt != "" {
+		guardModel := config.OutputGuardModel
+		if isNil(guardModel) {
+			guardModel = config.Model
+		}
+		if isNil(guardModel) {
+			return nil, invalidRuntimeConfig("output guard prompt requires a model")
+		}
+		config.OutputGuard = newPromptOutputGuard(guardModel, config.OutputGuardPrompt)
+	}
 	if config.PermissionMode == "" {
 		config.PermissionMode = permission.Default
 	}
@@ -132,6 +177,8 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		systemPrompts:             append([]string(nil), config.SystemPrompts...),
 		contextReminderProvider:   config.ContextReminderProvider,
 		completionGuard:           config.CompletionGuard,
+		inputGuard:                config.InputGuard,
+		outputGuard:               config.OutputGuard,
 		toolChoiceProvider:        config.ToolChoiceProvider,
 		tools:                     cloneToolDefinitions(config.Tools),
 		toolRequests:              config.ToolRequests,
@@ -323,6 +370,36 @@ func (r *Runtime) start(ctx context.Context, request Request, subscribe bool) (*
 	normalized, err := normalizeRequest(request, r.idGenerator)
 	if err != nil {
 		return nil, EventSubscription{}, err
+	}
+	if r.inputGuard != nil {
+		decision, guardErr := invokeInputGuard(ctx, r.inputGuard, InputGuardAttempt{
+			SessionID: normalized.SessionID,
+			TurnID:    normalized.TurnID,
+			Message:   storage.CloneMessage(normalized.Message),
+		})
+		if guardErr != nil {
+			return nil, EventSubscription{}, fmt.Errorf("evaluate input guard: %w", guardErr)
+		}
+		if err := validateInputGuardDecision(decision, normalized.SessionID, normalized.TurnID); err != nil {
+			return nil, EventSubscription{}, fmt.Errorf("evaluate input guard: %w", err)
+		}
+		switch decision.Action {
+		case InputReject:
+			return nil, EventSubscription{}, fmt.Errorf("%w: %s", ErrInputGuardRejected, decision.Reason)
+		case InputReplace:
+			replacement := storage.CloneMessage(*decision.Message)
+			if replacement.Type != normalized.Message.Type {
+				return nil, EventSubscription{}, fmt.Errorf("evaluate input guard replacement: message type changes from %q to %q", normalized.Message.Type, replacement.Type)
+			}
+			replacement.SessionID = normalized.SessionID
+			replacement.TurnID = normalized.TurnID
+			replacement.ID = normalized.Message.ID
+			replacement.CreatedAt = normalized.Message.CreatedAt
+			if err := storage.ValidateMessage(replacement); err != nil {
+				return nil, EventSubscription{}, fmt.Errorf("evaluate input guard replacement: %w", err)
+			}
+			normalized.Message = replacement
+		}
 	}
 	exists, err := r.messages.TurnExists(ctx, normalized.SessionID, normalized.TurnID)
 	if err != nil {

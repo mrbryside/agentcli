@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: 102051f3b6efdc52eed14b9b5acdb6d6747e5186`
+`Last documented commit: fa4450d7bee5a0e1b022b71c76fb7afce55dda01`
 
 ## Project structure
 
@@ -13,13 +13,13 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `init/` | Curl bootstrap installer and separately downloadable `read`/`glob`/`edit`/`report_discord` Go tool templates for generated starter projects. |
 | Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, raw tools, subagents, Terminal UI, and Echo HTTP/SSE server. |
 | `Makefile` | Convenience entry points for the terminal playground and documentation install/build/dev workflows. |
-| `agentruntime/` | Session/turn coordination, retained agent events, live subscriptions, interruption, and state/effect/result folding. |
+| `agentruntime/` | Session/turn coordination, retained agent events, input/output guardrails, live subscriptions, interruption, and state/effect/result folding. |
 | `agentruntime/modeladapter/openai/` | Provider-boundary conversion from generic messages and tools to OpenAI chat requests. |
 | `provider/` | Provider-neutral streaming interfaces, events, state, subscriptions, and results. |
 | `provider/openai/` | OpenAI-compatible streaming provider and chunk parser. |
 | `storage/` | Provider-neutral message, permission, confirmation, and subagent storage contracts. |
 | `storage/inmemory/` | Concurrency-safe in-memory implementations used by default. |
-| `toolexecution/` | Tool registry, framework tools, permission/confirmation admission, interrupts, and bounded workers. |
+| `toolexecution/` | Tool registry, framework tools, tool-output guardrails, permission/confirmation admission, interrupts, and bounded workers. |
 | `toolexecution/bashsecure/` | Optional shell command parsing, path scoping, policy classification, and platform sandbox helpers. |
 | `permission/` | Capability, risk, mode, policy, request, decision, and grant domain. |
 | `confirmation/` | Independent invocation-specific Yes/No confirmation domain. |
@@ -33,7 +33,7 @@ Only open the sections below when they are relevant to the current task.
 | --- | --- |
 | Runtime architecture, session/turn ownership, or event history semantics | [docs/agents/architecture/index.md](docs/agents/architecture/index.md) |
 | Agent construction, project loading, terminal/server surfaces, skills, or subagents | [docs/agents/application/index.md](docs/agents/application/index.md) |
-| Tool registration/execution, permissions, confirmations, or shell safety | [docs/agents/tools-safety/index.md](docs/agents/tools-safety/index.md) |
+| Tool registration/execution, guardrails, permissions, confirmations, or shell safety | [docs/agents/tools-safety/index.md](docs/agents/tools-safety/index.md) |
 | Generic storage domains, in-memory behavior, providers, or OpenAI conversion | [docs/agents/boundaries/index.md](docs/agents/boundaries/index.md) |
 | Testing, documentation generation, examples, or the Terminal UI playground | [docs/agents/development/index.md](docs/agents/development/index.md) |
 

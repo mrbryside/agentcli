@@ -5,6 +5,10 @@ static turn behavior, optional finalizer marker, optional permission or
 policy-aware permission descriptor, and optional confirmation descriptor.
 `Registry.Register` requires a unique name, handler, supported behavior, and
 object-shaped schema. `RequiredAtTurnEnd` additionally requires `EndTurn`.
+Application tools may also configure either `ToolOutputGuard` or
+`ToolOutputGuardPrompt`. Prompt tools optionally select one provider/model with
+`*GuardModelConfig`; see [guardrails.md](guardrails.md) for evaluation and
+retry behavior.
 
 The root facade exposes `agentcli.Tool`, `ToolDefinition`, `InputSchema`,
 permission/confirmation aliases, and turn behavior. `ObjectSchema` builds a
@@ -17,7 +21,9 @@ rejects trailing values. There is no typed custom-tool inference wrapper.
 `Executor.Run` applies admission, dispatches through a bounded worker pool,
 emits correlated results, and consumes exact-turn interrupts. Calls are keyed
 by session, turn, and call ID; that `ToolInvocation` metadata is attached to
-handler context after admission.
+handler context after admission. Successful handler output must be valid JSON.
+An output guard rejection is converted to a failed correlated result before
+the runtime can publish the candidate as successful.
 
 `ContinueTurn` is the default. `EndTurn` skips another provider step only when
 the complete result batch succeeded and every result uses `EndTurn`.

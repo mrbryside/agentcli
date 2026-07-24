@@ -49,6 +49,12 @@ Common options:
 | `WithNonInteractive` | Independent unattended-run flag: convert permission `ask` to `deny` and decline confirmations without changing permission mode. |
 | `WithToolWorkers` | Set handler worker concurrency; default 4. |
 | `WithChannelBuffer` | Set internal transport buffer; default 64. |
+| `WithInputGuard` | Validate or replace normalized input with application code before persistence. |
+| `WithOutputGuard` | Validate final assistant output and return repair feedback. |
+| `WithInputGuardPrompt` | Evaluate input with a policy prompt and the main model by default. |
+| `WithOutputGuardPrompt` | Evaluate assistant output with a policy prompt and the main model by default. |
+| `WithInputGuardProvider` | Select a loaded project provider profile and model for the input prompt guard. |
+| `WithOutputGuardProvider` | Select a loaded project provider profile and model for the output prompt guard. |
 | `WithMessageStorage` | Replace transcript storage. |
 | `WithPermissionStorage` | Replace permission/grant storage. |
 | `WithConfirmationStorage` | Replace confirmation storage. |
@@ -80,7 +86,7 @@ permission checks.
 | API | Purpose |
 | --- | --- |
 | `WithTool(tool)` | Register one application-defined tool. |
-| `Tool` | Definition, handler, behavior, finalizer, and admission metadata. |
+| `Tool` | Definition, handler, behavior, finalizer, output guard, and admission metadata. |
 | `ToolDefinition` | Model-facing name, description, and input schema. |
 | `ObjectSchema(parameters)` | Build a closed object schema. |
 | `TryObjectSchema(parameters)` | Build a schema without panic. |
@@ -89,17 +95,39 @@ permission checks.
 | `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
 | `ContinueTurn`, `EndTurn` | Select successful result behavior. |
+| `ToolOutputGuard` | Function callback for successful handler output. |
+| `ToolOutputGuardPrompt` | `Tool` field containing a model-evaluated output policy. |
+| `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
+| `ToolOutputProceed`, `ToolOutputReject` | Select the tool-output verdict. |
 
 `Tool` fields are `Definition`, `Handler`, `TurnBehavior`,
-`RequiredAtTurnEnd`, `Permission`, `PermissionWithPolicy`, and `Confirmation`.
-The schema helpers cover string, integer, number, boolean, null, object, and
-array parameters with individual descriptions and constraints.
+`RequiredAtTurnEnd`, `ToolOutputGuard`, `ToolOutputGuardPrompt`,
+`ToolOutputGuardModel`, `Permission`, `PermissionWithPolicy`, and
+`Confirmation`. `ToolOutputGuardModel` optionally holds one
+`GuardModelConfig` for prompt-guarded tools; without it the guard uses the
+Agent model. The schema helpers cover string, integer, number, boolean, null,
+object, and array parameters with individual descriptions and constraints.
 
 `ContinueTurn` is the zero-value default. `EndTurn` allows completion when the
 entire result batch succeeded and every result ends the turn. A required
 finalizer sets `RequiredAtTurnEnd: true` and `TurnBehavior: EndTurn`; the
 registry rejects any other combination. Missing finalizers use bounded repair
 rounds with an allowlist restricted to the missing tools.
+
+## Guardrails
+
+The root package exposes the callback, attempt, decision, and action types for
+input, assistant output, and tool output. Function and prompt modes are
+mutually exclusive at the same boundary. Prompt verdicts are strict JSON and
+fail closed.
+
+Input rejection returns an error matching `agentcli.ErrInputGuardRejected`
+before a `Run` exists. Assistant-output rejection requests another provider
+round with ephemeral feedback. Tool-output rejection publishes a failed tool
+result so the agent can decide whether and how to call the tool again.
+
+See [Guardrails overview](../guardrails/overview.md) for lifecycle and security
+details.
 
 ## Turns
 
