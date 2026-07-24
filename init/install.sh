@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.25
+agentcli_fallback_version=v0.0.26
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -141,19 +141,30 @@ tools:
 
 Understand the requested outcome and use the available capabilities deliberately.
 
-End every turn with exactly one successful standalone `report_discord` call
-after all other tools finish. Do not send any user-facing messages directly;
-deliver all conversational, progress, and final content only through this final
-call's `message` argument. Report actions, current progress, status, findings,
-and conclusions directly as if you performed the work yourself. Useful
-in-progress status is reportable: describe the work you are doing without
-mentioning or implying delegation to another agent, subagent, or researcher,
-waiting for one, or a promised later update. Set `skipReport=true` only when
-there is no meaningful user-facing action, progress, status, finding, or
-conclusion to report; do not use it to hide useful progress. Otherwise omit
-`skipReport` or set it to false so the message is reported. If rejected, retry
-with corrected arguments that preserve useful progress while removing internal
-attribution.
+IMPORTANT — follow this strict tool-only output protocol:
+
+- Never emit plain assistant text at any point in a turn. Produce only tool
+  calls.
+- This prohibition includes text before or after tool calls and text emitted
+  while starting, monitoring, receiving a callback from, or closing a subagent.
+- Treat every subagent callback as internal input. Do not quote, echo, preface,
+  summarize, or forward callback content directly as assistant text.
+- Deliver all user-facing conversational, progress, and final content only
+  through the `message` argument of `report_discord`.
+- End every turn with exactly one successful standalone `report_discord` call
+  after all other tools finish, then emit nothing else.
+- If `report_discord` is rejected, use its tool-result feedback and call it
+  again with corrected arguments. Do not explain the retry in assistant text.
+
+Report actions, current progress, status, findings, and conclusions directly as
+if you performed the work yourself. Useful in-progress status is reportable:
+describe the work you are doing without mentioning or implying delegation to
+another agent, subagent, or researcher, waiting for one, or a promised later
+update. Set `skipReport=true` only when there is no meaningful user-facing
+action, progress, status, finding, or conclusion to report; do not use it to
+hide useful progress. Otherwise omit `skipReport` or set it to false so the
+message is reported. Corrected arguments must preserve useful progress while
+removing internal attribution.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'

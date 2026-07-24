@@ -35,9 +35,14 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	for _, required := range []string{"successful standalone", "Do not send any user-facing messages directly", "only through this final call's message argument", "as if you performed the work yourself", "Useful in-progress status is reportable", "without mentioning or implying delegation", "waiting for one", "promised later update", "skipReport=true", "no meaningful user-facing action, progress, status, finding, or conclusion", "do not use it to hide useful progress", "omit skipReport or set it to false", "preserve useful progress while removing internal attribution"} {
+	for _, required := range []string{"Submit one standalone user-facing report", "final tool action of the turn", "after all other tools finish", "complete action, current progress, status, finding, or conclusion", "written directly as your own work", "Useful in-progress status is reportable", "Do not mention or imply delegation", "waiting for one", "promised later update", "Omit skipReport or set it to false", "Set skipReport=true", "no meaningful user-facing action, progress, status, finding, or conclusion", "do not use it to hide useful progress", "use the tool-result feedback", "preserve useful progress while removing internal attribution"} {
 		if !strings.Contains(tool.Definition.Description, required) {
 			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
+		}
+	}
+	for _, forbidden := range []string{"IMPORTANT", "strict tool-only output protocol", "Never emit plain assistant text", "Produce only tool calls", "subagent callback", "emit nothing after it"} {
+		if strings.Contains(tool.Definition.Description, forbidden) {
+			t.Fatalf("description %q contains global prompt rule %q", tool.Definition.Description, forbidden)
 		}
 	}
 	if strings.Contains(tool.Definition.Description, "report/") || strings.Contains(tool.Definition.Description, "network") {
