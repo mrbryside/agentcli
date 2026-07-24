@@ -215,6 +215,70 @@ func TestPromptInputGuardUsesDefaultModel(t *testing.T) {
 	}
 }
 
+func TestPromptInputGuardRespondsWithoutCallingMainModel(t *testing.T) {
+	const response = "I can help with research questions or a greeting."
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content:  `{"allowed":false,"reason":"` + response + `","feedback":""}`,
+				Finished: true,
+			}},
+		}}},
+	}}
+	messages := inmemory.NewMessageStorage()
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: messages,
+		ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1),
+		InputGuardPrompt: "Only allow research questions or greetings. On rejection, explain those capabilities.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run, subscription, err := runtime.StartSubscribed(context.Background(), Request{
+		SessionID: "prompt-input-response", TurnID: "turn-1",
+		Message: Message{Type: MessageTypeUser, Content: "write a sales email"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRunEvents(t, subscription.Events)
+	if got, want := eventTypes(events), []EventType{RunStarted, ProviderEventReceived, ProviderEventReceived, RunCompleted}; !sameEventTypes(got, want) {
+		t.Fatalf("event types = %v, want %v", got, want)
+	}
+	if events[1].ProviderEvent.Type != provider.ContentReceived || events[1].ProviderEvent.Content != response {
+		t.Fatalf("content event = %#v", events[1])
+	}
+	result, err := run.Result()
+	if err != nil || result.Content != response {
+		t.Fatalf("result = (%#v, %v)", result, err)
+	}
+
+	stored, err := messages.List(context.Background(), "prompt-input-response")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 ||
+		stored[0].Type != MessageTypeUser || stored[0].Content != "write a sales email" ||
+		stored[1].Type != MessageTypeAssistant || stored[1].Content != response {
+		t.Fatalf("stored transcript = %#v", stored)
+	}
+
+	requests := model.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("model requests = %d, want guard request only", len(requests))
+	}
+	for _, required := range []string{"complete, concise user-facing response", "capability guidance"} {
+		if !strings.Contains(requests[0].SystemPrompts[0], required) {
+			t.Fatalf("input guard system prompt %q does not contain %q", requests[0].SystemPrompts[0], required)
+		}
+	}
+	if len(requests[0].Messages) != 2 || !strings.Contains(requests[0].Messages[1].Content, "complete user-facing response in reason") {
+		t.Fatalf("input guard response rules = %#v", requests[0].Messages)
+	}
+}
+
 func TestPromptOutputGuardRetriesWithModelFeedback(t *testing.T) {
 	model := &scriptedRuntimeModel{streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{

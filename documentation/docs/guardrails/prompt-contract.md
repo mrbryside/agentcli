@@ -22,10 +22,12 @@ JSON, or non-empty feedback on an allowed verdict fail validation. Markdown
 JSON fences are tolerated, but the model is instructed to return only one
 object.
 
-For a rejected input, `reason` is returned with `ErrInputGuardRejected`. For a
-rejected assistant output or tool call, `feedback` drives the repair loop. If a
-rejecting model leaves feedback empty, the runtime falls back to reason and
-then to a safe generic retry instruction.
+For a rejected input, `reason` must be a complete, concise user-facing answer.
+The runtime returns it through a normal completed run and stores it as the
+assistant message; `feedback` may be empty. For a rejected assistant output or
+tool call, `feedback` drives the repair loop. If a rejecting model leaves
+feedback empty, the runtime falls back to reason and then to a safe generic
+retry instruction.
 
 ## Model request isolation
 
@@ -38,8 +40,9 @@ Every prompt check is a separate provider request:
 - a final trusted user message tells the guard to decide
   immediately, minimize reasoning, and return a concise fail-closed verdict
   instead of continuing uncertain analysis;
-- prompt checks do not enter AgentRuntime recursively and do not create a new
-  conversation turn.
+- prompt checks do not enter AgentRuntime recursively. A rejected input verdict
+  completes the caller's existing turn synthetically without starting the main
+  model.
 
 Input and assistant-output prompt guards can use independent project provider
 profiles through `WithInputGuardProvider` and `WithOutputGuardProvider`.
@@ -53,7 +56,8 @@ guard when a tool needs a non-model policy service.
 - Ensure a shared model implementation supports concurrent `Start` calls when
   several tools can finish in parallel.
 - Keep policies narrow and test both allow and reject examples.
-- Do not put secrets in rejection feedback.
+- Do not put secrets or rejected input content in a user-facing input reason or
+  rejection feedback.
 - Treat model unavailability or malformed verdicts as a policy failure, not as
   permission to bypass the guard.
 - Prefer function guards for exact schemas, numeric bounds, signatures,

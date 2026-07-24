@@ -16,6 +16,33 @@ If `Request.TurnID` is empty, the runtime generates a cryptographically random
 ID with a `turn_` prefix. Supplying your own turn ID is useful for idempotent
 API clients, but it must not already exist in the session.
 
+For the common case, send a user message and consume the returned live stream:
+
+```go
+run, subscription, err := agent.SendMessage(
+    ctx,
+    "customer-42",
+    "Summarize my previous request.",
+)
+if err != nil {
+    return err
+}
+
+for event := range subscription.Events {
+    if event.Type == agentcli.ProviderEventReceived &&
+        event.ProviderEvent.Type == agentcli.ContentReceived {
+        fmt.Print(event.ProviderEvent.Content)
+    }
+}
+result, err := run.Result()
+```
+
+`SendMessage` generates the turn/message IDs and timestamp. It installs the
+subscription before `RunStarted`, so a CLI or transport adapter can receive the
+whole turn from its first event.
+
+Use the lower-level request API when the caller needs its own turn ID:
+
 ```go
 run, events, err := agent.StartSubscribed(ctx, agentruntime.Request{
     SessionID: "customer-42",

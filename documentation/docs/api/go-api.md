@@ -123,10 +123,13 @@ input, assistant output, and tool calls. Function and prompt modes are
 mutually exclusive at the same boundary. Prompt verdicts are strict JSON and
 fail closed.
 
-Input rejection returns an error matching `agentcli.ErrInputGuardRejected`
-before a `Run` exists. Assistant-output rejection requests another provider
-round with ephemeral feedback. Tool-call rejection publishes a failed tool
-result so the agent can decide whether and how to call the tool again.
+Callback `InputReject` returns an error matching
+`agentcli.ErrInputGuardRejected` before a `Run` exists. Callback
+`InputRespond`, and rejected input prompt verdicts, return a completed streamed
+turn without calling the main model. Assistant-output rejection requests
+another provider round with ephemeral feedback. Tool-call rejection publishes
+a failed tool result so the agent can decide whether and how to call the tool
+again.
 
 See [Guardrails overview](../guardrails/overview.md) for lifecycle and security
 details.
@@ -134,9 +137,16 @@ details.
 ## Turns
 
 ```go
+run, subscription, err := agent.SendMessage(ctx, sessionID, message)
 run, err := agent.Start(ctx, request)
 run, subscription, err := agent.StartSubscribed(ctx, request)
 ```
+
+`SendMessage` is the ordinary application-facing path. It creates a user
+message, generates its turn/message IDs and timestamp, and installs the live
+subscription before `RunStarted`. Reuse the same session ID to continue its
+stored conversation. Use `Start` or `StartSubscribed` when you need to supply a
+turn ID or a trusted runtime-event message explicitly.
 
 Important `Run` methods:
 

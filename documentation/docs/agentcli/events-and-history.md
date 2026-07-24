@@ -70,11 +70,11 @@ provider domain. Branch on its type:
 
 ```go
 switch event.ProviderEvent.Type {
-case provider.ContentReceived:
+case agentcli.ContentReceived:
     renderText(event.ProviderEvent.Content)
-case provider.ReasoningReceived:
+case agentcli.ReasoningReceived:
     renderReasoning(event.ProviderEvent.Reasoning)
-case provider.ToolCallStarted, provider.ToolArgumentsReceived, provider.ToolCallCompleted:
+case agentcli.ToolCallStarted, agentcli.ToolArgumentsReceived, agentcli.ToolCallCompleted:
     renderToolFragment(event.ProviderEvent.Tool)
 }
 ```

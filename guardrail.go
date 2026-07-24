@@ -17,6 +17,7 @@ type OutputGuardAction = agentruntime.OutputGuardAction
 const (
 	InputAccept  = agentruntime.InputAccept
 	InputReplace = agentruntime.InputReplace
+	InputRespond = agentruntime.InputRespond
 	InputReject  = agentruntime.InputReject
 
 	OutputProceed = agentruntime.OutputProceed

@@ -342,6 +342,21 @@ func (a *Agent) Start(ctx context.Context, request agentruntime.Request) (*agent
 	return run, err
 }
 
+// SendMessage starts one user turn in sessionID and returns a live event
+// subscription that includes RunStarted. The runtime generates the turn ID,
+// message ID, and timestamp. Reusing sessionID continues its stored
+// conversation; starting another turn while that session is active returns
+// ErrTurnInProgress.
+func (a *Agent) SendMessage(ctx context.Context, sessionID, message string) (*Run, EventSubscription, error) {
+	return a.StartSubscribed(ctx, agentruntime.Request{
+		SessionID: sessionID,
+		Message: agentruntime.Message{
+			Type:    agentruntime.MessageTypeUser,
+			Content: message,
+		},
+	})
+}
+
 // StartSubscribed begins one run with a live subscription installed before
 // RunStarted is committed. The returned subscription is live-only; use
 // Run.EventsBetween to recover a retained range when reconnecting.

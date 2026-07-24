@@ -15,4 +15,13 @@ package exposes `Tool`, `ToolDefinition`, schema builders,
 `DecodeArguments`, admission aliases, and turn behavior so ordinary
 applications do not need runtime-package imports.
 
+`Agent.SendMessage(ctx, sessionID, message)` is the ordinary direct-client
+entry point. It builds a user request, lets the runtime generate turn/message
+identity and timestamps, and returns a subscription installed before
+`RunStarted`. Reusing the session ID continues its stored transcript. Advanced
+callers use `Start` or `StartSubscribed` when they need an explicit turn ID or
+trusted runtime-event input. Root aliases expose runs, subscriptions, agent
+events, provider event constants, statuses, and common runtime errors without
+requiring application imports from `agentruntime` or `provider`.
+
 Back to [application/index.md](index.md).

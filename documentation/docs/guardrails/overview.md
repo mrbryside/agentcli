@@ -12,7 +12,8 @@ tools can attach a prompt directly to their declaration.
 
 | Boundary | Runs | Rejection behavior |
 | --- | --- | --- |
-| Input | After request normalization, before transcript persistence | `Agent.Start` returns `ErrInputGuardRejected`; no input message or run is created. |
+| Input callback | After request normalization, before transcript persistence | `InputReject` returns `ErrInputGuardRejected`; no input message or run is created. `InputRespond` creates a completed streamed turn containing the supplied response. |
+| Input prompt | After request normalization, before the main model | A rejected verdict becomes a completed streamed turn; the user input and guard response are stored, but the main model and tools are not called. |
 | Assistant output | After the assistant message is persisted, before turn completion | Feedback is added as an ephemeral context reminder and the provider receives another round. |
 | Custom-tool call | After permission/confirmation admission, before handler execution | The handler is not called; the runtime stores a failed tool result with feedback and starts another provider round. |
 
@@ -31,6 +32,8 @@ Guard configuration and verdicts are fail-closed:
   verdict is rejected;
 - prompt checks expose no tools and cannot directly execute application
   actions;
+- a rejected input prompt uses only its validated `reason` as the assistant
+  response and never forwards the rejected input to the main model;
 - mutable messages and raw JSON passed to callbacks are defensive copies.
 
 ## Guardrails are not a sandbox

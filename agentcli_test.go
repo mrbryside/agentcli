@@ -284,6 +284,9 @@ func TestClosedAgentRejectsOperations(t *testing.T) {
 	if _, _, err := agent.StartSubscribed(context.Background(), userRequest("closed")); !errors.Is(err, ErrClosed) {
 		t.Fatalf("StartSubscribed() error = %v, want ErrClosed", err)
 	}
+	if _, _, err := agent.SendMessage(context.Background(), "closed", "hello"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SendMessage() error = %v, want ErrClosed", err)
+	}
 	if err := agent.ResolvePermission(context.Background(), permission.Decision{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("ResolvePermission() error = %v, want ErrClosed", err)
 	}
@@ -326,6 +329,101 @@ func TestStartSubscribedReceivesRunStartedAndCoexistsWithListMessages(t *testing
 	}
 	if _, err := agent.ListMessages(context.Background(), "subscribed-history"); err != nil {
 		t.Fatalf("ListMessages after Close() error = %v", err)
+	}
+}
+
+func TestSendMessageStartsSubscribedUserTurn(t *testing.T) {
+	model := &scriptedModel{}
+	agent, err := New(context.Background(), WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	run, subscription, err := agent.SendMessage(context.Background(), "message-session", "hello from CLI")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.SessionID() != "message-session" {
+		t.Fatalf("session ID = %q", run.SessionID())
+	}
+	if run.TurnID() == "" {
+		t.Fatal("turn ID was not generated")
+	}
+
+	var events []AgentEvent
+	for event := range subscription.Events {
+		events = append(events, event)
+	}
+	if len(events) == 0 || events[0].Type != RunStarted {
+		t.Fatalf("subscription events = %#v, want RunStarted first", events)
+	}
+	if events[len(events)-1].Type != RunCompleted {
+		t.Fatalf("last event type = %q, want %q", events[len(events)-1].Type, RunCompleted)
+	}
+
+	messages, err := agent.ListMessages(context.Background(), "message-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("messages = %#v, want user and assistant", messages)
+	}
+	if messages[0].Type != agentruntime.MessageTypeUser || messages[0].Content != "hello from CLI" {
+		t.Fatalf("user message = %#v", messages[0])
+	}
+	if messages[0].TurnID != run.TurnID() || messages[0].ID == "" || messages[0].CreatedAt.IsZero() {
+		t.Fatalf("normalized user message = %#v", messages[0])
+	}
+
+	requests := model.Requests()
+	if len(requests) != 1 || len(requests[0].Messages) != 1 || requests[0].Messages[0].Content != "hello from CLI" {
+		t.Fatalf("model requests = %#v", requests)
+	}
+}
+
+func TestSendMessageRejectsInvalidInput(t *testing.T) {
+	agent, err := New(context.Background(), WithModel(&scriptedModel{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	if _, _, err := agent.SendMessage(context.Background(), "", "hello"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("empty session error = %v, want ErrInvalidRequest", err)
+	}
+	if _, _, err := agent.SendMessage(context.Background(), "session", " \n\t"); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("empty message error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestSendMessageContinuesExistingSession(t *testing.T) {
+	model := &scriptedModel{}
+	agent, err := New(context.Background(), WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	for _, message := range []string{"first", "second"} {
+		_, subscription, err := agent.SendMessage(context.Background(), "continued-session", message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range subscription.Events {
+		}
+	}
+
+	requests := model.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("model requests = %d, want 2", len(requests))
+	}
+	second := requests[1].Messages
+	if len(second) != 3 ||
+		second[0].Type != agentruntime.MessageTypeUser || second[0].Content != "first" ||
+		second[1].Type != agentruntime.MessageTypeAssistant || second[1].Content != "done" ||
+		second[2].Type != agentruntime.MessageTypeUser || second[2].Content != "second" {
+		t.Fatalf("second request messages = %#v", second)
 	}
 }
 

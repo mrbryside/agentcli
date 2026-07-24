@@ -16,7 +16,11 @@ selection, tool-call validation, or retry feedback semantics.
 `agentruntime.InputGuard` runs after request normalization and before message
 persistence or `Run` creation. It accepts, rejects, or replaces content while
 preserving normalized identity, timestamp, and message type. Rejection wraps
-`ErrInputGuardRejected`.
+`ErrInputGuardRejected`. `InputRespond` instead creates a synthetic completed
+run, persists the original user message plus the supplied assistant response,
+and emits ordinary provider content/completion events without starting the main
+model or tools. Prompt-backed input guards map a rejected verdict to
+`InputRespond`, using the verdict reason as the user-facing response.
 
 `agentruntime.OutputGuard` runs after a terminal assistant message is stored
 and before completion/finalizer checks. `OutputRetry` adds trusted ephemeral
@@ -49,7 +53,9 @@ optional `Config.ToolCallGuardModelResolver`.
 Prompt evaluation is one isolated model request with no tools, a trusted
 policy system prompt, a JSON-encoded candidate user message, and a final trusted
 user message with response rules requesting an immediate, concise decision
-with minimal reasoning. The
+with minimal reasoning. Rejected input prompts require a complete concise
+user-facing `reason`; this is streamed and persisted directly rather than sent
+through the main model. The
 verdict requires exactly `allowed`, `reason`, and `feedback`. Each prompt guard
 evaluation is bounded by a 30-second timeout by default; set
 `WithToolCallGuardTimeout` or `Config.ToolCallGuardTimeout` to change it. A

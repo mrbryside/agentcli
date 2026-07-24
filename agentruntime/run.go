@@ -488,6 +488,59 @@ func (r *Run) runLoop(ctx context.Context, runtime *Runtime, initial Message, in
 	}
 }
 
+// runInputGuardResponseLoop completes a rejected prompt-guard turn without
+// sending the rejected input to the main model. It persists the user message
+// and the guard's safe assistant response, and exposes the response through the
+// same provider-event stream shape as an ordinary model answer.
+func (r *Run) runInputGuardResponseLoop(ctx context.Context, runtime *Runtime, initial Message, response string, initialMode permission.Mode, started chan<- struct{}) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	startedOnce := sync.Once{}
+	signalStarted := func() { startedOnce.Do(func() { close(started) }) }
+
+	_, accepted := r.transition(AgentEvent{
+		Type:           RunStarted,
+		Message:        &initial,
+		Reason:         "input handled by guard",
+		PermissionMode: &PermissionModeChange{Current: initialMode},
+	})
+	signalStarted()
+	if !accepted {
+		r.finish(runtime)
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		r.processEvent(context.WithoutCancel(ctx), runtime, AgentEvent{Type: AgentInterrupted, Reason: contextReason(ctx)})
+		return
+	}
+
+	message := Message{Type: MessageTypeAssistant, Content: response}
+	if err := r.appendMessages(ctx, runtime, []Message{initial, message}); err != nil {
+		r.fail(ctx, runtime, err)
+		return
+	}
+
+	r.transition(AgentEvent{
+		Type: ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type:    provider.ContentReceived,
+			Content: response,
+		},
+	})
+	r.transition(AgentEvent{
+		Type: ProviderEventReceived,
+		ProviderEvent: provider.StreamEvent{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{
+				Result: provider.StreamResult{Content: response, Finished: true},
+			},
+		},
+	})
+	r.transition(AgentEvent{Type: RunCompleted})
+	r.finish(runtime)
+}
+
 // processEvent commits an input event, derives effects from the preceding
 // state, and interprets them before accepting another input event.
 func (r *Run) processEvent(ctx context.Context, runtime *Runtime, event AgentEvent) bool {

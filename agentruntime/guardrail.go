@@ -30,13 +30,17 @@ type InputGuardAction string
 const (
 	InputAccept  InputGuardAction = "accept"
 	InputReplace InputGuardAction = "replace"
+	// InputRespond completes the turn with Response without calling the main
+	// model or tools.
+	InputRespond InputGuardAction = "respond"
 	InputReject  InputGuardAction = "reject"
 )
 
 type InputGuardDecision struct {
-	Action  InputGuardAction
-	Message *Message
-	Reason  string
+	Action   InputGuardAction
+	Message  *Message
+	Response string
+	Reason   string
 }
 
 type OutputGuardAttempt struct {
@@ -125,12 +129,15 @@ func (decision ToolCallGuardDecision) Validate() error {
 func validateInputGuardDecision(decision InputGuardDecision, sessionID, turnID string) error {
 	switch decision.Action {
 	case InputAccept:
-		if decision.Message != nil || strings.TrimSpace(decision.Reason) != "" {
-			return errors.New("accept input decision cannot include a replacement or reason")
+		if decision.Message != nil || strings.TrimSpace(decision.Response) != "" || strings.TrimSpace(decision.Reason) != "" {
+			return errors.New("accept input decision cannot include a replacement, response, or reason")
 		}
 	case InputReplace:
 		if decision.Message == nil {
 			return errors.New("replace input decision requires a message")
+		}
+		if strings.TrimSpace(decision.Response) != "" {
+			return errors.New("replace input decision cannot include a response")
 		}
 		if decision.Message.SessionID != "" && decision.Message.SessionID != sessionID {
 			return errors.New("replacement message changes the session ID")
@@ -138,9 +145,19 @@ func validateInputGuardDecision(decision InputGuardDecision, sessionID, turnID s
 		if decision.Message.TurnID != "" && decision.Message.TurnID != turnID {
 			return errors.New("replacement message changes the turn ID")
 		}
+	case InputRespond:
+		if decision.Message != nil {
+			return errors.New("respond input decision cannot include a replacement")
+		}
+		if strings.TrimSpace(decision.Response) == "" {
+			return errors.New("respond input decision requires a response")
+		}
 	case InputReject:
 		if decision.Message != nil {
 			return errors.New("reject input decision cannot include a replacement")
+		}
+		if strings.TrimSpace(decision.Response) != "" {
+			return errors.New("reject input decision cannot include a response")
 		}
 		if strings.TrimSpace(decision.Reason) == "" {
 			return errors.New("reject input decision requires a reason")
@@ -181,6 +198,15 @@ If the decision is uncertain or reasoning is taking too long, stop reasoning and
 Keep reason and feedback brief.
 </guard_response_rules>`
 
+const promptInputGuardResponseRules = `<guard_response_rules>
+Decide quickly from the policy and candidate already provided.
+Return the required JSON object immediately.
+Use the minimum reasoning needed; do not explore alternatives or write an explanation.
+If allowed=false, write the complete user-facing response in reason; safely decline or redirect and follow the policy's capability guidance without repeating rejected content.
+If the decision is uncertain or reasoning is taking too long, stop reasoning and return allowed=false with a brief safe user-facing reason.
+Keep reason brief. Feedback may be empty.
+</guard_response_rules>`
+
 func newPromptInputGuard(model Model, prompt string) InputGuard {
 	return func(ctx context.Context, attempt InputGuardAttempt) (InputGuardDecision, error) {
 		verdict, err := evaluatePromptGuard(ctx, model, prompt, "input", attempt.Message)
@@ -192,9 +218,9 @@ func newPromptInputGuard(model Model, prompt string) InputGuard {
 		}
 		reason := strings.TrimSpace(*verdict.Reason)
 		if reason == "" {
-			reason = "input rejected by prompt guard"
+			reason = "I can't help with that request."
 		}
-		return InputGuardDecision{Action: InputReject, Reason: reason}, nil
+		return InputGuardDecision{Action: InputRespond, Response: reason}, nil
 	}
 }
 
@@ -257,14 +283,22 @@ func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction str
 	if err != nil {
 		return promptGuardVerdict{}, fmt.Errorf("encode %s for prompt guard: %w", direction, err)
 	}
+	verdictInstructions := "If allowed is true, feedback must be empty. If allowed is false, feedback must tell the agent how to produce a compliant result without repeating unsafe content."
+	if direction == "input" {
+		verdictInstructions = "If allowed is true, reason and feedback must be empty. If allowed is false, reason must be a complete, concise user-facing response that safely declines or redirects the request and follows any capability guidance in the policy without repeating unsafe content; feedback may be empty."
+	}
+	responseRules := promptGuardResponseRules
+	if direction == "input" {
+		responseRules = promptInputGuardResponseRules
+	}
 	request := ModelRequest{
 		SystemPrompts: []string{fmt.Sprintf(
-			"You are the %s guard for an agent. Apply the policy below. Return one JSON object only, with exactly these fields: allowed (boolean), reason (string), feedback (string). Always include all three fields. If allowed is true, feedback must be empty. If allowed is false, feedback must tell the agent how to produce a compliant result without repeating unsafe content.\n\nPolicy:\n%s",
-			direction, strings.TrimSpace(prompt),
+			"You are the %s guard for an agent. Apply the policy below. Return one JSON object only, with exactly these fields: allowed (boolean), reason (string), feedback (string). Always include all three fields. %s\n\nPolicy:\n%s",
+			direction, verdictInstructions, strings.TrimSpace(prompt),
 		)},
 		Messages: []Message{
 			{Type: MessageTypeUser, Content: string(encoded)},
-			{Type: MessageTypeUser, Content: promptGuardResponseRules},
+			{Type: MessageTypeUser, Content: responseRules},
 		},
 	}
 	stream, err := model.Start(ctx, request)

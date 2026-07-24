@@ -23,10 +23,7 @@ go get github.com/mrbryside/agentcli
 Import the root package directly:
 
 ```go
-import (
-    "github.com/mrbryside/agentcli"
-    "github.com/mrbryside/agentcli/agentruntime"
-)
+import "github.com/mrbryside/agentcli"
 ```
 
 Download dependencies and run the tests:

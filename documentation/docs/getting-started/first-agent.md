@@ -20,8 +20,6 @@ import (
     "strings"
 
     "github.com/mrbryside/agentcli"
-    "github.com/mrbryside/agentcli/agentruntime"
-    "github.com/mrbryside/agentcli/provider"
 )
 
 type lookupArguments struct {
@@ -82,20 +80,18 @@ func main() {
     }
     defer agent.Close()
 
-    run, subscription, err := agent.StartSubscribed(ctx, agentruntime.Request{
-        SessionID: "demo-session",
-        Message: agentruntime.Message{
-            Type:    agentruntime.MessageTypeUser,
-            Content: "Use lookup_topic for Go and summarize the result.",
-        },
-    })
+    run, subscription, err := agent.SendMessage(
+        ctx,
+        "demo-session",
+        "Use lookup_topic for Go and summarize the result.",
+    )
     if err != nil {
         log.Fatal(err)
     }
 
     for event := range subscription.Events {
-        if event.Type == agentruntime.ProviderEventReceived &&
-            event.ProviderEvent.Type == provider.ContentReceived {
+        if event.Type == agentcli.ProviderEventReceived &&
+            event.ProviderEvent.Type == agentcli.ContentReceived {
             fmt.Print(event.ProviderEvent.Content)
         }
     }
@@ -117,12 +113,12 @@ one JSON object and rejects unknown fields or trailing values. Pointer fields
 distinguish a missing property from a Go zero value; the handler still owns
 semantic validation and output encoding.
 
-## Why `StartSubscribed`?
+## Why `SendMessage`?
 
-`StartSubscribed` installs a live subscription before `RunStarted` is
-published, so a newly created UI cannot miss the beginning of the turn. Calling
-`Start` and then `run.Subscribe` is valid for consumers that intentionally do
-not need those earliest live events.
+`SendMessage` builds the user request and installs a live subscription before
+`RunStarted` is published, so a newly created UI cannot miss the beginning of
+the turn. Use `StartSubscribed` directly when the application needs to choose a
+turn ID or send a trusted runtime event.
 
 ## Continue the session
 

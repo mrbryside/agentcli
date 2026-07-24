@@ -368,6 +368,7 @@ func (r *Runtime) start(ctx context.Context, request Request, subscribe bool) (*
 	if err != nil {
 		return nil, EventSubscription{}, err
 	}
+	guardResponse := ""
 	if r.inputGuard != nil {
 		decision, guardErr := invokeInputGuard(ctx, r.inputGuard, InputGuardAttempt{
 			SessionID: normalized.SessionID,
@@ -396,6 +397,8 @@ func (r *Runtime) start(ctx context.Context, request Request, subscribe bool) (*
 				return nil, EventSubscription{}, fmt.Errorf("evaluate input guard replacement: %w", err)
 			}
 			normalized.Message = replacement
+		case InputRespond:
+			guardResponse = strings.TrimSpace(decision.Response)
 		}
 	}
 	exists, err := r.messages.TurnExists(ctx, normalized.SessionID, normalized.TurnID)
@@ -442,7 +445,11 @@ func (r *Runtime) start(ctx context.Context, request Request, subscribe bool) (*
 	}
 	r.active[normalized.SessionID] = run
 	started := make(chan struct{})
-	go run.runLoop(ctx, r, normalized.Message, r.permissionMode, started)
+	if guardResponse != "" {
+		go run.runInputGuardResponseLoop(ctx, r, normalized.Message, guardResponse, r.permissionMode, started)
+	} else {
+		go run.runLoop(ctx, r, normalized.Message, r.permissionMode, started)
+	}
 	// Keep the registry lock until RunStarted is committed. This gives every
 	// run a stable initial-mode event before a concurrent mode transition can
 	// publish to it.

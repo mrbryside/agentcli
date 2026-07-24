@@ -349,7 +349,8 @@ func WithOutputGuard(guard agentruntime.OutputGuard) Option {
 }
 
 // WithInputGuardPrompt asks the default agent model to evaluate each input
-// using prompt-defined policy.
+// using prompt-defined policy. A rejected verdict becomes a completed streamed
+// response using the verdict reason; the main model and tools are not called.
 func WithInputGuardPrompt(prompt string) Option {
 	return func(configuration *config) error {
 		prompt = strings.TrimSpace(prompt)
