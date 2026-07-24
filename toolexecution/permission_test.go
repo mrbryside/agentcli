@@ -16,12 +16,12 @@ import (
 
 func TestPermissionAdmissionDoesNotOccupyWorker(t *testing.T) {
 	registry := NewRegistry()
-	mustRegister(t, registry, Tool{Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	mustRegister(t, registry, Tool{Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: mustRawToolSchema(`{"type":"object"}`)}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`{"guarded":true}`), nil
 	}, Permission: func(json.RawMessage) (permission.Description, error) {
 		return permission.Description{Actions: []permission.Action{permission.FilesystemWrite}}, nil
 	}})
-	mustRegister(t, registry, Tool{Definition: agentruntime.ToolDefinition{Name: "free", InputSchema: json.RawMessage(`{"type":"object"}`)}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	mustRegister(t, registry, Tool{Definition: agentruntime.ToolDefinition{Name: "free", InputSchema: mustRawToolSchema(`{"type":"object"}`)}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`{"free":true}`), nil
 	}})
 	requests := make(chan agentruntime.ToolRequest, 2)
@@ -65,7 +65,7 @@ func TestPermissionAdmissionDoesNotOccupyWorker(t *testing.T) {
 func TestApprovalAdmissionPublishesOnePromptAndReusesSessionGrant(t *testing.T) {
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ran":true}`), nil
 		},
@@ -120,7 +120,7 @@ func TestApprovalAdmissionPublishesOnePromptAndReusesSessionGrant(t *testing.T) 
 func TestApprovalAdmissionSerializesPermissionAndConfirmation(t *testing.T) {
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"guarded":true}`), nil
 		},
@@ -129,7 +129,7 @@ func TestApprovalAdmissionSerializesPermissionAndConfirmation(t *testing.T) {
 		},
 	})
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "confirmed", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "confirmed", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"confirmed":true}`), nil
 		},
@@ -187,7 +187,7 @@ func TestApprovalAdmissionSerializesPermissionAndConfirmation(t *testing.T) {
 func TestPermissionModeChangeKeepsPendingPromptAndAppliesToNewRequests(t *testing.T) {
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ran":true}`), nil
 		},
@@ -286,7 +286,7 @@ func TestAdmissionSnapshotSpansDescriptionEvaluationAndWorker(t *testing.T) {
 	}
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		PermissionWithPolicy: func(_ json.RawMessage, policy permission.Policy) (permission.Description, error) {
 			if policy.Mode != permission.Default {
 				return permission.Description{}, fmt.Errorf("descriptor policy = %q, want default", policy.Mode)
@@ -348,7 +348,7 @@ func TestQueuedUnrestrictedRequestFailsAfterRestrictiveModeChange(t *testing.T) 
 	release := make(chan struct{})
 	admitted := make(chan struct{})
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "block", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "block", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			close(started)
 			<-release
@@ -356,7 +356,7 @@ func TestQueuedUnrestrictedRequestFailsAfterRestrictiveModeChange(t *testing.T) 
 		},
 	})
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "outside", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "outside", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		PermissionWithPolicy: func(_ json.RawMessage, policy permission.Policy) (permission.Description, error) {
 			if policy.Mode != permission.Unrestricted {
 				return permission.Description{}, fmt.Errorf("admission mode = %q, want unrestricted", policy.Mode)
@@ -421,7 +421,7 @@ func TestEnabledPermissionRequiresPairedBufferedTransport(t *testing.T) {
 func TestPermissionNonInteractiveDeniesPromptInsteadOfWaiting(t *testing.T) {
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "critical", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "critical", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ran":true}`), nil
 		},

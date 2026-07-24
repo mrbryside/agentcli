@@ -144,7 +144,7 @@ func (bridge *SubagentToolBridge) tool(name, description, schema string, handler
 	if name == StartSubagentToolName || name == SendSubagentMessageToolName || name == ForceCloseSubagentToolName {
 		behavior = EndTurn
 	}
-	tool := Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: json.RawMessage(schema)}, Handler: handler, TurnBehavior: behavior}
+	tool := Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: mustRawToolSchema(schema)}, Handler: handler, TurnBehavior: behavior}
 	if name == StartSubagentToolName {
 		tool.resultTurnBehavior = startSubagentTurnBehavior
 	} else if name == SendSubagentMessageToolName || name == ForceCloseSubagentToolName {

@@ -196,8 +196,9 @@ func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 		if !isSubagentToolName(tool.Definition.Name) {
 			t.Fatalf("unreserved tool %q", tool.Definition.Name)
 		}
-		if !json.Valid(tool.Definition.InputSchema) {
-			t.Fatalf("invalid schema for %q", tool.Definition.Name)
+		encoded, err := json.Marshal(tool.Definition.InputSchema)
+		if err != nil || !json.Valid(encoded) {
+			t.Fatalf("invalid schema for %q: %v", tool.Definition.Name, err)
 		}
 		seen[tool.Definition.Name] = true
 	}

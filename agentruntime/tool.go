@@ -15,7 +15,7 @@ const (
 type ToolDefinition struct {
 	Name        string
 	Description string
-	InputSchema json.RawMessage
+	InputSchema ToolSchema
 }
 
 // ToolRequest is sent by a runtime to the shared tool worker channel.
@@ -43,7 +43,7 @@ type ToolInterrupt struct {
 
 func cloneToolDefinition(definition ToolDefinition) ToolDefinition {
 	clone := definition
-	clone.InputSchema = cloneRawJSON(definition.InputSchema)
+	clone.InputSchema = definition.InputSchema.Clone()
 	return clone
 }
 

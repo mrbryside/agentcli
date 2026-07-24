@@ -12,9 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mrbryside/agentcli/agentruntime"
-	"github.com/mrbryside/agentcli/permission"
-	"github.com/mrbryside/agentcli/toolexecution"
+	"github.com/mrbryside/agentcli"
 )
 
 const (
@@ -28,17 +26,25 @@ var errSensitiveProjectFile = errors.New("sensitive project file is not availabl
 
 type projectToolScope struct{ root string }
 
-func newReadTool(root string) toolexecution.Tool {
+func newReadTool(root string) agentcli.Tool {
 	scope := mustProjectToolScope(root)
-	return toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{
+	return agentcli.Tool{
+		Definition: agentcli.ToolDefinition{
 			Name:        "read",
 			Description: "Read a UTF-8 text file inside the project. Reads at most 2,000 lines and 256 KiB per call. If truncated, use next_offset to continue from the next line. Paths outside the project and sensitive files are denied.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Project-relative file path"},"offset":{"type":"integer","minimum":1,"description":"First 1-based line to return; defaults to 1"},"limit":{"type":"integer","minimum":1,"maximum":2000,"description":"Maximum lines to return; defaults to 400, maximum 2000"}},"required":["path"],"additionalProperties":false}`),
+			InputSchema: agentcli.ObjectSchema(struct {
+				Path   agentcli.ToolParameter
+				Offset agentcli.ToolParameter
+				Limit  agentcli.ToolParameter
+			}{
+				Path:   agentcli.StringParameter("Project-relative file path").Required().MinLength(1),
+				Offset: agentcli.IntegerParameter("First 1-based line to return; defaults to 1").Minimum(1),
+				Limit:  agentcli.IntegerParameter("Maximum lines to return; defaults to 400, maximum 2000").Minimum(1).Maximum(2000),
+			}),
 		},
 		Handler: scope.read,
-		Permission: toolexecution.StaticPermission(toolexecution.PermissionConfig{
-			Actions: []permission.Action{permission.FilesystemRead}, Risk: permission.RiskLow,
+		Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
+			Actions: []agentcli.PermissionAction{agentcli.FilesystemRead}, Risk: agentcli.RiskLow,
 			Reason: "Reads a bounded text range only from within the configured project root.",
 		}),
 	}

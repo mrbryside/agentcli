@@ -34,6 +34,7 @@ esac
 [ ! -e "$target" ] || fail "$target already exists; refusing to overwrite it"
 
 go_version=1.26.3
+agentcli_version=${AGENTCLI_VERSION:-main}
 go_available=false
 if command -v go >/dev/null 2>&1; then
   go_available=true
@@ -164,6 +165,7 @@ uncertainties, then give the parent a concise recommendation.
 EOF
 
 if [ "$go_available" = true ]; then
+	(cd "$target" && go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
   printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else

@@ -198,7 +198,7 @@ func executorRegistry(t *testing.T, handlers map[string]Handler) *Registry {
 	registry := NewRegistry()
 	for name, handler := range handlers {
 		if err := registry.Register(Tool{
-			Definition: agentruntime.ToolDefinition{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)},
+			Definition: agentruntime.ToolDefinition{Name: name, InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 			Handler:    handler,
 		}); err != nil {
 			t.Fatalf("Register(%q) error = %v", name, err)

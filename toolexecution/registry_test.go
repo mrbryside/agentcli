@@ -18,7 +18,7 @@ func TestRegistryRegisterDefinitionsAndLookup(t *testing.T) {
 		Definition: agentruntime.ToolDefinition{
 			Name:        "weather",
 			Description: "Get the weather",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"city":{"type":"string"}}}`),
 		},
 		Handler: handler,
 	}
@@ -26,7 +26,7 @@ func TestRegistryRegisterDefinitionsAndLookup(t *testing.T) {
 		Definition: agentruntime.ToolDefinition{
 			Name:        "time",
 			Description: "Get the time",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
+			InputSchema: mustRawToolSchema(`{"type":"object"}`),
 		},
 		Handler: handler,
 	}
@@ -59,29 +59,29 @@ func TestRegistryDefinitionsDoNotShareSchemas(t *testing.T) {
 	definition := agentruntime.ToolDefinition{
 		Name:        "weather",
 		Description: "Get the weather",
-		InputSchema: json.RawMessage(`{"type":"object"}`),
+		InputSchema: agentruntime.ToolSchema{Type: "object", Properties: map[string]agentruntime.ToolSchema{"city": {Type: "string"}}},
 	}
 	if err := registry.Register(Tool{Definition: definition, Handler: testHandler}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	definition.InputSchema[2] = 'X'
+	definition.InputSchema.Properties["city"] = agentruntime.ToolSchema{Type: "number"}
 	definitions := registry.Definitions()
-	if string(definitions[0].InputSchema) != `{"type":"object"}` {
-		t.Fatalf("registered schema = %s, want independent copy", definitions[0].InputSchema)
+	if definitions[0].InputSchema.Properties["city"].Type != "string" {
+		t.Fatalf("registered schema = %#v, want independent copy", definitions[0].InputSchema)
 	}
 
-	definitions[0].InputSchema[2] = 'Y'
+	definitions[0].InputSchema.Properties["city"] = agentruntime.ToolSchema{Type: "boolean"}
 	fresh := registry.Definitions()
-	if string(fresh[0].InputSchema) != `{"type":"object"}` {
-		t.Fatalf("Definitions() schema = %s, want independent copy", fresh[0].InputSchema)
+	if fresh[0].InputSchema.Properties["city"].Type != "string" {
+		t.Fatalf("Definitions() schema = %#v, want independent copy", fresh[0].InputSchema)
 	}
 }
 
 func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	validDefinition := agentruntime.ToolDefinition{
 		Name:        "weather",
-		InputSchema: json.RawMessage(`{"type":"object"}`),
+		InputSchema: agentruntime.ToolSchema{Type: "object"},
 	}
 	tests := []struct {
 		name string
@@ -90,10 +90,10 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
-		{name: "array schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "array", InputSchema: json.RawMessage(`[]`)}, Handler: testHandler}},
-		{name: "non-object type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "string", InputSchema: json.RawMessage(`{"type":"string"}`)}, Handler: testHandler}},
-		{name: "missing type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "type", InputSchema: json.RawMessage(`{"properties":{}}`)}, Handler: testHandler}},
-		{name: "malformed JSON", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "invalid", InputSchema: json.RawMessage(`{`)}, Handler: testHandler}},
+		{name: "array schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "array", InputSchema: agentruntime.ToolSchema{Type: "array"}}, Handler: testHandler}},
+		{name: "non-object type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "string", InputSchema: agentruntime.ToolSchema{Type: "string"}}, Handler: testHandler}},
+		{name: "missing type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "type", InputSchema: agentruntime.ToolSchema{Properties: map[string]agentruntime.ToolSchema{}}}, Handler: testHandler}},
+		{name: "invalid schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "invalid", InputSchema: agentruntime.ToolSchema{Type: "object", Types: []string{"object"}}}, Handler: testHandler}},
 	}
 
 	for _, test := range tests {
@@ -115,4 +115,13 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 
 func testHandler(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return nil, nil
+}
+
+func marshaledToolSchema(t *testing.T, schema agentruntime.ToolSchema) json.RawMessage {
+	t.Helper()
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("marshal tool schema: %v", err)
+	}
+	return encoded
 }

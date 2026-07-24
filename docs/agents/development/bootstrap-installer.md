@@ -13,8 +13,10 @@ exist. Folder and module names are validated before any project files are
 created.
 
 The installer detects `go env GOVERSION` and writes that version to `go.mod`;
-when Go is unavailable it falls back to `1.26.3`. With Go available it runs
-`go mod tidy` before reporting success. Generated configuration references
+when Go is unavailable it falls back to `1.26.3`. With Go available it resolves
+`github.com/mrbryside/agentcli@main` before `go mod tidy`, ensuring separately
+downloaded tool templates match the installed API. `AGENTCLI_VERSION` is an
+optional test/maintenance override for that module query. Generated configuration references
 `${OPENAI_API_KEY}`, which must be supplied through the process environment;
 generated code has no `.env` loader.
 
@@ -29,6 +31,10 @@ those identities when targeting a real provider/model. The starter includes
 separately and become `tool_read.go` and `tool_glob.go` in the generated
 module. Tests may override their source URLs with
 `AGENTCLI_TOOL_READ_URL` and `AGENTCLI_TOOL_GLOB_URL`.
+
+Both templates must use the public root facade (`agentcli.Tool`,
+`ToolDefinition`, `ToolParameter`, and `ObjectSchema`) rather than raw JSON
+schemas or internal-package imports.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

@@ -285,7 +285,7 @@ func TestServerPermissionCanBeAnsweredAfterEventStreamDisconnects(t *testing.T) 
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "guarded", Arguments: map[string]any{}}}}
 	agent, _, baseURL := newTestHTTPServer(t, model,
 		WithTool(toolexecution.Tool{
-			Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"ok":true}`), nil
 			},

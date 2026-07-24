@@ -83,7 +83,7 @@ func runStaticPermissionTool(t *testing.T, policy permission.Policy, expectPromp
 	t.Helper()
 	registry := NewRegistry()
 	mustRegister(t, registry, Tool{
-		Definition: agentruntime.ToolDefinition{Name: "custom-read", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "custom-read", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ran":true}`), nil
 		},

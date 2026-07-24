@@ -224,22 +224,24 @@ func transformTools(definitions []agentruntime.ToolDefinition) ([]provideropenai
 		if definition.Name == "" {
 			return nil, fmt.Errorf("tool definition %d requires a name", index)
 		}
+		parameters, err := json.Marshal(definition.InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("encode tool definition %q schema: %w", definition.Name, err)
+		}
 		var schema map[string]json.RawMessage
-		if err := json.Unmarshal(definition.InputSchema, &schema); err != nil || schema == nil {
+		if err := json.Unmarshal(parameters, &schema); err != nil || schema == nil {
 			if err == nil {
 				err = fmt.Errorf("schema must be a JSON object")
 			}
 			return nil, fmt.Errorf("decode tool definition %q schema: %w", definition.Name, err)
 		}
 
-		parameters := make(json.RawMessage, len(definition.InputSchema))
-		copy(parameters, definition.InputSchema)
 		tools[index] = provideropenai.Tool{
 			Type: provideropenai.ToolTypeFunction,
 			Function: &provideropenai.FunctionDefinition{
 				Name:        definition.Name,
 				Description: definition.Description,
-				Parameters:  parameters,
+				Parameters:  json.RawMessage(parameters),
 			},
 		}
 	}

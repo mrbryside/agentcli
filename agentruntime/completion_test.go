@@ -2,7 +2,6 @@ package agentruntime
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
 
@@ -30,8 +29,8 @@ func TestCompletionGuardRetriesWithPersistedMessagesAndRestrictedTools(t *testin
 	runtime, err := New(context.Background(), Config{
 		Model: model, Messages: inmemory.NewMessageStorage(),
 		Tools: []ToolDefinition{
-			{Name: "domain_action", InputSchema: json.RawMessage(`{"type":"object"}`)},
-			{Name: "report_outcome", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			{Name: "domain_action", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "report_outcome", InputSchema: ToolSchema{Type: "object"}},
 		},
 		ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts,
 		CompletionGuard: guard, MaxSteps: 3,

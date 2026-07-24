@@ -129,7 +129,7 @@ func newPermissionIntegrationRuntime(t *testing.T) (*Runtime, <-chan permission.
 	prompts := make(chan permission.Request, 8)
 	decisions := make(chan permission.Decision, 8)
 	registry := toolexecution.NewRegistry()
-	if err := registry.Register(toolexecution.Tool{Definition: ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	if err := registry.Register(toolexecution.Tool{Definition: ToolDefinition{Name: "guarded", InputSchema: ToolSchema{Type: "object"}}, Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`{"ok":true}`), nil
 	}, Permission: func(json.RawMessage) (permission.Description, error) {
 		return permission.Description{Actions: []permission.Action{permission.FilesystemWrite}, Risk: permission.RiskMedium}, nil

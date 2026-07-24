@@ -145,7 +145,7 @@ func TestNewExposesOnlyExplicitlySuppliedTools(t *testing.T) {
 func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "custom", Arguments: map[string]any{}}}}
 	agent, err := New(context.Background(), WithModel(model), WithTool(toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: "custom", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "custom", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
@@ -190,7 +190,7 @@ func TestCriticalOnlyAutoAllowsMediumRiskCustomTool(t *testing.T) {
 		WithModel(model),
 		WithPermissionMode(permission.CriticalOnly),
 		WithTool(toolexecution.Tool{
-			Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"ok":true}`), nil
 			},
@@ -227,7 +227,7 @@ func TestCriticalOnlyAutoAllowsMediumRiskCustomTool(t *testing.T) {
 func TestNonInteractiveDeniesPermissionPrompt(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "guarded", Arguments: map[string]any{}}}}
 	agent, err := New(context.Background(), WithModel(model), WithNonInteractive(true), WithTool(toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "guarded", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
@@ -332,7 +332,7 @@ func TestStartSubscribedReceivesRunStartedAndCoexistsWithListMessages(t *testing
 func TestListMessagesUsesDefaultStorageAndReturnsContinuationHistory(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "echo", Arguments: map[string]any{}}}}
 	agent, err := New(context.Background(), WithModel(model), WithTool(toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: "echo", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "echo", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
@@ -687,7 +687,7 @@ func userRequest(session string) agentruntime.Request {
 
 func testTool(name string) toolexecution.Tool {
 	return toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: name, InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{}`), nil
 		},

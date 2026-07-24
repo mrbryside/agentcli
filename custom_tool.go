@@ -22,7 +22,8 @@ import (
 type CustomToolOption func(*customToolConfig) error
 
 type customToolConfig struct {
-	schema               json.RawMessage
+	schema               agentruntime.ToolSchema
+	hasSchema            bool
 	turnBehavior         toolexecution.TurnBehavior
 	requiredAtTurnEnd    bool
 	permission           toolexecution.PermissionDescriptor
@@ -65,7 +66,7 @@ func NewCustomTool[Input, Output any](name, description string, handler func(con
 	if configuration.requiredAtTurnEnd {
 		configuration.turnBehavior = EndTurn
 	}
-	if configuration.schema == nil {
+	if !configuration.hasSchema {
 		schema, err := inferCustomToolSchema(reflect.TypeFor[Input]())
 		if err != nil {
 			return toolexecution.Tool{}, fmt.Errorf("custom tool %q input schema: %w", name, err)
@@ -129,20 +130,29 @@ const (
 	EndTurn = toolexecution.EndTurn
 )
 
-// ToolSchema overrides automatic input-schema inference for advanced JSON
-// Schema constraints. The schema must describe a JSON object.
-func ToolSchema(schema json.RawMessage) CustomToolOption {
-	clone := append(json.RawMessage(nil), schema...)
+// ToolSchema overrides automatic input-schema inference with a typed schema.
+// Tool parameters must use Type: "object".
+func ToolSchema(schema agentruntime.ToolSchema) CustomToolOption {
 	return func(configuration *customToolConfig) error {
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(clone, &object); err != nil {
-			return fmt.Errorf("schema must be valid JSON: %w", err)
-		}
-		var schemaType string
-		if object == nil || json.Unmarshal(object["type"], &schemaType) != nil || schemaType != "object" {
+		if schema.Type != "object" || len(schema.TypeUnion) != 0 || len(schema.Types) != 0 {
 			return errors.New("schema type must be object")
 		}
-		configuration.schema = append(json.RawMessage(nil), clone...)
+		configuration.schema = schema.Clone()
+		configuration.hasSchema = true
+		return nil
+	}
+}
+
+// RawCustomToolSchema overrides inference with an advanced JSON Schema object.
+// Prefer ToolSchema for schemas expressible through the typed vocabulary.
+func RawCustomToolSchema(raw json.RawMessage) CustomToolOption {
+	schema, err := agentruntime.RawToolSchema(raw)
+	return func(configuration *customToolConfig) error {
+		if err != nil {
+			return err
+		}
+		configuration.schema = schema
+		configuration.hasSchema = true
 		return nil
 	}
 }
@@ -232,39 +242,35 @@ func decodeCustomToolInput[Input any](arguments json.RawMessage) (Input, error) 
 	return input, nil
 }
 
-func inferCustomToolSchema(input reflect.Type) (json.RawMessage, error) {
+func inferCustomToolSchema(input reflect.Type) (agentruntime.ToolSchema, error) {
 	if input == nil {
-		return nil, errors.New("input type is required")
+		return agentruntime.ToolSchema{}, errors.New("input type is required")
 	}
 	schema, err := schemaForCustomToolType(input, make(map[reflect.Type]bool), true)
 	if err != nil {
-		return nil, err
+		return agentruntime.ToolSchema{}, err
 	}
-	encoded, err := json.Marshal(schema)
-	if err != nil {
-		return nil, fmt.Errorf("encode inferred schema: %w", err)
-	}
-	return encoded, nil
+	return schema, nil
 }
 
-func schemaForCustomToolType(value reflect.Type, active map[reflect.Type]bool, root bool) (map[string]any, error) {
+func schemaForCustomToolType(value reflect.Type, active map[reflect.Type]bool, root bool) (agentruntime.ToolSchema, error) {
 	for value.Kind() == reflect.Pointer {
 		value = value.Elem()
 	}
 	if root && value.Kind() != reflect.Struct && !(value.Kind() == reflect.Map && value.Key().Kind() == reflect.String) {
-		return nil, fmt.Errorf("input must be a struct or map with string keys, got %s", value)
+		return agentruntime.ToolSchema{}, fmt.Errorf("input must be a struct or map with string keys, got %s", value)
 	}
 	if value.PkgPath() == "time" && value.Name() == "Time" {
-		return map[string]any{"type": "string", "format": "date-time"}, nil
+		return agentruntime.ToolSchema{Type: "string", Format: "date-time"}, nil
 	}
 	switch value.Kind() {
 	case reflect.Struct:
 		if active[value] {
-			return nil, fmt.Errorf("recursive input type %s requires ToolSchema", value)
+			return agentruntime.ToolSchema{}, fmt.Errorf("recursive input type %s requires ToolSchema", value)
 		}
 		active[value] = true
 		defer delete(active, value)
-		properties := make(map[string]any)
+		properties := make(map[string]agentruntime.ToolSchema)
 		required := make([]string, 0, value.NumField())
 		for index := 0; index < value.NumField(); index++ {
 			field := value.Field(index)
@@ -277,49 +283,45 @@ func schemaForCustomToolType(value reflect.Type, active map[reflect.Type]bool, r
 			}
 			fieldSchema, err := schemaForCustomToolType(field.Type, active, false)
 			if err != nil {
-				return nil, fmt.Errorf("field %s: %w", field.Name, err)
+				return agentruntime.ToolSchema{}, fmt.Errorf("field %s: %w", field.Name, err)
 			}
-			if err := applyCustomToolSchemaTags(fieldSchema, field); err != nil {
-				return nil, fmt.Errorf("field %s: %w", field.Name, err)
+			if err := applyCustomToolSchemaTags(&fieldSchema, field); err != nil {
+				return agentruntime.ToolSchema{}, fmt.Errorf("field %s: %w", field.Name, err)
 			}
 			properties[name] = fieldSchema
 			if !optional {
 				required = append(required, name)
 			}
 		}
-		schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
-		if len(required) != 0 {
-			schema["required"] = required
-		}
-		return schema, nil
+		return agentruntime.ToolSchema{Type: "object", Properties: properties, Required: required, AdditionalProperties: agentruntime.AdditionalPropertiesBool(false)}, nil
 	case reflect.Map:
 		if value.Key().Kind() != reflect.String {
-			return nil, fmt.Errorf("map key must be string, got %s", value.Key())
+			return agentruntime.ToolSchema{}, fmt.Errorf("map key must be string, got %s", value.Key())
 		}
 		items, err := schemaForCustomToolType(value.Elem(), active, false)
 		if err != nil {
-			return nil, err
+			return agentruntime.ToolSchema{}, err
 		}
-		return map[string]any{"type": "object", "additionalProperties": items}, nil
+		return agentruntime.ToolSchema{Type: "object", AdditionalProperties: agentruntime.AdditionalPropertiesSchema(items)}, nil
 	case reflect.Slice, reflect.Array:
 		items, err := schemaForCustomToolType(value.Elem(), active, false)
 		if err != nil {
-			return nil, err
+			return agentruntime.ToolSchema{}, err
 		}
-		return map[string]any{"type": "array", "items": items}, nil
+		return agentruntime.ToolSchema{Type: "array", Items: &items}, nil
 	case reflect.String:
-		return map[string]any{"type": "string"}, nil
+		return agentruntime.ToolSchema{Type: "string"}, nil
 	case reflect.Bool:
-		return map[string]any{"type": "boolean"}, nil
+		return agentruntime.ToolSchema{Type: "boolean"}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return map[string]any{"type": "integer"}, nil
+		return agentruntime.ToolSchema{Type: "integer"}, nil
 	case reflect.Float32, reflect.Float64:
-		return map[string]any{"type": "number"}, nil
+		return agentruntime.ToolSchema{Type: "number"}, nil
 	case reflect.Interface:
-		return map[string]any{}, nil
+		return agentruntime.ToolSchema{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported input type %s", value)
+		return agentruntime.ToolSchema{}, fmt.Errorf("unsupported input type %s", value)
 	}
 }
 
@@ -340,14 +342,21 @@ func customToolJSONField(field reflect.StructField) (name string, omit, optional
 	return name, false, optional
 }
 
-func applyCustomToolSchemaTags(schema map[string]any, field reflect.StructField) error {
+func applyCustomToolSchemaTags(schema *agentruntime.ToolSchema, field reflect.StructField) error {
 	for tag, keyword := range map[string]string{
 		"description": "description",
 		"format":      "format",
 		"pattern":     "pattern",
 	} {
 		if value := strings.TrimSpace(field.Tag.Get(tag)); value != "" {
-			schema[keyword] = value
+			switch keyword {
+			case "description":
+				schema.Description = value
+			case "format":
+				schema.Format = value
+			case "pattern":
+				schema.Pattern = value
+			}
 		}
 	}
 	if value := strings.TrimSpace(field.Tag.Get("enum")); value != "" {
@@ -355,7 +364,11 @@ func applyCustomToolSchemaTags(schema map[string]any, field reflect.StructField)
 		for index := range parts {
 			parts[index] = strings.TrimSpace(parts[index])
 		}
-		schema["enum"] = parts
+		values := make([]json.RawMessage, len(parts))
+		for index, part := range parts {
+			values[index] = json.RawMessage(strconv.Quote(part))
+		}
+		schema.Enum = values
 	}
 	for tag, keyword := range map[string]string{"minLength": "minLength", "maxLength": "maxLength"} {
 		if value := strings.TrimSpace(field.Tag.Get(tag)); value != "" {
@@ -363,7 +376,11 @@ func applyCustomToolSchemaTags(schema map[string]any, field reflect.StructField)
 			if err != nil {
 				return fmt.Errorf("%s must be an unsigned integer", tag)
 			}
-			schema[keyword] = parsed
+			if keyword == "minLength" {
+				schema.MinLength = json.Number(strconv.FormatUint(parsed, 10))
+			} else {
+				schema.MaxLength = json.Number(strconv.FormatUint(parsed, 10))
+			}
 		}
 	}
 	for tag, keyword := range map[string]string{"minimum": "minimum", "maximum": "maximum"} {
@@ -372,7 +389,12 @@ func applyCustomToolSchemaTags(schema map[string]any, field reflect.StructField)
 			if err != nil {
 				return fmt.Errorf("%s must be a number", tag)
 			}
-			schema[keyword] = parsed
+			encoded := json.Number(strconv.FormatFloat(parsed, 'g', -1, 64))
+			if keyword == "minimum" {
+				schema.Minimum = encoded
+			} else {
+				schema.Maximum = encoded
+			}
 		}
 	}
 	return nil

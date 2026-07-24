@@ -80,29 +80,35 @@ treated as a security boundary.
 
 ## Explicit schema override
 
-Use `ToolSchema` for unions, conditional schemas, `$defs`, or constraints not
-covered by tags:
+Use the typed `InputSchema` vocabulary for unions, conditional schemas,
+`$defs`, and every JSON Schema keyword that is not covered by inference tags:
 
 ```go
 agentcli.WithCustomTool(
     "search",
     "Search one data source.",
     search,
-    agentcli.ToolSchema(json.RawMessage(`{
-      "type": "object",
-      "properties": {
-        "query": {"type": "string", "minLength": 1},
-        "source": {"oneOf": [
-          {"const": "local"},
-          {"const": "remote"}
-        ]}
-      },
-      "required": ["query", "source"],
-      "additionalProperties": false
-    }`)),
+    agentcli.ToolSchema(agentcli.InputSchema{
+        Type: "object",
+        Properties: map[string]agentcli.InputSchema{
+            "query": {Type: "string", MinLength: json.Number("1")},
+            "source": {OneOf: []agentcli.InputSchema{
+                {Const: json.RawMessage(`"local"`)},
+                {Const: json.RawMessage(`"remote"`)},
+            }},
+        },
+        Required: []string{"query", "source"},
+        AdditionalProperties: agentcli.AdditionalPropertiesBool(false),
+    }),
 )
 ```
 
 The override must itself declare `type: object`. Typed decoding still happens,
 so the schema and Go input type must describe compatible JSON.
 
+`InputSchema` includes the scalar, object, array, composition, reference, and
+annotation keywords accepted by OpenAI-compatible function tools. Exact JSON
+values such as `const`, `enum`, and `default` use `json.RawMessage`; numeric
+constraints use `json.Number` so their precision is retained. For a vendor
+extension or future keyword outside that vocabulary, use
+`agentcli.RawCustomToolSchema`; it validates a raw object schema at startup.

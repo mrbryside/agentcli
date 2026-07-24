@@ -8,7 +8,7 @@ import (
 
 func TestSubagentOutcomeToolValidatesSemanticCompletion(t *testing.T) {
 	tool := NewSubagentOutcomeTool()
-	if tool.Definition.Name != SubagentOutcomeToolName || tool.Handler == nil || !json.Valid(tool.Definition.InputSchema) {
+	if tool.Definition.Name != SubagentOutcomeToolName || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
 		t.Fatalf("invalid outcome tool: %#v", tool.Definition)
 	}
 	for _, test := range []struct {

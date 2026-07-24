@@ -37,7 +37,7 @@ func NewSubagentOutcomeTool() Tool {
 		Definition: agentruntime.ToolDefinition{
 			Name:        SubagentOutcomeToolName,
 			Description: "Report whether the delegated task is truly complete before writing the final answer. Use completed only when all required work is resolved. Use incomplete when blocked, waiting for information, partially done, or when a required next step remains. If unsure, use incomplete.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["completed","incomplete"]},"summary":{"type":"string","description":"Concise outcome for the parent"},"next_step":{"type":"string","description":"Required follow-up when incomplete"}},"required":["status","summary"],"additionalProperties":false}`),
+			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"status":{"type":"string","enum":["completed","incomplete"]},"summary":{"type":"string","description":"Concise outcome for the parent"},"next_step":{"type":"string","description":"Required follow-up when incomplete"}},"required":["status","summary"],"additionalProperties":false}`),
 		},
 		Handler: func(_ context.Context, arguments json.RawMessage) (json.RawMessage, error) {
 			outcome, err := ParseSubagentOutcome(arguments)

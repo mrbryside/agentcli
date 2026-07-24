@@ -334,7 +334,7 @@ func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *t
 			WithMessageStorage(agent.messages),
 			WithTool(toolexecution.Tool{
 				Definition: agentruntime.ToolDefinition{
-					Name: "domain_action", InputSchema: json.RawMessage(`{"type":"object"}`),
+					Name: "domain_action", InputSchema: agentruntime.ToolSchema{Type: "object"},
 				},
 				Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 					domainMu.Lock()

@@ -169,9 +169,13 @@ func (r *Registry) permissionFor(name string, arguments json.RawMessage, policy 
 	return description, err, true
 }
 
-func validateInputSchema(schema json.RawMessage) error {
+func validateInputSchema(schema agentruntime.ToolSchema) error {
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("must be valid JSON Schema: %w", err)
+	}
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal(schema, &object); err != nil {
+	if err := json.Unmarshal(encoded, &object); err != nil {
 		return fmt.Errorf("must be valid JSON: %w", err)
 	}
 	if object == nil {
@@ -191,9 +195,14 @@ func validateInputSchema(schema json.RawMessage) error {
 
 func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDefinition {
 	clone := definition
-	if definition.InputSchema != nil {
-		clone.InputSchema = make(json.RawMessage, len(definition.InputSchema))
-		copy(clone.InputSchema, definition.InputSchema)
-	}
+	clone.InputSchema = definition.InputSchema.Clone()
 	return clone
+}
+
+func mustRawToolSchema(raw string) agentruntime.ToolSchema {
+	schema, err := agentruntime.RawToolSchema(json.RawMessage(raw))
+	if err != nil {
+		panic(fmt.Sprintf("invalid framework tool schema: %v", err))
+	}
+	return schema
 }

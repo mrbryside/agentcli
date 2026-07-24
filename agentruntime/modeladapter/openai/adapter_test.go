@@ -49,7 +49,12 @@ func TestAdapterConvertsMessagesToolsAndDelegates(t *testing.T) {
 		Tools: []agentruntime.ToolDefinition{{
 			Name:        "weather",
 			Description: "Looks up weather",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+			InputSchema: agentruntime.ToolSchema{
+				Type: "object",
+				Properties: map[string]agentruntime.ToolSchema{
+					"city": {Type: "string"},
+				},
+			},
 		}},
 	})
 	if err != nil {
@@ -136,9 +141,9 @@ func TestAdapterRejectsMalformedInputsBeforeProvider(t *testing.T) {
 			}}},
 		},
 		{
-			name: "tool schema",
+			name: "invalid tool schema",
 			request: agentruntime.ModelRequest{Tools: []agentruntime.ToolDefinition{{
-				Name: "weather", InputSchema: json.RawMessage("not-json"),
+				Name: "weather", InputSchema: agentruntime.ToolSchema{Type: "object", Types: []string{"object"}},
 			}}},
 		},
 	}

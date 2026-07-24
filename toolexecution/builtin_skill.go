@@ -95,7 +95,7 @@ func (loader *SkillLoader) Tool() Tool {
 		Definition: agentruntime.ToolDefinition{
 			Name:        SkillLoaderToolName,
 			Description: "Load full instructions only when applying a relevant selected skill or explicitly inspecting its instructions. Do not call this tool to list available skills or for other discovery-only requests. Never use a skill as a substitute for a missing capability or tool. If it returns already_loaded, continue the task and never call load_skill again in the same turn.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"Exact skill name from available_skills"}},"required":["name"],"additionalProperties":false}`),
+			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"name":{"type":"string","description":"Exact skill name from available_skills"}},"required":["name"],"additionalProperties":false}`),
 		},
 		Handler: loader.handle,
 	}

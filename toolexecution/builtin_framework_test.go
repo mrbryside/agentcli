@@ -14,7 +14,7 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		Name: "testing-go", Description: "Use when testing Go.", Instructions: "Run the Go tests.",
 	}}, inmemory.NewMessageStorage(), DefaultSkillReloadPolicy())
 	tool := loader.Tool()
-	if tool.Definition.Name != SkillLoaderToolName || tool.Handler == nil || !json.Valid(tool.Definition.InputSchema) {
+	if tool.Definition.Name != SkillLoaderToolName || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
 		t.Fatalf("invalid skill built-in: %#v", tool.Definition)
 	}
 	ctx := WithInvocation(context.Background(), Invocation{
@@ -40,25 +40,26 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	}
 	seen := make(map[string]bool, len(tools))
 	for _, tool := range tools {
-		if !IsSubagentToolName(tool.Definition.Name) || tool.Handler == nil || !json.Valid(tool.Definition.InputSchema) {
+		if !IsSubagentToolName(tool.Definition.Name) || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
 			t.Fatalf("invalid subagent built-in %q", tool.Definition.Name)
 		}
 		if tool.Definition.Name == StartSubagentToolName && !strings.Contains(tool.Definition.Description, "Do not use this tool for simple answers") {
 			t.Fatalf("start_subagent does not discourage unnecessary delegation: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(string(tool.Definition.InputSchema), `"background"`)) {
+		schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(schema, `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName) && tool.TurnBehavior != EndTurn {
 			t.Fatalf("subagent controlled tool %q turn behavior = %q, want end_turn", tool.Definition.Name, tool.TurnBehavior)
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName {
-			if !strings.Contains(tool.Definition.Description, "finish_turn defaults to true") || !strings.Contains(string(tool.Definition.InputSchema), `"finish_turn"`) || !strings.Contains(string(tool.Definition.InputSchema), `"default":true`) {
+			if !strings.Contains(tool.Definition.Description, "finish_turn defaults to true") || !strings.Contains(schema, `"finish_turn"`) || !strings.Contains(schema, `"default":true`) {
 				t.Fatalf("subagent controlled tool %q does not explain finish_turn: %#v", tool.Definition.Name, tool.Definition)
 			}
 		}
 		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(string(tool.Definition.InputSchema), `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("close_subagent must always continue without finish_turn: %#v", tool)
 			}
 		}
@@ -68,7 +69,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && tool.Definition.Name != ForceCloseSubagentToolName && tool.TurnBehavior != ContinueTurn {
 			t.Fatalf("subagent management tool %q turn behavior = %q, want continue", tool.Definition.Name, tool.TurnBehavior)
 		}
-		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(string(tool.Definition.InputSchema), `"new_instance"`)) {
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == ListSubagentsToolName && (!strings.Contains(tool.Definition.Description, "explicit discovery") || !strings.Contains(tool.Definition.Description, "never use it as a polling loop")) {
@@ -88,8 +89,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				t.Fatalf("force_close_subagent safety contract = %#v", tool)
 			}
 		}
-		if strings.Contains(string(tool.Definition.InputSchema), `"type":"string"`) && !strings.Contains(string(tool.Definition.InputSchema), `"minLength":1`) {
-			t.Fatalf("subagent tool %q has an unconstrained string schema: %s", tool.Definition.Name, tool.Definition.InputSchema)
+		schema = string(marshaledToolSchema(t, tool.Definition.InputSchema))
+		if strings.Contains(schema, `"type":"string"`) && !strings.Contains(schema, `"minLength":1`) {
+			t.Fatalf("subagent tool %q has an unconstrained string schema: %s", tool.Definition.Name, schema)
 		}
 		seen[tool.Definition.Name] = true
 	}

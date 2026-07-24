@@ -28,7 +28,7 @@ func ExampleRuntime() {
 		Definition: agentruntime.ToolDefinition{
 			Name:        "echo",
 			Description: "Returns its input.",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
+			InputSchema: agentruntime.ToolSchema{Type: "object"},
 		},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil

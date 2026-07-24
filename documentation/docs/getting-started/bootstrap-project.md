@@ -44,9 +44,11 @@ The installer never asks for, writes, or loads provider credentials.
 `${OPENAI_API_KEY}` in the generated configuration is resolved only from the
 process environment.
 
-The installer detects the local `go env GOVERSION` for `go.mod` and runs
-`go mod tidy` when Go is available. If Go is not installed yet, the module
-falls back to Go `1.26.3` and prints the commands to run later.
+The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
+available, it resolves `github.com/mrbryside/agentcli@main` and then runs
+`go mod tidy`, so the generated templates and library API always match the
+same main branch. If Go is not installed yet, the module falls back to Go
+`1.26.3` and prints the commands to run later.
 
 ## Replace provider and model placeholders
 
@@ -107,6 +109,11 @@ starts in `criticalOnly`, which allows low-risk requests unless an explicit
 policy rule says otherwise. When a subagent permission or confirmation needs a
 decision, the request is surfaced in the parent Terminal session; you do not
 need to open the child view.
+
+The generated tools use the public typed schema API: `agentcli.Tool`,
+`agentcli.ToolParameter`, and `agentcli.ObjectSchema`. Their handlers still
+receive raw JSON, so custom decoding remains straightforward without importing
+runtime implementation packages.
 
 ## Run the project
 

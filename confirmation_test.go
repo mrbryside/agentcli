@@ -188,7 +188,7 @@ func TestCustomToolConfirmationsAreCorrelatedAcrossParallelSessionsAndCancelledO
 
 func confirmationTool(executed func()) toolexecution.Tool {
 	return toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: "publish_report", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: agentruntime.ToolDefinition{Name: "publish_report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Confirmation: func(json.RawMessage) (confirmation.Description, error) {
 			return confirmation.Description{Title: "Publish report", Message: "Publish this report now?", Details: "Destination: production"}, nil
 		},

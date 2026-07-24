@@ -39,11 +39,15 @@ func TestNewCustomToolInfersSchemaAndTranslatesTypedValues(t *testing.T) {
 		Required             []string                  `json:"required"`
 		AdditionalProperties bool                      `json:"additionalProperties"`
 	}
-	if err := json.Unmarshal(tool.Definition.InputSchema, &schema); err != nil {
+	encodedSchema, err := json.Marshal(tool.Definition.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encodedSchema, &schema); err != nil {
 		t.Fatal(err)
 	}
 	if schema.Type != "object" || schema.AdditionalProperties || len(schema.Required) != 1 || schema.Required[0] != "topic" {
-		t.Fatalf("schema = %s", tool.Definition.InputSchema)
+		t.Fatalf("schema = %s", encodedSchema)
 	}
 	if schema.Properties["topic"]["description"] != "Topic to look up" || schema.Properties["topic"]["minLength"] != float64(1) || schema.Properties["limit"]["maximum"] != float64(20) {
 		t.Fatalf("properties = %#v", schema.Properties)
@@ -93,13 +97,14 @@ func TestNewCustomToolSupportsStaticPermissionAndSchemaOverride(t *testing.T) {
 	tool, err := NewCustomTool("map_tool", "Accepts a map.", func(_ context.Context, input map[string]string) (map[string]string, error) {
 		return input, nil
 	},
-		ToolSchema(json.RawMessage(`{"type":"object","properties":{"value":{"type":"string","pattern":"^[a-z]+$"}},"required":["value"],"additionalProperties":false}`)),
+		ToolSchema(agentruntime.ToolSchema{Type: "object", Properties: map[string]agentruntime.ToolSchema{"value": {Type: "string", Pattern: "^[a-z]+$"}}, Required: []string{"value"}, AdditionalProperties: agentruntime.AdditionalPropertiesBool(false)}),
 		StaticToolPermission(toolexecution.PermissionConfig{Actions: []permission.Action{permission.FilesystemRead}, Risk: permission.RiskLow, Reason: "Reads local data."}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(tool.Definition.InputSchema), `"pattern":"^[a-z]+$"`) || tool.Permission == nil {
+	encodedSchema, _ := json.Marshal(tool.Definition.InputSchema)
+	if !strings.Contains(string(encodedSchema), `"pattern":"^[a-z]+$"`) || tool.Permission == nil {
 		t.Fatalf("tool = %#v", tool)
 	}
 }
@@ -213,10 +218,10 @@ func TestNewCustomToolRejectsInvalidConfiguration(t *testing.T) {
 	if _, err := NewCustomTool("recursive", "", func(context.Context, recursive) (struct{}, error) { return struct{}{}, nil }); err == nil {
 		t.Fatal("recursive input accepted without override")
 	}
-	if _, err := NewCustomTool("recursive-with-schema", "", func(context.Context, recursive) (struct{}, error) { return struct{}{}, nil }, ToolSchema(json.RawMessage(`{"type":"object","properties":{"child":{"type":"object"}},"additionalProperties":false}`))); err != nil {
+	if _, err := NewCustomTool("recursive-with-schema", "", func(context.Context, recursive) (struct{}, error) { return struct{}{}, nil }, ToolSchema(agentruntime.ToolSchema{Type: "object", Properties: map[string]agentruntime.ToolSchema{"child": {Type: "object"}}, AdditionalProperties: agentruntime.AdditionalPropertiesBool(false)})); err != nil {
 		t.Fatalf("recursive input with schema override: %v", err)
 	}
-	if _, err := NewCustomTool("bad-schema", "", func(context.Context, customToolTestInput) (struct{}, error) { return struct{}{}, nil }, ToolSchema(json.RawMessage(`{"type":"array"}`))); err == nil {
+	if _, err := NewCustomTool("bad-schema", "", func(context.Context, customToolTestInput) (struct{}, error) { return struct{}{}, nil }, ToolSchema(agentruntime.ToolSchema{Type: "array"})); err == nil {
 		t.Fatal("non-object schema accepted")
 	}
 	if _, err := NewCustomTool("nil-option", "", func(context.Context, customToolTestInput) (struct{}, error) { return struct{}{}, nil }, nil); err == nil {

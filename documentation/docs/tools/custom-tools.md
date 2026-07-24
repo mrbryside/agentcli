@@ -9,6 +9,48 @@ Application tools are explicitly registered Go functions. Skills cannot create
 handlers, and project Markdown cannot enable an unregistered executable
 capability.
 
+## Low-level raw-handler API
+
+Use `WithTool` when you want to own JSON decoding but still want a typed,
+described schema. The public facade keeps this declaration in the `agentcli`
+package; the handler remains the familiar raw JSON handler.
+
+```go
+type readParameters struct {
+    Path   agentcli.ToolParameter
+    Offset agentcli.ToolParameter
+    Limit  agentcli.ToolParameter
+}
+
+readTool := agentcli.Tool{
+    Definition: agentcli.ToolDefinition{
+        Name: "read",
+        Description: "Read a project text file.",
+        InputSchema: agentcli.ObjectSchema(readParameters{
+            Path: agentcli.StringParameter("Project-relative path").Required().MinLength(1),
+            Offset: agentcli.IntegerParameter("First 1-based line").Minimum(1),
+            Limit: agentcli.IntegerParameter("Maximum lines").Minimum(1).Maximum(2000),
+        }),
+    },
+    Handler: func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+        // Decode and execute the application-specific operation.
+    },
+    Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
+        Actions: []agentcli.PermissionAction{agentcli.FilesystemRead},
+        Risk: agentcli.RiskLow,
+    }),
+}
+
+agent, err := agentcli.New(ctx, agentcli.WithTool(readTool))
+```
+
+`ToolParameter` carries the field description and required marker. Its
+`Schema` field accepts any `InputSchema` for advanced declarations; `Parameter`
+attaches a description to an existing schema. `ObjectSchema` uses `json` tags
+when supplied and otherwise turns exported field names into `lower_snake_case`.
+Use `TryObjectSchema` if a dynamically assembled declaration should return an
+error instead of panicking during initialization.
+
 ## Recommended typed API
 
 `WithCustomTool` removes raw schema, decode, and encode boilerplate:
@@ -189,20 +231,26 @@ with the option index.
 
 ## Advanced raw API
 
-`WithTool(toolexecution.Tool{...})` remains available for handlers that already
-operate on raw JSON or require an unusual schema:
+`WithTool(agentcli.Tool{...})` remains available for handlers that already
+operate on raw JSON or require an unusual schema. Use `RawInputSchema` only as
+an explicit escape hatch:
 
 ```go
-agentcli.WithTool(toolexecution.Tool{
-    Definition: agentruntime.ToolDefinition{
+schema, err := agentcli.RawInputSchema(json.RawMessage(`{"type":"object","x-vendor-rule":true}`))
+if err != nil {
+    return err
+}
+
+agentcli.WithTool(agentcli.Tool{
+    Definition: agentcli.ToolDefinition{
         Name:        "advanced_tool",
         Description: "An application-defined advanced tool.",
-        InputSchema: json.RawMessage(`{"type":"object"}`),
+        InputSchema: schema,
     },
     Handler: func(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
         return json.RawMessage(`{"ok":true}`), nil
     },
-    TurnBehavior: toolexecution.EndTurn,
+    TurnBehavior: agentcli.EndTurn,
 })
 ```
 

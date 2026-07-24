@@ -26,7 +26,7 @@ func TestIntegrationToolRoundTrip(t *testing.T) {
 	if err := registry.Register(toolexecution.Tool{
 		Definition: ToolDefinition{
 			Name: "weather", Description: "Look up the weather",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+			InputSchema: ToolSchema{Type: "object", Properties: map[string]ToolSchema{"city": {Type: "string"}}, Required: []string{"city"}},
 		},
 		Handler: func(_ context.Context, arguments json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"forecast":"sunny","city":"Bangkok"}`), nil
@@ -169,7 +169,7 @@ func TestIntegrationParallelSessions(t *testing.T) {
 	)
 	registry := toolexecution.NewRegistry()
 	err := registry.Register(toolexecution.Tool{
-		Definition: ToolDefinition{Name: "parallel", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: ToolDefinition{Name: "parallel", InputSchema: ToolSchema{Type: "object"}},
 		Handler: func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 			if err := handlerGate.Block(ctx); err != nil {
 				return nil, err
@@ -345,7 +345,7 @@ func TestIntegrationFailurePaths(t *testing.T) {
 		)
 		registry := toolexecution.NewRegistry()
 		err := registry.Register(toolexecution.Tool{
-			Definition: ToolDefinition{Name: "fail", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			Definition: ToolDefinition{Name: "fail", InputSchema: ToolSchema{Type: "object"}},
 			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return nil, errors.New("handler failed")
 			},
@@ -549,7 +549,7 @@ func collectIntegrationRunEvents(t testing.TB, run *Run) []AgentEvent {
 func registerBarrierTool(t testing.TB, registry *toolexecution.Registry, name string, barrier *integrationBarrier, output string) {
 	t.Helper()
 	err := registry.Register(toolexecution.Tool{
-		Definition: ToolDefinition{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)},
+		Definition: ToolDefinition{Name: name, InputSchema: ToolSchema{Type: "object"}},
 		Handler: func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
 			if err := barrier.Block(ctx); err != nil {
 				return nil, err

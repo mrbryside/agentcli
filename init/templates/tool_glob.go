@@ -11,9 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mrbryside/agentcli/agentruntime"
-	"github.com/mrbryside/agentcli/permission"
-	"github.com/mrbryside/agentcli/toolexecution"
+	"github.com/mrbryside/agentcli"
 )
 
 const (
@@ -21,17 +19,23 @@ const (
 	maximumGlobResults = 500
 )
 
-func newGlobTool(root string) toolexecution.Tool {
+func newGlobTool(root string) agentcli.Tool {
 	scope := mustProjectToolScope(root)
-	return toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{
+	return agentcli.Tool{
+		Definition: agentcli.ToolDefinition{
 			Name:        "glob",
 			Description: "Find project files using a relative glob pattern. Supports ** for recursive matching. Results are capped at 500 files; request a narrower pattern when truncated. Never follows directory symlinks and omits sensitive files.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Project-relative glob such as **/*.go"},"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum paths to return; defaults to 100"}},"required":["pattern"],"additionalProperties":false}`),
+			InputSchema: agentcli.ObjectSchema(struct {
+				Pattern    agentcli.ToolParameter
+				MaxResults agentcli.ToolParameter
+			}{
+				Pattern:    agentcli.StringParameter("Project-relative glob such as **/*.go").Required().MinLength(1),
+				MaxResults: agentcli.IntegerParameter("Maximum paths to return; defaults to 100").Minimum(1).Maximum(500),
+			}),
 		},
 		Handler: scope.glob,
-		Permission: toolexecution.StaticPermission(toolexecution.PermissionConfig{
-			Actions: []permission.Action{permission.FilesystemRead}, Risk: permission.RiskLow,
+		Permission: agentcli.ToolStaticPermission(agentcli.ToolPermissionConfig{
+			Actions: []agentcli.PermissionAction{agentcli.FilesystemRead}, Risk: agentcli.RiskLow,
 			Reason: "Searches file names only within the configured project root.",
 		}),
 	}

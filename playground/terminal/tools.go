@@ -69,7 +69,7 @@ func newGlobTool(root string) toolexecution.Tool {
 		Definition: agentruntime.ToolDefinition{
 			Name:        "glob",
 			Description: "Find files inside the current project using a relative glob pattern. Supports ** for recursive directory matching. Returns project-relative paths, never follows directory symlinks, and omits credential, environment, and private-key files.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Project-relative pattern such as **/*.go or agentcli/*.go"},"max_results":{"type":"integer","minimum":1,"maximum":1000}},"required":["pattern"],"additionalProperties":false}`),
+			InputSchema: agentruntime.ToolSchema{Type: "object", Properties: map[string]agentruntime.ToolSchema{"pattern": {Type: "string", Description: "Project-relative pattern such as **/*.go or agentcli/*.go"}, "max_results": {Type: "integer", Minimum: json.Number("1"), Maximum: json.Number("1000")}}, Required: []string{"pattern"}, AdditionalProperties: agentruntime.AdditionalPropertiesBool(false)},
 		},
 		Handler: scope.glob,
 		Permission: toolexecution.StaticPermission(toolexecution.PermissionConfig{
@@ -85,7 +85,7 @@ func newReadTool(root string) toolexecution.Tool {
 		Definition: agentruntime.ToolDefinition{
 			Name:        "read",
 			Description: "Read a UTF-8 text file inside the current project. Use offset and limit to retrieve large files in bounded line ranges. Paths and symlinks resolving outside the project are rejected. Credential, environment, and private-key files are denied before content is read.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Project-relative file path"},"offset":{"type":"integer","minimum":1,"description":"First 1-based line to return"},"limit":{"type":"integer","minimum":1,"maximum":2000,"description":"Maximum lines to return"}},"required":["path"],"additionalProperties":false}`),
+			InputSchema: agentruntime.ToolSchema{Type: "object", Properties: map[string]agentruntime.ToolSchema{"path": {Type: "string", Description: "Project-relative file path"}, "offset": {Type: "integer", Minimum: json.Number("1"), Description: "First 1-based line to return"}, "limit": {Type: "integer", Minimum: json.Number("1"), Maximum: json.Number("2000"), Description: "Maximum lines to return"}}, Required: []string{"path"}, AdditionalProperties: agentruntime.AdditionalPropertiesBool(false)},
 		},
 		Handler: scope.read,
 		Permission: toolexecution.StaticPermission(toolexecution.PermissionConfig{
