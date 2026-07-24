@@ -25,10 +25,12 @@ import "github.com/mrbryside/agentcli"
 ### Scaffold a terminal agent project
 
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
-project with an example skill and researcher subagent. Both receive bounded
-`glob` and `read` tools. `read` returns at most 2,000 lines and a
-`next_offset` when more content remains. Their source is generated separately
-as `tool_read.go` and `tool_glob.go`. The installer asks for the project folder
+project with an example skill and researcher subagent. The main agent receives
+bounded `glob`, `read`, and double-gated exact-match `edit` tools, plus the
+network-free `report_discord` finalizer; the researcher stays read-only with
+`glob` and `read`. `read` returns at most 2,000 lines and a `next_offset` when
+more content remains. Their source is generated separately as `tool_read.go`,
+`tool_glob.go`, `tool_edit.go`, and `tool_report_discord.go`. The installer asks for the project folder
 name and then the Go module path used in `go.mod`. It detects the installed Go
 version for that file, falling back to `1.26.3` when Go is not installed.
 Generated projects start in `criticalOnly` permission mode and read provider
@@ -44,7 +46,7 @@ is only needed at this point:
 
 ```sh
 cd my-agent
-export OPENAI_API_KEY='replace-with-a-real-key'
+export API_KEY='replace-with-a-real-key'
 go run .
 ```
 
@@ -59,7 +61,7 @@ providers:
   primary:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 ```
 
@@ -98,7 +100,10 @@ if err != nil {
 defer agent.Close()
 ```
 
-Applications can add typed executable tools with `agentcli.WithCustomTool`.
+Applications register raw executable tools with `agentcli.WithTool`. Provide an
+explicit `agentcli.ObjectSchema` (or another `agentcli.InputSchema`) and a
+`func(context.Context, json.RawMessage) (json.RawMessage, error)` handler;
+`agentcli.DecodeArguments` supplies strict object decoding inside the handler.
 Project files only select which registered tools each agent may use.
 
 ## Run the terminal playground

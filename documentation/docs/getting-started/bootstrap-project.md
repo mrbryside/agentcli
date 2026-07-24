@@ -29,8 +29,10 @@ The starter contains:
 my-agent/
 ├── go.mod
 ├── main.go
+├── tool_edit.go
 ├── tool_glob.go
 ├── tool_read.go
+├── tool_report_discord.go
 └── .agentcli/
     ├── config.yaml
     ├── MAIN.md
@@ -97,14 +99,24 @@ model: your-model-name
 
 ## Starter tools
 
-The main agent and sample researcher both select `glob` and `read`:
+The main agent selects `glob`, `read`, `edit`, and `report_discord`; the sample
+researcher selects only `glob` and `read`:
 
 - `glob` searches only below the project root, supports recursive `**`,
   excludes sensitive paths, defaults to 100 matches, and returns at most 500.
 - `read` returns UTF-8 text only, excludes sensitive paths, reads at most 2,000
   lines and 256 KiB per call, and returns `next_offset` when more lines remain.
+- `edit` replaces exactly one occurrence of `old_string` with `new_string` in
+  an existing UTF-8 file. It rejects missing or ambiguous matches, symlinks,
+  sensitive paths, and writes outside the project. Each call requires high-risk
+  `filesystem.write` permission and a separate confirmation; the researcher is
+  not allowed to use it.
+- `report_discord` is a deterministic mock finalizer. The main agent calls it
+  exactly once as the standalone final action with the complete user-facing
+  response; it performs no network I/O and is not available to the researcher.
 
-Both tools declare low-risk filesystem-read permission. The generated project
+Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
+atomic replacement after both gates succeed. The generated project
 starts in `criticalOnly`, which allows low-risk requests unless an explicit
 policy rule says otherwise. When a subagent permission or confirmation needs a
 decision, the request is surfaced in the parent Terminal session; you do not

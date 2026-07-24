@@ -46,7 +46,7 @@ func (scope projectToolScope) glob(ctx context.Context, arguments json.RawMessag
 		Pattern    string `json:"pattern"`
 		MaxResults int    `json:"max_results"`
 	}
-	if err := decodeArguments(arguments, &input); err != nil {
+	if err := agentcli.DecodeArguments(arguments, &input); err != nil {
 		return nil, err
 	}
 	pattern, err := validateGlob(input.Pattern)

@@ -2,18 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
 	"github.com/mrbryside/agentcli"
-	"github.com/mrbryside/agentcli/confirmation"
-	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 const maximumConfirmationDemoActionLength = 240
 
 type confirmationDemoInput struct {
-	Action string `json:"action" description:"Short description of the harmless mock action to show to the user" minLength:"1" maxLength:"240"`
+	Action string `json:"action"`
 }
 
 type confirmationDemoOutput struct {
@@ -27,49 +26,65 @@ type confirmationDemoOutput struct {
 // Yes/No gate. Its handler never mutates external state; it runs only after the
 // runtime receives a correlated Yes decision.
 func withConfirmationDemoTool() agentcli.Option {
-	return agentcli.WithCustomTool(
-		"confirm_demo",
-		"Demonstrate a Yes/No confirmation before a harmless mock action. Use only when the user explicitly asks to test or demonstrate confirmation.",
-		executeConfirmationDemo,
-		agentcli.ToolConfirmation(describeConfirmationDemo),
-	)
+	return agentcli.WithTool(newConfirmationDemoTool())
 }
 
-func newConfirmationDemoTool() (toolexecution.Tool, error) {
-	return agentcli.NewCustomTool(
-		"confirm_demo",
-		"Demonstrate a Yes/No confirmation before a harmless mock action. Use only when the user explicitly asks to test or demonstrate confirmation.",
-		executeConfirmationDemo,
-		agentcli.ToolConfirmation(describeConfirmationDemo),
-	)
-}
-
-func describeConfirmationDemo(input confirmationDemoInput) (confirmation.Description, error) {
-	input, err := normalizeConfirmationDemoInput(input)
-	if err != nil {
-		return confirmation.Description{}, err
+func newConfirmationDemoTool() agentcli.Tool {
+	return agentcli.Tool{
+		Definition: agentcli.ToolDefinition{
+			Name:        "confirm_demo",
+			Description: "Demonstrate a Yes/No confirmation before a harmless mock action. Use only when the user explicitly asks to test or demonstrate confirmation.",
+			InputSchema: agentcli.ObjectSchema(struct{ Action agentcli.ToolParameter }{
+				Action: agentcli.StringParameter("Short description of the harmless mock action to show to the user").Required().MinLength(1).MaxLength(maximumConfirmationDemoActionLength),
+			}),
+		},
+		Handler:      executeConfirmationDemo,
+		Confirmation: describeConfirmationDemo,
 	}
-	return confirmation.Description{
+}
+
+func describeConfirmationDemo(arguments json.RawMessage) (agentcli.ToolConfirmationDescription, error) {
+	input, err := decodeConfirmationDemo(arguments)
+	if err != nil {
+		return agentcli.ToolConfirmationDescription{}, err
+	}
+	input, err = normalizeConfirmationDemoInput(input)
+	if err != nil {
+		return agentcli.ToolConfirmationDescription{}, err
+	}
+	return agentcli.ToolConfirmationDescription{
 		Title:   "Confirm mock action",
 		Message: "Run this harmless mock action?",
 		Details: "Action: " + input.Action,
 	}, nil
 }
 
-func executeConfirmationDemo(ctx context.Context, input confirmationDemoInput) (confirmationDemoOutput, error) {
+func executeConfirmationDemo(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
 	if err := ctx.Err(); err != nil {
-		return confirmationDemoOutput{}, err
+		return nil, err
 	}
-	input, err := normalizeConfirmationDemoInput(input)
+	input, err := decodeConfirmationDemo(arguments)
 	if err != nil {
-		return confirmationDemoOutput{}, err
+		return nil, err
 	}
-	return confirmationDemoOutput{
+	input, err = normalizeConfirmationDemoInput(input)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(confirmationDemoOutput{
 		Status:               "completed",
 		Action:               input.Action,
 		ChangedExternalState: false,
 		Message:              "Mock action completed; no external state changed.",
-	}, nil
+	})
+}
+
+func decodeConfirmationDemo(arguments json.RawMessage) (confirmationDemoInput, error) {
+	var input confirmationDemoInput
+	if err := agentcli.DecodeArguments(arguments, &input); err != nil {
+		return confirmationDemoInput{}, err
+	}
+	return input, nil
 }
 
 func normalizeConfirmationDemoInput(input confirmationDemoInput) (confirmationDemoInput, error) {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +71,7 @@ func (scope projectToolScope) read(ctx context.Context, arguments json.RawMessag
 		Offset int    `json:"offset"`
 		Limit  int    `json:"limit"`
 	}
-	if err := decodeArguments(arguments, &input); err != nil {
+	if err := agentcli.DecodeArguments(arguments, &input); err != nil {
 		return nil, err
 	}
 	offset := input.Offset
@@ -172,22 +171,6 @@ func (scope projectToolScope) resolveFile(name string) (string, string, error) {
 		return "", "", fmt.Errorf("path %q is not a regular file", name)
 	}
 	return resolved, filepath.ToSlash(relative), nil
-}
-
-func decodeArguments(arguments json.RawMessage, target any) error {
-	decoder := json.NewDecoder(strings.NewReader(string(arguments)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("decode tool arguments: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("decode tool arguments: multiple JSON values")
-		}
-		return fmt.Errorf("decode tool arguments: %w", err)
-	}
-	return nil
 }
 
 func isSensitiveProjectPath(name string) bool {

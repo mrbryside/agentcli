@@ -8,10 +8,7 @@ import (
 )
 
 func TestConfirmationDemoToolDescribesAndExecutesHarmlessAction(t *testing.T) {
-	tool, err := newConfirmationDemoTool()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tool := newConfirmationDemoTool()
 	if tool.Definition.Name != "confirm_demo" || tool.Confirmation == nil || tool.Handler == nil {
 		t.Fatalf("invalid demo tool: %#v", tool)
 	}
@@ -47,10 +44,7 @@ func TestConfirmationDemoToolDescribesAndExecutesHarmlessAction(t *testing.T) {
 }
 
 func TestConfirmationDemoToolRejectsUnsafeDisplayInput(t *testing.T) {
-	tool, err := newConfirmationDemoTool()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tool := newConfirmationDemoTool()
 	tests := []json.RawMessage{
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"action":"   "}`),
@@ -68,10 +62,7 @@ func TestConfirmationDemoToolRejectsUnsafeDisplayInput(t *testing.T) {
 }
 
 func TestConfirmationDemoToolHonorsCancelledContext(t *testing.T) {
-	tool, err := newConfirmationDemoTool()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tool := newConfirmationDemoTool()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := tool.Handler(ctx, json.RawMessage(`{"action":"mock action"}`)); err == nil {

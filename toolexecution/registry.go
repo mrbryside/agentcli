@@ -89,6 +89,9 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.TurnBehavior != ContinueTurn && tool.TurnBehavior != EndTurn {
 		return fmt.Errorf("tool %q has unsupported turn behavior %q", tool.Definition.Name, tool.TurnBehavior)
 	}
+	if tool.RequiredAtTurnEnd && tool.TurnBehavior != EndTurn {
+		return fmt.Errorf("tool %q required at turn end must use end turn behavior", tool.Definition.Name)
+	}
 	if err := validateInputSchema(tool.Definition.InputSchema); err != nil {
 		return fmt.Errorf("tool %q input schema: %w", tool.Definition.Name, err)
 	}

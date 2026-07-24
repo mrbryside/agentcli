@@ -27,14 +27,26 @@ OpenAI-compatible provider under the explicit placeholder alias
 those identities when targeting a real provider/model. The starter includes
 `MAIN.md`, an interview skill, and a researcher subagent.
 
-`init/templates/tool_read.go` and `init/templates/tool_glob.go` are downloaded
-separately and become `tool_read.go` and `tool_glob.go` in the generated
-module. Tests may override their source URLs with
-`AGENTCLI_TOOL_READ_URL` and `AGENTCLI_TOOL_GLOB_URL`.
+`init/templates/tool_read.go`, `init/templates/tool_glob.go`,
+`init/templates/tool_edit.go`, and `init/templates/tool_report_discord.go` are
+downloaded separately and become the matching files in the generated module.
+Tests may override their source URLs with `AGENTCLI_TOOL_READ_URL`,
+`AGENTCLI_TOOL_GLOB_URL`, `AGENTCLI_TOOL_EDIT_URL`, and
+`AGENTCLI_TOOL_REPORT_DISCORD_URL`.
 
 Both templates must use the public root facade (`agentcli.Tool`,
 `ToolDefinition`, `ToolParameter`, and `ObjectSchema`) rather than raw JSON
 schemas or internal-package imports.
+
+The generated edit tool performs one exact `old_string` to `new_string`
+replacement in an existing bounded UTF-8 file. It rejects zero or ambiguous
+matches, symlinks, sensitive paths, and concurrent changes. Its dynamic
+`filesystem.write`/high-risk permission is published before its separate
+invocation confirmation; the researcher allowlist remains read-only.
+
+The generated `report_discord` tool is a deterministic, network-free mock. It
+is allowlisted only for the main agent and must be called exactly once as the
+standalone final action of each turn with the complete user-facing response.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per
@@ -48,7 +60,7 @@ answer.
 When changing the installer, run `sh -n init/install.sh`, execute it in a real
 PTY against a temporary directory, inspect every generated agent/provider
 reference, then run `go mod tidy` and `go test ./...` inside the generated
-module. Keep the two template files independently downloadable because the
+module. Keep all four template files independently downloadable because the
 installer fetches each raw GitHub URL directly.
 
 Back to [development/index.md](index.md).

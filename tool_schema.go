@@ -8,12 +8,13 @@ import (
 	"unicode"
 
 	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/confirmation"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-// Tool is the low-level custom-tool declaration. It is an alias so callers
-// can register a raw JSON handler without importing an internal package.
+// Tool is the application-defined tool declaration registered with WithTool.
+// Callers provide an explicit object schema and a raw JSON handler.
 type Tool = toolexecution.Tool
 
 // ToolDefinition describes a callable tool.
@@ -21,6 +22,13 @@ type ToolDefinition = agentruntime.ToolDefinition
 
 // ToolPermissionConfig describes a fixed permission requirement for a tool.
 type ToolPermissionConfig = toolexecution.PermissionConfig
+
+// ToolPermissionDescriptor and ToolConfirmationDescriptor are the callback
+// types accepted by Tool for dynamic admission metadata.
+type ToolPermissionDescriptor = toolexecution.PermissionDescriptor
+type ToolConfirmationDescriptor = toolexecution.ConfirmationDescriptor
+type ToolPermissionDescription = permission.Description
+type ToolConfirmationDescription = confirmation.Description
 
 // PermissionAction and PermissionRisk are the capability and risk values used
 // by ToolPermissionConfig.
@@ -38,12 +46,16 @@ const (
 	RiskHigh        = permission.RiskHigh
 )
 
-// ToolStaticPermission creates the fixed permission descriptor used by a
-// low-level Tool declaration. StaticToolPermission remains the CustomTool
-// option with the same name.
+// ToolStaticPermission creates the fixed permission descriptor used by a Tool.
 func ToolStaticPermission(config ToolPermissionConfig) toolexecution.PermissionDescriptor {
 	return toolexecution.StaticPermission(config)
 }
+
+// ContinueTurn stores a successful result and asks the provider to continue.
+const ContinueTurn = toolexecution.ContinueTurn
+
+// EndTurn stores a successful result and completes the current turn.
+const EndTurn = toolexecution.EndTurn
 
 // InputSchema is the complete typed JSON Schema vocabulary for tool input.
 // Use it directly for advanced schemas and ObjectSchema with ToolParameter for

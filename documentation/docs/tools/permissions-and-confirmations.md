@@ -126,6 +126,14 @@ implementation survives late answers within the process, but not restarts.
 
 ## Add confirmation
 
+Generated starter edits demonstrate both gates together: `edit` declares a
+dynamic high-risk `filesystem.write` permission and an invocation-specific
+confirmation. In the default `criticalOnly` project, permission is published
+first; only an allowed request produces the confirmation. A session/project
+permission grant can suppress a later permission question, but every edit call
+still asks for confirmation. Denial or confirmation No leaves the file
+unchanged.
+
 ```go
 agentcli.ToolConfirmation(func(input deployInput) (confirmation.Description, error) {
     return confirmation.Description{

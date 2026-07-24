@@ -37,6 +37,13 @@ modify the original project file unless another operation copies, renames, or
 uses that temporary artifact. Temp access is useful for compilation and
 intermediate artifacts, but it is still host access and needs quotas and cleanup.
 
+The generated `edit` tool is intentionally narrower than a general file
+writer. It requires an existing regular file, rejects symlinks and protected
+paths, matches one exact `old_string` occurrence, and refuses zero or ambiguous
+matches. It checks the file snapshot again before an atomic same-directory
+rename, so it does not silently overwrite a concurrent change. The handler
+never uses remove-then-rename and preserves ordinary permission bits.
+
 ## Shell tools
 
 If an application provides shell execution:

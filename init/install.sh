@@ -20,9 +20,13 @@ target=$folder
 
 tool_read_url=${AGENTCLI_TOOL_READ_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_read.go}
 tool_glob_url=${AGENTCLI_TOOL_GLOB_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_glob.go}
+tool_edit_url=${AGENTCLI_TOOL_EDIT_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_edit.go}
+tool_report_discord_url=${AGENTCLI_TOOL_REPORT_DISCORD_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_report_discord.go}
 temporary_tool_read=$(mktemp)
 temporary_tool_glob=$(mktemp)
-trap 'rm -f "$temporary_tool_read" "$temporary_tool_glob"' 0 1 2 3 15
+temporary_tool_edit=$(mktemp)
+temporary_tool_report_discord=$(mktemp)
+trap 'rm -f "$temporary_tool_read" "$temporary_tool_glob" "$temporary_tool_edit" "$temporary_tool_report_discord"' 0 1 2 3 15
 
 printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
 IFS= read -r module </dev/tty || fail 'could not read the Go module path'
@@ -47,10 +51,14 @@ fi
 
 curl -fsSL "$tool_read_url" >"$temporary_tool_read" || fail 'could not download the starter read tool'
 curl -fsSL "$tool_glob_url" >"$temporary_tool_glob" || fail 'could not download the starter glob tool'
+curl -fsSL "$tool_edit_url" >"$temporary_tool_edit" || fail 'could not download the starter edit tool'
+curl -fsSL "$tool_report_discord_url" >"$temporary_tool_report_discord" || fail 'could not download the starter report_discord tool'
 
 mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
 mv "$temporary_tool_read" "$target/tool_read.go"
 mv "$temporary_tool_glob" "$target/tool_glob.go"
+mv "$temporary_tool_edit" "$target/tool_edit.go"
+mv "$temporary_tool_report_discord" "$target/tool_report_discord.go"
 
 cat >"$target/go.mod" <<EOF
 module $module
@@ -98,6 +106,8 @@ func run() (runErr error) {
 		agentcli.WithNonInteractive(false),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
+		agentcli.WithTool(newEditTool(projectRoot)),
+		agentcli.WithTool(newReportDiscordTool()),
 	)
 	if err != nil {
 		return fmt.Errorf("create agent CLI: %w", err)
@@ -117,10 +127,17 @@ skills:
 tools:
   - glob
   - read
+  - edit
+  - report_discord
 ---
 
-Understand the requested outcome, use the available capabilities deliberately,
-and give the user a clear, self-contained result.
+Understand the requested outcome and use the available capabilities deliberately.
+
+At the end of every turn, call `report_discord` exactly once with your complete
+user-facing response. Finish all `glob`, `read`, and `edit` work first, consume
+their results, and then call `report_discord` as a standalone final action.
+Never batch it with another tool. It is a deterministic mock and does not
+contact Discord or any network service.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'

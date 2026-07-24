@@ -90,6 +90,7 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
+		{name: "required finalizer must end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredAtTurnEnd: true}},
 		{name: "array schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "array", InputSchema: agentruntime.ToolSchema{Type: "array"}}, Handler: testHandler}},
 		{name: "non-object type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "string", InputSchema: agentruntime.ToolSchema{Type: "string"}}, Handler: testHandler}},
 		{name: "missing type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "type", InputSchema: agentruntime.ToolSchema{Properties: map[string]agentruntime.ToolSchema{}}}, Handler: testHandler}},

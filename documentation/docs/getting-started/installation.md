@@ -49,7 +49,10 @@ curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/instal
 The installer prompts only for the target folder and Go module path. It never
 requests or persists provider credentials. It creates a Terminal application,
 project configuration, example skill, researcher subagent, and bounded
-`read`/`glob` tools. See
+`read`/`glob`/`edit` tools. The generated `edit` performs one exact unique
+replacement and requires both write permission and confirmation. The main
+agent also receives a network-free `report_discord` mock that is required once
+as the standalone final action of each turn. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout and the
 required `replace-provider` and `replace-model` substitutions.
 
