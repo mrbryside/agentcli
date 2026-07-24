@@ -38,7 +38,9 @@ esac
 [ ! -e "$target" ] || fail "$target already exists; refusing to overwrite it"
 
 go_version=1.26.3
-agentcli_version=${AGENTCLI_VERSION:-main}
+# Use the newest published semver tag by default. AGENTCLI_VERSION remains
+# available for pinning a release or testing an unreleased branch.
+agentcli_version=${AGENTCLI_VERSION:-latest}
 go_available=false
 if command -v go >/dev/null 2>&1; then
   go_available=true
@@ -182,7 +184,7 @@ uncertainties, then give the parent a concise recommendation.
 EOF
 
 if [ "$go_available" = true ]; then
-	# Resolve the requested branch/tag directly so a lagging GOPROXY cannot
+	# Resolve the requested tag/branch directly so a lagging GOPROXY cannot
 	# silently install an older API without DecodeArguments.
 	(cd "$target" && GOPROXY=direct go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'

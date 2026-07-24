@@ -14,10 +14,10 @@ created.
 
 The installer detects `go env GOVERSION` and writes that version to `go.mod`;
 when Go is unavailable it falls back to `1.26.3`. With Go available it resolves
-`github.com/mrbryside/agentcli@main` directly from Git before `go mod tidy`,
-avoiding a lagging module proxy and ensuring separately downloaded tool
-templates match the installed API. `AGENTCLI_VERSION` is an optional
-test/maintenance override for that module query. Generated configuration references
+`github.com/mrbryside/agentcli@latest` directly from Git before `go mod tidy`,
+so the starter uses the newest published semver tag while avoiding a lagging
+module proxy. `AGENTCLI_VERSION` is an optional test/maintenance override for
+pinning a release or testing an unreleased branch. Generated configuration references
 `${API_KEY}`, which must be supplied through the process environment;
 generated code has no `.env` loader.
 
