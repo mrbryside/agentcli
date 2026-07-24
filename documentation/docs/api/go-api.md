@@ -57,6 +57,24 @@ Common options:
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |
 
+## Tool handler context
+
+Tool handlers receive invocation metadata through `context.Context`:
+
+```go
+invocation, ok := agentcli.ToolInvocationFromContext(ctx)
+```
+
+The returned `agentcli.ToolInvocation` includes `SessionID`, `TurnID`, `CallID`,
+and `ToolName`. The runtime attaches it automatically before execution.
+`WithToolInvocation` is provided for direct handler tests and adapters that
+invoke a handler outside the executor.
+
+The immutable admission policy is available with
+`agentcli.ToolPermissionPolicyFromContext(ctx)`. Handlers may inspect it for
+policy-aware behavior, but should not mutate it or treat it as a substitute for
+permission checks.
+
 ## Typed tool options
 
 ```go

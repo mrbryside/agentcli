@@ -51,6 +51,48 @@ when supplied and otherwise turns exported field names into `lower_snake_case`.
 Use `TryObjectSchema` if a dynamically assembled declaration should return an
 error instead of panicking during initialization.
 
+## Handler context
+
+Every tool handler receives a context containing the current invocation
+metadata. Read it through the public facade:
+
+```go
+invocation, ok := agentcli.ToolInvocationFromContext(ctx)
+if !ok {
+    return nil, errors.New("tool invocation context is unavailable")
+}
+
+fmt.Println(invocation.SessionID)
+fmt.Println(invocation.TurnID)
+fmt.Println(invocation.CallID)
+fmt.Println(invocation.ToolName)
+```
+
+`agentcli.ToolInvocation` contains:
+
+| Field | Meaning |
+| --- | --- |
+| `SessionID` | Session that owns the current run. |
+| `TurnID` | Current user/model turn. |
+| `CallID` | Unique provider tool-call ID for this invocation. |
+| `ToolName` | Registered name of the executing tool. |
+
+The executor attaches this context after admission and before invoking the
+handler. Treat these values as metadata, not user input. `WithToolInvocation`
+is available for direct handler tests and adapters; normal applications do not
+need to attach it themselves.
+
+The executor also attaches the immutable permission-policy snapshot used for
+admission:
+
+```go
+policy, ok := agentcli.ToolPermissionPolicyFromContext(ctx)
+```
+
+Use this only for policy-aware classification or diagnostics. Do not mutate it
+or use it as a replacement for authorization checks. Cancellation and deadline
+signals remain available through the standard `ctx.Done()` and `ctx.Err()` APIs.
+
 ## Recommended typed API
 
 `WithCustomTool` removes raw schema, decode, and encode boilerplate:

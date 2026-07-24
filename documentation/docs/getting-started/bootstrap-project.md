@@ -115,7 +115,9 @@ researcher selects only `glob` and `read`:
   not allowed to use it.
 - `report_discord` is a deterministic mock finalizer. The main agent calls it
   exactly once as the standalone final action with the complete user-facing
-  response; it performs no network I/O and is not available to the researcher.
+  response; it performs no network I/O, appends each payload to
+  `report/{session}.json`, and is not available to the researcher. The result
+  includes the session, turn, call, and relative log path.
 
 Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project

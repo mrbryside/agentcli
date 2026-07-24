@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.12
+agentcli_fallback_version=v0.0.13
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -115,7 +115,7 @@ func run() (runErr error) {
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
 		agentcli.WithTool(newEditTool(projectRoot)),
-		agentcli.WithTool(newReportDiscordTool()),
+		agentcli.WithTool(newReportDiscordTool(projectRoot)),
 	)
 	if err != nil {
 		return fmt.Errorf("create agent CLI: %w", err)

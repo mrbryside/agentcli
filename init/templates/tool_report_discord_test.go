@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,7 +12,7 @@ import (
 )
 
 func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
-	tool := newReportDiscordTool()
+	tool := newReportDiscordTool(t.TempDir())
 	if tool.Definition.Name != "report_discord" || tool.Handler == nil {
 		t.Fatalf("tool = %#v", tool)
 	}
@@ -35,12 +37,20 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 }
 
 func TestReportDiscordIsDeterministicAndDoesNotSend(t *testing.T) {
+	root := t.TempDir()
+	tool := newReportDiscordTool(root)
 	arguments := json.RawMessage(`{"message":"Build complete."}`)
-	first, err := reportDiscord(context.Background(), arguments)
+	ctx := agentcli.WithToolInvocation(context.Background(), agentcli.ToolInvocation{
+		SessionID: "session-log",
+		TurnID:    "turn-1",
+		CallID:    "call-1",
+		ToolName:  "report_discord",
+	})
+	first, err := tool.Handler(ctx, arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := reportDiscord(context.Background(), arguments)
+	second, err := tool.Handler(ctx, arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +61,30 @@ func TestReportDiscordIsDeterministicAndDoesNotSend(t *testing.T) {
 	if err := json.Unmarshal(first, &output); err != nil {
 		t.Fatal(err)
 	}
-	if output.Status != "simulated" || output.Destination != reportDiscordDestination || output.Message != "Build complete." || output.CharacterCount != 15 || output.NetworkCalled {
+	if output.Status != "simulated" || output.Destination != reportDiscordDestination || output.Message != "Build complete." || output.CharacterCount != 15 || output.NetworkCalled || output.LogPath != "report/session-log.json" || output.SessionID != "session-log" || output.TurnID != "turn-1" || output.CallID != "call-1" {
 		t.Fatalf("output = %#v", output)
+	}
+	encoded, err := os.ReadFile(filepath.Join(root, "report", "session-log.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []reportDiscordLogEntry
+	if err := json.Unmarshal(encoded, &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].Sequence != 1 || entries[1].Sequence != 2 || entries[0].Message != "Build complete." || entries[1].TurnID != "turn-1" {
+		t.Fatalf("log entries = %#v", entries)
 	}
 }
 
 func TestReportDiscordValidatesRawArguments(t *testing.T) {
+	tool := newReportDiscordTool(t.TempDir())
+	ctx := agentcli.WithToolInvocation(context.Background(), agentcli.ToolInvocation{
+		SessionID: "session-invalid",
+		TurnID:    "turn-invalid",
+		CallID:    "call-invalid",
+		ToolName:  "report_discord",
+	})
 	for _, arguments := range []json.RawMessage{
 		json.RawMessage(`{}`),
 		json.RawMessage(`{"message":"   "}`),
@@ -64,13 +92,14 @@ func TestReportDiscordValidatesRawArguments(t *testing.T) {
 		json.RawMessage(`{"message":"` + strings.Repeat("x", maximumDiscordMessageRunes+1) + `"}`),
 		json.RawMessage(`{"message":"bad\u0000text"}`),
 	} {
-		if _, err := reportDiscord(context.Background(), arguments); err == nil {
+		if _, err := tool.Handler(ctx, arguments); err == nil {
 			t.Fatalf("accepted invalid arguments: %s", arguments)
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := reportDiscord(ctx, json.RawMessage(`{"message":"ok"}`)); err == nil {
+	ctx = agentcli.WithToolInvocation(ctx, agentcli.ToolInvocation{SessionID: "session-cancel", TurnID: "turn-cancel", CallID: "call-cancel", ToolName: "report_discord"})
+	if _, err := tool.Handler(ctx, json.RawMessage(`{"message":"ok"}`)); err == nil {
 		t.Fatal("ignored cancelled context")
 	}
 }
