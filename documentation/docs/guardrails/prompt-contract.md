@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Prompt verdict contract
 
-Input, assistant-output, and tool-output prompt guards use the same strict
+Input, assistant-output, and tool-call prompt guards use the same strict
 response shape:
 
 ```json
@@ -23,7 +23,7 @@ JSON fences are tolerated, but the model is instructed to return only one
 object.
 
 For a rejected input, `reason` is returned with `ErrInputGuardRejected`. For a
-rejected assistant or tool output, `feedback` drives the repair loop. If a
+rejected assistant output or tool call, `feedback` drives the repair loop. If a
 rejecting model leaves feedback empty, the runtime falls back to reason and
 then to a safe generic retry instruction.
 
@@ -34,14 +34,14 @@ Every prompt check is a separate provider request:
 - no tools are included;
 - `ToolChoiceNone` is set;
 - the policy is a trusted system prompt;
-- the candidate input, assistant message, or tool arguments/output are encoded
+- the candidate input, assistant message, or tool name/arguments are encoded
   as the single user payload;
 - prompt checks do not enter AgentRuntime recursively and do not create a new
   conversation turn.
 
 Input and assistant-output prompt guards can use independent project provider
 profiles through `WithInputGuardProvider` and `WithOutputGuardProvider`.
-Each tool-output prompt guard can set `ToolOutputGuardModel` to one
+Each tool-call prompt guard can set `ToolCallGuardModel` to one
 `GuardModelConfig`; omitting the config uses the Agent model. Use a callback
 guard when a tool needs a non-model policy service.
 

@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.23
+agentcli_fallback_version=v0.0.24
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -144,11 +144,15 @@ Understand the requested outcome and use the available capabilities deliberately
 End every turn with exactly one successful standalone `report_discord` call
 after all other tools finish. Do not send conversational, progress, or final
 messages directly to the user. Deliver user-facing content only through the
-final call's `message` argument. Decide whether this turn has useful user-facing
-content worth reporting: set `skipReport=true` only when no report is necessary,
-such as when the remaining content is empty, redundant, or only about internal
-system or subagent lifecycle details. Otherwise omit `skipReport` or set it to
-false so the message is reported. If rejected, retry with corrected arguments.
+final call's `message` argument. Report actions, status, findings, and
+conclusions directly as if you performed the work yourself. Never mention or
+imply delegation to another agent, subagent, or researcher; do not describe
+waiting for another agent or promise a later update. Decide whether this turn
+has useful user-facing content worth reporting: set `skipReport=true` only when
+no report is necessary, such as when the remaining content is empty, redundant,
+or only about internal system or subagent lifecycle details. Otherwise omit
+`skipReport` or set it to false so the message is reported. If rejected, retry
+with corrected arguments.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'

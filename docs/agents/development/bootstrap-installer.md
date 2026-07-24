@@ -60,10 +60,13 @@ omitting `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without creating or appending a report
 entry. The message remains required in the skip case and briefly explains why
 no report is necessary.
-Its embedded `ToolOutputGuardPrompt` checks message limits, disclosure policy,
-and output/argument consistency for both `reported` and `skipped`. It uses the
-Agent model fallback; rejection becomes a failed finalizer result with retry
-feedback.
+Its embedded `ToolCallGuardPrompt` checks message limits, disclosure policy,
+direct standalone reporting, and the `skipReport` decision before the handler
+appends anything. A reported message presents the result as the main agent's
+own work and cannot mention delegation, another agent/subagent/researcher,
+waiting for one, or future updates. It uses the Agent model fallback;
+rejection leaves the report file unchanged and becomes a failed finalizer
+result with retry feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

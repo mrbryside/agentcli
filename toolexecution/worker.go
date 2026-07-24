@@ -72,6 +72,35 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		return result
 	}
 
+	guard, prompt, _ := e.registry.callGuardFor(request.Call.Name)
+	if prompt != "" {
+		guard = agentruntime.NewPromptToolCallGuard(e.toolCallGuardModels[request.Call.Name], prompt)
+	}
+	if guard != nil {
+		decision, guardErr := invokeToolCallGuard(ctx, guard, agentruntime.ToolCallGuardAttempt{
+			SessionID: request.SessionID,
+			TurnID:    request.TurnID,
+			CallID:    request.Call.CallID,
+			ToolName:  request.Call.Name,
+			Arguments: cloneRawJSON(request.Call.Arguments),
+		})
+		if guardErr != nil {
+			result.Result.Status = agentruntime.ToolResultFailed
+			result.Result.Error = fmt.Sprintf("tool call guard failed: %v; call the tool again or adjust its arguments", guardErr)
+			return result
+		}
+		if err := decision.Validate(); err != nil {
+			result.Result.Status = agentruntime.ToolResultFailed
+			result.Result.Error = fmt.Sprintf("tool call guard returned an invalid decision: %v; call the tool again or adjust its arguments", err)
+			return result
+		}
+		if decision.Action == agentruntime.ToolCallReject {
+			result.Result.Status = agentruntime.ToolResultFailed
+			result.Result.Error = "tool call rejected by guard: " + strings.TrimSpace(decision.Feedback)
+			return result
+		}
+	}
+
 	output, err := handler(ctx, cloneRawJSON(request.Call.Arguments))
 	if err != nil {
 		result.Result.Status = agentruntime.ToolResultFailed
@@ -83,35 +112,6 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.Result.Error = "tool returned invalid JSON; call the tool again after correcting its implementation or arguments"
 		return result
 	}
-	guard, prompt, _ := e.registry.outputGuardFor(request.Call.Name)
-	if prompt != "" {
-		guard = agentruntime.NewPromptToolOutputGuard(e.toolOutputGuardModels[request.Call.Name], prompt)
-	}
-	if guard != nil {
-		decision, guardErr := invokeToolOutputGuard(ctx, guard, agentruntime.ToolOutputGuardAttempt{
-			SessionID: request.SessionID,
-			TurnID:    request.TurnID,
-			CallID:    request.Call.CallID,
-			ToolName:  request.Call.Name,
-			Arguments: cloneRawJSON(request.Call.Arguments),
-			Output:    cloneRawJSON(output),
-		})
-		if guardErr != nil {
-			result.Result.Status = agentruntime.ToolResultFailed
-			result.Result.Error = fmt.Sprintf("tool output guard failed: %v; call the tool again or adjust its arguments", guardErr)
-			return result
-		}
-		if err := decision.Validate(); err != nil {
-			result.Result.Status = agentruntime.ToolResultFailed
-			result.Result.Error = fmt.Sprintf("tool output guard returned an invalid decision: %v; call the tool again or adjust its arguments", err)
-			return result
-		}
-		if decision.Action == agentruntime.ToolOutputReject {
-			result.Result.Status = agentruntime.ToolResultFailed
-			result.Result.Error = "tool output rejected by guard: " + strings.TrimSpace(decision.Feedback)
-			return result
-		}
-	}
 	result.Result.Status = agentruntime.ToolResultSucceeded
 	result.Result.Output = cloneRawJSON(output)
 	if behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output); registered {
@@ -120,7 +120,7 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	return result
 }
 
-func invokeToolOutputGuard(ctx context.Context, guard agentruntime.ToolOutputGuard, attempt agentruntime.ToolOutputGuardAttempt) (decision agentruntime.ToolOutputGuardDecision, err error) {
+func invokeToolCallGuard(ctx context.Context, guard agentruntime.ToolCallGuard, attempt agentruntime.ToolCallGuardAttempt) (decision agentruntime.ToolCallGuardDecision, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("guard panicked: %v", recovered)

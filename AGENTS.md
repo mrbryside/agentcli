@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: 9e4a10f81cd7a0495171ed426bcccdd304dafacf`
+`Last documented commit: 6aa74359e0482453a1bc617387ab122f7f212e70`
 
 ## Project structure
 
@@ -19,7 +19,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `provider/openai/` | OpenAI-compatible streaming provider and chunk parser. |
 | `storage/` | Provider-neutral message, permission, confirmation, and subagent storage contracts. |
 | `storage/inmemory/` | Concurrency-safe in-memory implementations used by default. |
-| `toolexecution/` | Tool registry, framework tools, tool-output guardrails, permission/confirmation admission, interrupts, and bounded workers. |
+| `toolexecution/` | Tool registry, framework tools, tool-call guardrails, permission/confirmation admission, interrupts, and bounded workers. |
 | `toolexecution/bashsecure/` | Optional shell command parsing, path scoping, policy classification, and platform sandbox helpers. |
 | `permission/` | Capability, risk, mode, policy, request, decision, and grant domain. |
 | `confirmation/` | Independent invocation-specific Yes/No confirmation domain. |

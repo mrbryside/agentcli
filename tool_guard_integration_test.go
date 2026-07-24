@@ -6,23 +6,26 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/provider"
 )
 
-func TestPromptToolOutputGuardFeedsFailureBackAndAgentRetries(t *testing.T) {
+func TestPromptToolCallGuardFeedsFailureBackAndAgentRetries(t *testing.T) {
 	model := &toolGuardLoopModel{}
+	var handlerCalls atomic.Int32
 	agent, err := New(context.Background(),
 		WithModel(model),
 		WithTool(Tool{
 			Definition: ToolDefinition{Name: "lookup", InputSchema: InputSchema{Type: "object"}},
 			Handler: func(_ context.Context, arguments json.RawMessage) (json.RawMessage, error) {
+				handlerCalls.Add(1)
 				return append(json.RawMessage(nil), arguments...), nil
 			},
-			TurnBehavior:          EndTurn,
-			ToolOutputGuardPrompt: "Require attempt 2 or later.",
+			TurnBehavior:        EndTurn,
+			ToolCallGuardPrompt: "Require attempt 2 or later.",
 		}),
 	)
 	if err != nil {
@@ -30,7 +33,7 @@ func TestPromptToolOutputGuardFeedsFailureBackAndAgentRetries(t *testing.T) {
 	}
 	defer agent.Close()
 
-	run, err := agent.Start(context.Background(), userRequest("tool-output-guard-loop"))
+	run, err := agent.Start(context.Background(), userRequest("tool-call-guard-loop"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +47,9 @@ func TestPromptToolOutputGuardFeedsFailureBackAndAgentRetries(t *testing.T) {
 	}
 	if !strings.Contains(result.ToolResults[0].Error, "attempt 2") || string(result.ToolResults[1].Output) != `{"attempt":2}` {
 		t.Fatalf("tool results = %#v", result.ToolResults)
+	}
+	if handlerCalls.Load() != 1 {
+		t.Fatalf("handler calls = %d, want only the allowed retry to execute", handlerCalls.Load())
 	}
 
 	agentRequests, guardRequests := model.Requests()
@@ -65,7 +71,7 @@ type toolGuardLoopModel struct {
 func (model *toolGuardLoopModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	model.mu.Lock()
 	defer model.mu.Unlock()
-	if len(request.SystemPrompts) != 0 && strings.Contains(request.SystemPrompts[0], "tool output guard") {
+	if len(request.SystemPrompts) != 0 && strings.Contains(request.SystemPrompts[0], "tool call guard") {
 		model.guardRequests = append(model.guardRequests, request)
 		content := `{"allowed":true,"reason":"valid","feedback":""}`
 		if len(model.guardRequests) == 1 {

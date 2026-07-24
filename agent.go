@@ -220,10 +220,10 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationRequests:  confirmationRequests,
 		ConfirmationDecisions: confirmationDecisions,
 		ConfirmationStore:     configuration.confirmations,
-		ToolOutputGuardModel:  configuration.model,
-		ToolOutputGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
+		ToolCallGuardModel:    configuration.model,
+		ToolCallGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
 			if configuration.project == nil {
-				return nil, errors.New("tool-output guard provider requires a project with provider profiles")
+				return nil, errors.New("tool-call guard provider requires a project with provider profiles")
 			}
 			return configuration.project.ModelFor(providerName, modelName)
 		},

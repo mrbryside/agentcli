@@ -37,7 +37,7 @@ module.exports = {
       items: [
         'guardrails/overview',
         'guardrails/agent-input-output',
-        'guardrails/tool-output',
+        'guardrails/tool-call',
         'guardrails/prompt-contract',
       ],
     },

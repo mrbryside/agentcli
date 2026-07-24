@@ -17,9 +17,9 @@ import (
 
 // Executor consumes shared tool requests with a bounded worker pool.
 type Executor struct {
-	registry              *Registry
-	workers               int
-	toolOutputGuardModels map[string]agentruntime.Model
+	registry            *Registry
+	workers             int
+	toolCallGuardModels map[string]agentruntime.Model
 
 	mu     sync.Mutex
 	active map[callKey]map[*activeCall]struct{}
@@ -50,12 +50,12 @@ type Config struct {
 	Now                   func() time.Time
 	After                 func(time.Duration) <-chan time.Time
 	ProjectID             string
-	// ToolOutputGuardModel evaluates prompt-guarded tools that do not select a
+	// ToolCallGuardModel evaluates prompt-guarded tools that do not select a
 	// provider/model pair.
-	ToolOutputGuardModel agentruntime.Model
-	// ToolOutputGuardModelResolver resolves an explicit provider/model pair on
+	ToolCallGuardModel agentruntime.Model
+	// ToolCallGuardModelResolver resolves an explicit provider/model pair on
 	// a prompt-guarded tool. Agent construction supplies a project resolver.
-	ToolOutputGuardModelResolver func(providerName, modelName string) (agentruntime.Model, error)
+	ToolCallGuardModelResolver func(providerName, modelName string) (agentruntime.Model, error)
 }
 
 type callKey struct {
@@ -131,15 +131,15 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 	if config.ConfirmationEnabled && (config.ConfirmationRequests == nil || config.ConfirmationDecisions == nil || cap(config.ConfirmationRequests) == 0 || cap(config.ConfirmationDecisions) == 0) {
 		return nil, errors.New("enabled confirmation admission requires buffered request and decision channels")
 	}
-	toolOutputGuardModels := make(map[string]agentruntime.Model)
-	for _, guard := range registry.promptOutputGuards() {
-		model := config.ToolOutputGuardModel
+	toolCallGuardModels := make(map[string]agentruntime.Model)
+	for _, guard := range registry.promptCallGuards() {
+		model := config.ToolCallGuardModel
 		if guard.providerName != "" {
-			if config.ToolOutputGuardModelResolver == nil {
+			if config.ToolCallGuardModelResolver == nil {
 				return nil, fmt.Errorf("tool %q prompt guard selects provider %q and model %q but no model resolver is configured", guard.toolName, guard.providerName, guard.modelName)
 			}
 			var err error
-			model, err = config.ToolOutputGuardModelResolver(guard.providerName, guard.modelName)
+			model, err = config.ToolCallGuardModelResolver(guard.providerName, guard.modelName)
 			if err != nil {
 				return nil, fmt.Errorf("resolve tool %q prompt guard model: %w", guard.toolName, err)
 			}
@@ -147,7 +147,7 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 		if isNilGuardModel(model) {
 			return nil, fmt.Errorf("tool %q prompt guard requires a guard model", guard.toolName)
 		}
-		toolOutputGuardModels[guard.toolName] = model
+		toolCallGuardModels[guard.toolName] = model
 	}
 	controller := config.PermissionController
 	if controller == nil {
@@ -158,12 +158,12 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 		}
 	}
 	return &Executor{
-		registry:              registry,
-		workers:               workerCount,
-		toolOutputGuardModels: toolOutputGuardModels,
-		active:                make(map[callKey]map[*activeCall]struct{}),
-		config:                config,
-		policy:                controller,
+		registry:            registry,
+		workers:             workerCount,
+		toolCallGuardModels: toolCallGuardModels,
+		active:              make(map[callKey]map[*activeCall]struct{}),
+		config:              config,
+		policy:              controller,
 	}, nil
 }
 

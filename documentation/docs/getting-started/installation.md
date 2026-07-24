@@ -54,8 +54,10 @@ agent also receives a network-free `report_discord` mock that is required once
 as the standalone final action of each turn. The agent omits `skipReport` or
 sets it to `false` to record the final message, and may set it to `true` after
 deciding the turn has no useful user-facing content worth reporting. Its
-prompt output guard returns a failed tool result with repair feedback when the
-final payload is non-compliant. See
+prompt tool-call guard prevents handler execution and returns a failed tool
+result with repair feedback when the requested payload is non-compliant.
+Reported messages must state the result directly without mentioning delegated
+agents, waiting for them, or future updates. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout and the
 required `replace-provider` and `replace-model` substitutions.
 

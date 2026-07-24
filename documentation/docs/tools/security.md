@@ -51,14 +51,16 @@ argument-derived display text. The handler must revalidate target state after
 approval because descriptors and schemas are not execution boundaries.
 
 The generated `report_discord` finalizer is a deterministic local mock and
-therefore declares no network permission. Its prompt output guard is a
-post-handler semantic check, not authorization or containment. The agent may
-choose `skipReport: true`, which returns `skipped` without appending a local
-entry; omitting it or setting it to `false` records the message. Replacing the
-mock with a real Discord integration requires an explicit network permission
-design, credential handling, confirmation policy, idempotency, and retry
-strategy. Avoid making an external mutation a mandatory finalizer unless
-duplicate delivery and provider repair are safe by design.
+therefore declares no network permission. Its prompt tool-call guard checks
+the requested arguments before handler execution; rejection leaves the report
+file unchanged. It also requires a direct standalone message without
+delegation, other-agent attribution, waiting language, or promises of a later
+update. The agent may choose `skipReport: true`, which returns `skipped`
+without appending a local entry; omitting it or setting it to `false` records
+the message. The guard is policy, not authorization or containment. Replacing
+the mock with a real Discord integration requires an explicit network
+permission design, credential handling, confirmation policy, idempotency, and
+retry strategy.
 
 ## Shell tools
 

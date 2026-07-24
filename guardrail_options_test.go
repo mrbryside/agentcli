@@ -77,13 +77,13 @@ func TestGuardProviderOptionsCannotBeCombinedWithFunctionGuard(t *testing.T) {
 
 func TestToolGuardProviderRequiresProject(t *testing.T) {
 	tool := testTool("guarded")
-	tool.ToolOutputGuardPrompt = "allow valid output"
-	tool.ToolOutputGuardModel = &GuardModelConfig{Provider: "policy", Model: "guard-small"}
+	tool.ToolCallGuardPrompt = "allow valid calls"
+	tool.ToolCallGuardModel = &GuardModelConfig{Provider: "policy", Model: "guard-small"}
 	_, err := New(context.Background(),
 		WithModel(&scriptedModel{}),
 		WithTool(tool),
 	)
-	if err == nil || !strings.Contains(err.Error(), "tool-output guard provider requires a project") {
+	if err == nil || !strings.Contains(err.Error(), "tool-call guard provider requires a project") {
 		t.Fatalf("New() error = %v, want missing project", err)
 	}
 }
@@ -102,8 +102,8 @@ func TestToolGuardModelConfigResolvesProjectProvider(t *testing.T) {
 		},
 	}
 	tool := testTool("guarded")
-	tool.ToolOutputGuardPrompt = "allow valid output"
-	tool.ToolOutputGuardModel = &GuardModelConfig{Provider: "policy", Model: "guard-small"}
+	tool.ToolCallGuardPrompt = "allow valid calls"
+	tool.ToolCallGuardModel = &GuardModelConfig{Provider: "policy", Model: "guard-small"}
 	agent, err := New(context.Background(),
 		WithProject(project),
 		WithModel(&scriptedModel{}),
@@ -116,7 +116,7 @@ func TestToolGuardModelConfigResolvesProjectProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool.ToolOutputGuardModel = &GuardModelConfig{Provider: "missing", Model: "guard-small"}
+	tool.ToolCallGuardModel = &GuardModelConfig{Provider: "missing", Model: "guard-small"}
 	_, err = New(context.Background(),
 		WithProject(project),
 		WithModel(&scriptedModel{}),

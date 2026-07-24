@@ -78,47 +78,46 @@ func invokeOutputGuard(ctx context.Context, guard OutputGuard, attempt OutputGua
 	return guard(ctx, attempt)
 }
 
-// ToolOutputGuard inspects one successful custom-tool handler output before
-// the executor publishes it to the runtime. Rejecting it produces a failed
-// tool result with Feedback so the agent can decide whether to call the tool
-// again.
-type ToolOutputGuard func(context.Context, ToolOutputGuardAttempt) (ToolOutputGuardDecision, error)
+// ToolCallGuard inspects a model-requested custom-tool call before its handler
+// executes. Rejecting it produces a failed tool result with Feedback so the
+// agent can correct the arguments and try again without causing handler side
+// effects.
+type ToolCallGuard func(context.Context, ToolCallGuardAttempt) (ToolCallGuardDecision, error)
 
-type ToolOutputGuardAttempt struct {
+type ToolCallGuardAttempt struct {
 	SessionID string
 	TurnID    string
 	CallID    string
 	ToolName  string
 	Arguments json.RawMessage
-	Output    json.RawMessage
 }
 
-type ToolOutputGuardAction string
+type ToolCallGuardAction string
 
 const (
-	ToolOutputProceed ToolOutputGuardAction = "proceed"
-	ToolOutputReject  ToolOutputGuardAction = "reject"
+	ToolCallAllow  ToolCallGuardAction = "allow"
+	ToolCallReject ToolCallGuardAction = "reject"
 )
 
-type ToolOutputGuardDecision struct {
-	Action   ToolOutputGuardAction
+type ToolCallGuardDecision struct {
+	Action   ToolCallGuardAction
 	Feedback string
 }
 
-// Validate checks that the tool-output decision can be translated into one
-// unambiguous tool result.
-func (decision ToolOutputGuardDecision) Validate() error {
+// Validate checks that the tool-call decision can be translated into one
+// unambiguous execution decision.
+func (decision ToolCallGuardDecision) Validate() error {
 	switch decision.Action {
-	case ToolOutputProceed:
+	case ToolCallAllow:
 		if strings.TrimSpace(decision.Feedback) != "" {
-			return errors.New("proceed tool-output decision cannot include feedback")
+			return errors.New("allow tool-call decision cannot include feedback")
 		}
-	case ToolOutputReject:
+	case ToolCallReject:
 		if strings.TrimSpace(decision.Feedback) == "" {
-			return errors.New("reject tool-output decision requires feedback")
+			return errors.New("reject tool-call decision requires feedback")
 		}
 	default:
-		return fmt.Errorf("unknown tool-output guard action %q", decision.Action)
+		return fmt.Errorf("unknown tool-call guard action %q", decision.Action)
 	}
 	return nil
 }
@@ -211,36 +210,34 @@ func newPromptOutputGuard(model Model, prompt string) OutputGuard {
 	}
 }
 
-// NewPromptToolOutputGuard creates a tool-output guard backed by one-shot
-// model checks. The request exposes no tools and requires a strict JSON
-// verdict. Most callers set Tool.ToolOutputGuardPrompt and let Executor build
-// this guard with its configured model.
-func NewPromptToolOutputGuard(model Model, prompt string) ToolOutputGuard {
-	return func(ctx context.Context, attempt ToolOutputGuardAttempt) (ToolOutputGuardDecision, error) {
+// NewPromptToolCallGuard creates a pre-execution tool-call guard backed by a
+// one-shot model check. The request exposes no tools and requires a strict JSON
+// verdict. Most callers set Tool.ToolCallGuardPrompt and let Executor build the
+// guard with its configured model.
+func NewPromptToolCallGuard(model Model, prompt string) ToolCallGuard {
+	return func(ctx context.Context, attempt ToolCallGuardAttempt) (ToolCallGuardDecision, error) {
 		payload := struct {
 			ToolName  string          `json:"tool_name"`
 			Arguments json.RawMessage `json:"arguments"`
-			Output    json.RawMessage `json:"output"`
 		}{
 			ToolName:  attempt.ToolName,
 			Arguments: cloneRawJSON(attempt.Arguments),
-			Output:    cloneRawJSON(attempt.Output),
 		}
-		verdict, err := evaluatePromptGuard(ctx, model, prompt, "tool output", payload)
+		verdict, err := evaluatePromptGuard(ctx, model, prompt, "tool call", payload)
 		if err != nil {
-			return ToolOutputGuardDecision{}, err
+			return ToolCallGuardDecision{}, err
 		}
 		if *verdict.Allowed {
-			return ToolOutputGuardDecision{Action: ToolOutputProceed}, nil
+			return ToolCallGuardDecision{Action: ToolCallAllow}, nil
 		}
 		feedback := strings.TrimSpace(*verdict.Feedback)
 		if feedback == "" {
 			feedback = strings.TrimSpace(*verdict.Reason)
 		}
 		if feedback == "" {
-			feedback = "The tool output did not satisfy its guard. Call the tool again with corrected arguments."
+			feedback = "The tool call did not satisfy its guard. Call the tool again with corrected arguments."
 		}
-		return ToolOutputGuardDecision{Action: ToolOutputReject, Feedback: feedback}, nil
+		return ToolCallGuardDecision{Action: ToolCallReject, Feedback: feedback}, nil
 	}
 }
 

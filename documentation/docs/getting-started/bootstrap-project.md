@@ -123,10 +123,15 @@ researcher selects only `glob` and `read`:
   message. The tool performs no network I/O and appends each reported payload to
   `report/{session}.json`, and is not available to the researcher. Its public
   result only reports completion; the session/turn/call metadata remains in
-  the local log. A built-in prompt output guard checks message bounds,
-  disclosure policy, and that the status result matches the submitted
-  message. Rejection becomes a failed tool result with feedback so the main
-  agent can issue a corrected finalizer call.
+  the local log. A built-in prompt tool-call guard checks message bounds,
+  disclosure policy, direct standalone reporting, and the `skipReport`
+  decision before the handler runs. A reported message must present actions,
+  status, findings, and conclusions as if the main agent performed the work
+  itself. It must not mention delegation, another agent/subagent/researcher,
+  waiting for one, or a promised later update. Internally delegated findings
+  are reported directly without attribution. Rejection leaves the report file
+  unchanged and becomes a failed tool result with feedback so the main agent
+  can issue a corrected finalizer call.
 
 The report decision has explicit positive skip semantics:
 
@@ -139,6 +144,10 @@ The report decision has explicit positive skip semantics:
 no report is necessary, but the handler does not record it. The old `report`
 field is not accepted; strict argument decoding rejects it so an inverted
 boolean cannot silently select the wrong behavior.
+
+For example, `"A researcher is analyzing main.go; results will follow"` is
+rejected. A direct result such as `"main.go loads the project, registers four
+tools, and starts the terminal runtime"` is eligible for reporting.
 
 Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project
@@ -154,9 +163,9 @@ and `main.go` registers each one with `agentcli.WithTool`, so generated code
 does not import runtime implementation packages.
 
 The `report_discord` prompt check uses the configured main model and adds one
-model request for each successful handler result it evaluates. It is a
-demonstration policy, not a network or process sandbox. See
-[Tool-output guards](../guardrails/tool-output.md) before replacing the mock
+model request for each requested call it evaluates before handler execution.
+It is a demonstration policy, not a network or process sandbox. See
+[Tool-call guards](../guardrails/tool-call.md) before replacing the mock
 with an external integration.
 
 ## Run the project

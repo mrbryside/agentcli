@@ -6,15 +6,15 @@ sidebar_position: 1
 # Guardrails overview
 
 Guardrails add application-owned checks around input, final assistant output,
-and successful custom-tool output. Every layer supports a Go callback. Input
-and assistant-output guards also support prompt checks, while custom tools can
-attach a prompt directly to their declaration.
+and model-requested custom-tool calls. Every layer supports a Go callback.
+Input and assistant-output guards also support prompt checks, while custom
+tools can attach a prompt directly to their declaration.
 
 | Boundary | Runs | Rejection behavior |
 | --- | --- | --- |
 | Input | After request normalization, before transcript persistence | `Agent.Start` returns `ErrInputGuardRejected`; no input message or run is created. |
 | Assistant output | After the assistant message is persisted, before turn completion | Feedback is added as an ephemeral context reminder and the provider receives another round. |
-| Custom-tool output | After a handler succeeds, before a successful tool result is published | Raw output is withheld; the runtime stores a failed tool result with feedback and starts another provider round. |
+| Custom-tool call | After permission/confirmation admission, before handler execution | The handler is not called; the runtime stores a failed tool result with feedback and starts another provider round. |
 
 Prompt guards use a one-shot model request with no tools and require one strict
 JSON verdict. Code guards make deterministic rules, external policy services,
@@ -35,12 +35,10 @@ Guard configuration and verdicts are fail-closed:
 
 ## Guardrails are not a sandbox
 
-Prompts and output checks do not replace tool permissions, confirmations,
-argument validation, path scoping, or process isolation. In particular, a tool
-output guard runs after its handler. If the handler changes external state,
-that change already happened before the guard sees its output. Make retryable
-tools idempotent, use idempotency keys for remote actions, and keep dangerous
-validation before the side effect.
+Prompt checks do not replace tool permissions, confirmations, argument
+validation, path scoping, or process isolation. A rejected tool-call guard
+prevents handler execution, but an allowed call still needs ordinary
+authorization, validation, and idempotency.
 
 Assistant-output guards are repair guards, not secret-suppression filters. The
 rejected assistant attempt is already in transcript storage and retained
@@ -49,5 +47,5 @@ separate buffered presentation layer when unapproved tokens must never be
 stored or shown.
 
 Continue with [Agent input and output](agent-input-output.md),
-[Tool-output guards](tool-output.md), and the
+[Tool-call guards](tool-call.md), and the
 [Prompt verdict contract](prompt-contract.md).

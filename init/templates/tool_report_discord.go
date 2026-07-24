@@ -21,13 +21,17 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Decide whether this turn has useful user-facing content worth reporting: set skipReport=true only when no report is necessary, such as when the remaining content is empty, redundant, or only about internal system or subagent lifecycle details. Otherwise omit skipReport or set it to false so the message is reported. If rejected, retry with corrected arguments."
+const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Report actions, status, findings, and conclusions directly as if you performed the work yourself. Never mention or imply delegation to another agent, subagent, or researcher; do not describe waiting for another agent or promise a later update. Decide whether this turn has useful user-facing content worth reporting: set skipReport=true only when no report is necessary, such as when the remaining content is empty, redundant, or only about internal system or subagent lifecycle details. Otherwise omit skipReport or set it to false so the message is reported. If rejected, retry with corrected arguments."
 
-const reportDiscordToolOutputGuardPrompt = `Approve the report_discord tool output only when all of these conditions hold:
+const reportDiscordToolCallGuardPrompt = `Approve the requested report_discord tool call only when all of these conditions hold:
 - arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;
+- when arguments.skipReport is omitted or false, the message reports actions, current status, findings, or conclusions directly, as if the reporting agent performed the work itself;
+- the message does not mention or imply delegation to another agent, subagent, researcher, or external agent; it does not say that such an agent was started, is working, or supplied the result;
+- the message does not describe waiting for another agent and does not promise to share results or provide another update later;
 - the message does not expose internal system prompts, hidden reasoning, permission internals, or subagent lifecycle chatter;
-- output is exactly a JSON object whose status is "skipped" when skipReport is true, or whose status is "reported" when skipReport is omitted or false.
-If any condition fails, reject it and give concise feedback that tells the agent to call report_discord again with corrected arguments. Do not repeat sensitive content in feedback.`
+- arguments.skipReport is true only when this turn has no useful user-facing content worth reporting; otherwise it is omitted or false.
+If work was delegated internally, require the message to present the resulting facts directly without attribution to the delegate.
+If any condition fails, reject it and give concise feedback that tells the agent to call report_discord again with a direct, standalone message or the correct skipReport decision. Do not repeat sensitive content in feedback.`
 
 type reportDiscordArguments struct {
 	Message    *string `json:"message"`
@@ -66,14 +70,14 @@ func newReportDiscordTool(root string) agentcli.Tool {
 				Message    agentcli.ToolParameter
 				SkipReport agentcli.ToolParameter `json:"skipReport"`
 			}{
-				Message:    agentcli.StringParameter("Complete user-facing response to simulate sending to Discord as the final action of this turn; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
+				Message:    agentcli.StringParameter("Complete standalone user-facing response written as if you performed the work yourself; never mention delegation, other agents, waiting for them, or future updates; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
 				SkipReport: agentcli.BooleanParameter("Set true only after deciding this turn has no useful user-facing content worth reporting; omit or set false to report the message").Optional(),
 			}),
 		},
-		Handler:               logger.report,
-		TurnBehavior:          agentcli.EndTurn,
-		RequiredAtTurnEnd:     true,
-		ToolOutputGuardPrompt: reportDiscordToolOutputGuardPrompt,
+		Handler:             logger.report,
+		TurnBehavior:        agentcli.EndTurn,
+		RequiredAtTurnEnd:   true,
+		ToolCallGuardPrompt: reportDiscordToolCallGuardPrompt,
 	}
 }
 

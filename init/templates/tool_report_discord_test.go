@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/mrbryside/agentcli"
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
@@ -19,21 +21,21 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if !tool.RequiredAtTurnEnd || tool.TurnBehavior != agentcli.EndTurn {
 		t.Fatalf("finalizer metadata = required:%t behavior:%q", tool.RequiredAtTurnEnd, tool.TurnBehavior)
 	}
-	if tool.ToolOutputGuard != nil || strings.TrimSpace(tool.ToolOutputGuardPrompt) == "" {
-		t.Fatalf("tool output guard = function:%v prompt:%q", tool.ToolOutputGuard != nil, tool.ToolOutputGuardPrompt)
+	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
+		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)
 	}
-	if tool.ToolOutputGuardModel != nil {
-		t.Fatalf("tool output guard model = %#v, want main-model fallback", tool.ToolOutputGuardModel)
+	if tool.ToolCallGuardModel != nil {
+		t.Fatalf("tool call guard model = %#v, want main-model fallback", tool.ToolCallGuardModel)
 	}
-	for _, required := range []string{"arguments.message", "skipReport is true", "skipReport is omitted or false", `status is "reported"`, `"skipped"`, "call report_discord again", "Do not repeat sensitive content"} {
-		if !strings.Contains(tool.ToolOutputGuardPrompt, required) {
-			t.Fatalf("output guard prompt %q does not contain %q", tool.ToolOutputGuardPrompt, required)
+	for _, required := range []string{"requested report_discord tool call", "arguments.message", "as if the reporting agent performed the work itself", "does not mention or imply delegation", "does not describe waiting", "does not promise", "without attribution to the delegate", "arguments.skipReport", "no useful user-facing content", "omitted or false", "call report_discord again", "Do not repeat sensitive content"} {
+		if !strings.Contains(tool.ToolCallGuardPrompt, required) {
+			t.Fatalf("call guard prompt %q does not contain %q", tool.ToolCallGuardPrompt, required)
 		}
 	}
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	for _, required := range []string{"successful standalone", "Do not send conversational", "only through this final call's message argument", "Decide whether this turn", "skipReport=true", "no report is necessary", "omit skipReport or set it to false", "retry with corrected arguments"} {
+	for _, required := range []string{"successful standalone", "Do not send conversational", "only through this final call's message argument", "as if you performed the work yourself", "Never mention or imply delegation", "do not describe waiting", "promise a later update", "Decide whether this turn", "skipReport=true", "no report is necessary", "omit skipReport or set it to false", "retry with corrected arguments"} {
 		if !strings.Contains(tool.Definition.Description, required) {
 			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
 		}
@@ -45,7 +47,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`} {
+	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`, `never mention delegation, other agents, waiting for them, or future updates`} {
 		if !strings.Contains(string(schema), expected) {
 			t.Fatalf("schema %s missing %s", schema, expected)
 		}
@@ -115,6 +117,55 @@ func TestReportDiscordCanSkipInternalLifecycleReport(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "report")); !os.IsNotExist(err) {
 		t.Fatalf("report directory exists after skipped report: %v", err)
+	}
+}
+
+func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
+	root := t.TempDir()
+	tool := newReportDiscordTool(root)
+	tool.ToolCallGuardPrompt = ""
+	tool.ToolCallGuard = func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+		return agentruntime.ToolCallGuardDecision{
+			Action:   agentruntime.ToolCallReject,
+			Feedback: "rewrite the report as a direct user-facing result",
+		}, nil
+	}
+	registry := toolexecution.NewRegistry()
+	if err := registry.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := toolexecution.NewExecutor(registry, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requests := make(chan agentruntime.ToolRequest, 1)
+	results := make(chan agentruntime.ToolResultEnvelope, 1)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- executor.Run(ctx, requests, results, interrupts)
+	}()
+	requests <- agentruntime.ToolRequest{
+		SessionID: "session-rejected",
+		TurnID:    "turn-rejected",
+		Call: agentruntime.ToolCall{
+			CallID:    "call-rejected",
+			Name:      "report_discord",
+			Arguments: json.RawMessage(`{"message":"I will report back later."}`),
+		},
+	}
+	result := <-results
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if result.Result.Status != agentruntime.ToolResultFailed || !strings.Contains(result.Result.Error, "tool call rejected by guard") {
+		t.Fatalf("result = %#v, want rejected tool call", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "report")); !os.IsNotExist(err) {
+		t.Fatalf("report directory exists after rejected tool call: %v", err)
 	}
 }
 

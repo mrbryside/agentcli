@@ -38,17 +38,17 @@ const (
 // policy or mode. RequiredAtTurnEnd asks agentcli's completion guard to require
 // one successful invocation in every turn where the tool is exposed.
 type Tool struct {
-	Definition            agentruntime.ToolDefinition
-	Handler               Handler
-	TurnBehavior          TurnBehavior
-	RequiredAtTurnEnd     bool
-	ToolOutputGuard       agentruntime.ToolOutputGuard
-	ToolOutputGuardPrompt string
-	ToolOutputGuardModel  *GuardModelConfig
-	Permission            PermissionDescriptor
-	PermissionWithPolicy  PermissionPolicyDescriptor
-	Confirmation          ConfirmationDescriptor
-	resultTurnBehavior    func(json.RawMessage, json.RawMessage) TurnBehavior
+	Definition           agentruntime.ToolDefinition
+	Handler              Handler
+	TurnBehavior         TurnBehavior
+	RequiredAtTurnEnd    bool
+	ToolCallGuard        agentruntime.ToolCallGuard
+	ToolCallGuardPrompt  string
+	ToolCallGuardModel   *GuardModelConfig
+	Permission           PermissionDescriptor
+	PermissionWithPolicy PermissionPolicyDescriptor
+	Confirmation         ConfirmationDescriptor
+	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -74,17 +74,17 @@ type Registry struct {
 }
 
 type registeredTool struct {
-	definition              agentruntime.ToolDefinition
-	handler                 Handler
-	turnBehavior            TurnBehavior
-	toolOutputGuard         agentruntime.ToolOutputGuard
-	toolOutputGuardPrompt   string
-	toolOutputGuardProvider string
-	toolOutputGuardModel    string
-	permission              PermissionDescriptor
-	permissionWithPolicy    PermissionPolicyDescriptor
-	confirmation            ConfirmationDescriptor
-	resultTurnBehavior      func(json.RawMessage, json.RawMessage) TurnBehavior
+	definition            agentruntime.ToolDefinition
+	handler               Handler
+	turnBehavior          TurnBehavior
+	toolCallGuard         agentruntime.ToolCallGuard
+	toolCallGuardPrompt   string
+	toolCallGuardProvider string
+	toolCallGuardModel    string
+	permission            PermissionDescriptor
+	permissionWithPolicy  PermissionPolicyDescriptor
+	confirmation          ConfirmationDescriptor
+	resultTurnBehavior    func(json.RawMessage, json.RawMessage) TurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -107,26 +107,26 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.RequiredAtTurnEnd && tool.TurnBehavior != EndTurn {
 		return fmt.Errorf("tool %q required at turn end must use end turn behavior", tool.Definition.Name)
 	}
-	rawGuardPrompt := tool.ToolOutputGuardPrompt
-	tool.ToolOutputGuardPrompt = strings.TrimSpace(rawGuardPrompt)
-	if rawGuardPrompt != "" && tool.ToolOutputGuardPrompt == "" {
-		return fmt.Errorf("tool %q tool-output guard prompt is empty", tool.Definition.Name)
+	rawGuardPrompt := tool.ToolCallGuardPrompt
+	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
+	if rawGuardPrompt != "" && tool.ToolCallGuardPrompt == "" {
+		return fmt.Errorf("tool %q tool-call guard prompt is empty", tool.Definition.Name)
 	}
-	if tool.ToolOutputGuard != nil && tool.ToolOutputGuardPrompt != "" {
-		return fmt.Errorf("tool %q cannot configure both a tool-output guard and prompt", tool.Definition.Name)
+	if tool.ToolCallGuard != nil && tool.ToolCallGuardPrompt != "" {
+		return fmt.Errorf("tool %q cannot configure both a tool-call guard and prompt", tool.Definition.Name)
 	}
 	var guardProvider, guardModel string
-	if tool.ToolOutputGuardModel != nil {
-		guardProvider = strings.TrimSpace(tool.ToolOutputGuardModel.Provider)
-		guardModel = strings.TrimSpace(tool.ToolOutputGuardModel.Model)
+	if tool.ToolCallGuardModel != nil {
+		guardProvider = strings.TrimSpace(tool.ToolCallGuardModel.Provider)
+		guardModel = strings.TrimSpace(tool.ToolCallGuardModel.Model)
 		if guardProvider == "" {
-			return fmt.Errorf("tool %q tool-output guard model provider is required", tool.Definition.Name)
+			return fmt.Errorf("tool %q tool-call guard model provider is required", tool.Definition.Name)
 		}
 		if guardModel == "" {
-			return fmt.Errorf("tool %q tool-output guard model name is required", tool.Definition.Name)
+			return fmt.Errorf("tool %q tool-call guard model name is required", tool.Definition.Name)
 		}
-		if tool.ToolOutputGuardPrompt == "" {
-			return fmt.Errorf("tool %q tool-output guard model requires a prompt guard", tool.Definition.Name)
+		if tool.ToolCallGuardPrompt == "" {
+			return fmt.Errorf("tool %q tool-call guard model requires a prompt guard", tool.Definition.Name)
 		}
 	}
 	if err := validateInputSchema(tool.Definition.InputSchema); err != nil {
@@ -141,8 +141,8 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	r.tools[definition.Name] = registeredTool{
 		definition: definition, handler: tool.Handler, turnBehavior: tool.TurnBehavior,
-		toolOutputGuard: tool.ToolOutputGuard, toolOutputGuardPrompt: tool.ToolOutputGuardPrompt,
-		toolOutputGuardProvider: guardProvider, toolOutputGuardModel: guardModel,
+		toolCallGuard: tool.ToolCallGuard, toolCallGuardPrompt: tool.ToolCallGuardPrompt,
+		toolCallGuardProvider: guardProvider, toolCallGuardModel: guardModel,
 		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
 		confirmation: tool.Confirmation, resultTurnBehavior: tool.resultTurnBehavior,
 	}
@@ -184,33 +184,33 @@ func (r *Registry) lookup(name string) (Handler, bool) {
 	return tool.handler, ok
 }
 
-func (r *Registry) outputGuardFor(name string) (agentruntime.ToolOutputGuard, string, bool) {
+func (r *Registry) callGuardFor(name string) (agentruntime.ToolCallGuard, string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	tool, ok := r.tools[name]
 	if !ok {
 		return nil, "", false
 	}
-	return tool.toolOutputGuard, tool.toolOutputGuardPrompt, true
+	return tool.toolCallGuard, tool.toolCallGuardPrompt, true
 }
 
-type promptOutputGuardConfig struct {
+type promptCallGuardConfig struct {
 	toolName     string
 	providerName string
 	modelName    string
 }
 
-func (r *Registry) promptOutputGuards() []promptOutputGuardConfig {
+func (r *Registry) promptCallGuards() []promptCallGuardConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	guards := make([]promptOutputGuardConfig, 0)
+	guards := make([]promptCallGuardConfig, 0)
 	for _, name := range r.order {
 		tool := r.tools[name]
-		if tool.toolOutputGuardPrompt != "" {
-			guards = append(guards, promptOutputGuardConfig{
+		if tool.toolCallGuardPrompt != "" {
+			guards = append(guards, promptCallGuardConfig{
 				toolName:     name,
-				providerName: tool.toolOutputGuardProvider,
-				modelName:    tool.toolOutputGuardModel,
+				providerName: tool.toolCallGuardProvider,
+				modelName:    tool.toolCallGuardModel,
 			})
 		}
 	}

@@ -169,23 +169,23 @@ confirmation is published immediately before handler execution.
 See [Permissions and confirmations](./permissions-and-confirmations.md) for
 complete dynamic examples and mode behavior.
 
-## Guard successful tool output
+## Guard requested tool calls
 
-Each custom tool can configure exactly one output-guard mode:
+Each custom tool can configure exactly one pre-execution call-guard mode:
 
 ```go
-ToolOutputGuard: func(
+ToolCallGuard: func(
     ctx context.Context,
-    attempt agentcli.ToolOutputGuardAttempt,
-) (agentcli.ToolOutputGuardDecision, error) {
-    if !outputIsUsable(attempt.Output) {
-        return agentcli.ToolOutputGuardDecision{
-            Action:   agentcli.ToolOutputReject,
+    attempt agentcli.ToolCallGuardAttempt,
+) (agentcli.ToolCallGuardDecision, error) {
+    if !argumentsAreAllowed(attempt.Arguments) {
+        return agentcli.ToolCallGuardDecision{
+            Action:   agentcli.ToolCallReject,
             Feedback: "Call the tool again with a narrower query.",
         }, nil
     }
-    return agentcli.ToolOutputGuardDecision{
-        Action: agentcli.ToolOutputProceed,
+    return agentcli.ToolCallGuardDecision{
+        Action: agentcli.ToolCallAllow,
     }, nil
 },
 ```
@@ -193,21 +193,20 @@ ToolOutputGuard: func(
 Or attach a semantic policy:
 
 ```go
-ToolOutputGuardPrompt: `
-Allow only complete results that answer the requested lookup.
-Reject unsafe or irrelevant results with concise retry instructions.
+ToolCallGuardPrompt: `
+Allow only specific, policy-compliant lookup requests.
+Reject unsafe or overly broad arguments with concise retry instructions.
 `,
-ToolOutputGuardModel: &agentcli.GuardModelConfig{
+ToolCallGuardModel: &agentcli.GuardModelConfig{
     Provider: "policy",
     Model:    "guard-model-small",
 },
 ```
 
-A rejection discards the raw handler output and publishes a failed tool result
-whose error contains the feedback. The agent receives that result on the next
-provider round and may call the tool again. The handler has already executed,
-so external side effects must be safe to retry. See
-[Tool-output guards](../guardrails/tool-output.md) for the complete lifecycle,
+A rejection prevents the handler from executing and publishes a failed tool
+result whose error contains the feedback. The agent receives that result on the
+next provider round and may call the tool again with corrected arguments. See
+[Tool-call guards](../guardrails/tool-call.md) for the complete lifecycle,
 failure posture, prompt mode, and finalizer behavior.
 
 ## Project allowlists

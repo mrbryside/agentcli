@@ -91,15 +91,15 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
 		{name: "required finalizer must end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredAtTurnEnd: true}},
-		{name: "function and prompt output guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuard: func(context.Context, agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
-			return agentruntime.ToolOutputGuardDecision{Action: agentruntime.ToolOutputProceed}, nil
-		}, ToolOutputGuardPrompt: "check output"}},
-		{name: "whitespace output guard prompt", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardPrompt: " \n\t "}},
-		{name: "output guard model without provider", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardPrompt: "check output", ToolOutputGuardModel: &GuardModelConfig{Model: "guard-model"}}},
-		{name: "output guard model without name", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardPrompt: "check output", ToolOutputGuardModel: &GuardModelConfig{Provider: "policy"}}},
-		{name: "output guard model without prompt", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardModel: &GuardModelConfig{Provider: "policy", Model: "guard-model"}}},
-		{name: "whitespace output guard provider", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardPrompt: "check output", ToolOutputGuardModel: &GuardModelConfig{Provider: " \n", Model: "guard-model"}}},
-		{name: "whitespace output guard model", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolOutputGuardPrompt: "check output", ToolOutputGuardModel: &GuardModelConfig{Provider: "policy", Model: " \n"}}},
+		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
+		}, ToolCallGuardPrompt: "check call"}},
+		{name: "whitespace call guard prompt", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardPrompt: " \n\t "}},
+		{name: "call guard model without provider", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardPrompt: "check call", ToolCallGuardModel: &GuardModelConfig{Model: "guard-model"}}},
+		{name: "call guard model without name", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardPrompt: "check call", ToolCallGuardModel: &GuardModelConfig{Provider: "policy"}}},
+		{name: "call guard model without prompt", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardModel: &GuardModelConfig{Provider: "policy", Model: "guard-model"}}},
+		{name: "whitespace call guard provider", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardPrompt: "check call", ToolCallGuardModel: &GuardModelConfig{Provider: " \n", Model: "guard-model"}}},
+		{name: "whitespace call guard model", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuardPrompt: "check call", ToolCallGuardModel: &GuardModelConfig{Provider: "policy", Model: " \n"}}},
 		{name: "array schema", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "array", InputSchema: agentruntime.ToolSchema{Type: "array"}}, Handler: testHandler}},
 		{name: "non-object type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "string", InputSchema: agentruntime.ToolSchema{Type: "string"}}, Handler: testHandler}},
 		{name: "missing type", tool: Tool{Definition: agentruntime.ToolDefinition{Name: "type", InputSchema: agentruntime.ToolSchema{Properties: map[string]agentruntime.ToolSchema{}}}, Handler: testHandler}},

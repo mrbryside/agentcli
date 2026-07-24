@@ -24,12 +24,12 @@ type GuardModelConfig = toolexecution.GuardModelConfig
 // ToolDefinition describes a callable tool.
 type ToolDefinition = agentruntime.ToolDefinition
 
-// Tool-output guard aliases let applications validate successful handler
-// output without importing the runtime package separately.
-type ToolOutputGuard = agentruntime.ToolOutputGuard
-type ToolOutputGuardAttempt = agentruntime.ToolOutputGuardAttempt
-type ToolOutputGuardDecision = agentruntime.ToolOutputGuardDecision
-type ToolOutputGuardAction = agentruntime.ToolOutputGuardAction
+// Tool-call guard aliases let applications validate model-requested tool calls
+// before their handlers execute without importing the runtime package.
+type ToolCallGuard = agentruntime.ToolCallGuard
+type ToolCallGuardAttempt = agentruntime.ToolCallGuardAttempt
+type ToolCallGuardDecision = agentruntime.ToolCallGuardDecision
+type ToolCallGuardAction = agentruntime.ToolCallGuardAction
 
 // ToolPermissionConfig describes a fixed permission requirement for a tool.
 type ToolPermissionConfig = toolexecution.PermissionConfig
@@ -69,8 +69,8 @@ const ContinueTurn = toolexecution.ContinueTurn
 const EndTurn = toolexecution.EndTurn
 
 const (
-	ToolOutputProceed = agentruntime.ToolOutputProceed
-	ToolOutputReject  = agentruntime.ToolOutputReject
+	ToolCallAllow  = agentruntime.ToolCallAllow
+	ToolCallReject = agentruntime.ToolCallReject
 )
 
 // InputSchema is the complete typed JSON Schema vocabulary for tool input.

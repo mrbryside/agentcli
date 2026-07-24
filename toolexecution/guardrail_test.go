@@ -12,25 +12,26 @@ import (
 	"github.com/mrbryside/agentcli/provider"
 )
 
-func TestToolOutputFunctionGuardRejectsAsRetryableFailedResult(t *testing.T) {
+func TestToolCallFunctionGuardRejectsBeforeHandlerWithRetryableFailedResult(t *testing.T) {
 	registry := NewRegistry()
-	var observed agentruntime.ToolOutputGuardAttempt
-	guard := func(_ context.Context, attempt agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
+	var observed agentruntime.ToolCallGuardAttempt
+	handlerCalls := 0
+	guard := func(_ context.Context, attempt agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 		observed = attempt
 		attempt.Arguments[0] = '['
-		attempt.Output[0] = '['
-		return agentruntime.ToolOutputGuardDecision{
-			Action:   agentruntime.ToolOutputReject,
-			Feedback: "result is incomplete; call lookup again with a narrower query",
+		return agentruntime.ToolCallGuardDecision{
+			Action:   agentruntime.ToolCallReject,
+			Feedback: "query is too broad; call lookup again with a narrower query",
 		}, nil
 	}
 	if err := registry.Register(Tool{
 		Definition: agentruntime.ToolDefinition{Name: "lookup", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		TurnBehavior:    EndTurn,
-		ToolOutputGuard: guard,
+		TurnBehavior:  EndTurn,
+		ToolCallGuard: guard,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -48,19 +49,24 @@ func TestToolOutputFunctionGuardRejectsAsRetryableFailedResult(t *testing.T) {
 	if observed.SessionID != "session" || observed.TurnID != "turn" || observed.CallID != "call" || observed.ToolName != "lookup" {
 		t.Fatalf("guard attempt correlation = %#v", observed)
 	}
+	if handlerCalls != 0 {
+		t.Fatalf("handler calls = %d, want 0 after rejected tool call", handlerCalls)
+	}
 }
 
-func TestToolOutputFunctionGuardProceedPreservesOutputAndTurnBehavior(t *testing.T) {
+func TestToolCallFunctionGuardAllowExecutesHandlerAndPreservesTurnBehavior(t *testing.T) {
 	registry := NewRegistry()
+	handlerCalls := 0
 	if err := registry.Register(Tool{
 		Definition: agentruntime.ToolDefinition{Name: "finalize", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handlerCalls++
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
 		TurnBehavior: EndTurn,
-		ToolOutputGuard: func(_ context.Context, attempt agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
-			attempt.Output[0] = '['
-			return agentruntime.ToolOutputGuardDecision{Action: agentruntime.ToolOutputProceed}, nil
+		ToolCallGuard: func(_ context.Context, attempt agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+			attempt.Arguments = append(attempt.Arguments, ' ')
+			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -73,17 +79,22 @@ func TestToolOutputFunctionGuardProceedPreservesOutputAndTurnBehavior(t *testing
 	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != EndTurn {
 		t.Fatalf("guarded result = %#v", result)
 	}
+	if handlerCalls != 1 {
+		t.Fatalf("handler calls = %d, want 1", handlerCalls)
+	}
 }
 
-func TestToolOutputPromptGuardUsesConfiguredModelAndRejects(t *testing.T) {
+func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testing.T) {
 	registry := NewRegistry()
+	handlerCalls := 0
 	if err := registry.Register(Tool{
 		Definition: agentruntime.ToolDefinition{Name: "lookup", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		TurnBehavior:          EndTurn,
-		ToolOutputGuardPrompt: "Require at least one item.",
+		TurnBehavior:        EndTurn,
+		ToolCallGuardPrompt: "Require a narrow query.",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +102,11 @@ func TestToolOutputPromptGuardUsesConfiguredModelAndRejects(t *testing.T) {
 		t.Fatalf("NewExecutor() error = %v, want missing guard model", err)
 	}
 	var typedNilModel *toolGuardModel
-	if _, err := NewExecutor(registry, 1, Config{ToolOutputGuardModel: typedNilModel}); err == nil || !strings.Contains(err.Error(), "guard model") {
+	if _, err := NewExecutor(registry, 1, Config{ToolCallGuardModel: typedNilModel}); err == nil || !strings.Contains(err.Error(), "guard model") {
 		t.Fatalf("NewExecutor() typed-nil error = %v, want missing guard model", err)
 	}
-	model := &toolGuardModel{contents: []string{`{"allowed":false,"reason":"empty items","feedback":"call lookup again with a broader query"}`}}
-	executor, err := NewExecutor(registry, 1, Config{ToolOutputGuardModel: model})
+	model := &toolGuardModel{contents: []string{`{"allowed":false,"reason":"broad query","feedback":"call lookup again with a narrower query"}`}}
+	executor, err := NewExecutor(registry, 1, Config{ToolCallGuardModel: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,32 +114,35 @@ func TestToolOutputPromptGuardUsesConfiguredModelAndRejects(t *testing.T) {
 	if result.Result.Status != agentruntime.ToolResultFailed || result.Result.Output != nil || result.TurnBehavior != ContinueTurn {
 		t.Fatalf("prompt-guarded result = %#v", result)
 	}
-	if !strings.Contains(result.Result.Error, "broader query") {
+	if !strings.Contains(result.Result.Error, "narrower query") {
 		t.Fatalf("prompt-guarded error = %q", result.Result.Error)
+	}
+	if handlerCalls != 0 {
+		t.Fatalf("handler calls = %d, want 0 after rejected tool call", handlerCalls)
 	}
 	requests := model.Requests()
 	if len(requests) != 1 || len(requests[0].Tools) != 0 || requests[0].ToolChoice == nil || requests[0].ToolChoice.Mode != agentruntime.ToolChoiceNone {
 		t.Fatalf("guard request = %#v", requests)
 	}
-	if len(requests[0].Messages) != 1 || !strings.Contains(requests[0].Messages[0].Content, `"tool_name":"lookup"`) || !strings.Contains(requests[0].SystemPrompts[0], "Require at least one item") {
+	if len(requests[0].Messages) != 1 || !strings.Contains(requests[0].Messages[0].Content, `"tool_name":"lookup"`) || !strings.Contains(requests[0].Messages[0].Content, `"query":"go"`) || strings.Contains(requests[0].Messages[0].Content, `"output"`) || !strings.Contains(requests[0].SystemPrompts[0], "Require a narrow query") {
 		t.Fatalf("guard request = %#v", requests[0])
 	}
 }
 
-func TestToolOutputPromptGuardProceedPreservesSuccessfulResult(t *testing.T) {
+func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(Tool{
 		Definition: agentruntime.ToolDefinition{Name: "finalize", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
-		TurnBehavior:          EndTurn,
-		ToolOutputGuardPrompt: "Allow status done.",
+		TurnBehavior:        EndTurn,
+		ToolCallGuardPrompt: "Allow an empty argument object.",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	model := &toolGuardModel{contents: []string{`{"allowed":true,"reason":"valid status","feedback":""}`}}
-	executor, err := NewExecutor(registry, 1, Config{ToolOutputGuardModel: model})
+	executor, err := NewExecutor(registry, 1, Config{ToolCallGuardModel: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +152,7 @@ func TestToolOutputPromptGuardProceedPreservesSuccessfulResult(t *testing.T) {
 	}
 }
 
-func TestToolOutputPromptGuardResolvesPerToolProviderAndModel(t *testing.T) {
+func TestToolCallPromptGuardResolvesPerToolProviderAndModel(t *testing.T) {
 	registry := NewRegistry()
 	guardModelConfig := &GuardModelConfig{Provider: "policy", Model: "guard-small"}
 	if err := registry.Register(Tool{
@@ -146,22 +160,22 @@ func TestToolOutputPromptGuardResolvesPerToolProviderAndModel(t *testing.T) {
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"items":["one"]}`), nil
 		},
-		ToolOutputGuardPrompt: "Allow a non-empty items array.",
-		ToolOutputGuardModel:  guardModelConfig,
+		ToolCallGuardPrompt: "Allow this lookup request.",
+		ToolCallGuardModel:  guardModelConfig,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	guardModelConfig.Provider = "mutated"
 	guardModelConfig.Model = "mutated"
-	if _, err := NewExecutor(registry, 1, Config{ToolOutputGuardModel: &toolGuardModel{}}); err == nil || !strings.Contains(err.Error(), "no model resolver") {
+	if _, err := NewExecutor(registry, 1, Config{ToolCallGuardModel: &toolGuardModel{}}); err == nil || !strings.Contains(err.Error(), "no model resolver") {
 		t.Fatalf("NewExecutor() error = %v, want missing resolver", err)
 	}
 
 	resolvedModel := &toolGuardModel{contents: []string{`{"allowed":true,"reason":"valid","feedback":""}`}}
 	var providerName, modelName string
 	executor, err := NewExecutor(registry, 1, Config{
-		ToolOutputGuardModel: &toolGuardModel{},
-		ToolOutputGuardModelResolver: func(provider, model string) (agentruntime.Model, error) {
+		ToolCallGuardModel: &toolGuardModel{},
+		ToolCallGuardModelResolver: func(provider, model string) (agentruntime.Model, error) {
 			providerName, modelName = provider, model
 			return resolvedModel, nil
 		},
@@ -178,18 +192,18 @@ func TestToolOutputPromptGuardResolvesPerToolProviderAndModel(t *testing.T) {
 	}
 }
 
-func TestToolOutputPromptGuardModelResolverFailureRejectsExecutor(t *testing.T) {
+func TestToolCallPromptGuardModelResolverFailureRejectsExecutor(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(Tool{
-		Definition:            agentruntime.ToolDefinition{Name: "lookup", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
-		Handler:               testHandler,
-		ToolOutputGuardPrompt: "check",
-		ToolOutputGuardModel:  &GuardModelConfig{Provider: "missing", Model: "guard-small"},
+		Definition:          agentruntime.ToolDefinition{Name: "lookup", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
+		Handler:             testHandler,
+		ToolCallGuardPrompt: "check",
+		ToolCallGuardModel:  &GuardModelConfig{Provider: "missing", Model: "guard-small"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := NewExecutor(registry, 1, Config{
-		ToolOutputGuardModelResolver: func(provider, model string) (agentruntime.Model, error) {
+		ToolCallGuardModelResolver: func(provider, model string) (agentruntime.Model, error) {
 			return nil, errors.New("provider is not configured")
 		},
 	})
@@ -198,11 +212,11 @@ func TestToolOutputPromptGuardModelResolverFailureRejectsExecutor(t *testing.T) 
 	}
 }
 
-func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
+func TestToolCallGuardErrorsPreventHandlerAndInvalidHandlerJSONFails(t *testing.T) {
 	tests := []struct {
 		name    string
 		handler Handler
-		guard   agentruntime.ToolOutputGuard
+		guard   agentruntime.ToolCallGuard
 		want    string
 	}{
 		{
@@ -217,8 +231,8 @@ func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
 			handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"ok":true}`), nil
 			},
-			guard: func(context.Context, agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
-				return agentruntime.ToolOutputGuardDecision{}, errors.New("policy unavailable")
+			guard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+				return agentruntime.ToolCallGuardDecision{}, errors.New("policy unavailable")
 			},
 			want: "policy unavailable",
 		},
@@ -227,8 +241,8 @@ func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
 			handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"ok":true}`), nil
 			},
-			guard: func(context.Context, agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
-				return agentruntime.ToolOutputGuardDecision{Action: agentruntime.ToolOutputReject}, nil
+			guard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
+				return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallReject}, nil
 			},
 			want: "invalid decision",
 		},
@@ -237,7 +251,7 @@ func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
 			handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 				return json.RawMessage(`{"ok":true}`), nil
 			},
-			guard: func(context.Context, agentruntime.ToolOutputGuardAttempt) (agentruntime.ToolOutputGuardDecision, error) {
+			guard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 				panic("broken policy")
 			},
 			want: "guard panicked: broken policy",
@@ -246,10 +260,15 @@ func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			registry := NewRegistry()
+			handlerCalls := 0
+			handler := func(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
+				handlerCalls++
+				return test.handler(ctx, arguments)
+			}
 			if err := registry.Register(Tool{
-				Definition:      agentruntime.ToolDefinition{Name: "tool", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
-				Handler:         test.handler,
-				ToolOutputGuard: test.guard,
+				Definition:    agentruntime.ToolDefinition{Name: "tool", InputSchema: mustRawToolSchema(`{"type":"object"}`)},
+				Handler:       handler,
+				ToolCallGuard: test.guard,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -260,6 +279,13 @@ func TestToolOutputGuardErrorsAndInvalidJSONBecomeFailedResults(t *testing.T) {
 			result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "tool", `{}`))
 			if result.Result.Status != agentruntime.ToolResultFailed || result.Result.Output != nil || !strings.Contains(result.Result.Error, test.want) {
 				t.Fatalf("result = %#v, want failed result containing %q", result, test.want)
+			}
+			wantHandlerCalls := 1
+			if test.guard != nil {
+				wantHandlerCalls = 0
+			}
+			if handlerCalls != wantHandlerCalls {
+				t.Fatalf("handler calls = %d, want %d", handlerCalls, wantHandlerCalls)
 			}
 		})
 	}

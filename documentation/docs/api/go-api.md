@@ -86,7 +86,7 @@ permission checks.
 | API | Purpose |
 | --- | --- |
 | `WithTool(tool)` | Register one application-defined tool. |
-| `Tool` | Definition, handler, behavior, finalizer, output guard, and admission metadata. |
+| `Tool` | Definition, handler, behavior, finalizer, call guard, and admission metadata. |
 | `ToolDefinition` | Model-facing name, description, and input schema. |
 | `ObjectSchema(parameters)` | Build a closed object schema. |
 | `TryObjectSchema(parameters)` | Build a schema without panic. |
@@ -95,15 +95,15 @@ permission checks.
 | `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
 | `ContinueTurn`, `EndTurn` | Select successful result behavior. |
-| `ToolOutputGuard` | Function callback for successful handler output. |
-| `ToolOutputGuardPrompt` | `Tool` field containing a model-evaluated output policy. |
+| `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
+| `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
-| `ToolOutputProceed`, `ToolOutputReject` | Select the tool-output verdict. |
+| `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
 `Tool` fields are `Definition`, `Handler`, `TurnBehavior`,
-`RequiredAtTurnEnd`, `ToolOutputGuard`, `ToolOutputGuardPrompt`,
-`ToolOutputGuardModel`, `Permission`, `PermissionWithPolicy`, and
-`Confirmation`. `ToolOutputGuardModel` optionally holds one
+`RequiredAtTurnEnd`, `ToolCallGuard`, `ToolCallGuardPrompt`,
+`ToolCallGuardModel`, `Permission`, `PermissionWithPolicy`, and
+`Confirmation`. `ToolCallGuardModel` optionally holds one
 `GuardModelConfig` for prompt-guarded tools; without it the guard uses the
 Agent model. The schema helpers cover string, integer, number, boolean, null,
 object, and array parameters with individual descriptions and constraints.
@@ -117,13 +117,13 @@ rounds with an allowlist restricted to the missing tools.
 ## Guardrails
 
 The root package exposes the callback, attempt, decision, and action types for
-input, assistant output, and tool output. Function and prompt modes are
+input, assistant output, and tool calls. Function and prompt modes are
 mutually exclusive at the same boundary. Prompt verdicts are strict JSON and
 fail closed.
 
 Input rejection returns an error matching `agentcli.ErrInputGuardRejected`
 before a `Run` exists. Assistant-output rejection requests another provider
-round with ephemeral feedback. Tool-output rejection publishes a failed tool
+round with ephemeral feedback. Tool-call rejection publishes a failed tool
 result so the agent can decide whether and how to call the tool again.
 
 See [Guardrails overview](../guardrails/overview.md) for lifecycle and security
