@@ -53,20 +53,24 @@ invocation confirmation; the researcher allowlist remains read-only.
 The generated `report_discord` tool is a deterministic, network-free mock. It
 is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
-Generated instructions forbid direct conversational, progress, or final
-messages to the user; the finalizer's `message` argument is the only
-user-facing delivery channel. The agent decides whether a report is useful:
-omitting `skipReport` or setting it to `false` records `message`, while
-`skipReport: true` returns `skipped` without creating or appending a report
-entry. The message remains required in the skip case and briefly explains why
-no report is necessary.
+Generated instructions forbid sending user-facing conversational, progress, or
+final messages outside the tool; the finalizer's `message` argument is the only
+user-facing delivery channel. Useful ongoing progress is reportable and is
+phrased as the main agent's own current action. The agent omits `skipReport` or
+sets it to `false` to record `message`. It sets `skipReport: true` only when
+there is no meaningful user-facing action, progress, status, finding, or
+conclusion; this returns `skipped` without creating or appending a report entry.
+The message remains required in the skip case and briefly explains why no
+report is necessary.
 Its embedded `ToolCallGuardPrompt` checks message limits, disclosure policy,
 direct standalone reporting, and the `skipReport` decision before the handler
-appends anything. A reported message presents the result as the main agent's
-own work and cannot mention delegation, another agent/subagent/researcher,
-waiting for one, or future updates. It uses the Agent model fallback;
-rejection leaves the report file unchanged and becomes a failed finalizer
-result with retry feedback.
+appends anything. A reported message presents progress or results as the main
+agent's own work and cannot mention delegation, another
+agent/subagent/researcher, waiting for one, or future updates. If useful
+progress includes delegation attribution, rejection feedback preserves the
+progress and provides a concrete direct rewrite instead of recommending
+`skipReport`. It uses the Agent model fallback; rejection leaves the report
+file unchanged and becomes a failed finalizer result with retry feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per

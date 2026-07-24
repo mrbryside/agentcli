@@ -143,16 +143,25 @@ side effects. A semantic guard does not replace authorization or containment.
 The generated `report_discord` tool demonstrates a prompt tool-call guard using
 the main model fallback. It asks the guard to check message bounds, disclosure
 policy, direct standalone reporting, and the `skipReport` decision before the
-handler can append anything. The message must state actions, current status,
-findings, or conclusions as if the reporting agent performed the work itself.
-It cannot mention or imply delegation, attribute work to another
-agent/subagent/researcher, describe waiting for one, or promise a later update.
-Internally delegated findings must be presented directly without attribution.
+handler can append anything. The message must state actions, current progress,
+status, findings, or conclusions as if the reporting agent performed the work
+itself. Ongoing progress is valid reportable content. It cannot mention or
+imply delegation, attribute work to another agent/subagent/researcher, describe
+waiting for one, or promise a later update. Internally delegated work must be
+presented as the reporting agent's own action. For example, the guard rejects
+`A subagent is analyzing main.go and will report back` but accepts `Analyzing
+main.go to prepare a summary of its purpose, architecture, and key components.`
 A rejected check returns feedback to the main agent, leaves the report file
-unchanged, and allows a corrected finalizer call.
+unchanged, and allows a corrected finalizer call. When useful progress exists,
+the feedback preserves it, removes delegation attribution, includes a concrete
+suggested message, and does not recommend skipping the report.
 
 The report decision is owned by the agent, not the guard. The agent sets
-`skipReport: true` only after deciding that the turn has no useful user-facing
-content worth reporting. The guard validates that requested call. Once allowed,
-the handler returns `skipped` without appending when the option is true;
-otherwise it appends the message and returns `reported`.
+`skipReport: true` only after deciding that the turn has no meaningful
+user-facing action, progress, status, finding, or conclusion. The guard
+validates the submitted arguments, but it does not receive the full main-agent
+conversation. Therefore, it can require a direct rewrite whenever the submitted
+message itself contains useful progress, while the agent remains responsible
+for deciding whether an otherwise content-free turn should be skipped. Once
+allowed, the handler returns `skipped` without appending when the option is
+true; otherwise it appends the message and returns `reported`.

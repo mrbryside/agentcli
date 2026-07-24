@@ -27,7 +27,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.ToolCallGuardModel != nil {
 		t.Fatalf("tool call guard model = %#v, want main-model fallback", tool.ToolCallGuardModel)
 	}
-	for _, required := range []string{"requested report_discord tool call", "arguments.message", "as if the reporting agent performed the work itself", "does not mention or imply delegation", "does not describe waiting", "does not promise", "without attribution to the delegate", "arguments.skipReport", "no useful user-facing content", "omitted or false", "call report_discord again", "Do not repeat sensitive content"} {
+	for _, required := range []string{"requested report_discord tool call", "arguments.message", "as if the reporting agent performed the work itself", "useful ongoing progress is valid reportable content", "does not mention or imply delegation", "does not describe waiting", "does not promise", "A subagent is analyzing main.go", "Analyzing main.go to prepare a summary", "arguments.skipReport", "useful progress must be reported", "preserve that progress", "do not recommend skipReport", "concrete suggested message", "Never suggest an empty or null message", "do not repeat sensitive content"} {
 		if !strings.Contains(tool.ToolCallGuardPrompt, required) {
 			t.Fatalf("call guard prompt %q does not contain %q", tool.ToolCallGuardPrompt, required)
 		}
@@ -35,7 +35,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Permission != nil || tool.PermissionWithPolicy != nil || tool.Confirmation != nil {
 		t.Fatal("mock report must not require admission metadata")
 	}
-	for _, required := range []string{"successful standalone", "Do not send conversational", "only through this final call's message argument", "as if you performed the work yourself", "Never mention or imply delegation", "do not describe waiting", "promise a later update", "Decide whether this turn", "skipReport=true", "no report is necessary", "omit skipReport or set it to false", "retry with corrected arguments"} {
+	for _, required := range []string{"successful standalone", "Do not send any user-facing messages directly", "only through this final call's message argument", "as if you performed the work yourself", "Useful in-progress status is reportable", "without mentioning or implying delegation", "waiting for one", "promised later update", "skipReport=true", "no meaningful user-facing action, progress, status, finding, or conclusion", "do not use it to hide useful progress", "omit skipReport or set it to false", "preserve useful progress while removing internal attribution"} {
 		if !strings.Contains(tool.Definition.Description, required) {
 			t.Fatalf("description %q does not contain %q", tool.Definition.Description, required)
 		}
@@ -47,7 +47,7 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`, `never mention delegation, other agents, waiting for them, or future updates`} {
+	for _, expected := range []string{`"message"`, `"minLength":1`, `"maxLength":2000`, `"skipReport"`, `"type":"boolean"`, `"required":["message"]`, `useful ongoing progress is reportable`, `never mention delegation, other agents, waiting for them, or future updates`, `never use it to hide useful progress`} {
 		if !strings.Contains(string(schema), expected) {
 			t.Fatalf("schema %s missing %s", schema, expected)
 		}

@@ -37,14 +37,17 @@ turn, but the agent decides whether a report is useful: omitting
 `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without writing a report entry. A rejected
 tool call also leaves the report file unchanged. Reported messages must present
-actions, status, findings, and conclusions directly as the agent's own work;
-the guard rejects references to delegation, other agents, waiting for them, or
-promised future updates. The installer asks for the project folder name and
-then the Go module path used in `go.mod`. It detects the installed Go version
-for that file, falling back to `1.26.3` when Go is not installed. Generated
-projects start in `criticalOnly` permission mode and read provider credentials
-only from the process environment. When Go is available, the installer also
-runs `go mod tidy` so the project can start immediately.
+actions, current progress, status, findings, and conclusions directly as the
+agent's own work. Useful progress is reported instead of skipped: for example,
+`Analyzing main.go to prepare its architecture summary.` The guard rejects
+references to delegation, other agents, waiting for them, or promised future
+updates and returns feedback with a direct rewrite suggestion. The installer
+asks for the project folder name and then the Go module path used in `go.mod`.
+It detects the installed Go version for that file, falling back to `1.26.3`
+when Go is not installed. Generated projects start in `criticalOnly` permission
+mode and read provider credentials only from the process environment. When Go
+is available, the installer also runs `go mod tidy` so the project can start
+immediately.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh

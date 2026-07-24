@@ -115,23 +115,26 @@ researcher selects only `glob` and `read`:
   not allowed to use it.
 - `report_discord` is a deterministic mock finalizer. The main agent calls it
   exactly once as the standalone final action with the complete user-facing
-  response. The generated prompt forbids direct conversational, progress, or
-  final messages to the user; user-facing content must be delivered only
-  through the final call's `message` argument. The agent may set
-  `skipReport: true` after deciding that the turn has no useful user-facing
-  content worth reporting; omitting it or setting it to `false` records the
-  message. The tool performs no network I/O and appends each reported payload to
+  response. The generated prompt forbids sending user-facing conversational,
+  progress, or final messages outside the tool; all such content must be
+  delivered through the final call's `message` argument. Useful in-progress
+  status is valid reportable content. The agent sets `skipReport: true` only
+  when there is no meaningful user-facing action, progress, status, finding, or
+  conclusion; omitting it or setting it to `false` records the message. The tool
+  performs no network I/O and appends each reported payload to
   `report/{session}.json`, and is not available to the researcher. Its public
-  result only reports completion; the session/turn/call metadata remains in
-  the local log. A built-in prompt tool-call guard checks message bounds,
+  result only reports completion; the session/turn/call metadata remains in the
+  local log. A built-in prompt tool-call guard checks message bounds,
   disclosure policy, direct standalone reporting, and the `skipReport`
   decision before the handler runs. A reported message must present actions,
-  status, findings, and conclusions as if the main agent performed the work
-  itself. It must not mention delegation, another agent/subagent/researcher,
-  waiting for one, or a promised later update. Internally delegated findings
-  are reported directly without attribution. Rejection leaves the report file
-  unchanged and becomes a failed tool result with feedback so the main agent
-  can issue a corrected finalizer call.
+  current progress, status, findings, and conclusions as if the main agent
+  performed the work itself. It must not mention delegation, another
+  agent/subagent/researcher, waiting for one, or a promised later update.
+  Internally delegated work is phrased as the main agent's own action.
+  Rejection leaves the report file unchanged and becomes a failed tool result.
+  Its feedback preserves useful progress, removes internal attribution, and
+  provides a concrete corrected-message suggestion instead of recommending a
+  skip.
 
 The report decision has explicit positive skip semantics:
 
@@ -146,8 +149,12 @@ field is not accepted; strict argument decoding rejects it so an inverted
 boolean cannot silently select the wrong behavior.
 
 For example, `"A researcher is analyzing main.go; results will follow"` is
-rejected. A direct result such as `"main.go loads the project, registers four
-tools, and starts the terminal runtime"` is eligible for reporting.
+rejected. During ongoing work, rewrite it as `"Analyzing main.go to prepare a
+summary of its purpose, architecture, and key components."` A completed result
+such as `"main.go loads the project, registers four tools, and starts the
+terminal runtime"` is also eligible for reporting. The guard should recommend
+`skipReport: true` only when the submitted message contains no meaningful
+user-facing progress or result.
 
 Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project

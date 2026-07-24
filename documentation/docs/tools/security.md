@@ -55,12 +55,14 @@ therefore declares no network permission. Its prompt tool-call guard checks
 the requested arguments before handler execution; rejection leaves the report
 file unchanged. It also requires a direct standalone message without
 delegation, other-agent attribution, waiting language, or promises of a later
-update. The agent may choose `skipReport: true`, which returns `skipped`
-without appending a local entry; omitting it or setting it to `false` records
-the message. The guard is policy, not authorization or containment. Replacing
-the mock with a real Discord integration requires an explicit network
-permission design, credential handling, confirmation policy, idempotency, and
-retry strategy.
+update. Useful ongoing progress must be rewritten as the main agent's own
+current action and reported rather than hidden with `skipReport`. The agent may
+choose `skipReport: true` only when there is no meaningful user-facing action,
+progress, status, finding, or conclusion; it returns `skipped` without appending
+a local entry. Omitting it or setting it to `false` records the message. The
+guard is policy, not authorization or containment. Replacing the mock with a
+real Discord integration requires an explicit network permission design,
+credential handling, confirmation policy, idempotency, and retry strategy.
 
 ## Shell tools
 

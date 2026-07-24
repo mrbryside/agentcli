@@ -90,9 +90,13 @@ require appropriate permissions, confirmations, validation, and idempotency.
 The generated `report_discord` tool is a network-free demonstration. Its
 prompt guard checks the requested message, disclosure policy, and
 `skipReport` decision before the handler can append to the report file. It
-requires a direct result written as the reporting agent's own work and rejects
-delegation, other-agent attribution, waiting language, and promised future
-updates. It uses the main model fallback and returns rejection as finalizer
-feedback.
+requires progress or results to be written as the reporting agent's own work
+and rejects delegation, other-agent attribution, waiting language, and promised
+future updates. Useful ongoing progress is valid reportable content: rejection
+feedback preserves it, removes internal attribution, and suggests a concrete
+direct rewrite instead of `skipReport`. The skip option is reserved for a
+submitted message with no meaningful user-facing action, progress, status,
+finding, or conclusion. It uses the main model fallback and returns rejection
+as finalizer feedback.
 
 Back to [tools-safety/index.md](index.md).

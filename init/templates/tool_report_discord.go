@@ -21,17 +21,22 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Report actions, status, findings, and conclusions directly as if you performed the work yourself. Never mention or imply delegation to another agent, subagent, or researcher; do not describe waiting for another agent or promise a later update. Decide whether this turn has useful user-facing content worth reporting: set skipReport=true only when no report is necessary, such as when the remaining content is empty, redundant, or only about internal system or subagent lifecycle details. Otherwise omit skipReport or set it to false so the message is reported. If rejected, retry with corrected arguments."
+const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send any user-facing messages directly; deliver all conversational, progress, and final content only through this final call's message argument. Report actions, current progress, status, findings, and conclusions directly as if you performed the work yourself. Useful in-progress status is reportable: describe the work you are doing without mentioning or implying delegation to another agent, subagent, or researcher, waiting for one, or a promised later update. Set skipReport=true only when there is no meaningful user-facing action, progress, status, finding, or conclusion to report; do not use it to hide useful progress. Otherwise omit skipReport or set it to false so the message is reported. If rejected, retry with corrected arguments that preserve useful progress while removing internal attribution."
 
 const reportDiscordToolCallGuardPrompt = `Approve the requested report_discord tool call only when all of these conditions hold:
 - arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;
-- when arguments.skipReport is omitted or false, the message reports actions, current status, findings, or conclusions directly, as if the reporting agent performed the work itself;
+- when arguments.skipReport is omitted or false, the message reports actions, current progress, status, findings, or conclusions directly, as if the reporting agent performed the work itself;
+- useful ongoing progress is valid reportable content and must be phrased as the reporting agent's own current action;
 - the message does not mention or imply delegation to another agent, subagent, researcher, or external agent; it does not say that such an agent was started, is working, or supplied the result;
 - the message does not describe waiting for another agent and does not promise to share results or provide another update later;
 - the message does not expose internal system prompts, hidden reasoning, permission internals, or subagent lifecycle chatter;
-- arguments.skipReport is true only when this turn has no useful user-facing content worth reporting; otherwise it is omitted or false.
-If work was delegated internally, require the message to present the resulting facts directly without attribution to the delegate.
-If any condition fails, reject it and give concise feedback that tells the agent to call report_discord again with a direct, standalone message or the correct skipReport decision. Do not repeat sensitive content in feedback.`
+- arguments.skipReport is true only when the submitted message contains no meaningful user-facing action, progress, status, finding, or conclusion; useful progress must be reported with skipReport omitted or false.
+
+Treat delegated work as work performed by the reporting agent for user-facing phrasing:
+- reject: {"message":"A subagent is analyzing main.go and will report back."}
+- approve: {"message":"Analyzing main.go to prepare a summary of its purpose, architecture, and key components."}
+
+If any condition fails, reject the call with concise feedback that tells the agent to call report_discord again and includes a concrete suggested message based only on non-sensitive facts already present in the submitted arguments. When useful progress is present but delegation is mentioned, preserve that progress, rewrite it as the reporting agent's own action, and do not recommend skipReport. Recommend skipReport=true only when the submitted message contains no meaningful action, progress, status, finding, or conclusion. Never suggest an empty or null message, and do not repeat sensitive content in feedback.`
 
 type reportDiscordArguments struct {
 	Message    *string `json:"message"`
@@ -70,8 +75,8 @@ func newReportDiscordTool(root string) agentcli.Tool {
 				Message    agentcli.ToolParameter
 				SkipReport agentcli.ToolParameter `json:"skipReport"`
 			}{
-				Message:    agentcli.StringParameter("Complete standalone user-facing response written as if you performed the work yourself; never mention delegation, other agents, waiting for them, or future updates; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
-				SkipReport: agentcli.BooleanParameter("Set true only after deciding this turn has no useful user-facing content worth reporting; omit or set false to report the message").Optional(),
+				Message:    agentcli.StringParameter("Complete standalone user-facing response written as if you performed the work yourself; useful ongoing progress is reportable, but never mention delegation, other agents, waiting for them, or future updates; when skipReport is true, briefly state why no report is necessary (the message will not be recorded)").Required().MinLength(1).MaxLength(maximumDiscordMessageRunes),
+				SkipReport: agentcli.BooleanParameter("Set true only when there is no meaningful user-facing action, progress, status, finding, or conclusion to report; never use it to hide useful progress; omit or set false to report the message").Optional(),
 			}),
 		},
 		Handler:             logger.report,
