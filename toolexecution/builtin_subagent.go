@@ -134,7 +134,7 @@ func (bridge *SubagentToolBridge) Tools() []Tool {
 		bridge.tool(ListSubagentsToolName, "List lightweight child identities and lifecycle summaries for explicit discovery, selection, or UI-style enumeration. It does not return child findings or wait for progress. Never call it after start_subagent or send_subagent_message to check whether work finished, and never use it as a polling loop; callbacks report outcomes automatically after the current parent turn ends.", `{"type":"object","properties":{"include_closed":{"type":"boolean","default":false,"description":"Include closed historical child sessions. Keep false when selecting an open child for follow-up work."}},"additionalProperties":false}`, bridge.list),
 		bridge.tool(SubagentStatusToolName, "Read one lightweight lifecycle snapshot only when the user explicitly asks for status or a concrete immediate decision requires it. This does not return the child's answer and cannot wait for completion. The runtime permits one fresh snapshot per subagent_id in a parent turn; repeats return action=already_checked with the cached snapshot. Never call it after dispatch merely to see whether the callback arrived.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable child ID resolved from active_subagents. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.status),
 		bridge.tool(SendSubagentMessageToolName, "Send one focused follow-up to an existing child selected by ID. Running children accept the message into their FIFO queue. Idle incomplete children accept missing information, idle completed children accept a distinct next task, and idle failed children accept recovery instructions—but every idle outcome requires its latest callback to have been consumed first. If that callback is still pending, the tool returns action=callback_pending as a successful controlled result with accepted=false; do not retry, answer the user, or replace the callback's question. Exact same-turn retries return duplicate or already_sent before lifecycle admission. A successful accepted result means started or queued, not completed. finish_turn defaults to true. Set finish_turn=false only when you will continue decomposing work through concrete operations for other children after the current tool batch; then perform only those operations. Set finish_turn=true for the final dispatch, when no further child operations are planned, or when unsure. After the final result, do not add speculative text and do not call status/list/close; callbacks are authoritative.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of an existing running child, or an idle completed/incomplete/failed child whose latest callback has been consumed. A pending callback returns a controlled callback_pending result without sending this message."},"message":{"type":"string","minLength":1,"description":"One focused follow-up, recovery instruction, or distinct next task. Do not send a waiting/status request."},"finish_turn":{"type":"boolean","default":true,"description":"False only when operations for other children are deliberately planned after this tool batch. True for the final operation, when none remain, or when unsure."}},"required":["subagent_id","message"],"additionalProperties":false}`, bridge.send),
-		bridge.tool(CloseSubagentToolName, "Release a terminal child and retain its transcript. Closing is cleanup, not cancellation and not a way to wait. Never call this after start_subagent or send_subagent_message, while the child is running, before its callback has been consumed, or for an incomplete outcome. The runtime rejects running, incomplete, and callback-pending children. After closing completed work or failed work, the parent turn always continues with a normal provider round so the callback result or failure can be delivered to the user. Do not repeat a result already delivered. The mere possibility of a future question is not a reason to keep completed work open.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of a completed or failed child whose latest callback has already been consumed. Running, incomplete, and callback-pending children are rejected. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.close),
+		bridge.tool(CloseSubagentToolName, "Release a terminal child and retain its transcript. Closing is cleanup, not cancellation and not a way to wait. Never call this after start_subagent or send_subagent_message, while the child is running, before its callback has been consumed, or for an incomplete outcome. The runtime rejects running, incomplete, and callback-pending children and returns those expected lifecycle conflicts as successful controlled results; do not retry after one. After closing completed work or failed work, the parent turn always continues with a normal provider round so the callback result or failure can be delivered to the user. Do not repeat a result already delivered. The mere possibility of a future question is not a reason to keep completed work open.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of a completed or failed child whose latest callback has been consumed. Running, incomplete, and callback-pending children return a controlled result and must not be retried. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.close),
 		bridge.tool(ForceCloseSubagentToolName, "Destructively stop and close one child while retaining its existing transcript and event history. Use this tool only when the latest user message explicitly directs you to force close, stop and close, or discard that specific child. Never choose it autonomously, never use it merely because close_subagent was rejected, and never infer permission from an old user message. It may interrupt active work, discard queued child messages, and suppress unfinished work. finish_turn defaults to true. Set finish_turn=false only when the same explicit user request requires more subagent operations after this tool batch.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of the child the user explicitly directed you to force close. Do not pass a definition name or display_name."},"finish_turn":{"type":"boolean","default":true,"description":"True after the final explicitly requested force close. False only when more subagent operations from the same explicit user request are deliberately planned."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.forceClose),
 	}
 }
@@ -456,6 +456,9 @@ func (bridge *SubagentToolBridge) close(ctx context.Context, arguments json.RawM
 	}
 	record, err := controller.CloseSubagent(ctx, invocation.SessionID, input.ID)
 	if err != nil {
+		if result, handled := closeLifecycleConflict(err); handled {
+			return json.Marshal(result)
+		}
 		return nil, err
 	}
 	return json.Marshal(struct {
@@ -467,6 +470,37 @@ func (bridge *SubagentToolBridge) close(ctx context.Context, arguments json.RawM
 		"continue_turn",
 		"Subagent closed. The parent turn will continue with a normal provider round; deliver the callback result or failure to the user now.",
 	})
+}
+
+type closeSubagentConflictResult struct {
+	Closed      bool   `json:"closed"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason"`
+	Instruction string `json:"instruction"`
+}
+
+func closeLifecycleConflict(err error) (closeSubagentConflictResult, bool) {
+	result := closeSubagentConflictResult{Closed: false, Reason: err.Error()}
+	switch {
+	case errors.Is(err, storage.ErrSubagentRunning):
+		result.Action = "still_running"
+		result.Instruction = "The subagent is still running. Do not retry close_subagent or poll it; leave it open and wait for its callback."
+	case errors.Is(err, storage.ErrSubagentIncomplete):
+		result.Action = "incomplete"
+		result.Instruction = "The subagent outcome is incomplete, so it remains open for follow-up. Do not retry close_subagent. Send a focused follow-up only if needed, or leave the child open; never use force_close_subagent unless the user explicitly requests it."
+	case errors.Is(err, storage.ErrSubagentCallbackPending):
+		result.Action = "callback_pending"
+		result.Instruction = "The subagent callback has not been consumed. Do not retry close_subagent or replace the callback; consume the callback first."
+	case errors.Is(err, storage.ErrSubagentOutcomeUnavailable):
+		result.Action = "outcome_unavailable"
+		result.Instruction = "The subagent has no terminal outcome yet. Do not retry close_subagent; leave it open until a callback reports its outcome."
+	case errors.Is(err, storage.ErrSubagentClosed):
+		result.Action = "already_closed"
+		result.Instruction = "The subagent is already closed. Do not retry close_subagent or perform more lifecycle operations for it."
+	default:
+		return closeSubagentConflictResult{}, false
+	}
+	return result, true
 }
 
 func (bridge *SubagentToolBridge) forceClose(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {

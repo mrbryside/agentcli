@@ -354,15 +354,16 @@ Use the registered search tool.
 
 func assertOutcomeOnlyRepairRequest(t *testing.T, requests []agentruntime.ModelRequest) {
 	t.Helper()
-	if len(requests) != 2 {
-		t.Fatalf("provider requests = %d, want initial request and one repair: %#v", len(requests), requests)
+	if len(requests) != defaultCompletionRepairLimit+1 {
+		t.Fatalf("provider requests = %d, want initial request and %d repairs: %#v", len(requests), defaultCompletionRepairLimit, requests)
 	}
-	repair := requests[1]
-	if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentOutcomeToolName {
-		t.Fatalf("repair tools = %#v", repair.Tools)
-	}
-	if !hasSubagentOutcomeRepairReminder(repair) {
-		t.Fatalf("repair reminders = %#v", repair.ContextReminders)
+	for index, repair := range requests[1:] {
+		if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentOutcomeToolName {
+			t.Fatalf("repair %d tools = %#v", index+1, repair.Tools)
+		}
+		if !hasSubagentOutcomeRepairReminder(repair) {
+			t.Fatalf("repair %d reminders = %#v", index+1, repair.ContextReminders)
+		}
 	}
 }
 

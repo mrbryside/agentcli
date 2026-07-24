@@ -100,8 +100,17 @@ func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testin
 		t.Fatal(err)
 	}
 	closeCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "start-turn", CallID: "close", ToolName: CloseSubagentToolName})
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentRunning) {
-		t.Fatalf("close running child error = %v", err)
+	conflictJSON, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conflict struct {
+		Closed      bool   `json:"closed"`
+		Action      string `json:"action"`
+		Instruction string `json:"instruction"`
+	}
+	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "still_running" || !strings.Contains(conflict.Instruction, "Do not retry") {
+		t.Fatalf("close running child result = %s (%v)", conflictJSON, err)
 	}
 	record, found, err := manager.store.Get(context.Background(), started.ID)
 	if err != nil || !found || record.Status != storage.SubagentStatusRunning {
@@ -110,12 +119,20 @@ func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testin
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
 	closeCtx = toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "callback-turn", CallID: "close", ToolName: CloseSubagentToolName})
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentIncomplete) {
-		t.Fatalf("close incomplete child error = %v", err)
+	conflictJSON, err = callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "incomplete" || !strings.Contains(conflict.Instruction, "Do not retry") {
+		t.Fatalf("close incomplete child result = %s (%v)", conflictJSON, err)
 	}
 	callback := markTestSubagentCompleted(t, manager, started.ID)
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentCallbackPending) {
-		t.Fatalf("close before callback observation error = %v", err)
+	conflictJSON, err = callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "callback_pending" || !strings.Contains(conflict.Instruction, "Do not retry") {
+		t.Fatalf("close before callback observation result = %s (%v)", conflictJSON, err)
 	}
 	observeTestSubagentCallback(t, manager, callback)
 	closedJSON, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))

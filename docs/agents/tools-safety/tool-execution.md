@@ -20,9 +20,9 @@ normal provider round after cleanup.
 
 `agentcli.ToolRequiredAtTurnEnd()` marks a typed custom tool as a finalizer and
 also gives it `EndTurn` behavior. If a turn attempts to complete without a
-successful invocation, the completion guard gives the model one repair round
-restricted to all missing finalizers. Omitting or failing one again fails the
-turn instead of silently violating the requirement.
+successful invocation, the completion guard gives the model up to three repair
+rounds restricted to all missing finalizers. Omitting or failing one after the
+bounded limit fails the turn instead of silently violating the requirement.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by `toolexecution` and wired by `agentcli`. Application tools remain caller-owned; the framework does not silently register filesystem or shell tools.
 

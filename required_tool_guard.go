@@ -23,9 +23,10 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		if len(missing) == 0 {
 			return baseDecision, nil
 		}
-		if attempt.RepairCount > 0 {
+		if attempt.RepairCount >= defaultCompletionRepairLimit {
 			return agentruntime.CompletionDecision{}, fmt.Errorf(
-				"required end-of-turn tool was not called successfully after repair: %s",
+				"required end-of-turn tool was not called successfully after %d repair attempts: %s",
+				defaultCompletionRepairLimit,
 				strings.Join(missing, ", "),
 			)
 		}
@@ -33,8 +34,8 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		decision := agentruntime.CompletionDecision{
 			Action: agentruntime.CompletionRetry,
 			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
-				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is the only repair opportunity.",
-				strings.Join(missing, ", "),
+				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
+				strings.Join(missing, ", "), attempt.RepairCount+1, defaultCompletionRepairLimit,
 			)}},
 			ToolAllowlist: append([]string(nil), missing...),
 		}

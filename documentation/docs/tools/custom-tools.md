@@ -172,10 +172,10 @@ The available values are:
 
 For a tool that must finalize every turn, use
 `agentcli.ToolRequiredAtTurnEnd()`. It also applies `EndTurn`. If the model
-tries to finish without a successful call, the runtime performs one repair
-provider round exposing only the missing finalizer tools. Every missing
-finalizer must be called in that response; a second omission or failure fails
-the turn.
+tries to finish without a successful call, the runtime performs up to three
+bounded repair provider rounds exposing only the missing finalizer tools. Every
+missing finalizer must be called in each repair response; the turn fails only
+after the bounded repair limit is exhausted.
 
 ```go
 agentcli.WithCustomTool(

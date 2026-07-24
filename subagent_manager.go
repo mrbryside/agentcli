@@ -1075,7 +1075,7 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	lastSummary := "Child turn ended without an explicit outcome report."
 	lastNextStep := "Review the final answer and send one focused follow-up if required."
 	if run.CompletionRepairCount() > 0 {
-		lastSummary = "Child turn ended without an explicit outcome report after one repair attempt."
+		lastSummary = "Child turn ended without an explicit outcome report after bounded repair attempts."
 	}
 	if lastTurnError != "" {
 		lastOutcome = storage.SubagentTurnFailed

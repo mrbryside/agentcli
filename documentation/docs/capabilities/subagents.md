@@ -55,16 +55,16 @@ summary and, for incomplete work, the required next step.
 
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
-runtime starts one bounded repair request using the transcript that was already
-stored. That request exposes only `report_subagent_outcome`, so a transfer,
-write, or other domain action that already ran cannot be invoked again. The
-same restriction remains while the child writes its concise final answer.
+runtime starts up to three bounded repair requests using the transcript that
+was already stored. Each request exposes only `report_subagent_outcome`, so a
+transfer, write, or other domain action that already ran cannot be invoked
+again. The same restriction remains while the child writes its concise final answer.
 There is no polling or second callback during repair.
 
 If the repair reports `completed` or `incomplete`, that structured value is
 authoritative. If the child still omits a valid report, the turn ends after the
-single repair and emits an `incomplete` callback with a fallback summary. A
-repair is never retried indefinitely.
+bounded repair limit and emits an `incomplete` callback with a fallback summary.
+A repair is never retried indefinitely.
 
 ## Asynchronous lifecycle
 
@@ -135,7 +135,7 @@ describes whether the delegated task is actually resolved:
 | Outcome | Meaning |
 | --- | --- |
 | `completed` | The child explicitly reported that all required delegated work is resolved. |
-| `incomplete` | The turn ended normally, but work, information, or a decision remains. A report still missing after the one repair request defaults here. |
+| `incomplete` | The turn ended normally, but work, information, or a decision remains. A report still missing after the bounded repair requests defaults here. |
 | `failed` | The provider/runtime turn ended with an error. |
 
 The runtime never infers completion merely because the provider stopped
@@ -216,9 +216,12 @@ Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model
 tool, Terminal UI, and HTTP `DELETE` require a `completed` or `failed` outcome
 whose latest callback cursor has been consumed. They reject running,
 incomplete, and callback-pending children with a storage lifecycle error /
-HTTP `409 conflict`. This prevents a fast child from being closed in the same
-parent turn that started it and prevents cleanup from suppressing an unread
-callback.
+HTTP `409 conflict`. The model-facing tool converts these expected lifecycle
+conflicts into a successful controlled result with `closed: false` and an
+instruction not to retry, preventing a provider loop; direct Go and HTTP
+callers retain the lifecycle error. This prevents a fast child from being
+closed in the same parent turn that started it and prevents cleanup from
+suppressing an unread callback.
 
 When a parent closes completed work during its callback turn,
 `close_subagent` always keeps the turn open:

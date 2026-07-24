@@ -400,7 +400,7 @@ func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *t
 	}
 }
 
-func TestSubagentIntegrationMissingOutcomeFallsBackAfterOneRepair(t *testing.T) {
+func TestSubagentIntegrationMissingOutcomeFallsBackAfterBoundedRepairs(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
 		Arguments: map[string]any{"name": "researcher", "message": "answer without reporting"},
@@ -424,11 +424,11 @@ func TestSubagentIntegrationMissingOutcomeFallsBackAfterOneRepair(t *testing.T) 
 
 	select {
 	case callback := <-callbacks:
-		if callback.Status != SubagentCallbackIncomplete || callback.Summary != "Child turn ended without an explicit outcome report after one repair attempt." {
+		if callback.Status != SubagentCallbackIncomplete || callback.Summary != "Child turn ended without an explicit outcome report after bounded repair attempts." {
 			t.Fatalf("fallback callback = %#v", callback)
 		}
-		if got := len(childModel.Requests()); got != 2 {
-			t.Fatalf("provider requests = %d, want initial plus one bounded repair", got)
+		if got := len(childModel.Requests()); got != defaultCompletionRepairLimit+1 {
+			t.Fatalf("provider requests = %d, want initial plus bounded repairs", got)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for fallback child callback")

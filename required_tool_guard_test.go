@@ -54,10 +54,48 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	}
 }
 
+func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
+	model := &requiredFinalizerModel{repairMisses: 2}
+	var calls int
+	tool := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Required final report.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("Final message").Required()}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+		TurnBehavior:      EndTurn,
+		RequiredAtTurnEnd: true,
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("required-finalizer-bounded"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || run.CompletionRepairCount() != defaultCompletionRepairLimit {
+		t.Fatalf("calls = %d, repair count = %d", calls, run.CompletionRepairCount())
+	}
+	if requests := model.Requests(); len(requests) != defaultCompletionRepairLimit+1 {
+		t.Fatalf("provider requests = %d, want initial plus bounded repairs", len(requests))
+	}
+}
+
 type requiredFinalizerModel struct {
-	mu       sync.Mutex
-	requests []agentruntime.ModelRequest
-	starts   int
+	mu           sync.Mutex
+	requests     []agentruntime.ModelRequest
+	repairMisses int
+	starts       int
 }
 
 func (m *requiredFinalizerModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
@@ -65,7 +103,7 @@ func (m *requiredFinalizerModel) Start(_ context.Context, request agentruntime.M
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, request)
 	m.starts++
-	if m.starts == 2 {
+	if m.starts > 1+m.repairMisses {
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "report-repair", Name: "report", Arguments: map[string]any{"message": "done"}}}, Finished: true}}, nil
 	}
 	return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil
