@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.13
+agentcli_fallback_version=v0.0.14
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -144,8 +144,7 @@ Understand the requested outcome and use the available capabilities deliberately
 At the end of every turn, call `report_discord` exactly once with your complete
 user-facing response. Finish all `glob`, `read`, and `edit` work first, consume
 their results, and then call `report_discord` as a standalone final action.
-Never batch it with another tool. It is a deterministic mock and does not
-contact Discord or any network service.
+Never batch it with another tool.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'

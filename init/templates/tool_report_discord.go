@@ -21,22 +21,14 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "Required final action for every main-agent turn. After all other work and tool results are complete, call this tool exactly once with the complete user-facing response. It deterministically simulates posting to Discord #agent-reports, appends the payload to report/{session}.json, and never performs network I/O. Do not call it early or batch it with another tool."
+const reportDiscordToolDescription = "Required final report for every main-agent turn. After all other work and tool results are complete, call this tool exactly once with the complete user-facing response. Use it only as a standalone final action; do not call it early or batch it with another tool."
 
 type reportDiscordArguments struct {
 	Message *string `json:"message"`
 }
 
 type reportDiscordResult struct {
-	Status         string `json:"status"`
-	Destination    string `json:"destination"`
-	Message        string `json:"message"`
-	CharacterCount int    `json:"character_count"`
-	NetworkCalled  bool   `json:"network_called"`
-	SessionID      string `json:"session_id"`
-	TurnID         string `json:"turn_id"`
-	CallID         string `json:"call_id"`
-	LogPath        string `json:"log_path"`
+	Status string `json:"status"`
 }
 
 type reportDiscordLogEntry struct {
@@ -103,21 +95,11 @@ func (logger *reportDiscordLogger) report(ctx context.Context, raw json.RawMessa
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	logPath, err := logger.append(invocation, message)
+	_, err := logger.append(invocation, message)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(reportDiscordResult{
-		Status:         "simulated",
-		Destination:    reportDiscordDestination,
-		Message:        message,
-		CharacterCount: utf8.RuneCountInString(message),
-		NetworkCalled:  false,
-		SessionID:      invocation.SessionID,
-		TurnID:         invocation.TurnID,
-		CallID:         invocation.CallID,
-		LogPath:        logPath,
-	})
+	return json.Marshal(reportDiscordResult{Status: "reported"})
 }
 
 func (logger *reportDiscordLogger) append(invocation agentcli.ToolInvocation, message string) (string, error) {
