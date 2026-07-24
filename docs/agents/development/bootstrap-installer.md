@@ -21,6 +21,10 @@ pinning a release or testing an unreleased branch. Generated configuration refer
 `${API_KEY}`, which must be supplied through the process environment;
 generated code has no `.env` loader.
 
+When Go is unavailable, the generated `go.mod` pins the current fallback
+release tag so the starter still includes the public API used by its downloaded
+templates. After installing Go, `go mod tidy` completes dependency resolution.
+
 Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
 OpenAI-compatible provider under the explicit placeholder alias
 `replace-provider`. Every generated agent currently selects

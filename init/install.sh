@@ -41,6 +41,12 @@ go_version=1.26.3
 # Use the newest published semver tag by default. AGENTCLI_VERSION remains
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
+# Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
+agentcli_fallback_version=v0.0.12
+agentcli_module_version=$agentcli_fallback_version
+case "$agentcli_version" in
+  v[0-9]*) agentcli_module_version=$agentcli_version ;;
+esac
 go_available=false
 if command -v go >/dev/null 2>&1; then
   go_available=true
@@ -67,7 +73,7 @@ module $module
 
 go $go_version
 
-require github.com/mrbryside/agentcli v0.0.9
+require github.com/mrbryside/agentcli $agentcli_module_version
 EOF
 
 cat >"$target/main.go" <<'EOF'
