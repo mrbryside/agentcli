@@ -41,7 +41,7 @@ my-agent/
 ```
 
 The installer never asks for, writes, or loads provider credentials.
-`${OPENAI_API_KEY}` in the generated configuration is resolved only from the
+`${API_KEY}` in the generated configuration is resolved only from the
 process environment.
 
 The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
@@ -68,7 +68,7 @@ providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 ```
 
@@ -86,7 +86,7 @@ providers:
   primary:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
 ```
 
 ```yaml
@@ -121,7 +121,7 @@ After replacing the placeholders, export the provider key and run the app:
 
 ```sh
 cd my-agent
-export OPENAI_API_KEY='replace-with-a-real-key'
+export API_KEY='replace-with-a-real-key'
 go run .
 ```
 

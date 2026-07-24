@@ -124,7 +124,7 @@ and give the user a clear, self-contained result.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
-# OPENAI_API_KEY is loaded from the process environment.
+# API_KEY is loaded from the process environment.
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
@@ -133,7 +133,7 @@ providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${API_KEY}
     request_timeout: 2m
 EOF
 
@@ -167,7 +167,7 @@ EOF
 if [ "$go_available" = true ]; then
 	(cd "$target" && go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
-  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
-  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  export OPENAI_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 fi

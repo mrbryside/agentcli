@@ -17,7 +17,7 @@ when Go is unavailable it falls back to `1.26.3`. With Go available it resolves
 `github.com/mrbryside/agentcli@main` before `go mod tidy`, ensuring separately
 downloaded tool templates match the installed API. `AGENTCLI_VERSION` is an
 optional test/maintenance override for that module query. Generated configuration references
-`${OPENAI_API_KEY}`, which must be supplied through the process environment;
+`${API_KEY}`, which must be supplied through the process environment;
 generated code has no `.env` loader.
 
 Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
