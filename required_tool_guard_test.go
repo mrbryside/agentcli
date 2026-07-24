@@ -3,6 +3,7 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -46,14 +47,11 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("provider requests = %d, want initial plus one repair", len(requests))
 	}
-	if requests[0].ToolChoice == nil || requests[0].ToolChoice.Mode != agentruntime.ToolChoiceRequired {
-		t.Fatalf("initial request tool choice = %#v, want required", requests[0].ToolChoice)
-	}
 	if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
 		t.Fatalf("repair tools = %#v", requests[1].Tools)
 	}
-	if requests[1].ToolChoice == nil || requests[1].ToolChoice.Mode != agentruntime.ToolChoiceSpecific || requests[1].ToolChoice.Name != "report" {
-		t.Fatalf("repair tool choice = %#v", requests[1].ToolChoice)
+	if len(requests[1].ContextReminders) != 1 || !strings.Contains(requests[1].ContextReminders[0].Content, "report") {
+		t.Fatalf("repair reminder = %#v", requests[1].ContextReminders)
 	}
 }
 
@@ -125,9 +123,6 @@ func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
 	requests := model.Requests()
 	if len(requests) != 2 {
 		t.Fatalf("requests = %d, want 2", len(requests))
-	}
-	if requests[1].ToolChoice == nil || requests[1].ToolChoice.Mode != agentruntime.ToolChoiceRequired {
-		t.Fatalf("follow-up choice = %#v, want required", requests[1].ToolChoice)
 	}
 }
 

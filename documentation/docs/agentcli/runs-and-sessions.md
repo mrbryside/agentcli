@@ -102,21 +102,14 @@ guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
         ContextReminders: []agentruntime.ContextReminder{{
             Content: "Report the existing outcome; do not repeat the work.",
         }},
-        ToolAllowlist: []string{"report_outcome"},
-        ToolChoice: &agentruntime.ToolChoice{
-            Mode: agentruntime.ToolChoiceSpecific,
-            Name: "report_outcome",
-        },
     }, nil
 }
 ```
 
-The retry reminder and a specific `ToolChoice` are ephemeral: each applies
-only to the next provider request. A non-nil allowlist restricts that request
-and all of its follow-up rounds. This lets a child write its final answer after
-`report_subagent_outcome` succeeds without being forced to invoke the outcome
-tool again. An allowlist by itself does not force a call because providers may
-still choose a normal assistant response.
+The retry reminder is ephemeral and applies only to the next provider request.
+An optional non-nil allowlist restricts that request and all of its follow-up
+rounds. A reminder can ask a child to call `report_subagent_outcome`, but the
+provider is free to return a normal assistant response instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce up to three `report_subagent_outcome` repairs without re-running domain

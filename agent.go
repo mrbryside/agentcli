@@ -188,7 +188,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		OutputGuardPrompt:       configuration.outputGuardPrompt,
 		InputGuardModel:         inputGuardModel,
 		OutputGuardModel:        outputGuardModel,
-		ToolChoiceProvider:      requiredToolChoiceProvider(requiredAtTurnEnd),
 		Tools:                   registry.Definitions(),
 		ToolRequests:            toolRequests,
 		ToolResults:             toolResults,

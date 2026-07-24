@@ -379,15 +379,16 @@ func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *t
 		t.Fatalf("child provider requests = %d, want domain, answer, repair, final: %#v", len(requests), requests)
 	}
 	for index := 2; index < len(requests); index++ {
-		if len(requests[index].Tools) != 1 || requests[index].Tools[0].Name != toolexecution.SubagentOutcomeToolName {
-			t.Fatalf("request %d tools = %#v, want outcome only", index, requests[index].Tools)
+		foundOutcome := false
+		for _, tool := range requests[index].Tools {
+			if tool.Name == toolexecution.SubagentOutcomeToolName {
+				foundOutcome = true
+				break
+			}
 		}
-	}
-	if requests[2].ToolChoice == nil || requests[2].ToolChoice.Mode != agentruntime.ToolChoiceSpecific || requests[2].ToolChoice.Name != toolexecution.SubagentOutcomeToolName {
-		t.Fatalf("repair request tool choice = %#v, want outcome-specific", requests[2].ToolChoice)
-	}
-	if requests[3].ToolChoice != nil {
-		t.Fatalf("post-outcome final-answer request tool choice = %#v, want nil", requests[3].ToolChoice)
+		if !foundOutcome {
+			t.Fatalf("request %d tools = %#v, want outcome tool available", index, requests[index].Tools)
+		}
 	}
 	if !hasSubagentOutcomeRepairReminder(requests[2]) {
 		t.Fatalf("repair reminder = %#v", requests[2].ContextReminders)

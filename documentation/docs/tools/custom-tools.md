@@ -138,13 +138,10 @@ The registry rejects a required finalizer without static `EndTurn`. Only a
 successful terminal all-`EndTurn` batch satisfies completion; an earlier call
 or a mixed continuing batch does not. While a finalizer is missing, normal
 rounds request a tool without hiding domain tools. If the model still finishes,
-the completion guard restricts repair rounds to missing finalizers and uses a
-specific one-shot tool choice when only one remains. It permits up to three
-consecutive no-progress repairs; progress resets that budget.
+the completion guard adds a reminder naming the missing finalizer. It permits
+up to three consecutive no-progress repairs; progress resets that budget.
 
-Tool choice is provider request policy, not direct execution. A provider that
-ignores it can still exhaust the bounded guard and fail the turn. Required
-finalizers should therefore be described as standalone final actions.
+Required finalizers should therefore be described as standalone final actions.
 
 Several finalizers are supported. The terminal batch must successfully include
 every still-missing finalizer and contain no continuing tool.

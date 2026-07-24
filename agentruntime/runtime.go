@@ -27,7 +27,6 @@ type Config struct {
 	OutputGuardPrompt       string
 	InputGuardModel         Model
 	OutputGuardModel        Model
-	ToolChoiceProvider      ToolChoiceProvider
 	Tools                   []ToolDefinition
 	ToolRequests            chan<- ToolRequest
 	ToolResults             <-chan ToolResultEnvelope
@@ -58,7 +57,6 @@ type Runtime struct {
 	completionGuard         CompletionGuard
 	inputGuard              InputGuard
 	outputGuard             OutputGuard
-	toolChoiceProvider      ToolChoiceProvider
 	tools                   []ToolDefinition
 	toolRequests            chan<- ToolRequest
 	toolResults             <-chan ToolResultEnvelope
@@ -179,7 +177,6 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		completionGuard:           config.CompletionGuard,
 		inputGuard:                config.InputGuard,
 		outputGuard:               config.OutputGuard,
-		toolChoiceProvider:        config.ToolChoiceProvider,
 		tools:                     cloneToolDefinitions(config.Tools),
 		toolRequests:              config.ToolRequests,
 		toolResults:               config.ToolResults,

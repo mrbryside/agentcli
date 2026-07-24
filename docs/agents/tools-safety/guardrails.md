@@ -46,10 +46,9 @@ construction resolves explicit tool models through `Project.ModelFor`.
 Direct executor users provide a fallback `Config.ToolCallGuardModel` and an
 optional `Config.ToolCallGuardModelResolver`.
 
-Prompt evaluation is one isolated model request with no tools,
-`ToolChoiceNone`, a trusted policy system prompt, and a JSON-encoded candidate
-as the user message. The verdict requires exactly `allowed`, `reason`, and
-`feedback`.
+Prompt evaluation is one isolated model request with no tools, a trusted
+policy system prompt, and a JSON-encoded candidate as the user message. The
+verdict requires exactly `allowed`, `reason`, and `feedback`.
 
 ## Tool feedback loop
 

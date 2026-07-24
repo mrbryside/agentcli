@@ -37,23 +37,21 @@ type Run struct {
 	// The following coordinator-owned values are initialized here so routing,
 	// interruption, and provider execution can share this Run without adding
 	// another mutable owner of its state.
-	control                    chan runControl
-	toolResults                []ToolResultEnvelope
-	toolResultsNotify          chan struct{}
-	providerCancel             context.CancelFunc
-	providerEvents             <-chan provider.StreamEvent
-	steps                      int
-	completionRepairs          int
-	completionReminder         []ContextReminder
-	outputGuardRetries         int
-	outputGuardReminder        []ContextReminder
-	completionToolsRestricted  bool
-	completionToolAllowlist    []string
-	completionNormalToolChoice *ToolChoice
-	completionToolChoice       *ToolChoice
-	terminalNotify             chan struct{}
-	finished                   chan struct{}
-	finishOnce                 sync.Once
+	control                   chan runControl
+	toolResults               []ToolResultEnvelope
+	toolResultsNotify         chan struct{}
+	providerCancel            context.CancelFunc
+	providerEvents            <-chan provider.StreamEvent
+	steps                     int
+	completionRepairs         int
+	completionReminder        []ContextReminder
+	outputGuardRetries        int
+	outputGuardReminder       []ContextReminder
+	completionToolsRestricted bool
+	completionToolAllowlist   []string
+	terminalNotify            chan struct{}
+	finished                  chan struct{}
+	finishOnce                sync.Once
 }
 
 type RunStatus string
@@ -640,29 +638,9 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	reminders = append(reminders, r.takeCompletionReminder()...)
 	reminders = append(reminders, r.takeOutputGuardReminder()...)
 	tools := cloneToolDefinitions(runtime.tools)
-	var requestToolChoice *ToolChoice
-	if runtime.toolChoiceProvider != nil {
-		choice, choiceErr := runtime.toolChoiceProvider(ctx, CompletionAttempt{
-			SessionID: r.sessionID, TurnID: r.turnID, Messages: storage.CloneMessages(messages), TerminalToolBatch: r.hasTerminalToolBatch(messages),
-			ProviderSteps: r.providerSteps(), RepairCount: r.CompletionRepairCount(),
-		})
-		if choiceErr != nil {
-			return fmt.Errorf("resolve tool choice: %w", choiceErr)
-		}
-		if choice != nil {
-			if err := choice.Validate(); err != nil {
-				return fmt.Errorf("resolve tool choice: %w", err)
-			}
-			requestToolChoice = cloneToolChoice(choice)
-		}
-	}
-	if restricted, allowlist, normalChoice, repairChoice := r.completionToolRestriction(); restricted {
+	if restricted, allowlist := r.completionToolRestriction(); restricted {
 		if allowlist != nil {
 			tools = filterCompletionTools(tools, allowlist)
-		}
-		requestToolChoice = cloneToolChoice(normalChoice)
-		if repairChoice != nil {
-			requestToolChoice = repairChoice
 		}
 	}
 
@@ -675,7 +653,6 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		ContextReminders: cloneContextReminders(reminders),
 		Messages:         storage.CloneMessages(messages),
 		Tools:            tools,
-		ToolChoice:       requestToolChoice,
 	})
 	if err != nil {
 		cancel()
@@ -819,14 +796,12 @@ func (r *Run) setCompletionRepair(decision CompletionDecision) {
 	r.mu.Lock()
 	r.completionRepairs++
 	r.completionReminder = cloneContextReminders(decision.ContextReminders)
-	if decision.ToolAllowlist != nil || decision.NormalToolChoice != nil || decision.ToolChoice != nil {
+	if decision.ToolAllowlist != nil {
 		r.completionToolsRestricted = true
 	}
 	if decision.ToolAllowlist != nil {
 		r.completionToolAllowlist = append([]string(nil), decision.ToolAllowlist...)
 	}
-	r.completionNormalToolChoice = cloneToolChoice(decision.NormalToolChoice)
-	r.completionToolChoice = cloneToolChoice(decision.ToolChoice)
 	r.mu.Unlock()
 }
 
@@ -838,12 +813,10 @@ func (r *Run) takeCompletionReminder() []ContextReminder {
 	return reminders
 }
 
-func (r *Run) completionToolRestriction() (bool, []string, *ToolChoice, *ToolChoice) {
+func (r *Run) completionToolRestriction() (bool, []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	repairChoice := cloneToolChoice(r.completionToolChoice)
-	r.completionToolChoice = nil
-	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...), cloneToolChoice(r.completionNormalToolChoice), repairChoice
+	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...)
 }
 
 func filterCompletionTools(tools []ToolDefinition, allowlist []string) []ToolDefinition {
@@ -867,14 +840,6 @@ func cloneContextReminders(reminders []ContextReminder) []ContextReminder {
 	cloned := make([]ContextReminder, len(reminders))
 	copy(cloned, reminders)
 	return cloned
-}
-
-func cloneToolChoice(choice *ToolChoice) *ToolChoice {
-	if choice == nil {
-		return nil
-	}
-	clone := *choice
-	return &clone
 }
 
 // provider state belongs to the loop except the cancel function, which can be

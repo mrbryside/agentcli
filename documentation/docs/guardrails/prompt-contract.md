@@ -32,7 +32,7 @@ then to a safe generic retry instruction.
 Every prompt check is a separate provider request:
 
 - no tools are included;
-- `ToolChoiceNone` is set;
+- no tools are included in the request;
 - the policy is a trusted system prompt;
 - the candidate input, assistant message, or tool name/arguments are encoded
   as the single user payload;

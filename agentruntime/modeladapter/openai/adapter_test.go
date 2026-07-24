@@ -121,29 +121,6 @@ func TestAdapterConvertsMessagesToolsAndDelegates(t *testing.T) {
 	}
 }
 
-func TestAdapterMapsSpecificToolChoice(t *testing.T) {
-	fake := &fakeProvider{}
-	adapter := New(fake, Config{Model: "gpt-test"})
-	_, err := adapter.Start(context.Background(), agentruntime.ModelRequest{
-		Messages:   []agentruntime.Message{{Type: agentruntime.MessageTypeUser, Content: "finish"}},
-		Tools:      []agentruntime.ToolDefinition{{Name: "report_discord", InputSchema: agentruntime.ToolSchema{Type: "object"}}},
-		ToolChoice: &agentruntime.ToolChoice{Mode: agentruntime.ToolChoiceSpecific, Name: "report_discord"},
-	})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if len(fake.requests) != 1 {
-		t.Fatalf("provider requests = %d, want 1", len(fake.requests))
-	}
-	choice, ok := fake.requests[0].ToolChoice.(sdkopenai.ToolChoice)
-	if !ok {
-		t.Fatalf("tool choice type = %T, want %T", fake.requests[0].ToolChoice, sdkopenai.ToolChoice{})
-	}
-	if choice.Type != sdkopenai.ToolTypeFunction || choice.Function.Name != "report_discord" {
-		t.Fatalf("tool choice = %#v", choice)
-	}
-}
-
 func TestAdapterRejectsMalformedInputsBeforeProvider(t *testing.T) {
 	tests := []struct {
 		name    string

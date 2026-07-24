@@ -294,7 +294,7 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			if len(test.skills) != 0 && requests[0].Tools[0].Name != SkillLoaderToolName {
 				t.Fatalf("provider tools = %#v", requests[0].Tools)
 			}
-			assertOutcomeOnlyRepairRequest(t, requests)
+			assertOutcomeRepairRequest(t, requests)
 		})
 	}
 }
@@ -349,17 +349,24 @@ Use the registered search tool.
 			t.Fatalf("child received parent-only management tool %q", tool.Name)
 		}
 	}
-	assertOutcomeOnlyRepairRequest(t, requests)
+	assertOutcomeRepairRequest(t, requests)
 }
 
-func assertOutcomeOnlyRepairRequest(t *testing.T, requests []agentruntime.ModelRequest) {
+func assertOutcomeRepairRequest(t *testing.T, requests []agentruntime.ModelRequest) {
 	t.Helper()
 	if len(requests) != defaultCompletionRepairLimit+1 {
 		t.Fatalf("provider requests = %d, want initial request and %d repairs: %#v", len(requests), defaultCompletionRepairLimit, requests)
 	}
 	for index, repair := range requests[1:] {
-		if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentOutcomeToolName {
-			t.Fatalf("repair %d tools = %#v", index+1, repair.Tools)
+		foundOutcome := false
+		for _, tool := range repair.Tools {
+			if tool.Name == toolexecution.SubagentOutcomeToolName {
+				foundOutcome = true
+				break
+			}
+		}
+		if !foundOutcome {
+			t.Fatalf("repair %d tools = %#v, want outcome tool available", index+1, repair.Tools)
 		}
 		if !hasSubagentOutcomeRepairReminder(repair) {
 			t.Fatalf("repair %d reminders = %#v", index+1, repair.ContextReminders)

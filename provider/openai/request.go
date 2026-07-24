@@ -11,8 +11,6 @@ const ToolTypeFunction = sdkopenai.ToolTypeFunction
 
 type FunctionDefinition = sdkopenai.FunctionDefinition
 
-type ToolChoice = sdkopenai.ToolChoice
-
 // Request contains the provider-facing OpenAI chat request.
 type Request struct {
 	Model    string
@@ -20,11 +18,7 @@ type Request struct {
 	// ToolSchema optionally replaces the provider's configured tools for this
 	// request. A nil slice keeps the configured default; a non-nil empty slice
 	// deliberately disables it.
-	ToolSchema []Tool
-	// ToolChoice optionally controls whether the model may choose a tool or
-	// must call a specific tool. It is provider-facing because go-openai uses
-	// an interface to support string modes and structured choices.
-	ToolChoice  any
+	ToolSchema  []Tool
 	MaxTokens   int
 	Temperature float32
 }

@@ -56,9 +56,10 @@ summary and, for incomplete work, the required next step.
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
 runtime starts up to three bounded repair requests using the transcript that
-was already stored. Each request exposes only `report_subagent_outcome`, so a
-transfer, write, or other domain action that already ran cannot be invoked
-again. The same restriction remains while the child writes its concise final answer.
+was already stored. Each request keeps the normal child tools available and
+uses a reminder to call `report_subagent_outcome`, so the model is told not to
+repeat a transfer, write, or other domain action that already ran. The same
+instruction remains while the child writes its concise final answer.
 There is no polling or second callback during repair.
 
 If the repair reports `completed` or `incomplete`, that structured value is

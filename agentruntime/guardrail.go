@@ -254,8 +254,7 @@ func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction str
 			"You are the %s guard for an agent. Apply the policy below. Return one JSON object only, with exactly these fields: allowed (boolean), reason (string), feedback (string). Always include all three fields. If allowed is true, feedback must be empty. If allowed is false, feedback must tell the agent how to produce a compliant result without repeating unsafe content.\n\nPolicy:\n%s",
 			direction, strings.TrimSpace(prompt),
 		)},
-		Messages:   []Message{{Type: MessageTypeUser, Content: string(encoded)}},
-		ToolChoice: &ToolChoice{Mode: ToolChoiceNone},
+		Messages: []Message{{Type: MessageTypeUser, Content: string(encoded)}},
 	}
 	stream, err := model.Start(ctx, request)
 	if err != nil {

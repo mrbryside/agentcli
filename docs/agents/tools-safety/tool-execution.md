@@ -37,8 +37,8 @@ stop a retry loop.
 Required finalizers set both `RequiredAtTurnEnd=true` and
 `TurnBehavior=EndTurn`. Only the successful all-end batch immediately before
 completion satisfies them; early or mixed calls do not. Normal missing-tool
-rounds request any available tool. Repair rounds expose only missing
-finalizers, and a single missing tool receives a one-shot specific choice.
+rounds request any available tool. Repair rounds keep the normal tool catalog
+available and add a reminder naming the missing finalizer.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 

@@ -121,7 +121,7 @@ func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testin
 		t.Fatalf("handler calls = %d, want 0 after rejected tool call", handlerCalls)
 	}
 	requests := model.Requests()
-	if len(requests) != 1 || len(requests[0].Tools) != 0 || requests[0].ToolChoice == nil || requests[0].ToolChoice.Mode != agentruntime.ToolChoiceNone {
+	if len(requests) != 1 || len(requests[0].Tools) != 0 {
 		t.Fatalf("guard request = %#v", requests)
 	}
 	if len(requests[0].Messages) != 1 || !strings.Contains(requests[0].Messages[0].Content, `"tool_name":"lookup"`) || !strings.Contains(requests[0].Messages[0].Content, `"query":"go"`) || strings.Contains(requests[0].Messages[0].Content, `"output"`) || !strings.Contains(requests[0].SystemPrompts[0], "Require a narrow query") {

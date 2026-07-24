@@ -76,16 +76,10 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 	if err != nil {
 		return nil, err
 	}
-	toolChoice, err := transformToolChoice(request.ToolChoice)
-	if err != nil {
-		return nil, err
-	}
-
 	stream, err := provider.StartStream(ctx, a.provider, provideropenai.Request{
 		Model:       a.config.Model,
 		Messages:    messages,
 		ToolSchema:  tools,
-		ToolChoice:  toolChoice,
 		MaxTokens:   a.config.MaxTokens,
 		Temperature: a.config.Temperature,
 	})
@@ -93,26 +87,6 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 		return nil, fmt.Errorf("start OpenAI stream: %w", err)
 	}
 	return stream, nil
-}
-
-func transformToolChoice(choice *agentruntime.ToolChoice) (any, error) {
-	if choice == nil {
-		return nil, nil
-	}
-	if err := choice.Validate(); err != nil {
-		return nil, err
-	}
-	switch choice.Mode {
-	case agentruntime.ToolChoiceAuto, agentruntime.ToolChoiceNone, agentruntime.ToolChoiceRequired:
-		return string(choice.Mode), nil
-	case agentruntime.ToolChoiceSpecific:
-		return sdkopenai.ToolChoice{
-			Type:     sdkopenai.ToolTypeFunction,
-			Function: sdkopenai.ToolFunction{Name: choice.Name},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported tool choice mode %q", choice.Mode)
-	}
 }
 
 // appendContextRemindersAtConversationTail keeps tool-call/result adjacency
