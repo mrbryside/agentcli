@@ -47,9 +47,9 @@ The installer never asks for, writes, or loads provider credentials.
 process environment.
 
 The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
-available, it resolves `github.com/mrbryside/agentcli@main` and then runs
-`go mod tidy`, so the generated templates and library API always match the
-same main branch. If Go is not installed yet, the module falls back to Go
+available, it resolves `github.com/mrbryside/agentcli@main` directly from Git
+and then runs `go mod tidy`, avoiding a lagging module proxy so the generated
+templates and library API match the same main branch. If Go is not installed yet, the module falls back to Go
 `1.26.3` and prints the commands to run later.
 
 ## Replace provider and model placeholders
