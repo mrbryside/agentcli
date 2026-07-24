@@ -21,7 +21,7 @@ const (
 	maximumDiscordMessageRunes = 2000
 )
 
-const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Put the complete user-facing response in message and nowhere else. Exclude internal system or subagent lifecycle details; if no user-facing content remains, set report=false, otherwise omit report or set it to true. If rejected, retry with corrected arguments."
+const reportDiscordToolDescription = "End every turn with exactly one successful standalone report_discord call after all other tools finish. Do not send conversational, progress, or final messages directly to the user. Deliver user-facing content only through this final call's message argument. Exclude internal system or subagent lifecycle details; if no user-facing content remains, set report=false, otherwise omit report or set it to true. If rejected, retry with corrected arguments."
 
 const reportDiscordToolOutputGuardPrompt = `Approve the report_discord tool output only when all of these conditions hold:
 - arguments.message is a non-empty user-facing response of at most 2000 Unicode characters;

@@ -53,6 +53,9 @@ invocation confirmation; the researcher allowlist remains read-only.
 The generated `report_discord` tool is a deterministic, network-free mock. It
 is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
+Generated instructions forbid direct conversational, progress, or final
+messages to the user; the finalizer's `message` argument is the only
+user-facing delivery channel.
 Its embedded `ToolOutputGuardPrompt` checks message limits, disclosure policy,
 and output/argument consistency. It uses the Agent model fallback; rejection
 becomes a failed finalizer result with retry feedback.
