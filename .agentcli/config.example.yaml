@@ -11,8 +11,8 @@ compaction:
   auto: true
   provider: your_provider_name
   model: your-compaction-model
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 
 # Provider names are application-defined connection profile aliases. The
 # required type selects the protocol adapter independently from that alias.

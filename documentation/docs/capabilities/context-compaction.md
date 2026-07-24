@@ -19,16 +19,19 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 ```
 
 `provider` is an existing provider-profile alias and `model` selects the
-separate summarizer. The mapping accepts only `auto`, `provider`, and `model`.
-When present, `auto` defaults to `true`; omit the mapping to disable
-compaction, or set `auto: false` to stop creating new checkpoints.
+separate summarizer. The mapping also accepts the optional shared
+`context_window_tokens` and `max_output_tokens` limits. When present, `auto`
+defaults to `true`; omit the mapping to disable compaction, or set
+`auto: false` to stop creating new checkpoints.
 
-Token budgets are intentionally not YAML settings. The runtime derives the
-input reserve, recent tail, serialization limit, and summary limit from
-provider-neutral model metadata.
+The shared limits are model metadata, not tunable compaction budgets. The
+runtime derives the input reserve, recent tail, serialization limit, and
+summary limit from that provider-neutral metadata.
 
 ## What happens before a model round
 
@@ -107,16 +110,16 @@ receives the normal subagent outcome callback.
 
 When compaction is enabled, the main model must expose valid context-window and
 output-limit metadata. A summarizer that implements the optional metadata
-capability is validated as well. Unknown required limits fail startup rather
-than being guessed.
+capability is validated as well.
 
 The `compaction` mapping may declare `context_window_tokens` and
 `max_output_tokens` once as shared limits for project-created main, summarizer,
 and child models. Explicit limits have priority. When they are omitted,
 startup checks each model's authenticated provider `/models` endpoint first
 and falls back to `models.dev` only when the deployment supplies no valid
-limits. If both sources fail, startup reports the provider/model and a
-`compaction` YAML snippet to add.
+limits. If both sources fail, project loading uses exact defaults of 122,880
+context tokens and 66,560 output tokens, displayed as `120k` and `65k`.
+Explicit invalid or incomplete limits still fail configuration validation.
 
 The default `GenericContextEstimator` works across providers and estimates all
 generic request surfaces conservatively, including multilingual text and tool

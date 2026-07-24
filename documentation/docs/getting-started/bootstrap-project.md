@@ -72,8 +72,8 @@ compaction:
   auto: true
   provider: replace-provider
   model: replace-model
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 
 providers:
   replace-provider:
@@ -103,9 +103,9 @@ Replace `replace-provider` consistently in the compaction mapping, provider
 profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
 `replace-model` in the compaction mapping, `MAIN.md`, and every subagent
 definition with a model supported by that provider. The starter includes
-120,000-token context and 65,000-token output limits for a custom
-`replace-model`; remove the inline-commented limits from `compaction` when the
-selected model is not custom.
+exact 122,880-token context and 66,560-token output limits for a custom
+`replace-model`, displayed as `120k` and `65k`; remove the inline-commented
+limits from `compaction` when the selected model is not custom.
 `tool_report_discord.go` separately selects the `guardrails` profile and
 `replace-guard-model`; replace its connection settings and model without
 changing the main agent configuration. Provider aliases are

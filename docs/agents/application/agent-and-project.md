@@ -30,14 +30,15 @@ The two optional token-limit fields form one validated shared metadata value
 for project-created main, child, and summarizer adapters. They take priority
 for custom deployments. When omitted, project loading checks each required
 model's authenticated provider `/models` endpoint first, falls back to
-`models.dev`, and fails with a compaction snippet instead of guessing. The
-runtime derives its internal input, recent-history, and summary budgets from
-the resulting metadata.
+`models.dev`, then uses exact defaults of 122,880 context tokens and 66,560
+output tokens if neither source supplies valid metadata. The Terminal displays
+those binary counts as `120k` and `65k`. The runtime derives its internal input,
+recent-history, and summary budgets from the resulting metadata.
 When it is enabled, construction requires known valid limits for the main
 model. If the summarizer exposes `ModelMetadataProvider`, its limits are also
 validated at startup; a summarizer without that optional capability uses the
-internal summary cap. An unknown or invalid required catalog entry fails
-startup rather than guessing.
+internal summary cap. Explicit non-positive or partially configured shared
+limits fail startup validation.
 
 The setting is inherited when the project creates child agents. It controls
 only creation of future checkpoints: a resumed session always projects its

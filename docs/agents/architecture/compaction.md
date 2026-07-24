@@ -10,7 +10,7 @@ Compaction runs immediately before every main-model round. The runtime builds a
 provider-neutral `ModelRequest`, estimates its full input, and compares it with
 the main model's validated context-window and output-limit metadata. Internal
 input, recent-tail, serialization, and summary budgets are derived in code;
-none are configurable in project YAML.
+only the shared model limits are configurable in project YAML.
 
 `ContextEstimator` is replaceable. `GenericContextEstimator` is deterministic
 and deliberately conservative for non-ASCII text, tools, schemas, reminders,
@@ -71,10 +71,11 @@ continues receiving the normal child callback lifecycle.
 The main model must implement `ModelMetadataProvider` when compaction is
 enabled. A summarizer that implements the optional capability is validated too.
 Project-selected models use shared limits from the `compaction` mapping first,
-then the provider `/models` endpoint, then `models.dev`. Directly constructed
-OpenAI-compatible adapters retain their exact-alias catalog. Applications can
-still override project-selected adapters through `agentcli.WithModel` and
-`agentcli.WithCompactionModel`.
+then the provider `/models` endpoint, then `models.dev`, then exact project
+defaults of 122,880 context tokens and 66,560 output tokens. Directly
+constructed OpenAI-compatible adapters retain their exact-alias catalog.
+Applications can still override project-selected adapters through
+`agentcli.WithModel` and `agentcli.WithCompactionModel`.
 
 Relevant implementation:
 

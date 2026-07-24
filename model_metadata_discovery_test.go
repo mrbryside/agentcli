@@ -204,7 +204,7 @@ func TestConfiguredCompactionMetadataValidation(t *testing.T) {
 		},
 		{
 			name:   "valid",
-			config: &CompactionConfig{ContextWindowTokens: 120000, MaxOutputTokens: 65000},
+			config: &CompactionConfig{ContextWindowTokens: 122880, MaxOutputTokens: 66560},
 		},
 	}
 	for _, test := range tests {
@@ -227,19 +227,28 @@ func TestConfiguredCompactionMetadataValidation(t *testing.T) {
 	}
 }
 
-func TestUnresolvedModelMetadataErrorIncludesConfigExample(t *testing.T) {
-	err := unresolvedModelMetadataError(
-		projectModelReference{provider: "private", model: "unknown-model"},
-		fmt.Errorf("not found"),
+func TestDiscoverModelMetadataUsesExactDefaultsWhenSourcesFail(t *testing.T) {
+	providerServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer providerServer.Close()
+	modelsDevServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, `{}`)
+	}))
+	defer modelsDevServer.Close()
+
+	metadata, err := discoverModelMetadata(
+		context.Background(),
+		http.DefaultClient,
+		ProviderConfig{URL: providerServer.URL + "/v1"},
+		"private",
+		"unknown-model",
+		modelsDevServer.URL,
 	)
-	for _, expected := range []string{
-		`provider "private" model "unknown-model"`,
-		"compaction:",
-		"context_window_tokens:",
-		"max_output_tokens:",
-	} {
-		if !strings.Contains(err.Error(), expected) {
-			t.Fatalf("error = %q; missing %q", err, expected)
-		}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata != (agentruntime.ModelMetadata{ContextWindowTokens: 122880, MaxOutputTokens: 66560}) {
+		t.Fatalf("metadata = %#v", metadata)
 	}
 }

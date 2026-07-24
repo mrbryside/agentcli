@@ -186,8 +186,8 @@ compaction:
   auto: true
   provider: replace-provider
   model: replace-model
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 
 # Agent identities and models live in MAIN.md, subagent definitions, and tool
 # declarations. Provider profiles here own connection settings only.

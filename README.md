@@ -76,8 +76,8 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 
 providers:
   primary:
@@ -94,13 +94,14 @@ The optional `compaction` mapping selects a separate summarizer through an
 existing provider alias. Optional `context_window_tokens` and
 `max_output_tokens` are shared limits for the main model, summarizer, and
 subagents. They take priority for custom deployments; when omitted, startup
-checks provider `/models` first, then falls back to models.dev, and fails with
-an actionable config snippet if both sources lack valid metadata. Compaction
-preserves the complete stored transcript and appends internal checkpoints that
+checks provider `/models` first, then falls back to models.dev. If neither
+source supplies valid metadata, project loading uses exact defaults of 122,880
+context tokens and 66,560 output tokens, displayed as `120k` and `65k`.
+Compaction preserves the complete stored transcript and appends internal checkpoints that
 resumed sessions keep projecting, even after `auto: false` disables future
 compactions. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)
-for lifecycle and failure behavior.
+for lifecycle and fallback behavior.
 
 Create `.agentcli/MAIN.md`:
 

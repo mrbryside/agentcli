@@ -13,9 +13,10 @@ no second playground-specific config format: provider, model, and compaction
 settings all come from the root `.agentcli/config.yaml`. The tracked
 `.agentcli/config.example.yaml` includes an enabled compaction mapping; copy it
 and replace both the main and compaction model placeholders for a clean manual
-setup. The repository playground compaction mapping declares 120,000 context
-tokens and 65,000 output tokens for its custom model, so the opening Terminal
-UI banner shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
+setup. The repository playground compaction mapping declares exact limits of
+122,880 context tokens and 66,560 output tokens for its custom model. The
+Terminal formats those binary values as `120k` and `65k`, so the opening banner
+shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
 `playground/terminal`, not in the reusable `agentcli` package.
 
 User documentation lives in `documentation/docs`. HTTP annotations live in root `swagger.go` and the root server handlers; `documentation/package.json` drives Swaggo generation from the module-root `agentcli` package, Redocly validation/rendering, and the Docusaurus build. Generated OpenAPI/Redoc files are tracked, so regenerate them when API annotations or response models change.

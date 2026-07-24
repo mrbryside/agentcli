@@ -46,8 +46,8 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k
 
 providers:
   primary:
@@ -97,9 +97,11 @@ With compaction enabled, the main model must expose valid context-window and
 output metadata. Explicit compaction limits take priority and avoid metadata
 network requests. When they are omitted, each required model is resolved by
 requesting its authenticated provider `/models` endpoint first because that
-describes the active deployment, then `https://models.dev/api.json`. Unknown,
-invalid, or ambiguous metadata fails startup with a `compaction` snippet
-rather than being guessed.
+describes the active deployment, then `https://models.dev/api.json`. If neither
+source supplies valid metadata, project loading uses exact defaults of 122,880
+context tokens and 66,560 output tokens. The Terminal UI displays those binary
+token counts as `120k` and `65k`. Explicit non-positive or partially configured
+limits remain validation errors.
 Applications can still override project-selected adapters with
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. The optional
 `agentcli.WithContextEstimator` similarly accepts a provider-aware estimator

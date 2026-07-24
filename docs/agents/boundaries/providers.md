@@ -17,15 +17,16 @@ constructed adapters. Project compaction policy may declare one shared set of
 limits for main, summarizer, and child adapters. Without those explicit
 limits, project loading checks the provider `/models` endpoint first, then
 falls back to `models.dev` only when the deployment returns no valid limits.
-Both discovery failures produce an actionable startup error; limits are never
-guessed.
+If both sources fail, project loading applies deterministic defaults of 122,880
+context tokens and 66,560 output tokens.
 Applications can still construct a custom adapter with
 `openai.Config.MetadataResolver` and pass it through
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. An application can pass a
 provider-aware `agentruntime.ContextEstimator` through
 `agentcli.WithContextEstimator` when its adapter can estimate more exactly than
 the conservative generic estimator. This is especially important when
-compaction is enabled because missing metadata is a configuration failure.
+compaction is enabled. Direct custom adapters that bypass project loading must
+still expose valid metadata.
 
 Keep provider type, endpoint, API key, and timeout in a named project connection profile; model selection stays in the agent definition. Profile aliases do not select adapters—the required `type` discriminator does. New provider implementations should add a validated type and translate only at their boundary without leaking provider SDK types into runtime, storage, events, or tool domains.
 

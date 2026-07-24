@@ -175,10 +175,10 @@ func terminalModelLabel(name string, model agentruntime.Model) string {
 
 func formatTerminalTokenCount(tokens int) string {
 	switch {
-	case tokens >= 1_000_000:
-		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", float64(tokens)/1_000_000), "0"), ".") + "M"
-	case tokens >= 1_000:
-		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", float64(tokens)/1_000), "0"), ".") + "k"
+	case tokens >= 1024*1024:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", float64(tokens)/(1024*1024)), "0"), ".") + "M"
+	case tokens >= 1024:
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", float64(tokens)/1024), "0"), ".") + "k"
 	default:
 		return fmt.Sprintf("%d", tokens)
 	}

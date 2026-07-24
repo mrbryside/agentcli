@@ -580,10 +580,21 @@ func TestAgentRunTerminalUsesSelectedSessionAndLeavesAgentOpen(t *testing.T) {
 func TestTerminalModelLabelIncludesContextWindow(t *testing.T) {
 	model := &terminalMetadataModel{
 		scriptedModel: &scriptedModel{},
-		metadata:      agentruntime.ModelMetadata{ContextWindowTokens: 120_000, MaxOutputTokens: 65_000},
+		metadata:      agentruntime.ModelMetadata{ContextWindowTokens: 122_880, MaxOutputTokens: 66_560},
 	}
 	if got, want := terminalModelLabel("qwen3.6-35b", model), "qwen3.6-35b · 120k context"; got != want {
 		t.Fatalf("terminalModelLabel() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatTerminalTokenCountUsesBinaryUnits(t *testing.T) {
+	for tokens, want := range map[int]string{
+		122_880: "120k",
+		66_560:  "65k",
+	} {
+		if got := formatTerminalTokenCount(tokens); got != want {
+			t.Fatalf("formatTerminalTokenCount(%d) = %q, want %q", tokens, got, want)
+		}
 	}
 }
 

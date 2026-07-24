@@ -68,8 +68,8 @@ func TestInstallerIncludesCompactionMetadataDefaults(t *testing.T) {
 		t.Fatalf("read installer: %v", err)
 	}
 	const required = `model: replace-model
-  context_window_tokens: 120000 # Remove these limits if the selected model is not custom.
-  max_output_tokens: 65000`
+  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
+  max_output_tokens: 66560 # 65k`
 	if !strings.Contains(string(content), required) {
 		t.Fatalf("installer compaction metadata does not contain:\n%s", required)
 	}

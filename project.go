@@ -127,7 +127,8 @@ func LoadProject(root string) (*Project, error) {
 
 // LoadProjectContext loads and validates one project. When automatic
 // compaction needs metadata that is not configured, discovery checks the
-// provider /models endpoint before falling back to models.dev under ctx.
+// provider /models endpoint before falling back to models.dev under ctx, then
+// uses the project defaults when neither source provides valid limits.
 func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 	if ctx == nil {
 		ctx = context.Background()

@@ -3,7 +3,6 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +18,8 @@ const (
 	defaultModelMetadataDiscoveryTimeout = 10 * time.Second
 	maximumModelMetadataResponseBytes    = 8 << 20
 	modelsDevAPIURL                      = "https://models.dev/api.json"
+	defaultContextWindowTokens           = 120 * 1024
+	defaultMaxOutputTokens               = 65 * 1024
 )
 
 type projectModelReference struct {
@@ -87,6 +88,9 @@ func (project *Project) resolveRequiredModelMetadata(ctx context.Context) error 
 		}
 		resolved = append(resolved, result)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	for _, result := range resolved {
 		project.modelMetadata[result.reference] = result.metadata
 	}
@@ -137,11 +141,7 @@ func (project *Project) resolveModelMetadata(ctx context.Context, reference proj
 		return metadata, nil
 	}
 
-	metadata, err := discoverModelMetadata(ctx, http.DefaultClient, providerConfig, reference.provider, reference.model, modelsDevAPIURL)
-	if err != nil {
-		return agentruntime.ModelMetadata{}, unresolvedModelMetadataError(reference, err)
-	}
-	return metadata, nil
+	return discoverModelMetadata(ctx, http.DefaultClient, providerConfig, reference.provider, reference.model, modelsDevAPIURL)
 }
 
 func discoverModelMetadata(
@@ -156,27 +156,16 @@ func discoverModelMetadata(
 		client = http.DefaultClient
 	}
 
-	providerMetadata, providerErr := fetchProviderModelMetadata(ctx, client, providerConfig, modelName)
-	if providerErr == nil {
-		if err := providerMetadata.Validate(); err == nil {
-			return providerMetadata, nil
-		} else {
-			providerErr = err
-		}
+	providerMetadata, err := fetchProviderModelMetadata(ctx, client, providerConfig, modelName)
+	if err == nil && providerMetadata.Validate() == nil {
+		return providerMetadata, nil
 	}
 
-	modelsDevMetadata, modelsDevErr := fetchModelsDevMetadata(ctx, client, modelsDevURL, providerName, providerConfig.Type, modelName)
-	if modelsDevErr == nil {
-		if err := modelsDevMetadata.Validate(); err == nil {
-			return modelsDevMetadata, nil
-		} else {
-			modelsDevErr = err
-		}
+	modelsDevMetadata, err := fetchModelsDevMetadata(ctx, client, modelsDevURL, providerName, providerConfig.Type, modelName)
+	if err == nil && modelsDevMetadata.Validate() == nil {
+		return modelsDevMetadata, nil
 	}
-	return agentruntime.ModelMetadata{}, errors.Join(
-		fmt.Errorf("provider /models: %w", providerErr),
-		fmt.Errorf("models.dev: %w", modelsDevErr),
-	)
+	return defaultProjectModelMetadata(), nil
 }
 
 func fetchProviderModelMetadata(
@@ -323,13 +312,11 @@ func configuredCompactionMetadata(config *CompactionConfig) (agentruntime.ModelM
 	return metadata, true, nil
 }
 
-func unresolvedModelMetadataError(reference projectModelReference, cause error) error {
-	return fmt.Errorf(
-		"model metadata is unavailable for provider %q model %q: %w; add shared limits to .agentcli/config.yaml:\ncompaction:\n  context_window_tokens: 120000\n  max_output_tokens: 65000",
-		reference.provider,
-		reference.model,
-		cause,
-	)
+func defaultProjectModelMetadata() agentruntime.ModelMetadata {
+	return agentruntime.ModelMetadata{
+		ContextWindowTokens: defaultContextWindowTokens,
+		MaxOutputTokens:     defaultMaxOutputTokens,
+	}
 }
 
 func firstPositive(values ...int) int {

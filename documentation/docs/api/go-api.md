@@ -76,8 +76,10 @@ Common options:
 
 `WithModel` and `WithCompactionModel` can override the model selected by a
 project. Shared limits in the project `compaction` mapping and startup
-discovery cover ordinary project-selected private models. For a fully custom
-adapter, build it with
+discovery cover ordinary project-selected private models. Project loading
+checks provider `/models`, then models.dev, and finally uses exact defaults of
+122,880 context tokens and 66,560 output tokens. For a fully custom adapter,
+build it with
 `openai.Config.MetadataResolver`, then pass that adapter to the appropriate
 option. The resolver supplies provider-neutral context-window and output
 limits; compaction refuses to guess those limits. Use
