@@ -186,7 +186,7 @@ EOF
 if [ "$go_available" = true ]; then
 	# Resolve the requested tag/branch directly so a lagging GOPROXY cannot
 	# silently install an older API without DecodeArguments.
-	(cd "$target" && GOPROXY=direct go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
+	(cd "$target" && GOPROXY=direct GONOSUMDB=github.com/mrbryside/agentcli go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
   printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace provider/model placeholders in .agentcli/config.yaml and .agentcli/MAIN.md\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
