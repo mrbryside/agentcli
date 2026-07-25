@@ -62,16 +62,16 @@ func TestInstallerEnablesCompactionWithStarterPlaceholders(t *testing.T) {
 	}
 }
 
-func TestInstallerIncludesCompactionMetadataDefaults(t *testing.T) {
+func TestInstallerIncludesProviderMetadataDefaults(t *testing.T) {
 	content, err := os.ReadFile("init/install.sh")
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
 	}
-	const required = `model: replace-model
-  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
-  max_output_tokens: 66560 # 65k`
+	const required = `request_timeout: 2m
+    context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
+    max_output_tokens: 66560 # 65k`
 	if !strings.Contains(string(content), required) {
-		t.Fatalf("installer compaction metadata does not contain:\n%s", required)
+		t.Fatalf("installer provider metadata does not contain:\n%s", required)
 	}
 }
 

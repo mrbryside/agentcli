@@ -32,7 +32,7 @@ func TestDeriveCompactionBudgetsUsesDynamicTailReserves(t *testing.T) {
 	}
 	output := operationalMaxOutputTokens(0, metadata)
 	budgets := deriveCompactionBudgets(metadata, output)
-	if output != 32000 || budgets.input != 90880 || budgets.summary != 4096 || budgets.safety != 4096 || budgets.usableInput() != 86784 {
+	if output != 15360 || budgets.input != 107520 || budgets.summary != 4096 || budgets.safety != 4096 || budgets.usableInput() != 103424 {
 		t.Fatalf("budgets = %#v; usable input = %d", budgets, budgets.usableInput())
 	}
 	if got := recentTailBudget(budgets.usableInput()); got != 8192 {
@@ -47,9 +47,9 @@ func TestCompactorOperationalOutputCapHonorsOnlyLowerRequestLimit(t *testing.T) 
 		requested int
 		want      int
 	}{
-		{name: "default cap", want: 32000},
-		{name: "lower request", requested: 16000, want: 16000},
-		{name: "higher request remains capped", requested: 50000, want: 32000},
+		{name: "default cap", want: 15360},
+		{name: "lower request", requested: 8000, want: 8000},
+		{name: "higher request remains capped", requested: 50000, want: 15360},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

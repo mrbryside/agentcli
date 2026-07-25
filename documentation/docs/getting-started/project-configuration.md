@@ -46,8 +46,6 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
-  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
-  max_output_tokens: 66560 # 65k
 
 providers:
   primary:
@@ -55,6 +53,8 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    context_window_tokens: 122880 # Optional provider-profile override.
+    max_output_tokens: 66560
 
   openrouter:
     type: openai
@@ -79,33 +79,32 @@ the loader does not silently send an empty credential.
 
 ## Automatic transcript compaction
 
-The optional `compaction` mapping accepts `auto`, `provider`, `model`,
-`context_window_tokens`, and `max_output_tokens`; unknown keys are rejected.
-Omitting it disables new compactions. If the mapping is present, `auto`
-defaults to `true`; use `auto: false` to keep the mapping but disable creation
-of future checkpoints.
+The optional `compaction` mapping accepts `auto`, `provider`, and `model`;
+unknown keys are rejected. Omitting it disables new compactions. If the mapping
+is present, `auto` defaults to `true`; use `auto: false` to keep the mapping but
+disable creation of future checkpoints.
 
 `provider` must be an existing provider-profile alias such as `primary`, and
 `model` is the separate summarizer model. It is resolved through the same
 factory as the main agent and subagents; the alias's `type` still chooses the
-adapter. Optional `context_window_tokens` and `max_output_tokens` declare one
-validated set of shared model limits for the compaction policy. These limits
-are injected into project-created main, summarizer, and subagent adapters, and
-the runtime derives internal budgets from them.
+adapter. Optional `context_window_tokens` and `max_output_tokens` live on each
+provider profile. This lets main, child, and summarizer models using different
+profiles carry independent limits. The runtime derives compaction budgets from
+the active main model's profile.
 
 With compaction enabled, the main model must expose valid context-window and
-output metadata. Explicit compaction limits take priority and avoid metadata
-network requests. When they are omitted, each required model is resolved by
-requesting its authenticated provider `/models` endpoint first because that
-describes the active deployment, then `https://models.dev/api.json`. If neither
-source supplies valid metadata, project loading uses exact defaults of 122,880
-context tokens and 66,560 output tokens. The Terminal UI displays those binary
-token counts as `120k` and `65k`. Explicit non-positive or partially configured
-limits remain validation errors.
+output metadata. Explicit limits on a provider profile take priority and avoid
+metadata requests for models using that profile. Without them, each distinct
+model requests its authenticated provider `/models` endpoint first, then
+`https://models.dev/api.json`; the final defaults are 122,880 context tokens
+and 66,560 output tokens. The Terminal UI displays those binary token counts
+as `120k` and `65k`. Explicit non-positive or partially configured limits
+remain validation errors.
 Applications can still override project-selected adapters with
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. The optional
-`agentcli.WithContextEstimator` similarly accepts a provider-aware estimator
-when the default conservative generic estimate is not precise enough.
+`ContextEstimatorProvider` capability selects a provider-aware estimator per
+main model. `agentcli.WithContextEstimator` remains an explicit override when
+the default selection is not precise enough.
 
 Compaction preserves full transcript storage. When a request needs shrinking,
 the runtime appends a cumulative checkpoint and sends the main model that

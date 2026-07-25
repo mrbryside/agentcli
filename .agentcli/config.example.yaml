@@ -11,17 +11,18 @@ compaction:
   auto: true
   provider: your_provider_name
   model: your-compaction-model
-  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
-  max_output_tokens: 66560 # 65k
 
 # Provider names are application-defined connection profile aliases. The
 # required type selects the protocol adapter independently from that alias.
+# Optional limits apply to every model using this provider profile.
 providers:
   your_provider_name:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    context_window_tokens: 122880 # Remove when provider discovery is available.
+    max_output_tokens: 66560
 
   # openrouter:
   #   type: openai

@@ -32,10 +32,11 @@ OpenAI-compatible provider under the explicit placeholder alias
 those identities when targeting a real provider/model. The generated
 `compaction` mapping is enabled explicitly with `auto: true` and reuses those
 two placeholders for its separate summarizer; removing the mapping or setting
-`auto: false` disables new checkpoints. The compaction mapping also includes
-exact shared 122,880-token context and 66,560-token output limits, displayed as
-`120k` and `65k`. Its inline comment tells callers to remove those fields when
-the selected model is not custom. A
+`auto: false` disables new checkpoints. The `replace-provider` profile also
+includes exact 122,880-token context and 66,560-token output limits, displayed
+as `120k` and `65k`, for every agent model using that profile. Its inline
+comment tells callers to remove those fields when provider discovery is
+available. A
 separate `guardrails` provider
 profile uses `${GUARDRAILS_API_KEY}` and a 30-second provider request timeout.
 The generated `report_discord` tool selects that profile with

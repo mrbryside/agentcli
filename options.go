@@ -173,10 +173,10 @@ func WithCompactionModel(model agentruntime.Model) Option {
 	}
 }
 
-// WithContextEstimator replaces the conservative generic estimator used for
-// automatic transcript compaction. Use it when a provider can calculate input
-// context more precisely. It applies to both root and project-created child
-// agents.
+// WithContextEstimator explicitly replaces the estimator selected from each
+// main model's optional ContextEstimatorProvider capability (or the
+// conservative generic fallback). The override applies to both root and
+// project-created child agents.
 func WithContextEstimator(estimator agentruntime.ContextEstimator) Option {
 	return func(configuration *config) error {
 		if isNilOptionValue(estimator) {

@@ -21,6 +21,15 @@ type runtimeCompactionModel struct {
 	startErr    error
 }
 
+type runtimeEstimatorModel struct {
+	*runtimeCompactionModel
+	estimator ContextEstimator
+}
+
+func (m *runtimeEstimatorModel) ContextEstimator() ContextEstimator {
+	return m.estimator
+}
+
 func (m *runtimeCompactionModel) ModelMetadata() (ModelMetadata, error) {
 	return m.metadata, m.metadataErr
 }
@@ -108,11 +117,45 @@ func TestRuntimeCompactionAppliesOperationalOutputCapToMainProvider(t *testing.T
 		t.Fatal(err)
 	}
 	collectRuntimeEvents(t, run)
-	if len(main.requests) != 1 || main.requests[0].MaxOutputTokens != defaultOperationalMaxOutputTokens {
+	wantOutput := operationalMaxOutputTokens(0, metadata)
+	if len(main.requests) != 1 || main.requests[0].MaxOutputTokens != wantOutput {
 		t.Fatalf("main requests = %#v", main.requests)
 	}
 	if len(summarizer.requests) != 0 {
 		t.Fatalf("unexpected compaction = %#v", summarizer.requests)
+	}
+}
+
+func TestRuntimeCompactionUsesMainModelContextEstimator(t *testing.T) {
+	called := false
+	estimator := ContextEstimatorFunc(func(ModelRequest) (ContextEstimate, error) {
+		called = true
+		return ContextEstimate{Tokens: 7}, nil
+	})
+	main := &runtimeEstimatorModel{
+		runtimeCompactionModel: &runtimeCompactionModel{
+			metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+		},
+		estimator: estimator,
+	}
+	summarizer := &runtimeCompactionModel{
+		metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+	}
+	runtime, err := New(context.Background(), Config{
+		Model: main, Messages: inmemory.NewMessageStorage(), Compactor: &Compactor{Model: summarizer},
+		ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.compactor.Estimator == nil {
+		t.Fatal("runtime did not select the main model estimator")
+	}
+	if _, err := runtime.compactor.Estimator.Estimate(ModelRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("main model context estimator was not used")
 	}
 }
 

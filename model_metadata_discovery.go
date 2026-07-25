@@ -135,13 +135,14 @@ func (project *Project) resolveModelMetadata(ctx context.Context, reference proj
 	if !ok {
 		return agentruntime.ModelMetadata{}, fmt.Errorf("provider %q is not configured", reference.provider)
 	}
-	if metadata, configured, err := configuredCompactionMetadata(project.compaction); err != nil {
+	configuredMetadata, configured, err := configuredProviderMetadata(reference.provider, providerConfig)
+	if err != nil {
 		return agentruntime.ModelMetadata{}, err
-	} else if configured {
-		return metadata, nil
 	}
-
-	return discoverModelMetadata(ctx, http.DefaultClient, providerConfig, reference.provider, reference.model, modelsDevAPIURL)
+	if configured {
+		return configuredMetadata, nil
+	}
+	return discoverModelMetadata(ctx, http.DefaultClient, providerConfig, reference.provider, reference.model, modelsDevAPIURL, defaultProjectModelMetadata())
 }
 
 func discoverModelMetadata(
@@ -151,6 +152,7 @@ func discoverModelMetadata(
 	providerName string,
 	modelName string,
 	modelsDevURL string,
+	fallback agentruntime.ModelMetadata,
 ) (agentruntime.ModelMetadata, error) {
 	if client == nil {
 		client = http.DefaultClient
@@ -165,7 +167,10 @@ func discoverModelMetadata(
 	if err == nil && modelsDevMetadata.Validate() == nil {
 		return modelsDevMetadata, nil
 	}
-	return defaultProjectModelMetadata(), nil
+	if err := fallback.Validate(); err != nil {
+		return agentruntime.ModelMetadata{}, fmt.Errorf("fallback model metadata: %w", err)
+	}
+	return fallback, nil
 }
 
 func fetchProviderModelMetadata(
@@ -298,8 +303,8 @@ func fetchModelMetadataJSON(client *http.Client, request *http.Request, target a
 	return nil
 }
 
-func configuredCompactionMetadata(config *CompactionConfig) (agentruntime.ModelMetadata, bool, error) {
-	if config == nil || (config.ContextWindowTokens == 0 && config.MaxOutputTokens == 0) {
+func configuredProviderMetadata(providerName string, config ProviderConfig) (agentruntime.ModelMetadata, bool, error) {
+	if config.ContextWindowTokens == 0 && config.MaxOutputTokens == 0 {
 		return agentruntime.ModelMetadata{}, false, nil
 	}
 	metadata := agentruntime.ModelMetadata{
@@ -307,7 +312,7 @@ func configuredCompactionMetadata(config *CompactionConfig) (agentruntime.ModelM
 		MaxOutputTokens:     config.MaxOutputTokens,
 	}
 	if err := metadata.Validate(); err != nil {
-		return agentruntime.ModelMetadata{}, false, fmt.Errorf("compaction metadata: %w", err)
+		return agentruntime.ModelMetadata{}, false, fmt.Errorf("provider %q metadata: %w", providerName, err)
 	}
 	return metadata, true, nil
 }

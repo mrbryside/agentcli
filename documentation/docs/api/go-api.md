@@ -75,16 +75,16 @@ Common options:
 ### Custom compaction adapters
 
 `WithModel` and `WithCompactionModel` can override the model selected by a
-project. Shared limits in the project `compaction` mapping and startup
-discovery cover ordinary project-selected private models. Project loading
-checks provider `/models`, then models.dev, and finally uses exact defaults of
-122,880 context tokens and 66,560 output tokens. For a fully custom adapter,
-build it with
+project. Explicit limits belong to each provider profile, allowing main, child,
+and summarizer models on different profiles to use independent metadata.
+Without explicit limits, project loading checks provider `/models`, then
+models.dev, and finally uses exact defaults of 122,880 context tokens and
+66,560 output tokens. For a fully custom adapter, build it with
 `openai.Config.MetadataResolver`, then pass that adapter to the appropriate
 option. The resolver supplies provider-neutral context-window and output
-limits; compaction refuses to guess those limits. Use
-`WithContextEstimator` as well only when the provider can offer a more accurate
-estimate than the default conservative generic estimator.
+limits; compaction refuses to guess those limits. A custom model may implement
+`ContextEstimatorProvider` to select its estimator automatically. Use
+`WithContextEstimator` only for an explicit application-wide override.
 
 ## Tool handler context
 

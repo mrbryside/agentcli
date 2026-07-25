@@ -18,22 +18,20 @@ applications do not need runtime-package imports.
 ## Automatic transcript compaction
 
 `.agentcli/config.yaml` may contain an optional, strict `compaction` mapping
-with `auto`, `provider`, `model`, `context_window_tokens`, and
-`max_output_tokens`. Omitting the mapping disables new compactions. When the
-mapping is present, `auto` defaults to `true`; set `auto: false` to disable new
-compactions while retaining the configuration. `provider` is an existing
-provider-profile alias, not a provider type, and `model` selects the separate
-summarizer. It is constructed through the same project model factory used by
-main and child agents.
+with `auto`, `provider`, and `model`. Omitting the mapping disables new
+compactions. When the mapping is present, `auto` defaults to `true`; set
+`auto: false` to disable new compactions while retaining the configuration.
+`provider` is an existing provider-profile alias, not a provider type, and
+`model` selects the separate summarizer. It is constructed through the same
+project model factory used by main and child agents.
 
-The two optional token-limit fields form one validated shared metadata value
-for project-created main, child, and summarizer adapters. They take priority
-for custom deployments. When omitted, project loading checks each required
-model's authenticated provider `/models` endpoint first, falls back to
-`models.dev`, then uses exact defaults of 122,880 context tokens and 66,560
-output tokens if neither source supplies valid metadata. The Terminal displays
-those binary counts as `120k` and `65k`. The runtime derives its internal input,
-recent-history, and summary budgets from the resulting metadata.
+Optional `context_window_tokens` and `max_output_tokens` belong to each
+provider profile. They take priority for every model using that profile, so
+main, child, and summarizer adapters can use independent limits. When omitted,
+project loading checks each required model's authenticated provider `/models`
+endpoint first, falls back to `models.dev`, then uses exact defaults of 122,880
+context tokens and 66,560 output tokens. The Terminal displays those binary
+counts as `120k` and `65k`.
 When it is enabled, construction requires known valid limits for the main
 model. If the summarizer exposes `ModelMetadataProvider`, its limits are also
 validated at startup; a summarizer without that optional capability uses the

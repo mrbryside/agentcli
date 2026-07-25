@@ -6,19 +6,19 @@
 
 Optional `ModelMetadataProvider` supplies provider-neutral context-window and
 maximum-output metadata for models that need capability-aware features such as
-compaction. `ContextEstimator` is likewise provider-neutral: the default
-`GenericContextEstimator` deterministically and conservatively estimates every
-generic request surface, charging non-ASCII UTF-8 bytes conservatively for
-multilingual text. Provider-specific adapters may provide a more exact
-estimator without exposing SDK types in runtime.
+compaction. Optional `ContextEstimatorProvider` lets each main model select the
+estimator for its own provider. `GenericContextEstimator` is the deterministic
+fallback and conservatively estimates every generic request surface, charging
+non-ASCII UTF-8 bytes conservatively for multilingual text. Provider-specific
+adapters may provide a more exact estimator without exposing SDK types in
+runtime.
 
 The OpenAI-compatible adapter can resolve known aliases for directly
-constructed adapters. Project compaction policy may declare one shared set of
-limits for main, summarizer, and child adapters. Without those explicit
-limits, project loading checks the provider `/models` endpoint first, then
-falls back to `models.dev` only when the deployment returns no valid limits.
-If both sources fail, project loading applies deterministic defaults of 122,880
-context tokens and 66,560 output tokens.
+constructed adapters. Explicit limits belong to each provider profile and
+apply to every model using it. Without them, distinct main, child, and
+summarizer models resolve limits from their provider `/models` endpoint first,
+then models.dev, then deterministic defaults of 122,880 context tokens and
+66,560 output tokens.
 Applications can still construct a custom adapter with
 `openai.Config.MetadataResolver` and pass it through
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. An application can pass a

@@ -179,11 +179,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 
 	var compactor *agentruntime.Compactor
 	if configuration.compactionModel != nil {
-		estimator := configuration.contextEstimator
-		if estimator == nil {
-			estimator = agentruntime.GenericContextEstimator{}
-		}
-		compactor = &agentruntime.Compactor{Model: configuration.compactionModel, Estimator: estimator}
+		compactor = &agentruntime.Compactor{Model: configuration.compactionModel, Estimator: configuration.contextEstimator}
 	}
 	runtime, err := agentruntime.New(runContext, agentruntime.Config{
 		Model:                   configuration.model,

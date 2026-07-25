@@ -32,7 +32,7 @@ const (
 	compactedTurnContinuation         = "Continue the active turn from the conversation memory and the verbatim recent activity below."
 	defaultCompactionRecentTailTokens = 8192
 	minCompactionRecentTailTokens     = 2048
-	defaultOperationalMaxOutputTokens = 32000
+	defaultOperationalMaxOutputTokens = 16 * 1024
 )
 
 // CompactionInput is all provider-neutral state needed to compact one request.
@@ -240,7 +240,11 @@ func deriveCompactionBudgets(metadata ModelMetadata, operationalOutputTokens int
 }
 
 func operationalMaxOutputTokens(requested int, metadata ModelMetadata) int {
-	limit := min(defaultOperationalMaxOutputTokens, max(1, metadata.ContextWindowTokens-1))
+	// Reserving a fixed output maximum makes smaller context windows compact
+	// disproportionately early (and can consume almost the whole window).
+	// Scale the default with the selected main model while retaining a bounded
+	// absolute reserve for large-context models.
+	limit := min(defaultOperationalMaxOutputTokens, max(1, metadata.ContextWindowTokens/8))
 	if metadata.MaxOutputTokens > 0 {
 		limit = min(limit, metadata.MaxOutputTokens)
 	}

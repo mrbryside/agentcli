@@ -10,14 +10,15 @@ Compaction runs immediately before every main-model round. The runtime builds a
 provider-neutral `ModelRequest`, estimates its full input, and compares it with
 the main model's validated context-window and output-limit metadata. Internal
 input, recent-tail, serialization, and summary budgets are derived in code;
-only the shared model limits are configurable in project YAML.
+only model limits are configurable in project YAML.
 
 The model's output metadata remains a capability limit. Compaction applies an
-operational output cap of 32,000 tokens, reduced further by a lower explicit
-request limit or lower model capability. That same value is sent to the main
-provider and reserved from the context budget, so sizing and generation cannot
-diverge. Summary and estimator safety reserves each scale with the remaining
-input and cap at 4,096 tokens.
+operational output cap equal to one eighth of the main model's context window,
+capped at 16,384 tokens and reduced further by a lower explicit request limit
+or lower model capability. That same value is sent to the main provider and
+reserved from the context budget, so sizing and generation cannot diverge.
+Summary and estimator safety reserves each scale with the remaining input and
+cap at 4,096 tokens.
 Recent history does not use a fixed percentage: the estimator first charges
 system prompts, context reminders, tool schemas, the bounded summary
 placeholder, and the safety reserve. The verbatim recent-tail target is then
@@ -26,10 +27,12 @@ substantial room for tool results produced by subsequent rounds instead of
 filling the request immediately after compaction. System and tool base costs
 can reduce the tail further.
 
-`ContextEstimator` is replaceable. `GenericContextEstimator` is deterministic
-and deliberately conservative for non-ASCII text, tools, schemas, reminders,
-and message framing. A provider-aware estimator can be supplied through
-`agentcli.WithContextEstimator`.
+`ContextEstimator` is replaceable. By default the runtime asks the main model's
+optional `ContextEstimatorProvider` capability, which makes root and child
+agents select the estimator for their actual provider. `GenericContextEstimator`
+is the deterministic conservative fallback for non-ASCII text, tools, schemas,
+reminders, and message framing. `agentcli.WithContextEstimator` remains an
+explicit application-wide override.
 
 ## Summary and checkpoint creation
 
@@ -91,16 +94,18 @@ provider starts. Preparation, summarizer, or persistence errors emit
 
 No compaction event is emitted when the request already fits or when a resumed
 session only projects an existing checkpoint. Project-created child agents
-inherit the compaction model and estimator. Their events carry the child's own
-session and turn IDs and do not appear as parent-run events; the parent
-continues receiving the normal child callback lifecycle.
+inherit the compaction model and any explicit estimator override; otherwise
+each child selects the estimator from its own main model. Their events carry
+the child's own session and turn IDs and do not appear as parent-run events;
+the parent continues receiving the normal child callback lifecycle.
 
 ## Provider boundary
 
 The main model must implement `ModelMetadataProvider` when compaction is
 enabled. A summarizer that implements the optional capability is validated too.
-Project-selected models use shared limits from the `compaction` mapping first,
-then the provider `/models` endpoint, then `models.dev`, then exact project
+Each provider profile may supply explicit limits for every model using that
+profile. Otherwise each distinct main, child, and summarizer model resolves its
+limits from the provider `/models` endpoint, then `models.dev`, then project
 defaults of 122,880 context tokens and 66,560 output tokens. Directly
 constructed OpenAI-compatible adapters retain their exact-alias catalog.
 Applications can still override project-selected adapters through

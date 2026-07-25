@@ -139,7 +139,12 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		}
 		copy := *config.Compactor
 		if copy.Estimator == nil {
-			copy.Estimator = GenericContextEstimator{}
+			if estimatorProvider, ok := config.Model.(ContextEstimatorProvider); ok {
+				copy.Estimator = estimatorProvider.ContextEstimator()
+			}
+			if isNil(copy.Estimator) {
+				copy.Estimator = GenericContextEstimator{}
+			}
 		}
 		config.Compactor = &copy
 		mainModelMetadata = metadata

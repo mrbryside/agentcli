@@ -76,8 +76,6 @@ compaction:
   auto: true
   provider: primary
   model: gpt-4.1-mini
-  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
-  max_output_tokens: 66560 # 65k
 
 providers:
   primary:
@@ -85,21 +83,23 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    context_window_tokens: 122880 # Optional provider-profile override.
+    max_output_tokens: 66560
 ```
 
 Provider names such as `primary` are aliases. The required `type` selects the
 adapter; `openai` is currently supported.
 
-The optional `compaction` mapping selects a separate summarizer through an
+The optional `compaction` mapping only selects a separate summarizer through an
 existing provider alias. Optional `context_window_tokens` and
-`max_output_tokens` are shared limits for the main model, summarizer, and
-subagents. They take priority for custom deployments; when omitted, startup
-checks provider `/models` first, then falls back to models.dev. If neither
-source supplies valid metadata, project loading uses exact defaults of 122,880
-context tokens and 66,560 output tokens, displayed as `120k` and `65k`.
-The output value remains model capability metadata; compaction caps operational
-main-model output at 32,000 tokens by default and reserves that same amount
-from context. Compaction preserves the complete stored transcript and appends
+`max_output_tokens` belong to each provider profile, so main, child, and
+summarizer models can use independent limits. When omitted, startup checks
+that profile's `/models` endpoint, then models.dev, and finally defaults to
+122,880 context tokens and 66,560 output tokens (`120k` and `65k`). The output value
+remains model capability metadata; the operational main-model output reserve
+defaults to one eighth of its context window, capped at 16,384 tokens and
+reduced by lower model or request limits. Compaction preserves the complete
+stored transcript and appends
 internal checkpoints that resumed sessions keep projecting, even after
 `auto: false` disables future compactions. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)

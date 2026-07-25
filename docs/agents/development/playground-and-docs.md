@@ -13,7 +13,7 @@ no second playground-specific config format: provider, model, and compaction
 settings all come from the root `.agentcli/config.yaml`. The tracked
 `.agentcli/config.example.yaml` includes an enabled compaction mapping; copy it
 and replace both the main and compaction model placeholders for a clean manual
-setup. The repository playground compaction mapping declares exact limits of
+setup. The repository playground provider profile declares exact limits of
 122,880 context tokens and 66,560 output tokens for its custom model. The
 Terminal formats those binary values as `120k` and `65k`, so the opening banner
 shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in

@@ -76,3 +76,11 @@ type Model interface {
 type ModelMetadataProvider interface {
 	ModelMetadata() (ModelMetadata, error)
 }
+
+// ContextEstimatorProvider is an optional model capability for selecting the
+// token estimator that matches the main model's provider. Runtime uses it when
+// compaction is enabled and no explicit estimator was configured. Returning a
+// nil estimator falls back to GenericContextEstimator.
+type ContextEstimatorProvider interface {
+	ContextEstimator() ContextEstimator
+}

@@ -37,6 +37,7 @@ func TestDiscoverModelMetadataUsesProviderBeforeModelsDev(t *testing.T) {
 		"private",
 		"private-model",
 		modelsDevServer.URL,
+		defaultProjectModelMetadata(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +80,7 @@ func TestDiscoverModelMetadataFallsBackToModelsDev(t *testing.T) {
 		"private",
 		"private-model",
 		modelsDevServer.URL,
+		defaultProjectModelMetadata(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -122,33 +124,44 @@ func TestFetchModelsDevMetadataPrefersProviderTypeOverGlobalMatches(t *testing.T
 	}
 }
 
-func TestLoadProjectUsesConfiguredCompactionMetadataWithoutDiscovery(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		requests.Add(1)
+func TestLoadProjectUsesIndependentProviderMetadata(t *testing.T) {
+	var mainRequests atomic.Int32
+	mainServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mainRequests.Add(1)
 	}))
-	defer server.Close()
+	defer mainServer.Close()
+	var compactionRequests atomic.Int32
+	compactionServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		compactionRequests.Add(1)
+	}))
+	defer compactionServer.Close()
 
 	root := projectFixture(t)
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `compaction:
-  provider: private
+  provider: compact
   model: compact-model
-  context_window_tokens: 131072
-  max_output_tokens: 16384
 providers:
-  private:
+  main:
     type: openai
-    url: `+server.URL+`/v1
+    url: `+mainServer.URL+`/v1
     api_key: test-key
+    context_window_tokens: 262144
+    max_output_tokens: 32768
+  compact:
+    type: openai
+    url: `+compactionServer.URL+`/v1
+    api_key: test-key
+    context_window_tokens: 131072
+    max_output_tokens: 16384
 `)
-	writeMainAgentDefinition(t, root, "private", "gpt-test", "skills: [reviewing-go, testing-go]")
+	writeMainAgentDefinition(t, root, "main", "gpt-test", "skills: [reviewing-go, testing-go]")
 
 	project, err := LoadProject(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 0 {
-		t.Fatalf("metadata discovery requests = %d; want 0", requests.Load())
+	if mainRequests.Load() != 0 || compactionRequests.Load() != 0 {
+		t.Fatalf("metadata discovery requests: main=%d compaction=%d; want configured providers to skip discovery", mainRequests.Load(), compactionRequests.Load())
 	}
 	model, err := project.Model()
 	if err != nil {
@@ -162,7 +175,7 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadata != (agentruntime.ModelMetadata{ContextWindowTokens: 131072, MaxOutputTokens: 16384}) {
+	if metadata != (agentruntime.ModelMetadata{ContextWindowTokens: 262144, MaxOutputTokens: 32768}) {
 		t.Fatalf("metadata = %#v", metadata)
 	}
 	compactionModel, err := project.CompactionModel()
@@ -177,39 +190,73 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compactionMetadata != metadata {
-		t.Fatalf("compaction metadata = %#v; want %#v", compactionMetadata, metadata)
+	wantCompaction := agentruntime.ModelMetadata{ContextWindowTokens: 131072, MaxOutputTokens: 16384}
+	if compactionMetadata != wantCompaction {
+		t.Fatalf("compaction metadata = %#v; want %#v", compactionMetadata, wantCompaction)
 	}
 }
 
-func TestConfiguredCompactionMetadataValidation(t *testing.T) {
+func TestProjectModelUsesProviderMetadataWithoutCompaction(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `providers:
+  main:
+    type: openai
+    api_key: test-key
+    context_window_tokens: 196608
+    max_output_tokens: 24576
+`)
+	writeMainAgentDefinition(t, root, "main", "custom-model", "skills: [reviewing-go, testing-go]")
+
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := project.Model()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, ok := model.(agentruntime.ModelMetadataProvider)
+	if !ok {
+		t.Fatal("configured model does not expose metadata")
+	}
+	metadata, err := provider.ModelMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agentruntime.ModelMetadata{ContextWindowTokens: 196608, MaxOutputTokens: 24576}
+	if metadata != want {
+		t.Fatalf("metadata = %#v; want %#v", metadata, want)
+	}
+}
+
+func TestConfiguredProviderMetadataValidation(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *CompactionConfig
+		config ProviderConfig
 		want   string
 	}{
 		{
 			name:   "not configured",
-			config: &CompactionConfig{},
+			config: ProviderConfig{},
 		},
 		{
 			name:   "missing context",
-			config: &CompactionConfig{MaxOutputTokens: 1024},
+			config: ProviderConfig{MaxOutputTokens: 1024},
 			want:   "context window tokens must be positive",
 		},
 		{
 			name:   "output exceeds context",
-			config: &CompactionConfig{ContextWindowTokens: 1024, MaxOutputTokens: 2048},
+			config: ProviderConfig{ContextWindowTokens: 1024, MaxOutputTokens: 2048},
 			want:   "maximum output tokens cannot exceed",
 		},
 		{
 			name:   "valid",
-			config: &CompactionConfig{ContextWindowTokens: 122880, MaxOutputTokens: 66560},
+			config: ProviderConfig{ContextWindowTokens: 122880, MaxOutputTokens: 66560},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, configured, err := configuredCompactionMetadata(test.config)
+			_, configured, err := configuredProviderMetadata("test", test.config)
 			if test.want != "" {
 				if err == nil || !strings.Contains(err.Error(), test.want) {
 					t.Fatalf("error = %v; want %q", err, test.want)
@@ -244,6 +291,7 @@ func TestDiscoverModelMetadataUsesExactDefaultsWhenSourcesFail(t *testing.T) {
 		"private",
 		"unknown-model",
 		modelsDevServer.URL,
+		defaultProjectModelMetadata(),
 	)
 	if err != nil {
 		t.Fatal(err)

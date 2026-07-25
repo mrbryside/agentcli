@@ -186,17 +186,17 @@ compaction:
   auto: true
   provider: replace-provider
   model: replace-model
-  context_window_tokens: 122880 # 120k; remove these limits if the selected model is not custom.
-  max_output_tokens: 66560 # 65k
 
 # Agent identities and models live in MAIN.md, subagent definitions, and tool
-# declarations. Provider profiles here own connection settings only.
+# declarations. Provider profiles own connection settings and model limits.
 providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
+    max_output_tokens: 66560 # 65k
 
   guardrails:
     type: openai
