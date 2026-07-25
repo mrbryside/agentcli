@@ -144,10 +144,11 @@ tools. Required end-of-turn finalizers are satisfied only by the final
 all-successful, all-`EndTurn` tool batch; an early or mixed continuing batch
 must be finalized again. If the model attempts to finish while a finalizer
 remains unsatisfied, the completion guard starts a repair round with a reminder
-naming every missing finalizer while keeping the normal tool catalog available.
-AgentRuntime does not send provider-specific tool-choice directives or
-automatically narrow the catalog. The bounded completion guard fails the turn
-after three consecutive repair attempts without progress.
+naming every missing finalizer and exposes only those missing finalizer tools.
+If an application completion guard also returns a bounded tool allowlist, its
+tools are merged with the missing finalizers. AgentRuntime does not send
+provider-specific tool-choice directives. The bounded completion guard fails
+the turn after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append a repair reminder as an ephemeral
 user-role message when assistant output already ends the transcript, avoiding
 provider rejection of multiple trailing assistant messages.

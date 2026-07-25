@@ -57,7 +57,8 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		}
 
 		decision := agentruntime.CompletionDecision{
-			Action: agentruntime.CompletionRetry,
+			Action:        agentruntime.CompletionRetry,
+			ToolAllowlist: append([]string(nil), missing...),
 			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
 				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
 				strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
@@ -65,10 +66,23 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		}
 		if baseDecision.Action == agentruntime.CompletionRetry {
 			decision.ContextReminders = append(decision.ContextReminders, baseDecision.ContextReminders...)
-			decision.ToolAllowlist = append([]string(nil), baseDecision.ToolAllowlist...)
+			for _, toolName := range baseDecision.ToolAllowlist {
+				if !containsString(decision.ToolAllowlist, toolName) {
+					decision.ToolAllowlist = append(decision.ToolAllowlist, toolName)
+				}
+			}
 		}
 		return decision, nil
 	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string, terminalToolBatch bool) []string {

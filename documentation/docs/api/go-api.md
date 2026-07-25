@@ -135,8 +135,9 @@ object, and array parameters with individual descriptions and constraints.
 entire result batch succeeded and every result ends the turn. A required
 finalizer sets `RequiredAtTurnEnd: true` and `TurnBehavior: EndTurn`; the
 registry rejects any other combination. Missing finalizers use bounded repair
-rounds with a reminder naming the missing tools; the normal tool catalog remains
-available.
+rounds with a reminder naming the missing tools and a tool allowlist containing
+only those finalizers. A caller-supplied completion guard may add its own
+bounded allowlist entries.
 
 ## Guardrails
 

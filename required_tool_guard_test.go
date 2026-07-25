@@ -3,6 +3,7 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -27,7 +28,17 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 		TurnBehavior:      EndTurn,
 		RequiredAtTurnEnd: true,
 	}
-	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	distractor := Tool{
+		Definition: ToolDefinition{
+			Name:        "distractor",
+			Description: "A normal tool that must not be exposed during strict finalizer repair.",
+			InputSchema: ObjectSchema(struct{}{}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool), WithTool(distractor))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +134,30 @@ func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
 	requests := model.Requests()
 	if len(requests) != 2 {
 		t.Fatalf("requests = %d, want 2", len(requests))
+	}
+}
+
+func TestRequiredFinalizerRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
+	base := func(context.Context, agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
+		return agentruntime.CompletionDecision{
+			Action:           agentruntime.CompletionRetry,
+			ContextReminders: []agentruntime.ContextReminder{{Content: "revise the draft"}},
+			ToolAllowlist:    []string{"revise", "report"},
+		}, nil
+	}
+	guard := completionGuardWithRequiredTools(base, []string{"report"})
+	decision, err := guard(context.Background(), agentruntime.CompletionAttempt{
+		SessionID: "session",
+		TurnID:    "turn",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != agentruntime.CompletionRetry || !slices.Equal(decision.ToolAllowlist, []string{"report", "revise"}) {
+		t.Fatalf("decision = %#v", decision)
+	}
+	if len(decision.ContextReminders) != 2 {
+		t.Fatalf("reminders = %#v", decision.ContextReminders)
 	}
 }
 

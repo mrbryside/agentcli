@@ -56,10 +56,10 @@ summary and, for incomplete work, the required next step.
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
 runtime starts up to three bounded repair requests using the transcript that
-was already stored. Each request keeps the normal child tools available and
-uses a reminder to call `report_subagent_outcome`, so the model is told not to
-repeat a transfer, write, or other domain action that already ran. The same
-instruction remains while the child writes its concise final answer.
+was already stored. Each request exposes only `report_subagent_outcome` and
+uses a reminder to call it, so the model cannot repeat a transfer, write, or
+other domain action that already ran. The same instruction remains while the
+child writes its concise final answer.
 There is no polling or second callback during repair.
 
 If the repair reports `completed` or `incomplete`, that structured value is
@@ -70,14 +70,23 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. They and `force_close_subagent` accept `finish_turn`, defaulting to
-`true`. The model uses `false` only when it has already planned more
-decomposition or operations after the current tool batch, and uses `true` on
-the final dispatch, when none remain, or when unsure. `close_subagent` has no
-`finish_turn` option. A successful close or the first controlled lifecycle
-conflict continues; repeating the same conflict for that child in the same
-parent turn ends the turn to prevent a retry loop. The child turn outcome
-arrives through a separate callback containing:
+work. `start_subagent`, `send_subagent_message`, and
+`force_close_subagent` always continue the parent turn. The model issues
+exactly one start per provider round and never batches multiple starts in one
+tool-call response. Accepted start/send results
+set `callback_action: wait` and `must_wait_for_callback: true`. While a child
+runs, the parent may continue already-planned independent work that neither
+duplicates the delegated task nor depends on its result. It must not retry the
+dispatch, redo delegated work, poll, or claim completion before the callback.
+Once independent work is exhausted, the model completes through the
+application's normal response or required finalizer so callbacks can arrive on
+later turns. Duplicate, already-sent, and callback-pending results use
+`callback_action: wait_existing` because they create no new callback.
+`selection_required` uses `callback_action: none`. A successful
+`close_subagent`, or the first controlled lifecycle conflict, continues;
+repeating the same conflict for that child in the same parent turn ends the
+turn to prevent a retry loop. The child turn outcome arrives through a separate
+callback containing:
 
 - parent and child identity;
 - `completed`, `incomplete`, or `failed` status;
@@ -86,19 +95,28 @@ arrives through a separate callback containing:
 - terminal error when the child failed;
 - durable transcript cursor metadata.
 
-Each model-facing start, send, or force-close result echoes the resolved control state:
+Each model-facing start result reports that the parent remains open:
 
 ```json
 {
-  "finish_turn": false,
+  "accepted": true,
+  "callback_action": "wait",
+  "must_wait_for_callback": true,
+  "prohibited_actions": [
+    "duplicate_delegated_work",
+    "work_depending_on_callback_result",
+    "poll",
+    "retry_same_dispatch",
+    "claim_completion_before_callback"
+  ],
   "turn_behavior": "continue_turn",
-  "instruction": "Continue only with additional planned dispatches..."
+  "next_action": "Continue independent non-duplicative work, then finish the parent turn and wait for the authoritative callback."
 }
 ```
 
-Final dispatches and force-close operations return `finish_turn: true` and
-`turn_behavior: "end_turn"`. A `selection_required` result always reports
-`false` and `continue_turn`. A normal close returns only
+Send and force-close results also report `turn_behavior: "continue_turn"`. A
+`selection_required` start result reports `callback_action: "none"` and
+`turn_behavior: "continue_turn"`. A normal close returns
 `turn_behavior: "continue_turn"` plus an instruction to deliver the callback.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
@@ -201,18 +219,20 @@ expected controlled result rather than a failed tool result:
 {
   "action": "callback_pending",
   "accepted": false,
-  "finish_turn": true,
-  "turn_behavior": "end_turn",
-  "instruction": "No message was sent; wait for the authoritative callback."
+  "callback_action": "wait_existing",
+  "must_wait_for_callback": true,
+  "turn_behavior": "continue_turn",
+  "instruction": "No message was sent; continue only independent non-duplicative work, then finish the parent turn and wait for the pending authoritative callback."
 }
 ```
 
-The result preserves the requested `finish_turn`. `false` permits only concrete
-operations already planned for other children; it never permits retrying the
-same child or answering the user on the child's behalf. Tool calls already in
-the same parallel batch still all run before AgentRuntime evaluates the batch.
-Direct Go and HTTP sends continue returning the callback-pending lifecycle
-error, while closed and outcome-less children remain rejected.
+The result creates no new callback. It permits already-planned independent work
+that neither duplicates the delegated task nor depends on the callback, but
+never permits retrying the same child or answering on the child's behalf. Tool
+calls already in the same parallel batch still all run before AgentRuntime
+evaluates the batch. Direct Go and HTTP sends continue returning the
+callback-pending lifecycle error, while closed and outcome-less children remain
+rejected.
 
 Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model
 tool, Terminal UI, and HTTP `DELETE` require a `completed` or `failed` outcome

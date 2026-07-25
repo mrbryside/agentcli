@@ -83,6 +83,14 @@ child, or wait for more callbacks.
 The terminal displays callback notifications in the root view without copying
 child output into the selected child view.
 
+The Terminal and its repository playground use the framework-owned subagent
+tool contract directly; they do not maintain a separate schema. Model-facing
+`start_subagent`, `send_subagent_message`, and `force_close_subagent` calls
+return control to the parent. Accepted start/send results require the parent to
+finish its current turn before the authoritative callback can resume the root
+session. Independent work may continue meanwhile only when it neither
+duplicates the delegated task nor depends on its result.
+
 ## Close a child
 
 Close an instance when its task and follow-ups are finished:

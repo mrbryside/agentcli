@@ -116,7 +116,7 @@ func (m *subagentManager) StartOrReuse(ctx context.Context, parentSessionID, par
 	}
 	open := make([]storage.Subagent, 0, len(existing))
 	for _, child := range existing {
-		if child.Status != storage.SubagentStatusClosed {
+		if child.Status != storage.SubagentStatusClosed && child.DefinitionName == definition.Name {
 			open = append(open, child)
 		}
 	}
@@ -126,7 +126,13 @@ func (m *subagentManager) StartOrReuse(ctx context.Context, parentSessionID, par
 			if sendErr != nil {
 				return toolexecution.SubagentStartResult{}, sendErr
 			}
-			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartReused, DispatchAction: dispatched.Action, Subagent: dispatched.Subagent}, nil
+			return toolexecution.SubagentStartResult{
+				Action:         toolexecution.SubagentStartReused,
+				DispatchAction: dispatched.Action,
+				Subagent:       dispatched.Subagent,
+				Deduplicated:   dispatched.Deduplicated,
+				Accepted:       dispatched.Accepted,
+			}, nil
 		}
 		if len(open) > 1 {
 			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartSelectionRequired, Candidates: open}, nil
@@ -136,7 +142,7 @@ func (m *subagentManager) StartOrReuse(ctx context.Context, parentSessionID, par
 	if err != nil {
 		return toolexecution.SubagentStartResult{}, err
 	}
-	return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartCreated, Subagent: record}, nil
+	return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartCreated, Subagent: record, Accepted: true}, nil
 }
 
 func (m *subagentManager) prepareStart(ctx context.Context, parentSessionID, parentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {

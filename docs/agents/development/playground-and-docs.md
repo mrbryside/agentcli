@@ -19,6 +19,12 @@ Terminal formats those binary values as `120k` and `65k`, so the opening banner
 shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
 `playground/terminal`, not in the reusable `agentcli` package.
 
+The playground also inherits framework-owned subagent management tools from
+`LoadProject`; it has no local copy of their schemas or orchestration prompt.
+Consequently the Terminal automatically uses the callback contract:
+start/send/force-close return control to the parent, and accepted start/send
+work resumes through a later callback after the current parent turn finishes.
+
 User documentation lives in `documentation/docs`. HTTP annotations live in root `swagger.go` and the root server handlers; `documentation/package.json` drives Swaggo generation from the module-root `agentcli` package, Redocly validation/rendering, and the Docusaurus build. Generated OpenAPI/Redoc files are tracked, so regenerate them when API annotations or response models change.
 
 Run `make docs` for the development server and `make docs-build` for the production build; both install Node dependencies when needed. Docusaurus is configured for `https://mrbryside.github.io/agentcli/`. Static URLs used by React components must pass through Docusaurus `useBaseUrl` so they retain the `/agentcli/` repository prefix on GitHub Pages.

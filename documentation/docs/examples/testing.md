@@ -73,8 +73,8 @@ display input, and cancelled contexts.
 
 Use a scripted provider to return text without the required tool, then assert
 the repair request contains a reminder naming the missing finalizer while
-keeping the normal tool catalog. Return a successful standalone call and assert
-completion without another provider step. Also cover three
+restricting the tool catalog to missing finalizers. Return a successful
+standalone call and assert completion without another provider step. Also cover three
 consecutive no-progress repairs, multiple finalizers, mixed continuing batches,
 and progress resetting the repair budget.
 

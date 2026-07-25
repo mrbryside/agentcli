@@ -10,8 +10,9 @@ const subagentOutcomeRepairReminder = `This child turn attempted to finish witho
 
 // subagentOutcomeCompletionGuard gives a child a few bounded opportunities to
 // repair a missing semantic outcome before its callback becomes visible. The
-// retry keeps the normal child tool catalog available and reminds the child
-// not to repeat an already-completed domain action during repair.
+// required-finalizer wrapper restricts repair rounds to
+// report_subagent_outcome and reminds the child not to repeat an
+// already-completed domain action during repair.
 func subagentOutcomeCompletionGuard(_ context.Context, attempt agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
 	if _, found := reportedSubagentOutcome(attempt.TurnID, attempt.Messages); found || attempt.RepairCount >= defaultCompletionRepairLimit {
 		return agentruntime.CompletionDecision{Action: agentruntime.CompletionProceed}, nil

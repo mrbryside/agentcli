@@ -50,26 +50,23 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(schema, `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
-		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName) && tool.TurnBehavior != EndTurn {
-			t.Fatalf("subagent controlled tool %q turn behavior = %q, want end_turn", tool.Definition.Name, tool.TurnBehavior)
-		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName {
-			if !strings.Contains(tool.Definition.Description, "finish_turn defaults to true") || !strings.Contains(schema, `"finish_turn"`) || !strings.Contains(schema, `"default":true`) {
-				t.Fatalf("subagent controlled tool %q does not explain finish_turn: %#v", tool.Definition.Name, tool.Definition)
+			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
 			}
+		}
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one start_subagent call per provider round") || !strings.Contains(tool.Definition.Description, "Never emit multiple start_subagent calls in the same tool batch")) {
+			t.Fatalf("start_subagent does not describe sequential starts: %#v", tool)
 		}
 		if tool.Definition.Name == CloseSubagentToolName {
 			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("close_subagent must continue on its first lifecycle result without finish_turn: %#v", tool)
 			}
 		}
-		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && !strings.Contains(tool.Definition.Description, "continue decomposing") {
-			t.Fatalf("subagent dispatch tool %q does not explain sequential decomposition: %q", tool.Definition.Name, tool.Definition.Description)
-		}
 		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && tool.Definition.Name != ForceCloseSubagentToolName && tool.TurnBehavior != ContinueTurn {
 			t.Fatalf("subagent management tool %q turn behavior = %q, want continue", tool.Definition.Name, tool.TurnBehavior)
 		}
-		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(schema, `"new_instance"`)) {
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child of the requested definition is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == ListSubagentsToolName && (!strings.Contains(tool.Definition.Description, "explicit discovery") || !strings.Contains(tool.Definition.Description, "never use it as a polling loop")) {
@@ -78,8 +75,11 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == SubagentStatusToolName && (!strings.Contains(tool.Definition.Description, "explicitly asks") || !strings.Contains(tool.Definition.Description, "one fresh snapshot") || !strings.Contains(tool.Definition.Description, "already_checked")) {
 			t.Fatalf("subagent_status does not advertise lightweight status semantics: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "not completed") || !strings.Contains(tool.Definition.Description, "do not call status/list/close") || !strings.Contains(tool.Definition.Description, "action=callback_pending") || !strings.Contains(tool.Definition.Description, "successful controlled result") || !strings.Contains(tool.Definition.Description, "operations for other children")) {
+		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "not completed") || !strings.Contains(tool.Definition.Description, "Do not redo delegated work") || !strings.Contains(tool.Definition.Description, "action=callback_pending") || !strings.Contains(tool.Definition.Description, "successful controlled result") || !strings.Contains(tool.Definition.Description, "already-planned independent work")) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
+		}
+		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "neither duplicates the delegated task nor depends on its result") || !strings.Contains(tool.Definition.Description, "A callback cannot arrive until the current parent turn ends")) {
+			t.Fatalf("asynchronous dispatch tool %q does not constrain work while waiting: %q", tool.Definition.Name, tool.Definition.Description)
 		}
 		if tool.Definition.Name == CloseSubagentToolName && (!strings.Contains(tool.Definition.Description, "cleanup, not cancellation") || !strings.Contains(tool.Definition.Description, "Never call this after") || !strings.Contains(tool.Definition.Description, "completed work") || !strings.Contains(tool.Definition.Description, "failed work") || !strings.Contains(tool.Definition.Description, "runtime rejects running")) {
 			t.Fatalf("close_subagent does not describe lifecycle judgment: %q", tool.Definition.Description)
@@ -102,30 +102,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	}
 }
 
-func TestSubagentDispatchTurnBehavior(t *testing.T) {
-	if got := subagentTurnBehaviorLabel(false); got != "continue_turn" {
-		t.Fatalf("continue label = %q", got)
-	}
-	if got := subagentTurnBehaviorLabel(true); got != "end_turn" {
-		t.Fatalf("end label = %q", got)
-	}
-	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`{"action":"selection_required"}`)); got != ContinueTurn {
-		t.Fatalf("selection behavior = %q, want continue", got)
-	}
-	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":false}`), json.RawMessage(`{"action":"created"}`)); got != ContinueTurn {
-		t.Fatalf("unfinished start behavior = %q, want continue", got)
-	}
-	if got := startSubagentTurnBehavior(json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`{"action":"reused"}`)); got != EndTurn {
-		t.Fatalf("final start behavior = %q, want end_turn", got)
-	}
-	if got := subagentDispatchTurnBehavior(json.RawMessage(`{"finish_turn":false}`), nil); got != ContinueTurn {
-		t.Fatalf("unfinished send behavior = %q, want continue", got)
-	}
-	for _, arguments := range []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`{"finish_turn":true}`), json.RawMessage(`not-json`)} {
-		if got := subagentDispatchTurnBehavior(arguments, nil); got != EndTurn {
-			t.Fatalf("default/final dispatch behavior for %s = %q, want end_turn", arguments, got)
-		}
-	}
+func TestSubagentToolTurnBehavior(t *testing.T) {
 	for _, tool := range NewSubagentToolBridge().Tools() {
 		if tool.Definition.Name == CloseSubagentToolName {
 			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil {
@@ -139,17 +116,8 @@ func TestSubagentDispatchTurnBehavior(t *testing.T) {
 			}
 			continue
 		}
-		if tool.Definition.Name != ForceCloseSubagentToolName {
-			continue
-		}
-		if tool.resultTurnBehavior == nil {
-			t.Fatalf("%s does not resolve finish_turn dynamically", tool.Definition.Name)
-		}
-		if got := tool.resultTurnBehavior(json.RawMessage(`{"finish_turn":false}`), nil); got != ContinueTurn {
-			t.Fatalf("unfinished %s behavior = %q, want continue", tool.Definition.Name, got)
-		}
-		if got := tool.resultTurnBehavior(json.RawMessage(`{}`), nil); got != EndTurn {
-			t.Fatalf("default %s behavior = %q, want end_turn", tool.Definition.Name, got)
+		if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil {
+			t.Fatalf("%s behavior = (%q, dynamic=%v), want static continue", tool.Definition.Name, tool.TurnBehavior, tool.resultTurnBehavior != nil)
 		}
 	}
 }

@@ -28,18 +28,23 @@ for the next model round.
 
 `ContinueTurn` is the default. `EndTurn` skips another provider step only when
 the complete result batch succeeded and every result uses `EndTurn`.
-Application tools set `Tool.TurnBehavior` directly. Framework start/send and
-force-close tools derive behavior from `finish_turn`. `close_subagent` has no
-such argument: success and the first controlled lifecycle conflict continue,
+Application tools set `Tool.TurnBehavior` directly. Framework
+`start_subagent`, `send_subagent_message`, and `force_close_subagent` always
+continue. The start contract permits exactly one call per provider round.
+Accepted start/send results require a later
+callback but allow independent, non-duplicative work before the parent finishes
+through its normal response or application finalizer. For `close_subagent`,
+success and the first controlled lifecycle conflict continue,
 while repeating the same child conflict in one parent turn ends the turn to
 stop a retry loop.
 
 Required finalizers set both `RequiredAtTurnEnd=true` and
 `TurnBehavior=EndTurn`. Only the successful all-end batch immediately before
 completion satisfies them; early or mixed calls do not. If the model attempts
-to finish while a finalizer is missing, repair rounds keep the normal tool
-catalog available and add a reminder naming every missing finalizer. They do
-not set provider-specific tool choice or silently narrow the catalog.
+to finish while a finalizer is missing, repair rounds expose only the missing
+finalizer tools and add a reminder naming each one. If a caller-supplied
+completion guard also requests a bounded tool allowlist, its tools are merged
+with the missing finalizers.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 

@@ -62,6 +62,16 @@ func TestInstallerEnablesCompactionWithStarterPlaceholders(t *testing.T) {
 	}
 }
 
+func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
+	content, err := os.ReadFile("init/install.sh")
+	if err != nil {
+		t.Fatalf("read installer: %v", err)
+	}
+	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.39") {
+		t.Fatal("installer fallback version does not track v0.0.39")
+	}
+}
+
 func TestInstallerIncludesProviderMetadataDefaults(t *testing.T) {
 	content, err := os.ReadFile("init/install.sh")
 	if err != nil {

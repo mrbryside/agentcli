@@ -116,7 +116,7 @@ func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.
 	}
 }
 
-func TestSubagentIntegrationFinishTurnAllowsSequentialDispatch(t *testing.T) {
+func TestSubagentIntegrationStartAlwaysAllowsSequentialDispatch(t *testing.T) {
 	parentModel := &integrationSequentialDispatchParentModel{}
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
 		"researcher": newIntegrationChildModel("research complete"),
@@ -131,8 +131,8 @@ func TestSubagentIntegrationFinishTurnAllowsSequentialDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitRun(t, parentRun)
-	if got := parentModel.requestCount(); got != 2 {
-		t.Fatalf("parent provider requests = %d, want two dispatch rounds", got)
+	if got := parentModel.requestCount(); got != 3 {
+		t.Fatalf("parent provider requests = %d, want two dispatch rounds and one completion round", got)
 	}
 	children, err := agent.ListSubagents(context.Background(), "parent", false)
 	if err != nil {
@@ -168,8 +168,8 @@ func TestSubagentIntegrationFastCallbackDoesNotTriggerSpeculativeParentAnswer(t 
 	parentModel.releaseSecondRound()
 	waitRun(t, parentRun)
 
-	if got := parentModel.requestCount(); got != 2 {
-		t.Fatalf("parent provider requests = %d, want 2 without speculative recovery round", got)
+	if got := parentModel.requestCount(); got != 3 {
+		t.Fatalf("parent provider requests = %d, want start, send result continuation, and normal completion", got)
 	}
 	messages, err := agent.ListMessages(context.Background(), "parent")
 	if err != nil {
@@ -190,6 +190,9 @@ func TestSubagentIntegrationFastCallbackDoesNotTriggerSpeculativeParentAnswer(t 
 	}
 	if !foundAlreadySent {
 		t.Fatalf("parent transcript has no controlled already_sent result: %#v", messages)
+	}
+	if strings.Contains(integrationMessageContents(messages), "speculative parent question") {
+		t.Fatalf("parent produced a speculative answer while waiting for callback: %#v", messages)
 	}
 }
 
@@ -307,10 +310,10 @@ func TestSubagentIntegrationCloseContinuesWithUserVisibleAnswer(t *testing.T) {
 		t.Fatalf("child status = %q, want closed", record.Status)
 	}
 	requests := parentModel.Requests()
-	if len(requests) != 3 {
-		t.Fatalf("parent provider requests = %d, want start, close, normal continuation", len(requests))
+	if len(requests) != 4 {
+		t.Fatalf("parent provider requests = %d, want start, post-start completion, close, normal continuation", len(requests))
 	}
-	continuationRequest := requests[2]
+	continuationRequest := requests[3]
 	if len(continuationRequest.Tools) == 0 || strings.Contains(integrationReminderContents(continuationRequest.ContextReminders), "no user-visible assistant response") {
 		t.Fatalf("normal continuation request = %#v", continuationRequest)
 	}
@@ -640,6 +643,8 @@ func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request ag
 			Arguments: map[string]any{"name": "researcher", "message": "verify the delegated result"},
 		}}, Finished: true}
 	case 1:
+		result = provider.StreamResult{Content: "Delegation is running asynchronously.", Finished: true}
+	case 2:
 		callbackID := integrationCallbackSubagentID(request.Messages)
 		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
 			ID: "close-child", Name: CloseSubagentToolName,
@@ -815,9 +820,8 @@ func (integrationChildStream) Result() (provider.StreamResult, error) {
 }
 
 type integrationInterruptParentModel struct {
-	mu          sync.Mutex
-	starts      int
-	secondRound chan struct{}
+	mu     sync.Mutex
+	starts int
 }
 
 type integrationSequentialDispatchParentModel struct {
@@ -847,7 +851,7 @@ func (m *integrationPendingCallbackParentModel) Start(ctx context.Context, reque
 
 	if round == 1 {
 		call := provider.ToolCall{ID: "start", Name: StartSubagentToolName, Arguments: map[string]any{
-			"name": "researcher", "message": "ask for the missing transfer details", "finish_turn": false,
+			"name": "researcher", "message": "ask for the missing transfer details",
 		}}
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
 	}
@@ -863,11 +867,11 @@ func (m *integrationPendingCallbackParentModel) Start(ctx context.Context, reque
 			return nil, errors.New("start_subagent result did not contain a child ID")
 		}
 		call := provider.ToolCall{ID: "send", Name: SendSubagentMessageToolName, Arguments: map[string]any{
-			"subagent_id": childID, "message": "ask again", "finish_turn": true,
+			"subagent_id": childID, "message": "ask again",
 		}}
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
 	}
-	return scriptedStream{result: provider.StreamResult{Content: "speculative parent question", Finished: true}}, nil
+	return scriptedStream{result: provider.StreamResult{Finished: true}}, nil
 }
 
 func (m *integrationPendingCallbackParentModel) waitForSecondRound(t *testing.T) {
@@ -912,12 +916,15 @@ func (m *integrationSequentialDispatchParentModel) Start(_ context.Context, _ ag
 	m.mu.Unlock()
 
 	call := provider.ToolCall{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{
-		"name": "researcher", "message": "research this", "new_instance": true, "finish_turn": false,
+		"name": "researcher", "message": "research this", "new_instance": true,
 	}}
 	if round == 2 {
 		call = provider.ToolCall{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{
-			"name": "reviewer", "message": "review this", "new_instance": true, "finish_turn": true,
+			"name": "reviewer", "message": "review this", "new_instance": true,
 		}}
+	}
+	if round > 2 {
+		return scriptedStream{result: provider.StreamResult{Content: "delegation complete", Finished: true}}, nil
 	}
 	return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
 }
@@ -935,41 +942,7 @@ func (m *integrationInterruptParentModel) Start(_ context.Context, _ agentruntim
 	if m.starts == 1 {
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "delegate", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "long task"}}}, Finished: true}}, nil
 	}
-	if m.secondRound == nil {
-		m.secondRound = make(chan struct{})
-		close(m.secondRound)
-	}
-	return integrationBlockingStream{}, nil
-}
-
-func (m *integrationInterruptParentModel) waitForSecondRound(t *testing.T) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		m.mu.Lock()
-		started := m.starts >= 2
-		m.mu.Unlock()
-		if started {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("parent did not reach second provider round")
-}
-
-type integrationBlockingStream struct{}
-
-func (integrationBlockingStream) Subscribe(ctx context.Context) <-chan provider.StreamEvent {
-	events := make(chan provider.StreamEvent)
-	go func() {
-		defer close(events)
-		<-ctx.Done()
-	}()
-	return events
-}
-
-func (integrationBlockingStream) Result() (provider.StreamResult, error) {
-	return provider.StreamResult{}, errors.New("unused")
+	return scriptedStream{result: provider.StreamResult{Content: "Delegation is running asynchronously.", Finished: true}}, nil
 }
 
 func integrationJSONRequest(t *testing.T, method, url, body string) *http.Response {

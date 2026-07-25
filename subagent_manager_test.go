@@ -230,6 +230,27 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 			t.Fatalf("routed result = %#v, first = %#v", routed, first)
 		}
 	})
+
+	t.Run("different definition creates instead of reusing", func(t *testing.T) {
+		model := &subagentGateModel{releases: make(chan struct{})}
+		manager := newTestSubagentManager(t, model, 3)
+		defer manager.Close()
+		first, err := manager.Start(context.Background(), "parent", "turn-1", "researcher", "first", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		routed, err := manager.StartOrReuse(context.Background(), "parent", "turn-2", "reviewer", "review separately", "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if routed.Action != toolexecution.SubagentStartCreated || routed.Subagent.ID == first.ID || routed.Subagent.DefinitionName != "reviewer" {
+			t.Fatalf("cross-definition route = %#v, first = %#v", routed, first)
+		}
+		children, err := manager.List(context.Background(), "parent", false)
+		if err != nil || len(children) != 2 {
+			t.Fatalf("children = %#v, %v", children, err)
+		}
+	})
 }
 
 func TestSubagentManagerStartWaitsForInitialInputCommit(t *testing.T) {
@@ -603,6 +624,7 @@ func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, m
 	manager, err := newSubagentManager(parent, config{
 		project: &Project{subagents: map[string]SubagentDefinition{
 			"researcher": {Name: "researcher", Description: "Research", Provider: "test", Model: "test", Instructions: "be useful"},
+			"reviewer":   {Name: "reviewer", Description: "Review", Provider: "test", Model: "test", Instructions: "review carefully"},
 		}},
 		messages: messages, permissions: permissions, subagents: inmemory.NewSubagentStorage(),
 		maxSubagents: maximum, permissionMode: parent.PermissionMode(), permissionPolicy: permission.Policy{Mode: parent.PermissionMode()},
