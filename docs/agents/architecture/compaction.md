@@ -12,14 +12,19 @@ the main model's validated context-window and output-limit metadata. Internal
 input, recent-tail, serialization, and summary budgets are derived in code;
 only the shared model limits are configurable in project YAML.
 
-The input budget reserves the model's maximum output. Summary and estimator
-safety reserves each scale with the remaining input and cap at 4,096 tokens.
+The model's output metadata remains a capability limit. Compaction applies an
+operational output cap of 32,000 tokens, reduced further by a lower explicit
+request limit or lower model capability. That same value is sent to the main
+provider and reserved from the context budget, so sizing and generation cannot
+diverge. Summary and estimator safety reserves each scale with the remaining
+input and cap at 4,096 tokens.
 Recent history does not use a fixed percentage: the estimator first charges
 system prompts, context reminders, tool schemas, the bounded summary
-placeholder, and the safety reserve, then gives the complete remaining usable
-input to the largest legal transcript tail. Tool-heavy requests therefore
-retain less tail space than requests with a small base, while neither leaves
-otherwise usable input stranded behind a fixed quarter-budget.
+placeholder, and the safety reserve. The verbatim recent-tail target is then
+one quarter of usable input, clamped between 2,048 and 8,192 tokens. This keeps
+substantial room for tool results produced by subsequent rounds instead of
+filling the request immediately after compaction. System and tool base costs
+can reduce the tail further.
 
 `ContextEstimator` is replaceable. `GenericContextEstimator` is deterministic
 and deliberately conservative for non-ASCII text, tools, schemas, reminders,
@@ -33,6 +38,19 @@ largest recent tail that begins at a legal conversation boundary and preserves
 complete tool-call/result batches. Everything before that tail is serialized
 in bounded chunks and merged cumulatively by a separate summarizer model. The
 summarizer receives no tools and cannot recursively compact.
+
+If one active turn contains so many completed tool rounds that the whole turn
+cannot fit, selection retries inside that turn. The fallback summarizes its
+older prefix and retains the largest recent suffix beginning with an assistant
+message or a complete tool-call/result batch. Provider projection inserts a
+synthetic runtime continuation immediately before that suffix, so the retained
+assistant activity is never sent as an orphan. This fallback is only used when
+the ordinary user/runtime boundary cannot fit.
+
+An indivisible latest assistant/tool unit that exceeds the recent-tail target
+is retained whole when it still fits the provider input budget. This exception
+preserves tool-call/result adjacency and avoids failing merely because one
+complete provider unit is larger than 8,192 tokens.
 
 The prompt treats prior summaries and transcript history as untrusted data. It
 requires a same-language Markdown result with anchored `Objective`, `Important
@@ -50,8 +68,10 @@ Message storage remains append-only: original messages are never deleted or
 rewritten. Before a provider call, the runtime reads the latest valid
 checkpoint and creates a temporary request containing:
 
-1. a system message wrapping the cumulative summary; and
-2. verbatim non-checkpoint messages beginning at `TailStartMessageID`.
+1. a system message wrapping the cumulative summary;
+2. when the tail begins inside an active turn, a synthetic runtime
+   continuation message; and
+3. verbatim non-checkpoint messages beginning at `TailStartMessageID`.
 
 Messages through `CoversThroughMessageID` remain in storage but are omitted
 from that provider request. Checkpoint records themselves are also omitted.

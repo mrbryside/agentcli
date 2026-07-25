@@ -97,9 +97,11 @@ subagents. They take priority for custom deployments; when omitted, startup
 checks provider `/models` first, then falls back to models.dev. If neither
 source supplies valid metadata, project loading uses exact defaults of 122,880
 context tokens and 66,560 output tokens, displayed as `120k` and `65k`.
-Compaction preserves the complete stored transcript and appends internal checkpoints that
-resumed sessions keep projecting, even after `auto: false` disables future
-compactions. See
+The output value remains model capability metadata; compaction caps operational
+main-model output at 32,000 tokens by default and reserves that same amount
+from context. Compaction preserves the complete stored transcript and appends
+internal checkpoints that resumed sessions keep projecting, even after
+`auto: false` disables future compactions. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)
 for lifecycle and fallback behavior.
 

@@ -33,12 +33,16 @@ The shared limits are model metadata, not tunable compaction budgets. The
 runtime derives the input reserve, recent tail, serialization limit, and
 summary limit from that provider-neutral metadata.
 
-The input budget first reserves the model's maximum output. The runtime then
-reserves a bounded summary and safety margin, estimates system prompts,
-reminders, and tool schemas, and assigns all remaining usable input to the
-largest legal recent tail. The tail is therefore dynamic rather than a fixed
-percentage: tool-heavy requests automatically leave less transcript room,
-while smaller tool surfaces can retain substantially more recent history.
+The model's output limit remains capability metadata. For compacted main-model
+rounds, the runtime applies an operational output cap of 32,000 tokens, reduced
+further by a lower explicit request limit or lower model capability. The same
+value is sent to the provider and reserved from the context budget. The
+runtime then reserves a bounded summary and safety margin, estimates system
+prompts, reminders, and tool schemas, and targets a recent verbatim tail equal
+to one quarter of usable input clamped between 2,048 and 8,192 tokens. System
+and tool base costs can reduce it further. The unused room is intentional:
+subsequent tool rounds can add results without immediately filling the context
+again.
 
 ## What happens before a model round
 
@@ -49,10 +53,23 @@ Immediately before each main-provider call, the runtime:
 2. returns the unchanged request when it fits;
 3. otherwise chooses a recent tail on a legal conversation boundary while
    keeping each tool-call/result batch together;
-4. asks the configured tool-free summarizer to merge the older prefix with any
+4. if one active turn is itself too large, retries inside that turn and keeps
+   the largest recent complete assistant/tool suffix;
+5. asks the configured tool-free summarizer to merge the older prefix with any
    previous cumulative summary;
-5. persists a new append-only checkpoint; and
-6. re-estimates the projected request before starting the main model.
+6. persists a new append-only checkpoint; and
+7. re-estimates the projected request before starting the main model.
+
+The active-turn fallback handles research loops that accumulate many large
+tool results before producing a final answer. It summarizes the older tool
+rounds, keeps the latest complete tool-call/result batch verbatim, and inserts
+a synthetic runtime continuation before retained assistant activity. The
+provider therefore receives a valid conversation sequence instead of an
+orphaned tool call.
+
+If the latest complete assistant/tool unit alone exceeds the recent-tail
+target, the runtime keeps that unit whole when it still fits the provider
+input. Tool-call/result adjacency takes priority over the 8,192-token target.
 
 The summary uses the conversation's primary language and an anchored Markdown
 schema:
@@ -84,6 +101,7 @@ message list:
 ```text
 application system prompts
 system: cumulative conversation memory
+[runtime continuation when the tail begins inside an active turn]
 verbatim messages from TailStartMessageID through the latest message
 ```
 

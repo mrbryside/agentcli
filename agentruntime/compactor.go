@@ -28,6 +28,13 @@ var ErrCompactionHistoryTooLarge = errors.New("compaction history unit exceeds s
 // request cannot fit the main model's input budget.
 var ErrCompactionStillTooLarge = errors.New("compacted request still exceeds context budget")
 
+const (
+	compactedTurnContinuation         = "Continue the active turn from the conversation memory and the verbatim recent activity below."
+	defaultCompactionRecentTailTokens = 8192
+	minCompactionRecentTailTokens     = 2048
+	defaultOperationalMaxOutputTokens = 32000
+)
+
 // CompactionInput is all provider-neutral state needed to compact one request.
 type CompactionInput struct {
 	Request           ModelRequest
@@ -85,6 +92,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 		estimator = GenericContextEstimator{}
 	}
 	request := input.Request.Clone()
+	request.MaxOutputTokens = operationalMaxOutputTokens(request.MaxOutputTokens, input.MainModelMetadata)
 	transcript := storage.CloneMessages(request.Messages)
 	if err := validateCompactionToolAdjacency(transcript); err != nil {
 		return CompactionResult{}, err
@@ -93,9 +101,9 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	if err != nil {
 		return CompactionResult{}, err
 	}
-	budgets := deriveCompactionBudgets(input.MainModelMetadata)
+	budgets := deriveCompactionBudgets(input.MainModelMetadata, request.MaxOutputTokens)
 	if previous != nil {
-		request.Messages = append([]Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(previous.Summary)}}, projectTail(transcript, tailStart)...)
+		request.Messages = projectCompactedMessages(previous.Summary, projectTail(transcript, tailStart))
 	}
 	estimate, err := estimator.Estimate(request)
 	if err != nil {
@@ -134,6 +142,18 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	selectionTemplate.Messages = []Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(strings.Repeat("m", budgets.summary*4))}}
 	tail := selectRecentTail(selectionTemplate, units, budgets.input, budgets.safety, estimator)
 	if len(tail) == 0 {
+		// A single active turn can contain many completed tool rounds and exceed
+		// the entire input budget. In that case, compact the older prefix of the
+		// active turn too, while retaining a complete recent assistant/tool unit.
+		tail = selectRecentActiveTurnTail(selectionTemplate, units, budgets.input, budgets.safety, estimator)
+	}
+	if len(tail) == 0 {
+		// An indivisible latest assistant/tool unit may itself exceed the normal
+		// recent-tail target. Keep the smallest complete suffix that still fits
+		// the provider input instead of splitting a tool batch or failing.
+		tail = selectRecentActiveTurnTailUnbounded(selectionTemplate, units, budgets.input, budgets.safety, estimator)
+	}
+	if len(tail) == 0 {
 		return CompactionResult{}, ErrCompactionStillTooLarge
 	}
 	head := base[:len(base)-len(tail)]
@@ -162,7 +182,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	}
 
 	effective := request.Clone()
-	effective.Messages = append([]Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(summary)}}, storage.CloneMessages(tail)...)
+	effective.Messages = projectCompactedMessages(summary, tail)
 	final, err := estimator.Estimate(effective)
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("estimate compacted request: %w", err)
@@ -199,7 +219,7 @@ func ProjectCompactionCheckpoints(request ModelRequest) (ModelRequest, error) {
 	if checkpoint == nil {
 		return projected, nil
 	}
-	projected.Messages = append([]Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(checkpoint.Summary)}}, projectTail(projected.Messages, start)...)
+	projected.Messages = projectCompactedMessages(checkpoint.Summary, projectTail(projected.Messages, start))
 	return projected, nil
 }
 
@@ -208,8 +228,8 @@ func (c Compactor) Compact(ctx context.Context, input CompactionInput) (Compacti
 	return c.Prepare(ctx, input)
 }
 
-func deriveCompactionBudgets(metadata ModelMetadata) compactionBudgets {
-	reserve := metadata.MaxOutputTokens
+func deriveCompactionBudgets(metadata ModelMetadata, operationalOutputTokens int) compactionBudgets {
+	reserve := operationalOutputTokens
 	if reserve == 0 {
 		reserve = min(4096, max(256, metadata.ContextWindowTokens/8))
 	}
@@ -217,6 +237,17 @@ func deriveCompactionBudgets(metadata ModelMetadata) compactionBudgets {
 	summary := min(4096, max(256, input/8))
 	safety := min(4096, max(1, input/8))
 	return compactionBudgets{input: input, safety: safety, summary: summary, serialized: max(512, summary*4)}
+}
+
+func operationalMaxOutputTokens(requested int, metadata ModelMetadata) int {
+	limit := min(defaultOperationalMaxOutputTokens, max(1, metadata.ContextWindowTokens-1))
+	if metadata.MaxOutputTokens > 0 {
+		limit = min(limit, metadata.MaxOutputTokens)
+	}
+	if requested > 0 {
+		limit = min(limit, requested)
+	}
+	return limit
 }
 
 func (budgets compactionBudgets) usableInput() int {
@@ -333,12 +364,27 @@ func conversationUnits(messages []Message) [][]Message {
 }
 
 func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, safetyBudget int, estimator ContextEstimator) []Message {
+	return selectRecentTailAtBoundary(template, units, inputBudget, safetyBudget, estimator, isConversationBoundary, recentTailBudget(inputBudget-safetyBudget))
+}
+
+func selectRecentActiveTurnTail(template ModelRequest, units [][]Message, inputBudget, safetyBudget int, estimator ContextEstimator) []Message {
+	return selectRecentTailAtBoundary(template, units, inputBudget, safetyBudget, estimator, isActiveTurnBoundary, recentTailBudget(inputBudget-safetyBudget))
+}
+
+func selectRecentActiveTurnTailUnbounded(template ModelRequest, units [][]Message, inputBudget, safetyBudget int, estimator ContextEstimator) []Message {
+	return selectRecentTailAtBoundary(template, units, inputBudget, safetyBudget, estimator, isActiveTurnBoundary, 0)
+}
+
+func selectRecentTailAtBoundary(template ModelRequest, units [][]Message, inputBudget, safetyBudget int, estimator ContextEstimator, boundary func(Message) bool, recentLimit int) []Message {
 	prefix, err := estimator.Estimate(template)
 	if err != nil {
 		return nil
 	}
 	usableInput := max(1, inputBudget-safetyBudget)
 	recentBudget := max(0, usableInput-prefix.Tokens)
+	if recentLimit > 0 {
+		recentBudget = min(recentBudget, recentLimit)
+	}
 	if recentBudget == 0 {
 		return nil
 	}
@@ -347,7 +393,7 @@ func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, saf
 	for i := len(units) - 1; i >= 0; i-- {
 		candidate := append(storage.CloneMessages(units[i]), selected...)
 		probe := template.Clone()
-		probe.Messages = append(storage.CloneMessages(template.Messages), candidate...)
+		probe.Messages = appendCompactedTail(storage.CloneMessages(template.Messages), candidate)
 		estimate, err := estimator.Estimate(probe)
 		if err != nil || estimate.Tokens > usableInput || estimate.Tokens-prefix.Tokens > recentBudget {
 			if len(best) > 0 {
@@ -356,15 +402,35 @@ func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, saf
 			break
 		}
 		selected = candidate
-		if isConversationBoundary(selected[0]) {
+		if boundary(selected[0]) {
 			best = storage.CloneMessages(selected)
 		}
 	}
 	return best
 }
 
+func recentTailBudget(usableInput int) int {
+	return min(defaultCompactionRecentTailTokens, max(minCompactionRecentTailTokens, usableInput/4))
+}
+
 func isConversationBoundary(message Message) bool {
 	return message.Type == MessageTypeUser || message.Type == MessageTypeRuntimeEvent
+}
+
+func isActiveTurnBoundary(message Message) bool {
+	return message.Type == MessageTypeAssistant || message.Type == MessageTypeToolCall
+}
+
+func projectCompactedMessages(summary string, tail []Message) []Message {
+	projected := []Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(summary)}}
+	return appendCompactedTail(projected, tail)
+}
+
+func appendCompactedTail(projected, tail []Message) []Message {
+	if len(tail) != 0 && isActiveTurnBoundary(tail[0]) {
+		projected = append(projected, Message{Type: MessageTypeRuntimeEvent, Content: compactedTurnContinuation})
+	}
+	return append(projected, storage.CloneMessages(tail)...)
 }
 
 func previousSummary(checkpoint *storage.CompactionCheckpoint) string {

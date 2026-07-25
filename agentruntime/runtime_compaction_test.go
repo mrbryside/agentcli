@@ -85,6 +85,37 @@ func TestRuntimeCompactionRejectsCompactionModelMetadataAtStartup(t *testing.T) 
 	}
 }
 
+func TestRuntimeCompactionAppliesOperationalOutputCapToMainProvider(t *testing.T) {
+	metadata := ModelMetadata{ContextWindowTokens: 122880, MaxOutputTokens: 66560}
+	main := &runtimeCompactionModel{metadata: metadata, streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{
+		Type: provider.StreamCompleted,
+		Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			Content: "done", Finished: true,
+		}},
+	}}}}}
+	summarizer := &runtimeCompactionModel{metadata: metadata}
+	runtime, err := New(context.Background(), Config{
+		Model: main, Messages: inmemory.NewMessageStorage(), Compactor: &Compactor{Model: summarizer},
+		ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "hello"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRuntimeEvents(t, run)
+	if len(main.requests) != 1 || main.requests[0].MaxOutputTokens != defaultOperationalMaxOutputTokens {
+		t.Fatalf("main requests = %#v", main.requests)
+	}
+	if len(summarizer.requests) != 0 {
+		t.Fatalf("unexpected compaction = %#v", summarizer.requests)
+	}
+}
+
 func TestRuntimeCompactionFailurePreventsMainProviderStart(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
 	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 180)}); err != nil {

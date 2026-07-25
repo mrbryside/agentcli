@@ -20,15 +20,56 @@ func TestCompactorPrepareBelowThresholdIsNoop(t *testing.T) {
 	if got := result.Request.Messages[0].ID; got != "one" {
 		t.Fatalf("message ID = %q", got)
 	}
+	if result.Request.MaxOutputTokens != 512 {
+		t.Fatalf("max output tokens = %d", result.Request.MaxOutputTokens)
+	}
 }
 
 func TestDeriveCompactionBudgetsUsesDynamicTailReserves(t *testing.T) {
-	budgets := deriveCompactionBudgets(ModelMetadata{
+	metadata := ModelMetadata{
 		ContextWindowTokens: 122880,
 		MaxOutputTokens:     66560,
-	})
-	if budgets.input != 56320 || budgets.summary != 4096 || budgets.safety != 4096 || budgets.usableInput() != 52224 {
+	}
+	output := operationalMaxOutputTokens(0, metadata)
+	budgets := deriveCompactionBudgets(metadata, output)
+	if output != 32000 || budgets.input != 90880 || budgets.summary != 4096 || budgets.safety != 4096 || budgets.usableInput() != 86784 {
 		t.Fatalf("budgets = %#v; usable input = %d", budgets, budgets.usableInput())
+	}
+	if got := recentTailBudget(budgets.usableInput()); got != 8192 {
+		t.Fatalf("recent tail budget = %d", got)
+	}
+}
+
+func TestCompactorOperationalOutputCapHonorsOnlyLowerRequestLimit(t *testing.T) {
+	metadata := ModelMetadata{ContextWindowTokens: 122880, MaxOutputTokens: 66560}
+	tests := []struct {
+		name      string
+		requested int
+		want      int
+	}{
+		{name: "default cap", want: 32000},
+		{name: "lower request", requested: 16000, want: 16000},
+		{name: "higher request remains capped", requested: 50000, want: 32000},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := compactionRequest(compactionMessage("one", MessageTypeUser, "hello"))
+			request.MaxOutputTokens = test.requested
+			result, err := (Compactor{}).Prepare(context.Background(), CompactionInput{
+				Request:           request,
+				MainModelMetadata: metadata,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Request.MaxOutputTokens != test.want {
+				t.Fatalf("max output tokens = %d; want %d", result.Request.MaxOutputTokens, test.want)
+			}
+			budgets := deriveCompactionBudgets(metadata, result.Request.MaxOutputTokens)
+			if budgets.input != metadata.ContextWindowTokens-test.want {
+				t.Fatalf("input budget = %d; want %d", budgets.input, metadata.ContextWindowTokens-test.want)
+			}
+		})
 	}
 }
 
@@ -151,6 +192,95 @@ func TestCompactorRecentTailStartsAtConversationBoundary(t *testing.T) {
 	}
 }
 
+func TestCompactorRecentTailUsesBoundedDefaultAndLeavesInputRoom(t *testing.T) {
+	older := compactionMessage("older", MessageTypeUser, strings.Repeat("o", 20_000))
+	recent := compactionMessage("recent", MessageTypeUser, strings.Repeat("r", 20_000))
+	template := ModelRequest{
+		SystemPrompts: []string{strings.Repeat("system ", 400)},
+		Tools:         []ToolDefinition{{Name: "tool", Description: strings.Repeat("schema ", 400)}},
+	}
+	estimator := GenericContextEstimator{}
+	tail := selectRecentTail(template, conversationUnits([]Message{older, recent}), 50_000, 4_096, estimator)
+	if len(tail) != 1 || tail[0].ID != "recent" {
+		t.Fatalf("tail = %#v", tail)
+	}
+	prefix, err := estimator.Estimate(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := template.Clone()
+	projected.Messages = append(storage.CloneMessages(template.Messages), tail...)
+	total, err := estimator.Estimate(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used := total.Tokens - prefix.Tokens; used > defaultCompactionRecentTailTokens {
+		t.Fatalf("recent tail uses %d tokens; limit = %d", used, defaultCompactionRecentTailTokens)
+	}
+	if room := 50_000 - 4_096 - total.Tokens; room < 20_000 {
+		t.Fatalf("remaining input room = %d; want at least 20000", room)
+	}
+}
+
+func TestCompactorFallsBackToCompactingWithinActiveTurn(t *testing.T) {
+	user := compactionMessage("user", MessageTypeUser, strings.Repeat("objective ", 20))
+	firstCall := compactionMessage("first-call", MessageTypeToolCall, "")
+	firstCall.ToolCalls = []ToolCall{{CallID: "first", Name: "fetch", Arguments: []byte(`{"url":"https://example.com/large"}`)}}
+	firstResult := compactionMessage("first-result", MessageTypeToolResult, "")
+	firstResult.ToolResult = &ToolResult{CallID: "first", Name: "fetch", Status: ToolResultSucceeded, Output: []byte(`"` + strings.Repeat("x", 6000) + `"`)}
+	latestCall := compactionMessage("latest-call", MessageTypeToolCall, "")
+	latestCall.ToolCalls = []ToolCall{{CallID: "latest", Name: "search", Arguments: []byte(`{"query":"next"}`)}}
+	latestResult := compactionMessage("latest-result", MessageTypeToolResult, "")
+	latestResult.ToolResult = &ToolResult{CallID: "latest", Name: "search", Status: ToolResultSucceeded, Output: []byte(`{"result":"small"}`)}
+	request := compactionRequest(user, firstCall, firstResult, latestCall, latestResult)
+	model := &compactionModel{content: "current-turn findings"}
+
+	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{
+		Request:           request,
+		MainModelMetadata: ModelMetadata{ContextWindowTokens: 2000, MaxOutputTokens: 400},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || result.Checkpoint == nil {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Checkpoint.CoversThroughMessageID != "first-result" || result.Checkpoint.TailStartMessageID != "latest-call" {
+		t.Fatalf("checkpoint = %#v", result.Checkpoint)
+	}
+	if len(result.Request.Messages) != 4 ||
+		result.Request.Messages[0].Type != MessageTypeSystem ||
+		result.Request.Messages[1].Type != MessageTypeRuntimeEvent ||
+		result.Request.Messages[1].Content != compactedTurnContinuation ||
+		result.Request.Messages[2].ID != "latest-call" ||
+		result.Request.Messages[3].ID != "latest-result" {
+		t.Fatalf("projection = %#v", result.Request.Messages)
+	}
+	if !strings.Contains(model.request.Messages[0].Content, "first-call") || !strings.Contains(model.request.Messages[0].Content, "first-result") {
+		t.Fatalf("active-turn prefix was not summarized: %q", model.request.Messages[0].Content)
+	}
+
+	transcript := append(storage.CloneMessages(request.Messages), compactionCheckpoint(
+		"checkpoint",
+		result.Checkpoint.CoversThroughMessageID,
+		result.Checkpoint.TailStartMessageID,
+		result.Checkpoint.Summary,
+	))
+	projected, err := ProjectCompactionCheckpoints(compactionRequest(transcript...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected.Messages) != 4 ||
+		projected.Messages[1].Type != MessageTypeRuntimeEvent ||
+		projected.Messages[2].ID != "latest-call" ||
+		projected.Messages[3].ID != "latest-result" {
+		t.Fatalf("resumed projection = %#v", projected.Messages)
+	}
+	if err := validateCompactionToolAdjacency(projected.Messages); err != nil {
+		t.Fatalf("projected tool adjacency = %v", err)
+	}
+}
+
 func TestCompactorDynamicTailKeepsMoreThanFormerQuarterBudget(t *testing.T) {
 	oldUser := compactionMessage("old-user", MessageTypeUser, strings.Repeat("old ", 1150))
 	oldAssistant := compactionMessage("old-assistant", MessageTypeAssistant, strings.Repeat("answer ", 575))
@@ -166,7 +296,7 @@ func TestCompactorDynamicTailKeepsMoreThanFormerQuarterBudget(t *testing.T) {
 	if !result.Compacted || len(result.Request.Messages) != 2 || result.Request.Messages[1].ID != "current" {
 		t.Fatalf("result = %#v", result)
 	}
-	budgets := deriveCompactionBudgets(ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512})
+	budgets := deriveCompactionBudgets(ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, 512)
 	currentEstimate, err := (GenericContextEstimator{}).Estimate(compactionRequest(currentUser))
 	if err != nil {
 		t.Fatal(err)
