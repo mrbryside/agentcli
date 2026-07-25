@@ -33,6 +33,13 @@ The shared limits are model metadata, not tunable compaction budgets. The
 runtime derives the input reserve, recent tail, serialization limit, and
 summary limit from that provider-neutral metadata.
 
+The input budget first reserves the model's maximum output. The runtime then
+reserves a bounded summary and safety margin, estimates system prompts,
+reminders, and tool schemas, and assigns all remaining usable input to the
+largest legal recent tail. The tail is therefore dynamic rather than a fixed
+percentage: tool-heavy requests automatically leave less transcript room,
+while smaller tool surfaces can retain substantially more recent history.
+
 ## What happens before a model round
 
 Immediately before each main-provider call, the runtime:

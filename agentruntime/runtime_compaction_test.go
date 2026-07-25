@@ -171,11 +171,11 @@ func TestRuntimeRepeatedCompactionMergesCheckpointAndProjectsResume(t *testing.T
 	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 240)}); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 200, MaxOutputTokens: 20}, streams: []ModelStream{
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "first answer", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "second answer", Finished: true}}}}},
 	}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 200, MaxOutputTokens: 20}, streams: []ModelStream{
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nfirst memory", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nsecond memory", Finished: true}}}}},
 	}}
@@ -259,11 +259,11 @@ func TestRuntimeCompactionPreservesToolRoundRequestBoundaries(t *testing.T) {
 	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 240)}); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 200, MaxOutputTokens: 20}, streams: []ModelStream{
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: map[string]any{}}}, Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}},
 	}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 200, MaxOutputTokens: 20}, streams: []ModelStream{
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "memory", Finished: true}}}}},
 	}}
 	requests := make(chan ToolRequest, 1)

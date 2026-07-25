@@ -58,7 +58,7 @@ type CompactionHooks struct {
 }
 
 type compactionBudgets struct {
-	input, recent, summary, serialized int
+	input, safety, summary, serialized int
 }
 
 // Prepare returns a no-op clone when the request fits; otherwise it streams a
@@ -101,7 +101,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("estimate request: %w", err)
 	}
-	if estimate.Tokens <= budgets.input {
+	if estimate.Tokens <= budgets.usableInput() {
 		return CompactionResult{Request: request, Estimate: estimate}, nil
 	}
 	if isNil(c.Model) {
@@ -127,10 +127,12 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	}
 	// Reserve a bounded summary before deciding the tail. This makes every
 	// message excluded from the tail part of the history supplied to the
-	// summarizer; never shrink the tail after summary generation.
+	// summarizer; never shrink the tail after summary generation. The tail gets
+	// all usable input left after the estimator charges system prompts,
+	// reminders, tool schemas, the summary placeholder, and the safety margin.
 	selectionTemplate := request.Clone()
 	selectionTemplate.Messages = []Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(strings.Repeat("m", budgets.summary*4))}}
-	tail := selectRecentTail(selectionTemplate, units, budgets.input, budgets.recent, estimator)
+	tail := selectRecentTail(selectionTemplate, units, budgets.input, budgets.safety, estimator)
 	if len(tail) == 0 {
 		return CompactionResult{}, ErrCompactionStillTooLarge
 	}
@@ -165,7 +167,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("estimate compacted request: %w", err)
 	}
-	if len(tail) == 0 || final.Tokens > budgets.input {
+	if len(tail) == 0 || final.Tokens > budgets.usableInput() {
 		return CompactionResult{}, ErrCompactionStillTooLarge
 	}
 	covered := ""
@@ -213,8 +215,12 @@ func deriveCompactionBudgets(metadata ModelMetadata) compactionBudgets {
 	}
 	input := max(1, metadata.ContextWindowTokens-reserve)
 	summary := min(4096, max(256, input/8))
-	recent := max(128, input/4)
-	return compactionBudgets{input: input, recent: recent, summary: summary, serialized: max(512, summary*4)}
+	safety := min(4096, max(1, input/8))
+	return compactionBudgets{input: input, safety: safety, summary: summary, serialized: max(512, summary*4)}
+}
+
+func (budgets compactionBudgets) usableInput() int {
+	return max(1, budgets.input-budgets.safety)
 }
 
 func latestCheckpoint(messages []Message) (*storage.CompactionCheckpoint, int, error) {
@@ -326,9 +332,14 @@ func conversationUnits(messages []Message) [][]Message {
 	return units
 }
 
-func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, recentBudget int, estimator ContextEstimator) []Message {
+func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, safetyBudget int, estimator ContextEstimator) []Message {
 	prefix, err := estimator.Estimate(template)
 	if err != nil {
+		return nil
+	}
+	usableInput := max(1, inputBudget-safetyBudget)
+	recentBudget := max(0, usableInput-prefix.Tokens)
+	if recentBudget == 0 {
 		return nil
 	}
 	var selected []Message
@@ -338,7 +349,7 @@ func selectRecentTail(template ModelRequest, units [][]Message, inputBudget, rec
 		probe := template.Clone()
 		probe.Messages = append(storage.CloneMessages(template.Messages), candidate...)
 		estimate, err := estimator.Estimate(probe)
-		if err != nil || estimate.Tokens > inputBudget || estimate.Tokens-prefix.Tokens > recentBudget {
+		if err != nil || estimate.Tokens > usableInput || estimate.Tokens-prefix.Tokens > recentBudget {
 			if len(best) > 0 {
 				break
 			}

@@ -22,6 +22,16 @@ func TestCompactorPrepareBelowThresholdIsNoop(t *testing.T) {
 	}
 }
 
+func TestDeriveCompactionBudgetsUsesDynamicTailReserves(t *testing.T) {
+	budgets := deriveCompactionBudgets(ModelMetadata{
+		ContextWindowTokens: 122880,
+		MaxOutputTokens:     66560,
+	})
+	if budgets.input != 56320 || budgets.summary != 4096 || budgets.safety != 4096 || budgets.usableInput() != 52224 {
+		t.Fatalf("budgets = %#v; usable input = %d", budgets, budgets.usableInput())
+	}
+}
+
 func TestCompactorPrepareProjectsExistingCheckpointWithoutResummarizing(t *testing.T) {
 	old := compactionMessage("old", MessageTypeUser, "old")
 	tail := compactionMessage("tail", MessageTypeUser, "current")
@@ -132,16 +142,56 @@ func TestLatestCheckpointRejectsGapsAndNonMonotonicRepeatedCheckpoints(t *testin
 func TestCompactorRecentTailStartsAtConversationBoundary(t *testing.T) {
 	user := compactionMessage("user", MessageTypeUser, "do work")
 	assistant := compactionMessage("assistant", MessageTypeAssistant, "done")
-	tail := selectRecentTail(ModelRequest{}, conversationUnits([]Message{user, assistant}), 1000, 1000, GenericContextEstimator{})
+	tail := selectRecentTail(ModelRequest{}, conversationUnits([]Message{user, assistant}), 1000, 0, GenericContextEstimator{})
 	if len(tail) != 2 || tail[0].Type != MessageTypeUser {
 		t.Fatalf("tail = %#v", tail)
 	}
-	if orphan := selectRecentTail(ModelRequest{}, conversationUnits([]Message{assistant}), 1000, 1000, GenericContextEstimator{}); orphan != nil {
+	if orphan := selectRecentTail(ModelRequest{}, conversationUnits([]Message{assistant}), 1000, 0, GenericContextEstimator{}); orphan != nil {
 		t.Fatalf("orphan assistant tail = %#v", orphan)
 	}
 }
 
-func TestCompactorPlaceholderCountsAgainstTotalAndRecentBudgets(t *testing.T) {
+func TestCompactorDynamicTailKeepsMoreThanFormerQuarterBudget(t *testing.T) {
+	oldUser := compactionMessage("old-user", MessageTypeUser, strings.Repeat("old ", 1150))
+	oldAssistant := compactionMessage("old-assistant", MessageTypeAssistant, strings.Repeat("answer ", 575))
+	currentUser := compactionMessage("current", MessageTypeUser, strings.Repeat("current ", 500))
+	model := &compactionModel{content: "durable memory"}
+	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{
+		Request:           compactionRequest(oldUser, oldAssistant, currentUser),
+		MainModelMetadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || len(result.Request.Messages) != 2 || result.Request.Messages[1].ID != "current" {
+		t.Fatalf("result = %#v", result)
+	}
+	budgets := deriveCompactionBudgets(ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512})
+	currentEstimate, err := (GenericContextEstimator{}).Estimate(compactionRequest(currentUser))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentEstimate.Tokens <= budgets.input/4 {
+		t.Fatalf("current tail estimate = %d; test requires more than former quarter budget %d", currentEstimate.Tokens, budgets.input/4)
+	}
+}
+
+func TestCompactorDynamicTailAccountsForToolBaseCost(t *testing.T) {
+	current := compactionMessage("current", MessageTypeUser, strings.Repeat("current ", 120))
+	units := conversationUnits([]Message{current})
+	withoutTools := selectRecentTail(ModelRequest{}, units, 1000, 100, GenericContextEstimator{})
+	if len(withoutTools) != 1 {
+		t.Fatalf("tail without tools = %#v", withoutTools)
+	}
+	withTools := selectRecentTail(ModelRequest{Tools: []ToolDefinition{{
+		Name: "large-tool", Description: strings.Repeat("schema ", 600),
+	}}}, units, 1000, 100, GenericContextEstimator{})
+	if withTools != nil {
+		t.Fatalf("tail with oversized tool base = %#v; want no available tail", withTools)
+	}
+}
+
+func TestCompactorPlaceholderCountsAgainstDynamicAvailableBudget(t *testing.T) {
 	oldUser := compactionMessage("old", MessageTypeUser, strings.Repeat("old ", 500))
 	middleUser := compactionMessage("middle-user", MessageTypeUser, strings.Repeat("middle ", 43))
 	middleAssistant := compactionMessage("middle-assistant", MessageTypeAssistant, strings.Repeat("answer ", 43))

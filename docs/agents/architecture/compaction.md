@@ -12,6 +12,15 @@ the main model's validated context-window and output-limit metadata. Internal
 input, recent-tail, serialization, and summary budgets are derived in code;
 only the shared model limits are configurable in project YAML.
 
+The input budget reserves the model's maximum output. Summary and estimator
+safety reserves each scale with the remaining input and cap at 4,096 tokens.
+Recent history does not use a fixed percentage: the estimator first charges
+system prompts, context reminders, tool schemas, the bounded summary
+placeholder, and the safety reserve, then gives the complete remaining usable
+input to the largest legal transcript tail. Tool-heavy requests therefore
+retain less tail space than requests with a small base, while neither leaves
+otherwise usable input stranded behind a fixed quarter-budget.
+
 `ContextEstimator` is replaceable. `GenericContextEstimator` is deterministic
 and deliberately conservative for non-ASCII text, tools, schemas, reminders,
 and message framing. A provider-aware estimator can be supplied through
