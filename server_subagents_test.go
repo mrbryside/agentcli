@@ -88,6 +88,17 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 	if closed.Status != storage.SubagentStatusClosed {
 		t.Fatalf("closed child = %#v", closed)
 	}
+	events := getSessionEventsUntil(t, serverURL+"/v1/sessions/parent-a/events", "", func(event SessionEventResponse) bool {
+		return event.Type == SessionActivitySubagentClosed
+	})
+	closeEvent := events[len(events)-1]
+	if closeEvent.Source != ServerTurnSourceSubagentLifecycle || closeEvent.SubagentClosed == nil ||
+		closeEvent.SubagentClosed.Subagent.ID != created.ID ||
+		closeEvent.SubagentClosed.Subagent.Status != storage.SubagentStatusClosed ||
+		closeEvent.SubagentClosed.PreviousStatus != storage.SubagentStatusRunning ||
+		!closeEvent.SubagentClosed.Interrupted || closeEvent.SubagentClosed.Automatic {
+		t.Fatalf("subagent close session event = %#v", closeEvent)
+	}
 }
 
 func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {

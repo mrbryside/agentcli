@@ -455,6 +455,7 @@ func TestResponseScopeAutoClosesCompletedAndFailedButRetainsIncomplete(t *testin
 			manager := newTestSubagentManager(t, test.model, 1)
 			defer manager.Close()
 			manager.parent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
+			systemEvents := manager.subscribeSystemEvents(context.Background())
 			if err := manager.parent.responseScopes.BeginRootTurn("parent", "root-turn"); err != nil {
 				t.Fatal(err)
 			}
@@ -498,6 +499,20 @@ func TestResponseScopeAutoClosesCompletedAndFailedButRetainsIncomplete(t *testin
 			}
 			if after.Status != test.wantStatus || after.LastTurnOutcome != test.wantOutcome {
 				t.Fatalf("scope-end child = %#v, want status=%s outcome=%s", after, test.wantStatus, test.wantOutcome)
+			}
+			if test.wantStatus == storage.SubagentStatusClosed {
+				select {
+				case event := <-systemEvents:
+					closed := event.SubagentClosed
+					if event.Type != SystemSubagentClosed || event.SessionID != "parent" || event.TurnID != "root-turn" ||
+						closed == nil || !closed.Automatic || closed.Subagent.ID != record.ID ||
+						closed.PreviousStatus != storage.SubagentStatusIdle ||
+						closed.PreviousOutcome != test.wantOutcome {
+						t.Fatalf("automatic close event = %#v", event)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for automatic close event")
+				}
 			}
 		})
 	}
@@ -570,6 +585,7 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
 	callbacks := manager.subscribeCallbacks(context.Background())
+	systemEvents := manager.subscribeSystemEvents(context.Background())
 
 	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
 	if err != nil {
@@ -593,6 +609,20 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 	}
 	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.PreviousOutcome != "" || result.DroppedMessages != 1 || !result.Interrupted {
 		t.Fatalf("close result = %#v", result)
+	}
+	select {
+	case event := <-systemEvents:
+		closed := event.SubagentClosed
+		if event.Type != SystemSubagentClosed || event.SessionID != "parent" || event.TurnID != "" ||
+			closed == nil || closed.Subagent.ID != record.ID ||
+			closed.Subagent.Status != storage.SubagentStatusClosed ||
+			closed.PreviousStatus != storage.SubagentStatusRunning ||
+			closed.PreviousOutcome != "" || closed.DroppedMessages != 1 ||
+			!closed.Interrupted || closed.Automatic {
+			t.Fatalf("closed event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for subagent closed event")
 	}
 	if len(result.Subagent.Pending) != 0 || result.Subagent.ClosedAt == nil {
 		t.Fatalf("closed child = %#v", result.Subagent)

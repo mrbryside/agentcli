@@ -19,6 +19,7 @@ import (
 	"github.com/mrbryside/agentcli/confirmation"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/toolexecution"
 
 	"github.com/labstack/echo/v4"
@@ -158,6 +159,27 @@ func TestWriteSessionSSEUsesScopeBoundaryAsEventName(t *testing.T) {
 	}
 	if got := output.Body.String(); !strings.Contains(got, "event: pre_end_scope\n") || !strings.Contains(got, `"type":"scope_event"`) {
 		t.Fatalf("scope SSE = %q", got)
+	}
+}
+
+func TestWriteSessionSSEUsesSubagentClosedAsEventName(t *testing.T) {
+	output := httptest.NewRecorder()
+	err := writeSessionSSE(output, SessionEventResponse{
+		Cursor:    8,
+		Type:      SessionActivitySubagentClosed,
+		Source:    ServerTurnSourceSubagentLifecycle,
+		SessionID: "session",
+		SubagentClosed: &SubagentClosedReference{
+			Subagent:       SubagentResponse{ID: "subagent_1", Status: storage.SubagentStatusClosed},
+			PreviousStatus: storage.SubagentStatusRunning,
+			Interrupted:    true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := output.Body.String(); !strings.Contains(got, "event: subagent_closed\n") || !strings.Contains(got, `"subagent_closed"`) {
+		t.Fatalf("subagent closed SSE = %q", got)
 	}
 }
 

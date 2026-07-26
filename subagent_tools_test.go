@@ -93,6 +93,7 @@ func TestCloseSubagentToolRequiresCurrentHumanInstructionAndClosesImmediately(t 
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
 	bridge := newTestSubagentToolBridge(manager)
+	systemEvents := manager.subscribeSystemEvents(context.Background())
 	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +133,15 @@ func TestCloseSubagentToolRequiresCurrentHumanInstructionAndClosesImmediately(t 
 	}
 	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.UserDirected || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed close completed") || !strings.Contains(result.Instruction, "normal response or required trigger tool") {
 		t.Fatalf("close result = %s", output)
+	}
+	select {
+	case event := <-systemEvents:
+		if event.Type != SystemSubagentClosed || event.SessionID != "parent" || event.TurnID != "close-turn" ||
+			event.SubagentClosed == nil || event.SubagentClosed.Subagent.ID != record.ID {
+			t.Fatalf("close tool event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for close tool event")
 	}
 }
 

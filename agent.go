@@ -425,6 +425,17 @@ func (a *Agent) SubscribeSubagentCallbacks(ctx context.Context) <-chan SubagentC
 	return a.subagents.subscribeCallbacks(ctx)
 }
 
+// SubscribeSystemEvents returns a live-only stream of agent-level facts that
+// are not owned by one runtime turn.
+func (a *Agent) SubscribeSystemEvents(ctx context.Context) <-chan SystemEvent {
+	if a == nil || a.subagents == nil {
+		closed := make(chan SystemEvent)
+		close(closed)
+		return closed
+	}
+	return a.subagents.subscribeSystemEvents(ctx)
+}
+
 // SubscribeScopeEvents returns a live-only stream containing
 // PreEndScope immediately before scope cleanup and EndScope after all staged
 // EndResponseScope tool handlers have run and the scope has been removed.

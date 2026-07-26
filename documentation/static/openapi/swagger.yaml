@@ -326,12 +326,14 @@ definitions:
     - subagent_callback
     - subagent_confirmation
     - subagent_permission
+    - subagent_lifecycle
     type: string
     x-enum-varnames:
     - ServerTurnSourceUser
     - ServerTurnSourceSubagentCallback
     - ServerTurnSourceSubagentConfirmation
     - ServerTurnSourceSubagentPermission
+    - ServerTurnSourceSubagentLifecycle
   agentcli.SessionActivityType:
     enum:
     - turn_queued
@@ -342,6 +344,7 @@ definitions:
     - scope_event
     - subagent_confirmation
     - subagent_permission
+    - subagent_closed
     type: string
     x-enum-varnames:
     - SessionActivityTurnQueued
@@ -352,6 +355,7 @@ definitions:
     - SessionActivityScopeEvent
     - SessionActivitySubagentConfirmation
     - SessionActivitySubagentPermission
+    - SessionActivitySubagentClosed
   agentcli.SessionEventResponse:
     properties:
       cursor:
@@ -372,6 +376,8 @@ definitions:
         $ref: '#/definitions/agentcli.ServerTurnSource'
       subagent_callback:
         $ref: '#/definitions/agentcli.SubagentCallbackReference'
+      subagent_closed:
+        $ref: '#/definitions/agentcli.SubagentClosedReference'
       subagent_confirmation:
         $ref: '#/definitions/agentcli.SubagentConfirmationReference'
       subagent_permission:
@@ -449,6 +455,21 @@ definitions:
     - SubagentCallbackCompleted
     - SubagentCallbackIncomplete
     - SubagentCallbackFailed
+  agentcli.SubagentClosedReference:
+    properties:
+      automatic:
+        type: boolean
+      dropped_messages:
+        type: integer
+      interrupted:
+        type: boolean
+      previous_outcome:
+        $ref: '#/definitions/storage.SubagentTurnOutcome'
+      previous_status:
+        $ref: '#/definitions/storage.SubagentStatus'
+      subagent:
+        $ref: '#/definitions/agentcli.SubagentResponse'
+    type: object
   agentcli.SubagentConfirmationEventType:
     enum:
     - requested
@@ -1129,10 +1150,10 @@ paths:
       - Subagents
   /v1/sessions/{parentSessionID}/subagents/{subagentID}:
     delete:
-      description: Closes a completed or failed child after its latest callback has
-        been consumed, while retaining transcript and completed event history. Closing
-        is cleanup, not cancellation; running, incomplete, and callback-pending children
-        are rejected.
+      description: Destructively closes one child, interrupting active work and dropping
+        queued input when necessary, while retaining transcript and completed event
+        history. Bind this endpoint to an explicit user action. A successful close
+        also emits subagent_closed on the parent session event stream.
       operationId: closeSubagent
       parameters:
       - description: Owning parent session ID

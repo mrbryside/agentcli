@@ -53,6 +53,11 @@ type subagentManager struct {
 	nextPermissionSubscriber uint64
 	permissionSubscribers    map[uint64]*subagentPermissionSubscriber
 	permissionsClosed        bool
+
+	systemEventMu             sync.Mutex
+	nextSystemEventSubscriber uint64
+	systemEventSubscribers    map[uint64]*systemEventSubscriber
+	systemEventsClosed        bool
 }
 
 type managedSubagent struct {
@@ -86,6 +91,7 @@ func newSubagentManager(parent *Agent, configuration config) (*subagentManager, 
 		turnAutoClosed:          make(map[subagentReminderKey][]autoClosedSubagentNotice),
 		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
 		permissionSubscribers:   make(map[uint64]*subagentPermissionSubscriber),
+		systemEventSubscribers:  make(map[uint64]*systemEventSubscriber),
 	}, nil
 }
 
@@ -881,6 +887,13 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		closed, closeErr := m.store.Close(ctx, id)
 		if closeErr == nil {
 			m.signalChanged()
+			m.publishSystemEvent(SystemEvent{
+				Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: scopeID,
+				SubagentClosed: &SubagentClosedEvent{
+					Subagent: closed, PreviousStatus: record.Status,
+					PreviousOutcome: record.LastTurnOutcome, Automatic: true,
+				},
+			})
 			return closed, true
 		}
 		return storage.Subagent{}, false
@@ -915,12 +928,23 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		_ = child.Close()
 	}
 	m.signalChanged()
+	m.publishSystemEvent(SystemEvent{
+		Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: scopeID,
+		SubagentClosed: &SubagentClosedEvent{
+			Subagent: closed, PreviousStatus: record.Status,
+			PreviousOutcome: record.LastTurnOutcome, Automatic: true,
+		},
+	})
 	return closed, true
 }
 
 // CloseSubagent destructively closes one owned child for an explicit caller
 // request. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
 func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentCloseResult, error) {
+	return m.closeSubagent(ctx, parentSessionID, "", id)
+}
+
+func (m *subagentManager) closeSubagent(ctx context.Context, parentSessionID, parentTurnID, id string) (toolexecution.SubagentCloseResult, error) {
 	ctx = nonNilContext(ctx)
 	record, err := m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
@@ -939,10 +963,18 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 			return toolexecution.SubagentCloseResult{}, closeErr
 		}
 		m.signalChanged()
-		return toolexecution.SubagentCloseResult{
+		result := toolexecution.SubagentCloseResult{
 			Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 			DroppedMessages: len(record.Pending),
-		}, nil
+		}
+		m.publishSystemEvent(SystemEvent{
+			Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: parentTurnID,
+			SubagentClosed: &SubagentClosedEvent{
+				Subagent: closed, PreviousStatus: result.PreviousStatus,
+				PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
+			},
+		})
+		return result, nil
 	}
 
 	instance.mu.Lock()
@@ -973,10 +1005,19 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		_ = child.Close()
 	}
 	m.signalChanged()
-	return toolexecution.SubagentCloseResult{
+	result := toolexecution.SubagentCloseResult{
 		Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 		DroppedMessages: len(record.Pending), Interrupted: interrupted,
-	}, nil
+	}
+	m.publishSystemEvent(SystemEvent{
+		Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: parentTurnID,
+		SubagentClosed: &SubagentClosedEvent{
+			Subagent: closed, PreviousStatus: result.PreviousStatus,
+			PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
+			Interrupted: result.Interrupted,
+		},
+	})
+	return result, nil
 }
 
 // CloseSubagentFromParentTurn requires same-turn human-message evidence before
@@ -985,7 +1026,7 @@ func (m *subagentManager) CloseSubagentFromParentTurn(ctx context.Context, paren
 	if err := m.validateUserDirectedClose(nonNilContext(ctx), parentSessionID, parentTurnID, userInstruction); err != nil {
 		return toolexecution.SubagentCloseResult{}, err
 	}
-	return m.CloseSubagent(ctx, parentSessionID, id)
+	return m.closeSubagent(ctx, parentSessionID, parentTurnID, id)
 }
 
 func (m *subagentManager) validateUserDirectedClose(ctx context.Context, parentSessionID, parentTurnID, userInstruction string) error {
@@ -1257,6 +1298,7 @@ func (m *subagentManager) Close() error {
 	m.closeCallbacks()
 	m.closeConfirmations()
 	m.closePermissions()
+	m.closeSystemEvents()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

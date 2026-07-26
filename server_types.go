@@ -23,6 +23,7 @@ const (
 	ServerTurnSourceSubagentCallback     ServerTurnSource = "subagent_callback"
 	ServerTurnSourceSubagentConfirmation ServerTurnSource = "subagent_confirmation"
 	ServerTurnSourceSubagentPermission   ServerTurnSource = "subagent_permission"
+	ServerTurnSourceSubagentLifecycle    ServerTurnSource = "subagent_lifecycle"
 )
 
 // SessionActivityType identifies server lifecycle records around ordinary
@@ -39,6 +40,7 @@ const (
 	SessionActivityScopeEvent           SessionActivityType = "scope_event"
 	SessionActivitySubagentConfirmation SessionActivityType = "subagent_confirmation"
 	SessionActivitySubagentPermission   SessionActivityType = "subagent_permission"
+	SessionActivitySubagentClosed       SessionActivityType = "subagent_closed"
 )
 
 // StartTurnRequest is the JSON body accepted by POST /v1/sessions/{id}/turns.
@@ -110,6 +112,17 @@ type PendingSubagentPermissionsResponse struct {
 	Permissions []SubagentPermissionReference `json:"permissions"`
 }
 
+// SubagentClosedReference describes the child state removed by one successful
+// explicit or automatic close.
+type SubagentClosedReference struct {
+	Subagent        SubagentResponse            `json:"subagent"`
+	PreviousStatus  storage.SubagentStatus      `json:"previous_status"`
+	PreviousOutcome storage.SubagentTurnOutcome `json:"previous_outcome,omitempty"`
+	DroppedMessages int                         `json:"dropped_messages,omitempty"`
+	Interrupted     bool                        `json:"interrupted,omitempty"`
+	Automatic       bool                        `json:"automatic,omitempty"`
+}
+
 // SessionEventResponse is the session-wide SSE envelope. Cursor is monotonic
 // across every root turn in one session and is independent from the
 // per-turn RuntimeEvent.Sequence cursor.
@@ -126,6 +139,7 @@ type SessionEventResponse struct {
 	SubagentCallback     *SubagentCallbackReference     `json:"subagent_callback,omitempty"`
 	SubagentConfirmation *SubagentConfirmationReference `json:"subagent_confirmation,omitempty"`
 	SubagentPermission   *SubagentPermissionReference   `json:"subagent_permission,omitempty"`
+	SubagentClosed       *SubagentClosedReference       `json:"subagent_closed,omitempty"`
 	RuntimeEvent         *EventResponse                 `json:"runtime_event,omitempty"`
 	ScopeEvent           *ScopeEventResponse            `json:"scope_event,omitempty"`
 }

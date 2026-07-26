@@ -238,6 +238,7 @@ agent.ListSubagents(ctx, parentSessionID, includeClosed)
 agent.CloseSubagent(ctx, parentSessionID, subagentID)
 agent.InterruptSubagent(ctx, parentSessionID, subagentID, reason)
 agent.SubscribeSubagentCallbacks(ctx)
+agent.SubscribeSystemEvents(ctx)
 agent.SubscribeSubagentPermissions(ctx)
 agent.PendingSubagentPermissions(ctx, parentSessionID)
 agent.SubscribeSubagentConfirmations(ctx)
@@ -253,6 +254,9 @@ future sends. Bind it to a direct user action. Routine cleanup does not require
 an application call: after a response scope fully settles, AgentCLI
 automatically closes completed and failed children that are not referenced by
 another live scope, while retaining incomplete children for follow-up.
+`SubscribeSystemEvents` reports agent-level facts that are not owned by one
+runtime turn. `SystemSubagentClosed` includes both explicit and automatic
+successful closes with the final child snapshot and close effects.
 
 Child decision methods require parent and child ownership in addition to the
 normal correlated decision:

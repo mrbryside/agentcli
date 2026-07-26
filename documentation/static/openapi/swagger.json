@@ -432,7 +432,7 @@
                 }
             },
             "delete": {
-                "description": "Closes a completed or failed child after its latest callback has been consumed, while retaining transcript and completed event history. Closing is cleanup, not cancellation; running, incomplete, and callback-pending children are rejected.",
+                "description": "Destructively closes one child, interrupting active work and dropping queued input when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the parent session event stream.",
                 "produces": [
                     "application/json"
                 ],
@@ -1768,13 +1768,15 @@
                 "user",
                 "subagent_callback",
                 "subagent_confirmation",
-                "subagent_permission"
+                "subagent_permission",
+                "subagent_lifecycle"
             ],
             "x-enum-varnames": [
                 "ServerTurnSourceUser",
                 "ServerTurnSourceSubagentCallback",
                 "ServerTurnSourceSubagentConfirmation",
-                "ServerTurnSourceSubagentPermission"
+                "ServerTurnSourceSubagentPermission",
+                "ServerTurnSourceSubagentLifecycle"
             ]
         },
         "agentcli.SessionActivityType": {
@@ -1787,7 +1789,8 @@
                 "turn_event",
                 "scope_event",
                 "subagent_confirmation",
-                "subagent_permission"
+                "subagent_permission",
+                "subagent_closed"
             ],
             "x-enum-varnames": [
                 "SessionActivityTurnQueued",
@@ -1797,7 +1800,8 @@
                 "SessionActivityTurnEvent",
                 "SessionActivityScopeEvent",
                 "SessionActivitySubagentConfirmation",
-                "SessionActivitySubagentPermission"
+                "SessionActivitySubagentPermission",
+                "SessionActivitySubagentClosed"
             ]
         },
         "agentcli.SessionEventResponse": {
@@ -1829,6 +1833,9 @@
                 },
                 "subagent_callback": {
                     "$ref": "#/definitions/agentcli.SubagentCallbackReference"
+                },
+                "subagent_closed": {
+                    "$ref": "#/definitions/agentcli.SubagentClosedReference"
                 },
                 "subagent_confirmation": {
                     "$ref": "#/definitions/agentcli.SubagentConfirmationReference"
@@ -1944,6 +1951,29 @@
                 "SubagentCallbackIncomplete",
                 "SubagentCallbackFailed"
             ]
+        },
+        "agentcli.SubagentClosedReference": {
+            "type": "object",
+            "properties": {
+                "automatic": {
+                    "type": "boolean"
+                },
+                "dropped_messages": {
+                    "type": "integer"
+                },
+                "interrupted": {
+                    "type": "boolean"
+                },
+                "previous_outcome": {
+                    "$ref": "#/definitions/storage.SubagentTurnOutcome"
+                },
+                "previous_status": {
+                    "$ref": "#/definitions/storage.SubagentStatus"
+                },
+                "subagent": {
+                    "$ref": "#/definitions/agentcli.SubagentResponse"
+                }
+            }
         },
         "agentcli.SubagentConfirmationEventType": {
             "type": "string",

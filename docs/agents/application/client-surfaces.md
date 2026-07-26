@@ -17,6 +17,13 @@ SSE stream. Clients that attach after request creation recover with
 `GET /v1/sessions/{parentSessionID}/subagent-confirmations`, then resolve using
 the existing nested child decision endpoints.
 
+Successful explicit and response-scope automatic child closes are published
+through the generic `SubscribeSystemEvents` stream with type
+`SystemSubagentClosed`. The HTTP server retains the same fact as a
+`subagent_closed` parent-session SSE record, including the final child
+snapshot, previous lifecycle/outcome, dropped-message count, and whether the
+close interrupted active work.
+
 Child views have two equivalent integration paths. Remote applications use the Echo child-record/message endpoints and retained per-turn SSE streams. In-process Go applications use `ListSubagents`, `ListMessages`, `SubagentRun`, and the run subscribe-then-replay fence directly. UI transcript reads must use `ListMessages`; `ReadSubagent` advances the parent model's observation cursor and is not a rendering API. Switching views changes visible state only and must not cancel background child streams.
 
 Back to [application/index.md](index.md).

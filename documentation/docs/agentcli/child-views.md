@@ -449,6 +449,20 @@ for callback := range agent.SubscribeSubagentCallbacks(ctx) {
 }
 ```
 
+Subscribe to successful close facts as well so open child lists update without
+polling:
+
+```go
+for event := range agent.SubscribeSystemEvents(ctx) {
+    if event.Type == agentcli.SystemSubagentClosed &&
+        event.SessionID == parentSessionID &&
+        event.SubagentClosed != nil {
+        child := event.SubagentClosed.Subagent
+        childStore.Replace(child.ID, child)
+    }
+}
+```
+
 Do not use `ReadSubagent` merely to render a child transcript. That method is
 for advancing the parent's durable observation cursor. Child-view rendering
 should use `ListMessages`.

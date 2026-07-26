@@ -39,11 +39,12 @@ data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id"
 ```
 
 Session lifecycle types are `turn_queued`, `turn_admitted`, `turn_cancelled`,
-`turn_rejected`, `turn_event`, and `scope_event`. For `turn_event`, the SSE
-event name is the nested `runtime_event.type`. For `scope_event`, it is the
-nested `scope_event.type`: `pre_end_scope` or `end_scope`. The outer `cursor`
-is the value to persist for session reconnect; the nested `sequence` remains
-the cursor for one turn.
+`turn_rejected`, `turn_event`, `scope_event`, and `subagent_closed` (alongside
+the child permission and confirmation lifecycles described below). For
+`turn_event`, the SSE event name is the nested `runtime_event.type`. For
+`scope_event`, it is the nested `scope_event.type`: `pre_end_scope` or
+`end_scope`. The outer `cursor` is the value to persist for session reconnect;
+the nested `sequence` remains the cursor for one turn.
 
 `pre_end_scope` is published after the scope has no active turn or accepted
 callback, before child cleanup and staged `EndResponseScope` tool handlers.
@@ -119,6 +120,13 @@ pending request that predates the server subscription.
 Child permission requests follow the same pattern through the
 `subagent_permission` session event and
 `GET /v1/sessions/{parentSessionID}/subagent-permissions`.
+
+A successful explicit or automatic child close emits `subagent_closed`. Its
+`subagent_closed` payload contains the final child snapshot,
+`previous_status`, optional `previous_outcome`, `dropped_messages`,
+`interrupted`, and `automatic`. The parent-session cursor retains this fact for
+reconnects even though the in-process `SubscribeSystemEvents` stream is
+live-only.
 
 ## Runtime event catalog
 
