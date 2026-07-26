@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -76,6 +77,103 @@ func TestRegistryDefinitionsDoNotShareSchemas(t *testing.T) {
 	fresh := registry.Definitions()
 	if fresh[0].InputSchema.Properties["city"].Type != "string" {
 		t.Fatalf("Definitions() schema = %#v, want independent copy", fresh[0].InputSchema)
+	}
+}
+
+func TestRegistryInjectsTriggerGuidanceIntoToolDescriptions(t *testing.T) {
+	tests := []struct {
+		name             string
+		trigger          ToolTrigger
+		endTurnOnSuccess bool
+		contains         []string
+		excludes         []string
+	}{
+		{
+			name:     "immediate default",
+			contains: []string{"Application description."},
+			excludes: []string{"Runtime trigger", "Runtime turn behavior"},
+		},
+		{
+			name:    "end turn",
+			trigger: EndTurn,
+			contains: []string{
+				"Application description.",
+				"Runtime trigger (end_turn)",
+				"when the current turn is ready to finish",
+				"handler runs immediately",
+				"does not end the current turn automatically",
+			},
+		},
+		{
+			name:    "end response scope",
+			trigger: EndResponseScope,
+			contains: []string{
+				"Application description.",
+				"Runtime trigger (end_response_scope)",
+				"after all work and accepted callbacks or follow-ups are complete",
+				"status=skipped",
+				"executed=false",
+				"reason=response_scope_not_ready_to_end",
+				"trigger_satisfied=false",
+				"handler does not run",
+				"runtime will request it again at the final boundary",
+				"does not end the current turn automatically",
+			},
+		},
+		{
+			name:             "end on success",
+			endTurnOnSuccess: true,
+			contains: []string{
+				"Application description.",
+				"Runtime turn behavior (end_on_success)",
+				"every result in the same tool batch succeeds",
+				"current turn ends",
+			},
+			excludes: []string{"Runtime trigger"},
+		},
+		{
+			name:             "end response scope and end on success",
+			trigger:          EndResponseScope,
+			endTurnOnSuccess: true,
+			contains: []string{
+				"Runtime trigger (end_response_scope)",
+				"Runtime turn behavior (end_on_success)",
+			},
+			excludes: []string{"does not end the current turn automatically"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := NewRegistry()
+			tool := Tool{
+				Definition: agentruntime.ToolDefinition{
+					Name:        "report",
+					Description: "Application description.",
+					InputSchema: agentruntime.ToolSchema{Type: "object"},
+				},
+				Handler:          testHandler,
+				Trigger:          test.trigger,
+				EndTurnOnSuccess: test.endTurnOnSuccess,
+			}
+			if err := registry.Register(tool); err != nil {
+				t.Fatal(err)
+			}
+			if tool.Definition.Description != "Application description." {
+				t.Fatalf("Register mutated caller definition: %q", tool.Definition.Description)
+			}
+			description := registry.Definitions()[0].Description
+			for _, expected := range test.contains {
+				if !strings.Contains(description, expected) {
+					t.Errorf("description %q does not contain %q", description, expected)
+				}
+			}
+			for _, forbidden := range test.excludes {
+				if strings.Contains(description, forbidden) {
+					t.Errorf("description %q contains %q", description, forbidden)
+				}
+			}
+		})
 	}
 }
 

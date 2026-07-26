@@ -530,7 +530,8 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 			"status":   "skipped",
 			"executed": false,
 			"reason":   "response_scope_not_ready_to_end",
-			"instruction": "This tool only runs when the response scope is ready to end. " +
+			"instruction": "This call was skipped because the tool only runs when the response scope is ready to end. " +
+				"The handler did not run and the arguments were not retained. " +
 				"Continue the remaining work and do not retry this tool now. " +
 				"The runtime will request it again at the correct time.",
 		})

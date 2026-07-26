@@ -106,6 +106,15 @@ Metadata and policy are not user input or substitutes for authorization.
 The zero trigger is the default: the handler executes immediately and the
 provider continues. Do not set a field for this mode.
 
+When `Trigger` or `EndTurnOnSuccess` is configured, registration automatically
+appends a runtime-owned paragraph to the cloned tool description. The model
+therefore sees when it should call the tool, whether its handler runs
+immediately or only at the final response-scope boundary, what an early call
+returns, and whether success ends the current turn. Keep the application
+description focused on the tool's domain purpose and arguments; agentcli adds
+the execution-mode guidance without mutating the caller's original
+`ToolDefinition`.
+
 `EndTurn` makes the tool a required trigger tool and runs the handler
 immediately:
 
@@ -181,7 +190,7 @@ not called and no candidate is retained. The model receives:
   "status": "skipped",
   "executed": false,
   "reason": "response_scope_not_ready_to_end",
-  "instruction": "This tool only runs when the response scope is ready to end. Continue the remaining work and do not retry this tool now. The runtime will request it again at the correct time."
+  "instruction": "This call was skipped because the tool only runs when the response scope is ready to end. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry this tool now. The runtime will request it again at the correct time."
 }
 ```
 

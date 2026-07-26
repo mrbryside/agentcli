@@ -30,6 +30,12 @@ round. `Trigger: EndTurn` makes the tool a required turn trigger tool.
 `Trigger: EndResponseScope` makes it a required response-scope trigger tool.
 Neither trigger ends the turn by itself. `EndTurnOnSuccess: true` is separate
 from `Trigger` and ends the turn when every result in that tool batch succeeds.
+During registration, the registry appends runtime-owned guidance to the cloned
+tool description for each configured trigger and for `EndTurnOnSuccess`. The
+provider therefore sees when to call the tool, whether the handler runs
+immediately or only at the final scope boundary, the exact early-skip result,
+and whether a successful batch ends the turn. The caller's original
+`ToolDefinition` is not mutated.
 Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required

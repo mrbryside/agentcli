@@ -659,7 +659,10 @@ func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 	}
 	if result.Status != "skipped" || result.Executed ||
 		result.Reason != "response_scope_not_ready_to_end" ||
-		!strings.Contains(result.Instruction, "do not retry") {
+		!strings.Contains(result.Instruction, "handler did not run") ||
+		!strings.Contains(result.Instruction, "arguments were not retained") ||
+		!strings.Contains(result.Instruction, "do not retry") ||
+		!strings.Contains(result.Instruction, "runtime will request it again") {
 		t.Fatalf("skipped result = %+v", result)
 	}
 }

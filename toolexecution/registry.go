@@ -28,8 +28,9 @@ type GuardModelConfig struct {
 // an independent, optional Yes/No user gate that is unaffected by permission
 // policy or mode. Trigger selects required execution timing and handler
 // delivery. EndTurnOnSuccess independently controls whether a successfully
-// executed batch containing the tool ends the current turn. Skipped
-// EndResponseScope calls always continue.
+// completed batch containing the tool ends the current turn, including an
+// early successful EndResponseScope skip. Registry registration appends
+// execution-mode guidance to the cloned tool definition shown to providers.
 type Tool struct {
 	Definition       agentruntime.ToolDefinition
 	Handler          Handler
@@ -139,6 +140,11 @@ func (r *Registry) Register(tool Tool) error {
 	}
 
 	definition := cloneDefinition(tool.Definition)
+	definition.Description = descriptionWithExecutionMode(
+		definition.Description,
+		tool.Trigger,
+		tool.EndTurnOnSuccess,
+	)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.tools[definition.Name]; exists {
@@ -347,6 +353,39 @@ func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDe
 	clone := definition
 	clone.InputSchema = definition.InputSchema.Clone()
 	return clone
+}
+
+func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTurnOnSuccess bool) string {
+	parts := make([]string, 0, 3)
+	if base := strings.TrimSpace(description); base != "" {
+		parts = append(parts, base)
+	}
+	switch trigger {
+	case EndTurn:
+		parts = append(parts,
+			"Runtime trigger (end_turn): Call this tool when the current turn is ready to finish. "+
+				"It is required before the turn can complete, and its handler runs immediately when called.",
+		)
+	case EndResponseScope:
+		parts = append(parts,
+			"Runtime trigger (end_response_scope): Call this tool only when the entire response scope is ready to finish, "+
+				"after all work and accepted callbacks or follow-ups are complete. If called earlier, the handler does not run "+
+				"and the successful tool result reports status=skipped, executed=false, "+
+				"reason=response_scope_not_ready_to_end, and trigger_satisfied=false; do not retry it then because the runtime "+
+				"will request it again at the final boundary.",
+		)
+	}
+	if endTurnOnSuccess {
+		parts = append(parts,
+			"Runtime turn behavior (end_on_success): When this tool's result succeeds and every result in the same tool batch "+
+				"succeeds, the current turn ends.",
+		)
+	} else if trigger != "" {
+		parts = append(parts,
+			"Runtime turn behavior: This trigger does not end the current turn automatically after a successful call.",
+		)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func mustRawToolSchema(raw string) agentruntime.ToolSchema {

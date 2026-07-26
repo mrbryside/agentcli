@@ -145,6 +145,13 @@ tool remains optional and immediate; with `EndTurn` it is required and
 immediate; with `EndResponseScope` it is required only at the final
 response-scope boundary. It can share a
 batch with normal tools and cannot bypass missing required triggers.
+When a tool is registered, agentcli automatically appends runtime timing
+guidance to the cloned `ToolDefinition.Description` for `EndTurn`,
+`EndResponseScope`, and `EndTurnOnSuccess`. This supplements the
+application-written description with when the model should call the tool,
+whether its handler runs immediately, the exact early-skip semantics, and
+whether a successful batch ends the turn. Registration does not mutate the
+caller's original definition.
 Missing trigger tools use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own
@@ -153,11 +160,13 @@ bounded allowlist entries.
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
 `EndTurnOnSuccess: true`. Calls made before the runtime requests the final
-trigger return successful `status=skipped`, `executed=false`, continue the
-turn, ignore `EndTurnOnSuccess`, and do not invoke admission, the tool-call
-guard, or the handler. They also do not satisfy the trigger or retain a
-candidate for later execution. The result tells the model not to retry. Once
-the scope has no pending callbacks and its last active turn attempts
+trigger return successful `status=skipped`, `executed=false`,
+`reason=response_scope_not_ready_to_end`, and `trigger_satisfied=false`, and do
+not invoke admission, the tool-call guard, or the handler. They also do not
+retain a candidate for later execution. The result tells the model not to
+retry. Without `EndTurnOnSuccess` the provider continues; with it, the
+successful skipped result ends the current turn without executing the handler.
+Once the scope has no pending callbacks and its last active turn attempts
 completion, runtime repair exposes the required tool again and only that
 completion-boundary call can execute the handler. If
 `CanonicalAssistantMessageParameter` names a required string schema property,
