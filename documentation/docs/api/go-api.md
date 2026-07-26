@@ -151,7 +151,11 @@ For a response-delivery tool whose successful staging should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
 `EndTurnOnSuccess: true`. Calls made while the response scope is active return a clear
 `status=deferred` tool result; the handler runs exactly once after all turns
-and accepted subagent callbacks in that user-message scope settle.
+and accepted subagent callbacks in that user-message scope settle. The
+coordinator keeps one in-memory candidate per tool name rather than a FIFO
+queue, so a later allowed invocation replaces the earlier candidate.
+`status=deferred` acknowledges staging, not completion of the handler's side
+effect; callers must honor `retry_in_current_turn=false`.
 
 Use `agent.SubscribeScopeEvents(ctx)` for live-only scope boundaries.
 `agentcli.PreEndScope` is emitted after the callback/turn barrier reaches zero

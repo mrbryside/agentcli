@@ -207,6 +207,90 @@ boundary may be missed. `PreEndScope` always precedes automatic subagent
 cleanup and staged `EndResponseScope` handlers. `EndScope` is emitted only
 after those operations and scope removal.
 
+### How deferred candidates are staged
+
+`EndResponseScope` does not use a FIFO job queue. The in-memory response-scope
+coordinator keeps one candidate slot per tool name within the originating user
+response:
+
+1. The first allowed invocation stores the handler and a copy of its arguments.
+   Its result contains `candidate=scheduled`.
+2. A later allowed invocation of the same tool replaces that slot, including
+   its arguments. Its result contains `candidate=replaced`.
+3. Calls to different `EndResponseScope` tools use separate slots. At scope
+   end, the runtime invokes those tools in the order their slots were first
+   created, using the latest candidate stored in each slot.
+4. The scope becomes ready to end only when it has no active turns and no
+   accepted callback obligations. A callback or follow-up accepted within the
+   same response keeps the scope open and may replace a candidate.
+5. The runtime reconciles children, invokes every staged handler once, removes
+   the scope, and then emits `EndScope`.
+
+Candidate state is live, in-memory coordination state, not durable conversation
+or job-queue state. It exists only for the lifetime of that response scope.
+
+A successful staging result has this shape:
+
+```json
+{
+  "status": "deferred",
+  "reason": "response_scope_active",
+  "delivery": "end_response_scope",
+  "candidate": "scheduled",
+  "active_turns": 1,
+  "pending_callbacks": 1,
+  "retry_in_current_turn": false
+}
+```
+
+`active_turns` and `pending_callbacks` are snapshots taken when the invocation
+is staged. They explain why the scope is still open; callers must not poll or
+retry based on those values.
+
+`status=deferred` acknowledges that the candidate was staged successfully. It
+does **not** acknowledge that the handler's external side effect has completed.
+Do not retry a deferred result in the current turn. A later call is appropriate
+only when it intentionally supplies a newer final candidate.
+
+For example, consider a Discord delivery tool configured with both
+`EndResponseScope` and `EndTurnOnSuccess`:
+
+```go
+agentcli.Tool{
+    Definition: agentcli.ToolDefinition{
+        Name:        "report_discord",
+        Description: "Stage the final Discord response for delivery at scope end.",
+        InputSchema: reportSchema,
+    },
+    Handler:          sendDiscordMessage,
+    Trigger:          agentcli.EndResponseScope,
+    EndTurnOnSuccess: true,
+}
+```
+
+Suppose the root turn has already dispatched a child, so one callback remains
+pending. The root stages an early summary:
+
+```text
+report_discord({"message":"Still investigating."})
+→ {"status":"deferred","candidate":"scheduled","retry_in_current_turn":false}
+```
+
+The successful staging ends that root turn, but the pending callback keeps the
+response scope open. When the callback arrives, it can stage the final answer:
+
+```text
+report_discord({"message":"Investigation complete: the service is healthy."})
+→ {"status":"deferred","candidate":"replaced","retry_in_current_turn":false}
+```
+
+After that callback turn finishes with no further accepted follow-up, the scope
+is quiescent. The runtime calls `sendDiscordMessage` once with
+`"Investigation complete: the service is healthy."`; it never invokes the
+handler with `"Still investigating."`. In this configuration,
+`EndTurnOnSuccess` reacts to successful staging, not to eventual Discord
+delivery.
+
 ## Permissions and confirmations
 
 A static capability declaration uses the root facade:
