@@ -26,8 +26,7 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 			calls++
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		TurnBehavior:      EndTurn,
-		RequiredAtTurnEnd: true,
+		Lifecycle: EndTurn,
 	}
 	distractor := Tool{
 		Definition: ToolDefinition{
@@ -67,7 +66,7 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	}
 }
 
-func TestAfterResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
+func TestEndResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
 	model := &requiredFinalizerModel{}
 	delivered := make(chan struct{}, 1)
 	tool := Tool{
@@ -80,7 +79,7 @@ func TestAfterResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T)
 			delivered <- struct{}{}
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		Lifecycle: AfterResponseScope,
+		Lifecycle: EndResponseScope,
 	}
 	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
 	if err != nil {
@@ -129,8 +128,7 @@ func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
 			calls++
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		TurnBehavior:      EndTurn,
-		RequiredAtTurnEnd: true,
+		Lifecycle: EndTurn,
 	}
 	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
 	if err != nil {
@@ -160,7 +158,7 @@ func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		TurnBehavior: EndTurn, RequiredAtTurnEnd: true,
+		Lifecycle: EndTurn,
 	}
 	work := Tool{
 		Definition: ToolDefinition{Name: "work", Description: "Continue work.", InputSchema: ObjectSchema(struct{}{})},

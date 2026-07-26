@@ -20,9 +20,14 @@ type Tool = toolexecution.Tool
 // ToolLifecycle controls when a tool handler performs its side effect.
 type ToolLifecycle = toolexecution.ToolLifecycle
 
-// AfterResponseScope stages the latest tool invocation and runs its handler
-// exactly once after the originating user response has fully settled.
-const AfterResponseScope = toolexecution.AfterResponseScope
+const (
+	// EndTurn requires the tool at turn completion and ends the turn after its
+	// handler succeeds.
+	EndTurn = toolexecution.EndTurn
+	// EndResponseScope stages the latest invocation and runs its handler
+	// exactly once after the originating user response has fully settled.
+	EndResponseScope = toolexecution.EndResponseScope
+)
 
 // GuardModelConfig selects a configured project provider and model for a
 // prompt-backed tool guard.
@@ -68,12 +73,6 @@ const (
 func ToolStaticPermission(config ToolPermissionConfig) toolexecution.PermissionDescriptor {
 	return toolexecution.StaticPermission(config)
 }
-
-// ContinueTurn stores a successful result and asks the provider to continue.
-const ContinueTurn = toolexecution.ContinueTurn
-
-// EndTurn stores a successful result and completes the current turn.
-const EndTurn = toolexecution.EndTurn
 
 const (
 	ToolCallAllow  = agentruntime.ToolCallAllow

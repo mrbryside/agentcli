@@ -260,7 +260,7 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 }
 
-func TestAfterResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *testing.T) {
+func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *testing.T) {
 	parentModel := &responseScopeIntegrationParentModel{}
 	childModel := newIntegrationCompletedChildModel("verified finding", "Research completed.")
 	delivered := make(chan string, 2)
@@ -282,7 +282,7 @@ func TestAfterResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *te
 			delivered <- input.Message
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Lifecycle: AfterResponseScope,
+		Lifecycle: EndResponseScope,
 	}
 	definition := SubagentDefinition{
 		Name: "researcher", Description: "research work", Provider: "test",

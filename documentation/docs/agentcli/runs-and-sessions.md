@@ -154,7 +154,7 @@ user-role message when assistant output already ends the transcript, avoiding
 provider rejection of multiple trailing assistant messages.
 Root callback turns do not use a completion repair. A successful
 `close_subagent`, or its first controlled lifecycle conflict, returns
-`ContinueTurn`, so cleanup naturally starts another provider round for the
+a continuing result, so cleanup naturally starts another provider round for the
 user-visible result. Repeating the same lifecycle conflict in that parent turn
 ends the turn instead of allowing an unbounded close loop.
 

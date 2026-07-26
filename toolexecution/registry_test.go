@@ -3,6 +3,7 @@ package toolexecution
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -89,11 +90,7 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}{
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
-		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
 		{name: "unsupported lifecycle", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: "later"}},
-		{name: "after scope sets end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: AfterResponseScope, TurnBehavior: EndTurn}},
-		{name: "after scope sets required", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: AfterResponseScope, RequiredAtTurnEnd: true}},
-		{name: "required finalizer must end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredAtTurnEnd: true}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		}, ToolCallGuardPrompt: "check call"}},
@@ -126,20 +123,44 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}
 }
 
-func TestRegistryAfterResponseScopeAppliesLifecyclePreset(t *testing.T) {
-	registry := NewRegistry()
-	if err := registry.Register(Tool{
-		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
-		Handler:    testHandler,
-		Lifecycle:  AfterResponseScope,
-	}); err != nil {
-		t.Fatal(err)
+func TestRegistryLifecycleModesApplyCompletionPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		lifecycle ToolLifecycle
+		behavior  agentruntime.ToolTurnBehavior
+	}{
+		{name: "default continues", behavior: agentruntime.ToolTurnContinue},
+		{name: "end turn", lifecycle: EndTurn, behavior: agentruntime.ToolTurnEnd},
+		{name: "end response scope", lifecycle: EndResponseScope, behavior: agentruntime.ToolTurnEnd},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			registry := NewRegistry()
+			if err := registry.Register(Tool{
+				Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+				Handler:    testHandler,
+				Lifecycle:  test.lifecycle,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if lifecycle, ok := registry.lifecycleFor("report"); !ok || lifecycle != test.lifecycle {
+				t.Fatalf("lifecycle = (%q, %t)", lifecycle, ok)
+			}
+			if behavior, ok := registry.turnBehaviorFor("report", nil, nil); !ok || behavior != test.behavior {
+				t.Fatalf("turn behavior = (%q, %t), want %q", behavior, ok, test.behavior)
+			}
+		})
 	}
-	if lifecycle, ok := registry.lifecycleFor("report"); !ok || lifecycle != AfterResponseScope {
-		t.Fatalf("lifecycle = (%q, %t)", lifecycle, ok)
+}
+
+func TestToolExposesOnlyLifecycleForCompletionPolicy(t *testing.T) {
+	toolType := reflect.TypeOf(Tool{})
+	if _, found := toolType.FieldByName("Lifecycle"); !found {
+		t.Fatal("Tool has no Lifecycle field")
 	}
-	if behavior, ok := registry.turnBehaviorFor("report", nil, nil); !ok || behavior != EndTurn {
-		t.Fatalf("turn behavior = (%q, %t), want EndTurn", behavior, ok)
+	for _, removed := range []string{"TurnBehavior", "RequiredAtTurnEnd"} {
+		if _, found := toolType.FieldByName(removed); found {
+			t.Fatalf("Tool still exposes legacy completion field %q", removed)
+		}
 	}
 }
 

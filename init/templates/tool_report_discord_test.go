@@ -18,8 +18,8 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Definition.Name != "report_discord" || tool.Handler == nil {
 		t.Fatalf("tool = %#v", tool)
 	}
-	if tool.Lifecycle != agentcli.AfterResponseScope {
-		t.Fatalf("tool lifecycle = %q, want AfterResponseScope", tool.Lifecycle)
+	if tool.Lifecycle != agentcli.EndResponseScope {
+		t.Fatalf("tool lifecycle = %q, want EndResponseScope", tool.Lifecycle)
 	}
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)

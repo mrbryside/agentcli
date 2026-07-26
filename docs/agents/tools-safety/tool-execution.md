@@ -1,19 +1,16 @@
 # Tool execution
 
 `toolexecution.Tool` combines a provider-neutral definition, raw JSON handler,
-optional lifecycle, static turn behavior, optional finalizer marker, optional permission or
-policy-aware permission descriptor, and optional confirmation descriptor.
-`Registry.Register` requires a unique name, handler, supported behavior, and
-object-shaped schema. `RequiredAtTurnEnd` additionally requires `EndTurn`.
-`Lifecycle: AfterResponseScope` is the single-setting response finalizer:
-it implies both required-at-turn-end and end-turn behavior.
+one optional lifecycle mode, optional permission or policy-aware permission
+descriptor, and optional confirmation descriptor. `Registry.Register` requires
+a unique name, handler, supported lifecycle, and object-shaped schema.
 Application tools may also configure either `ToolCallGuard` or
 `ToolCallGuardPrompt`. Prompt tools optionally select one provider/model with
 `*GuardModelConfig`; see [guardrails.md](guardrails.md) for evaluation and
 retry behavior.
 
 The root facade exposes `agentcli.Tool`, `ToolDefinition`, `InputSchema`,
-permission/confirmation aliases, and turn behavior. `ObjectSchema` builds a
+permission/confirmation aliases, and lifecycle modes. `ObjectSchema` builds a
 closed schema from a struct of `ToolParameter` descriptors; helpers cover all
 JSON scalar types, objects, arrays, descriptions, required fields, and common
 constraints. `RawInputSchema` is the validated escape hatch.
@@ -28,9 +25,10 @@ After admission, a tool-call guard can reject the name/arguments before the
 handler executes. Rejection becomes a failed correlated result with feedback
 for the next model round.
 
-`ContinueTurn` is the default. `EndTurn` skips another provider step only when
-the complete result batch succeeded and every result uses `EndTurn`.
-Application tools set `Tool.TurnBehavior` directly. Framework
+The zero lifecycle is the normal immediate handler followed by another provider
+round. `Lifecycle: EndTurn` makes the tool a required turn finalizer.
+`Lifecycle: EndResponseScope` makes it a required response-scope finalizer.
+Application tools configure completion policy only through `Tool.Lifecycle`. Framework
 `start_subagent`, `send_subagent_message`, and `force_close_subagent` always
 continue. The start contract permits exactly one call per provider round.
 Accepted start/send results require a later
@@ -40,9 +38,8 @@ success and the first controlled lifecycle conflict continue,
 while repeating the same child conflict in one parent turn ends the turn to
 stop a retry loop.
 
-Required finalizers set both `RequiredAtTurnEnd=true` and
-`TurnBehavior=EndTurn`. Only the successful all-end batch immediately before
-completion satisfies them; early or mixed calls do not. If the model attempts
+`EndTurn` executes its handler immediately. Only the successful all-end batch
+immediately before completion satisfies it; early or mixed calls do not. If the model attempts
 to finish while a finalizer is missing, repair rounds expose only the missing
 finalizer tools and add a reminder naming each one. If a caller-supplied
 completion guard also requests a bounded tool allowlist, its tools are merged
@@ -50,9 +47,9 @@ with the missing finalizers.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 
-For user-visible delivery, prefer `Lifecycle: AfterResponseScope`. A model call
+For user-visible delivery, prefer `Lifecycle: EndResponseScope`. A model call
 stages the latest arguments and receives a successful JSON result with
-`status=deferred`, `delivery=after_response_scope`, active-turn and
+`status=deferred`, `delivery=end_response_scope`, active-turn and
 pending-callback counts, and `retry_in_current_turn=false`; the handler is not
 called during that turn. One user message opens one response scope. Accepted
 subagent work keeps it open, callback continuations remain in the same scope,

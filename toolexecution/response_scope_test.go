@@ -26,7 +26,7 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		mu.Unlock()
 		return json.RawMessage(`{"sent":true}`), nil
 	}
-	rootOutput, err := coordinator.StageAfterResponseScope(context.Background(), scopeToolRequest("root-turn", `{"message":"early"}`), handler)
+	rootOutput, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("root-turn", `{"message":"early"}`), handler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		t.Fatal(err)
 	}
 	reservation.Commit()
-	callbackOutput, err := coordinator.StageAfterResponseScope(context.Background(), scopeToolRequest("callback-turn", `{"message":"final"}`), handler)
+	callbackOutput, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-turn", `{"message":"final"}`), handler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		calls++
 		return json.RawMessage(`{}`), nil
 	}
-	if _, err := coordinator.StageAfterResponseScope(context.Background(), scopeToolRequest("callback-1", `{"message":"waiting"}`), handler); err != nil {
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-1", `{"message":"waiting"}`), handler); err != nil {
 		t.Fatal(err)
 	}
 	coordinator.FinishTurn("session", "callback-1")
@@ -110,7 +110,7 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		t.Fatal(err)
 	}
 	replay.Commit()
-	if _, err := coordinator.StageAfterResponseScope(context.Background(), scopeToolRequest("callback-replay", `{"message":"replay"}`), handler); err != nil {
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-replay", `{"message":"replay"}`), handler); err != nil {
 		t.Fatal(err)
 	}
 	coordinator.FinishTurn("session", "callback-replay")
@@ -123,7 +123,7 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		t.Fatal(err)
 	}
 	second.Commit()
-	if _, err := coordinator.StageAfterResponseScope(context.Background(), scopeToolRequest("callback-2", `{"message":"done after failed or incomplete callback"}`), handler); err != nil {
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-2", `{"message":"done after failed or incomplete callback"}`), handler); err != nil {
 		t.Fatal(err)
 	}
 	coordinator.FinishTurn("session", "callback-2")
@@ -153,7 +153,7 @@ func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *test
 	retry.Commit()
 }
 
-func TestExecutorAfterResponseScopeReturnsDeferredWithoutCallingHandler(t *testing.T) {
+func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestExecutorAfterResponseScopeReturnsDeferredWithoutCallingHandler(t *testi
 			calls++
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Lifecycle: AfterResponseScope,
+		Lifecycle: EndResponseScope,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestExecutorAfterResponseScopeReturnsDeferredWithoutCallingHandler(t *testi
 		t.Fatal(err)
 	}
 	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"hello"}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != EndTurn {
+	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnEnd {
 		t.Fatalf("result = %+v, want successful end-turn deferral", result)
 	}
 	assertDeferredScopeResult(t, result.Result.Output, 0, 1, "scheduled")
@@ -215,7 +215,7 @@ func assertDeferredScopeResult(t *testing.T, raw json.RawMessage, pending, activ
 		t.Fatalf("decode result %s: %v", raw, err)
 	}
 	if result.Status != "deferred" || result.Reason != "response_scope_active" ||
-		result.Delivery != "after_response_scope" || result.Candidate != candidate ||
+		result.Delivery != "end_response_scope" || result.Candidate != candidate ||
 		result.ActiveTurns != active || result.PendingCallbacks != pending || result.RetryInCurrentTurn {
 		t.Fatalf("deferred result = %+v", result)
 	}

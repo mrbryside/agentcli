@@ -101,19 +101,16 @@ invocation, ok := agentcli.ToolInvocationFromContext(ctx)
 admission policy is available through `ToolPermissionPolicyFromContext`.
 Metadata and policy are not user input or substitutes for authorization.
 
-## Continue or end the turn
+## Tool lifecycle
 
-`ContinueTurn` is the zero-value default. After success, the provider sees the
-stored result and continues:
+The zero lifecycle is the default: the handler executes immediately and the
+provider continues. Do not set a field for this mode.
 
-```go
-TurnBehavior: agentcli.ContinueTurn,
-```
-
-`EndTurn` permits completion without another provider request:
+`EndTurn` makes the tool a required finalizer, runs the handler immediately,
+and permits completion without another provider request:
 
 ```go
-TurnBehavior: agentcli.EndTurn,
+Lifecycle: agentcli.EndTurn,
 ```
 
 The runtime waits for every call in a parallel batch. It ends the turn only
@@ -129,19 +126,15 @@ including subagent callbacks and follow-ups, set one lifecycle:
 agentcli.Tool{
     Definition: definition,
     Handler:    handler,
-    Lifecycle:  agentcli.AfterResponseScope,
+    Lifecycle:  agentcli.EndResponseScope,
 }
 ```
 
 The model receives a successful `status=deferred` tool result while the scope
 is active; the handler is not called yet. The runtime retains the latest
 candidate and invokes it exactly once when every turn and accepted subagent
-callback in the response scope has settled. The lifecycle automatically
-implies required-at-turn-end and `EndTurn`.
-
-The lower-level `RequiredAtTurnEnd` plus `EndTurn` pair remains available for
-ordinary per-turn finalizers. The registry rejects a required finalizer without static `EndTurn`. Only a
-successful terminal all-`EndTurn` batch satisfies completion; an earlier call
+callback in the response scope has settled. Only a successful terminal
+all-end batch satisfies completion; an earlier call
 or a mixed continuing batch does not. If the model attempts to finish while a
 finalizer is missing, the completion guard starts another provider round with a
 reminder naming every missing finalizer and exposes only those tools. A

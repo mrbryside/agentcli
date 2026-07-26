@@ -23,33 +23,21 @@ type GuardModelConfig struct {
 	Model    string
 }
 
-// TurnBehavior controls whether the runtime asks the model to continue after
-// a successful tool result. ContinueTurn is the backwards-compatible default.
-type TurnBehavior = agentruntime.ToolTurnBehavior
-
-const (
-	ContinueTurn TurnBehavior = agentruntime.ToolTurnContinue
-	EndTurn      TurnBehavior = agentruntime.ToolTurnEnd
-)
-
 // Tool combines a provider-neutral definition with its implementation.
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
-// policy or mode. RequiredAtTurnEnd asks agentcli's completion guard to require
-// one successful invocation in every turn where the tool is exposed.
+// policy or mode. Lifecycle is the only completion-policy setting.
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
 	Lifecycle            ToolLifecycle
-	TurnBehavior         TurnBehavior
-	RequiredAtTurnEnd    bool
 	ToolCallGuard        agentruntime.ToolCallGuard
 	ToolCallGuardPrompt  string
 	ToolCallGuardModel   *GuardModelConfig
 	Permission           PermissionDescriptor
 	PermissionWithPolicy PermissionPolicyDescriptor
 	Confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage, json.RawMessage) TurnBehavior
+	resultTurnBehavior   func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -78,7 +66,7 @@ type registeredTool struct {
 	definition            agentruntime.ToolDefinition
 	handler               Handler
 	lifecycle             ToolLifecycle
-	turnBehavior          TurnBehavior
+	turnBehavior          agentruntime.ToolTurnBehavior
 	toolCallGuard         agentruntime.ToolCallGuard
 	toolCallGuardPrompt   string
 	toolCallGuardProvider string
@@ -86,7 +74,7 @@ type registeredTool struct {
 	permission            PermissionDescriptor
 	permissionWithPolicy  PermissionPolicyDescriptor
 	confirmation          ConfirmationDescriptor
-	resultTurnBehavior    func(json.RawMessage, json.RawMessage) TurnBehavior
+	resultTurnBehavior    func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -103,22 +91,8 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.Handler == nil {
 		return fmt.Errorf("tool %q handler is required", tool.Definition.Name)
 	}
-	if tool.TurnBehavior != ContinueTurn && tool.TurnBehavior != EndTurn {
-		return fmt.Errorf("tool %q has unsupported turn behavior %q", tool.Definition.Name, tool.TurnBehavior)
-	}
-	if tool.Lifecycle != "" && tool.Lifecycle != AfterResponseScope {
+	if tool.Lifecycle != "" && tool.Lifecycle != EndTurn && tool.Lifecycle != EndResponseScope {
 		return fmt.Errorf("tool %q has unsupported lifecycle %q", tool.Definition.Name, tool.Lifecycle)
-	}
-	if tool.Lifecycle == AfterResponseScope {
-		if tool.TurnBehavior != ContinueTurn {
-			return fmt.Errorf("tool %q after-response-scope lifecycle sets turn behavior automatically", tool.Definition.Name)
-		}
-		if tool.RequiredAtTurnEnd {
-			return fmt.Errorf("tool %q after-response-scope lifecycle is required at turn end automatically", tool.Definition.Name)
-		}
-	}
-	if tool.RequiredAtTurnEnd && tool.TurnBehavior != EndTurn {
-		return fmt.Errorf("tool %q required at turn end must use end turn behavior", tool.Definition.Name)
 	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
@@ -152,9 +126,9 @@ func (r *Registry) Register(tool Tool) error {
 	if _, exists := r.tools[definition.Name]; exists {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
-	turnBehavior := tool.TurnBehavior
-	if tool.Lifecycle == AfterResponseScope {
-		turnBehavior = EndTurn
+	turnBehavior := agentruntime.ToolTurnContinue
+	if tool.Lifecycle == EndTurn || tool.Lifecycle == EndResponseScope {
+		turnBehavior = agentruntime.ToolTurnEnd
 	}
 	r.tools[definition.Name] = registeredTool{
 		definition: definition, handler: tool.Handler, lifecycle: tool.Lifecycle, turnBehavior: turnBehavior,
@@ -174,11 +148,11 @@ func (r *Registry) lifecycleFor(name string) (ToolLifecycle, bool) {
 	return tool.lifecycle, ok
 }
 
-func (r *Registry) hasAfterResponseScopeTools() bool {
+func (r *Registry) hasEndResponseScopeTools() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, tool := range r.tools {
-		if tool.lifecycle == AfterResponseScope {
+		if tool.lifecycle == EndResponseScope {
 			return true
 		}
 	}
@@ -252,12 +226,12 @@ func (r *Registry) promptCallGuards() []promptCallGuardConfig {
 	return guards
 }
 
-func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessage) (TurnBehavior, bool) {
+func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessage) (agentruntime.ToolTurnBehavior, bool) {
 	r.mu.RLock()
 	tool, ok := r.tools[name]
 	r.mu.RUnlock()
 	if !ok {
-		return ContinueTurn, false
+		return agentruntime.ToolTurnContinue, false
 	}
 	if tool.resultTurnBehavior != nil {
 		return tool.resultTurnBehavior(cloneRawJSON(arguments), cloneRawJSON(output)), true

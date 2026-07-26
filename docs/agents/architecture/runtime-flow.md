@@ -13,7 +13,7 @@ provider events, persists assistant/tool-call messages, sends correlated tool
 requests, waits for tool-result envelopes, and persists results. Successful
 results normally start another provider round. The run completes without
 another provider step only when the entire ordered batch succeeded and every
-result uses `EndTurn`; any `ContinueTurn`, failed, interrupted, denied, or
+result has end-turn behavior; any continuing, failed, interrupted, denied, or
 declined result continues so the model can dispatch more work or report the
 error. Shared tool channels must be buffered and are caller-owned; the runtime
 never closes them.

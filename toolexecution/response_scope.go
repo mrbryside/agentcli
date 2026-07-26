@@ -10,15 +10,18 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
-// ToolLifecycle controls when a registered handler performs its side effect.
-// The zero value executes the handler during the requesting tool turn.
+// ToolLifecycle is the single completion-policy setting for a custom tool.
+// The zero value executes immediately and continues the current turn.
 type ToolLifecycle string
 
 const (
-	// AfterResponseScope stages the latest invocation and executes its handler
-	// once the originating user response has no active turns or accepted
-	// subagent callbacks left.
-	AfterResponseScope ToolLifecycle = "after_response_scope"
+	// EndTurn requires the tool before a turn completes, executes its handler
+	// immediately, and ends the turn after a successful result.
+	EndTurn ToolLifecycle = "end_turn"
+	// EndResponseScope requires the tool before a turn completes, stages its
+	// latest invocation, and executes the handler once the originating user
+	// response has no active turns or accepted subagent callbacks left.
+	EndResponseScope ToolLifecycle = "end_response_scope"
 )
 
 type responseScopeKey struct {
@@ -311,9 +314,9 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 	}
 }
 
-// StageAfterResponseScope replaces the candidate for this tool and returns a
+// StageEndResponseScope replaces the candidate for this tool and returns a
 // clear successful result for the model. The handler is never called here.
-func (c *ResponseScopeCoordinator) StageAfterResponseScope(ctx context.Context, request agentruntime.ToolRequest, handler Handler) (json.RawMessage, error) {
+func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, request agentruntime.ToolRequest, handler Handler) (json.RawMessage, error) {
 	if c == nil {
 		return nil, errors.New("response scope coordinator is not configured")
 	}
@@ -332,14 +335,14 @@ func (c *ResponseScopeCoordinator) StageAfterResponseScope(ctx context.Context, 
 	if scope.state == responseScopeFinalized {
 		return json.Marshal(map[string]any{
 			"status":                "already_finalized",
-			"delivery":              "after_response_scope",
+			"delivery":              "end_response_scope",
 			"retry_in_current_turn": false,
 		})
 	}
 	if scope.state == responseScopeFinalizing {
 		return json.Marshal(map[string]any{
 			"status":                "finalizing",
-			"delivery":              "after_response_scope",
+			"delivery":              "end_response_scope",
 			"retry_in_current_turn": false,
 		})
 	}
@@ -356,7 +359,7 @@ func (c *ResponseScopeCoordinator) StageAfterResponseScope(ctx context.Context, 
 	return json.Marshal(map[string]any{
 		"status":                "deferred",
 		"reason":                "response_scope_active",
-		"delivery":              "after_response_scope",
+		"delivery":              "end_response_scope",
 		"candidate":             map[bool]string{false: "scheduled", true: "replaced"}[replacing],
 		"active_turns":          scope.activeTurns,
 		"pending_callbacks":     scope.pendingCallbacks,

@@ -29,7 +29,7 @@ feedback to the next model request and consumes another provider step.
 `agentruntime.ToolCallGuard` runs in the executor after permission and
 confirmation admission but before the application handler. `ToolCallReject`
 prevents handler execution and emits `ToolResultFailed` with feedback and
-`ContinueTurn`.
+a continuing result.
 
 The former post-handler `ToolOutputGuard*` API is intentionally absent.
 Handler-produced data must be validated by the handler before it returns.
@@ -67,7 +67,7 @@ The executor does not retry a handler directly. A rejected tool call becomes a
 correlated failed tool result without invoking the handler. AgentRuntime stores
 that result, starts the next provider round, and lets the model choose corrected
 arguments and a new call ID. A later success restores the tool's configured
-`ContinueTurn` or `EndTurn`. Rejected required finalizers remain unsatisfied.
+lifecycle. Rejected `EndTurn` and `EndResponseScope` finalizers remain unsatisfied.
 
 Guard callback panics/errors, invalid decisions, and malformed prompt verdicts
 also become failed tool results without invoking the handler. Invalid JSON from

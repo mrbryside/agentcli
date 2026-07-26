@@ -173,7 +173,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	for _, tool := range registeredTools {
-		if tool.RequiredAtTurnEnd || tool.Lifecycle == toolexecution.AfterResponseScope {
+		if tool.Lifecycle == toolexecution.EndTurn || tool.Lifecycle == toolexecution.EndResponseScope {
 			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
 		}
 	}

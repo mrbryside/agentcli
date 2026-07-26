@@ -103,8 +103,8 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		}
 	}
 
-	if lifecycle, _ := e.registry.lifecycleFor(request.Call.Name); lifecycle == AfterResponseScope {
-		output, err := e.config.ResponseScopes.StageAfterResponseScope(ctx, request, handler)
+	if lifecycle, _ := e.registry.lifecycleFor(request.Call.Name); lifecycle == EndResponseScope {
+		output, err := e.config.ResponseScopes.StageEndResponseScope(ctx, request, handler)
 		if err != nil {
 			result.Result.Status = agentruntime.ToolResultFailed
 			result.Result.Error = err.Error()

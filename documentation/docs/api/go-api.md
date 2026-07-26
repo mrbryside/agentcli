@@ -109,7 +109,7 @@ permission checks.
 | API | Purpose |
 | --- | --- |
 | `WithTool(tool)` | Register one application-defined tool. |
-| `Tool` | Definition, handler, behavior, finalizer, call guard, and admission metadata. |
+| `Tool` | Definition, handler, lifecycle, call guard, and admission metadata. |
 | `ToolDefinition` | Model-facing name, description, and input schema. |
 | `ObjectSchema(parameters)` | Build a closed object schema. |
 | `TryObjectSchema(parameters)` | Build a schema without panic. |
@@ -117,32 +117,30 @@ permission checks.
 | `RawInputSchema(raw)` | Validate an advanced raw object schema. |
 | `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
-| `ContinueTurn`, `EndTurn` | Select successful result behavior. |
-| `AfterResponseScope` | Stage a tool and execute its handler once the originating user response settles. |
+| `EndTurn` | Require a tool at turn completion and run it immediately. |
+| `EndResponseScope` | Require a tool and execute its handler once the originating user response settles. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
-`Tool` fields are `Definition`, `Handler`, `Lifecycle`, `TurnBehavior`,
-`RequiredAtTurnEnd`, `ToolCallGuard`, `ToolCallGuardPrompt`,
+`Tool` fields are `Definition`, `Handler`, `Lifecycle`, `ToolCallGuard`, `ToolCallGuardPrompt`,
 `ToolCallGuardModel`, `Permission`, `PermissionWithPolicy`, and
 `Confirmation`. `ToolCallGuardModel` optionally holds one
 `GuardModelConfig` for prompt-guarded tools; without it the guard uses the
 Agent model. The schema helpers cover string, integer, number, boolean, null,
 object, and array parameters with individual descriptions and constraints.
 
-`ContinueTurn` is the zero-value default. `EndTurn` allows completion when the
-entire result batch succeeded and every result ends the turn. A required
-finalizer sets `RequiredAtTurnEnd: true` and `TurnBehavior: EndTurn`; the
-registry rejects any other combination. Missing finalizers use bounded repair
+The zero lifecycle executes immediately and continues normally.
+`Lifecycle: EndTurn` is a required per-turn finalizer.
+`Lifecycle: EndResponseScope` is a required response-scope finalizer.
+Missing finalizers use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those finalizers. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
 For a response-delivery tool, set only
-`Lifecycle: agentcli.AfterResponseScope`. It automatically becomes required and
-end-turn. Calls made while the response scope is active return a clear
+`Lifecycle: agentcli.EndResponseScope`. Calls made while the response scope is active return a clear
 `status=deferred` tool result; the handler runs exactly once after all turns
 and accepted subagent callbacks in that user-message scope settle.
 

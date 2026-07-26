@@ -145,7 +145,7 @@ func (bridge *SubagentToolBridge) Tools() []Tool {
 }
 
 func (bridge *SubagentToolBridge) tool(name, description, schema string, handler Handler) Tool {
-	tool := Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: mustRawToolSchema(schema)}, Handler: handler, TurnBehavior: ContinueTurn}
+	tool := Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: mustRawToolSchema(schema)}, Handler: handler}
 	if name == CloseSubagentToolName {
 		tool.resultTurnBehavior = closeSubagentTurnBehavior
 	}
@@ -474,14 +474,14 @@ func (bridge *SubagentToolBridge) clearCloseConflict(invocation Invocation, id s
 	bridge.mu.Unlock()
 }
 
-func closeSubagentTurnBehavior(_ json.RawMessage, output json.RawMessage) TurnBehavior {
+func closeSubagentTurnBehavior(_ json.RawMessage, output json.RawMessage) agentruntime.ToolTurnBehavior {
 	var result struct {
 		TurnBehavior string `json:"turn_behavior"`
 	}
 	if json.Unmarshal(output, &result) == nil && result.TurnBehavior == "end_turn" {
-		return EndTurn
+		return agentruntime.ToolTurnEnd
 	}
-	return ContinueTurn
+	return agentruntime.ToolTurnContinue
 }
 
 func closeLifecycleConflict(err error) (closeSubagentConflictResult, bool) {

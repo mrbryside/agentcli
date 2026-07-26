@@ -53,8 +53,7 @@ lookup := agentcli.Tool{
         Description: "Look up application-owned records.",
         InputSchema: agentcli.ObjectSchema(/* parameters */),
     },
-    Handler:         lookupHandler,
-    TurnBehavior:    agentcli.ContinueTurn,
+    Handler:       lookupHandler,
     ToolCallGuard: checkLookupCall,
 }
 ```
@@ -131,12 +130,11 @@ verdict, or invalid decision also becomes a failed tool result without invoking
 the handler. Invalid JSON returned by an allowed handler remains a normal
 failed tool result.
 
-Guard rejection overrides `EndTurn` with `ContinueTurn`. A later successful
-retry retains the configured behavior. This also works for
-`RequiredAtTurnEnd` tools: a rejected attempt does not satisfy the finalizer,
-while a successful terminal retry can.
+Guard rejection always continues so the model can correct the call. A later
+successful retry restores the configured lifecycle. A rejected `EndTurn` or
+`EndResponseScope` attempt does not satisfy the finalizer.
 
-For `AfterResponseScope` tools, guard and admission checks happen before the
+For `EndResponseScope` tools, guard and admission checks happen before the
 invocation is staged. A rejection therefore never replaces the staged
 candidate and the deferred handler is not called. An allowed invocation
 returns a clear deferred result; its handler runs only after the response scope

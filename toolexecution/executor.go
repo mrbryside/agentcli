@@ -61,7 +61,7 @@ type Config struct {
 	// ToolCallGuardTimeout bounds each tool-call guard evaluation.
 	// A zero value uses the safe default.
 	ToolCallGuardTimeout time.Duration
-	// ResponseScopes coordinates handlers using the AfterResponseScope
+	// ResponseScopes coordinates handlers using the EndResponseScope
 	// lifecycle. Agent construction supplies it automatically.
 	ResponseScopes *ResponseScopeCoordinator
 }
@@ -127,8 +127,8 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 	if config.ToolCallGuardTimeout < 0 {
 		return nil, errors.New("tool call guard timeout cannot be negative")
 	}
-	if registry.hasAfterResponseScopeTools() && config.ResponseScopes == nil {
-		return nil, errors.New("after-response-scope tools require a response scope coordinator")
+	if registry.hasEndResponseScopeTools() && config.ResponseScopes == nil {
+		return nil, errors.New("end-response-scope tools require a response scope coordinator")
 	}
 	if config.Store == nil {
 		config.Store = inmemory.NewPermissionStorage()

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
@@ -51,7 +52,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == ForceCloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+			if tool.Lifecycle != "" || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
 			}
 		}
@@ -59,12 +60,12 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("start_subagent does not describe sequential starts: %#v", tool)
 		}
 		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+			if tool.Lifecycle != "" || tool.resultTurnBehavior == nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("close_subagent must continue on its first lifecycle result without finish_turn: %#v", tool)
 			}
 		}
-		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && tool.Definition.Name != ForceCloseSubagentToolName && tool.TurnBehavior != ContinueTurn {
-			t.Fatalf("subagent management tool %q turn behavior = %q, want continue", tool.Definition.Name, tool.TurnBehavior)
+		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && tool.Definition.Name != ForceCloseSubagentToolName && tool.Lifecycle != "" {
+			t.Fatalf("subagent management tool %q lifecycle = %q, want default continue", tool.Definition.Name, tool.Lifecycle)
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child of the requested definition is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
@@ -105,19 +106,19 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 func TestSubagentToolTurnBehavior(t *testing.T) {
 	for _, tool := range NewSubagentToolBridge().Tools() {
 		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior == nil {
-				t.Fatalf("close behavior = (%q, %v), want dynamic bounded conflict handling", tool.TurnBehavior, tool.resultTurnBehavior != nil)
+			if tool.Lifecycle != "" || tool.resultTurnBehavior == nil {
+				t.Fatalf("close lifecycle = (%q, %v), want dynamic bounded conflict handling", tool.Lifecycle, tool.resultTurnBehavior != nil)
 			}
-			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"continue_turn"}`)); got != ContinueTurn {
+			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"continue_turn"}`)); got != agentruntime.ToolTurnContinue {
 				t.Fatalf("first close conflict behavior = %q, want continue", got)
 			}
-			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"end_turn"}`)); got != EndTurn {
+			if got := tool.resultTurnBehavior(nil, json.RawMessage(`{"turn_behavior":"end_turn"}`)); got != agentruntime.ToolTurnEnd {
 				t.Fatalf("repeated close conflict behavior = %q, want end_turn", got)
 			}
 			continue
 		}
-		if tool.TurnBehavior != ContinueTurn || tool.resultTurnBehavior != nil {
-			t.Fatalf("%s behavior = (%q, dynamic=%v), want static continue", tool.Definition.Name, tool.TurnBehavior, tool.resultTurnBehavior != nil)
+		if tool.Lifecycle != "" || tool.resultTurnBehavior != nil {
+			t.Fatalf("%s lifecycle = (%q, dynamic=%v), want default continue", tool.Definition.Name, tool.Lifecycle, tool.resultTurnBehavior != nil)
 		}
 	}
 }

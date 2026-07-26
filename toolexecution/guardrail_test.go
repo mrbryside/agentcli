@@ -31,7 +31,7 @@ func TestToolCallFunctionGuardRejectsBeforeHandlerWithRetryableFailedResult(t *t
 			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		TurnBehavior:  EndTurn,
+		Lifecycle:     EndTurn,
 		ToolCallGuard: guard,
 	}); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestToolCallFunctionGuardRejectsBeforeHandlerWithRetryableFailedResult(t *t
 	if result.Result.Status != agentruntime.ToolResultFailed || result.Result.Output != nil {
 		t.Fatalf("guarded result = %#v, want failed result without output", result)
 	}
-	if result.TurnBehavior != ContinueTurn || !strings.Contains(result.Result.Error, "call lookup again") {
+	if result.TurnBehavior != agentruntime.ToolTurnContinue || !strings.Contains(result.Result.Error, "call lookup again") {
 		t.Fatalf("guarded result = %#v, want retry feedback and continue behavior", result)
 	}
 	if observed.SessionID != "session" || observed.TurnID != "turn" || observed.CallID != "call" || observed.ToolName != "lookup" {
@@ -64,7 +64,7 @@ func TestToolCallFunctionGuardAllowExecutesHandlerAndPreservesTurnBehavior(t *te
 			handlerCalls++
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
-		TurnBehavior: EndTurn,
+		Lifecycle: EndTurn,
 		ToolCallGuard: func(_ context.Context, attempt agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			attempt.Arguments = append(attempt.Arguments, ' ')
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
@@ -77,7 +77,7 @@ func TestToolCallFunctionGuardAllowExecutesHandlerAndPreservesTurnBehavior(t *te
 		t.Fatal(err)
 	}
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "finalize", `{}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != EndTurn {
+	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnEnd {
 		t.Fatalf("guarded result = %#v", result)
 	}
 	if handlerCalls != 1 {
@@ -94,7 +94,7 @@ func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testin
 			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		TurnBehavior:        EndTurn,
+		Lifecycle:           EndTurn,
 		ToolCallGuardPrompt: "Require a narrow query.",
 	}); err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testin
 		t.Fatal(err)
 	}
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "lookup", `{"query":"go"}`))
-	if result.Result.Status != agentruntime.ToolResultFailed || result.Result.Output != nil || result.TurnBehavior != ContinueTurn {
+	if result.Result.Status != agentruntime.ToolResultFailed || result.Result.Output != nil || result.TurnBehavior != agentruntime.ToolTurnContinue {
 		t.Fatalf("prompt-guarded result = %#v", result)
 	}
 	if !strings.Contains(result.Result.Error, "narrower query") {
@@ -137,7 +137,7 @@ func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
-		TurnBehavior:        EndTurn,
+		Lifecycle:           EndTurn,
 		ToolCallGuardPrompt: "Allow an empty argument object.",
 	}); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "finalize", `{}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != EndTurn {
+	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnEnd {
 		t.Fatalf("prompt-guarded result = %#v", result)
 	}
 }
