@@ -608,8 +608,8 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 		t.Fatal(err)
 	}
 	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"hello"}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnContinue {
-		t.Fatalf("result = %+v, want successful skipped call that continues", result)
+	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
+		t.Fatalf("result = %+v, want successful skipped call that ends the current turn", result)
 	}
 	assertSkippedScopeResult(t, result.Result.Output)
 	if result.Result.TriggerSatisfied == nil || *result.Result.TriggerSatisfied {

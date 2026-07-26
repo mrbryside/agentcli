@@ -315,6 +315,9 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 		t.Fatal(err)
 	}
 	waitRun(t, root)
+	if got := parentModel.requestCount(); got != 2 {
+		t.Fatalf("parent provider requests before callback = %d, want dispatch then one yielding report", got)
+	}
 	select {
 	case message := <-delivered:
 		t.Fatalf("report handler ran before callback: %q", message)
@@ -871,12 +874,18 @@ func (m *responseScopeIntegrationParentModel) Start(_ context.Context, _ agentru
 		}}
 	case 1:
 		calls = []provider.ToolCall{{ID: "report-waiting", Name: "report", Arguments: map[string]any{"message": "waiting response"}}}
-	case 2, 3:
+	case 2:
 		return scriptedStream{result: provider.StreamResult{Content: "work completed for this turn", Finished: true}}, nil
 	default:
 		calls = []provider.ToolCall{{ID: "report-final", Name: "report", Arguments: map[string]any{"message": "final verified response"}}}
 	}
 	return scriptedStream{result: provider.StreamResult{CompletedTools: calls, Finished: true}}, nil
+}
+
+func (m *responseScopeIntegrationParentModel) requestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.requests
 }
 
 func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {

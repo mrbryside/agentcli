@@ -45,6 +45,7 @@ type config struct {
 	project                 *Project
 	skillReload             SkillReloadPolicy
 	subagents               storage.SubagentStorage
+	maxProviderSteps        int
 	maxSubagents            int
 	childAgent              bool
 	contextReminderProvider agentruntime.ContextReminderProvider
@@ -110,6 +111,9 @@ func (configuration config) validate() error {
 	}
 	if configuration.maxSubagents < 0 {
 		return errors.New("maximum subagents cannot be negative")
+	}
+	if configuration.maxProviderSteps < 0 {
+		return errors.New("maximum provider steps cannot be negative")
 	}
 	if configuration.maxSubagents > 0 && configuration.subagents == nil && configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.childAgent {
 		return errors.New("subagent storage is required")
@@ -360,6 +364,18 @@ func WithMaxSubagents(maximum int) Option {
 			return errors.New("maximum subagents must be positive")
 		}
 		configuration.maxSubagents = maximum
+		return nil
+	}
+}
+
+// WithMaxProviderSteps bounds the number of provider rounds a turn may use.
+// The runtime default is used when this option is omitted.
+func WithMaxProviderSteps(maximum int) Option {
+	return func(configuration *config) error {
+		if maximum <= 0 {
+			return errors.New("maximum provider steps must be positive")
+		}
+		configuration.maxProviderSteps = maximum
 		return nil
 	}
 }

@@ -39,6 +39,7 @@ and optional transcript compaction:
 
 ```yaml
 permission_mode: default
+max_provider_steps: 20
 max_subagents: 4
 
 # Omit this mapping to disable runtime console logs.
@@ -121,6 +122,12 @@ If `MAIN.md` or a subagent selects `deepseek-model-id`, only the DeepSeek
 entry is added to its requests. Selecting `qwen-model-id` sends only
 `chat_template_kwargs.enable_thinking: false`. Selecting any other model name
 still works and receives neither override.
+
+`max_provider_steps` limits the provider rounds each main or child turn may
+consume. A positive value replaces the runtime default of 20; omitting it or
+setting it to `0` keeps that default. Negative values are rejected. The Go
+option `WithMaxProviderSteps` can override the project value when constructing
+an Agent.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.

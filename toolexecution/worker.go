@@ -90,6 +90,9 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.Result.Status = agentruntime.ToolResultSucceeded
 		result.Result.Output = cloneRawJSON(output)
 		result.Result.TriggerSatisfied = boolPointer(executed)
+		if behavior, registered := e.registry.skippedTurnBehaviorFor(request.Call.Name); registered {
+			result.TurnBehavior = behavior
+		}
 		return result
 	}
 
@@ -143,7 +146,10 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 				result.TurnBehavior = behavior
 			}
 		} else {
-			result.TurnBehavior = agentruntime.ToolTurnContinue
+			behavior, registered := e.registry.skippedTurnBehaviorFor(request.Call.Name)
+			if registered {
+				result.TurnBehavior = behavior
+			}
 		}
 		return result
 	}

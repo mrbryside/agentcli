@@ -67,8 +67,8 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
 	}
-	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.57") {
-		t.Fatal("installer fallback version does not track v0.0.57")
+	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.58") {
+		t.Fatal("installer fallback version does not track v0.0.58")
 	}
 }
 
@@ -145,7 +145,7 @@ func TestInstallerIncludesCurrentProjectOptions(t *testing.T) {
 	}
 	installer := string(content)
 	for _, required := range []string{
-		"permission_mode: criticalOnly\nmax_subagents: 4",
+		"permission_mode: criticalOnly\nmax_provider_steps: 20\nmax_subagents: 4",
 		"  # openrouter:\n  #   type: openai\n  #   url: https://openrouter.ai/api/v1",
 	} {
 		if !strings.Contains(installer, required) {

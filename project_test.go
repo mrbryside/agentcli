@@ -3,6 +3,7 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -588,6 +589,66 @@ providers:
 	}
 	if configuration.maxSubagents != 2 {
 		t.Fatalf("applied max subagents = %d, want 2", configuration.maxSubagents)
+	}
+}
+
+func TestProjectConfigLoadsAppliesAndEnforcesMaxProviderSteps(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
+max_provider_steps: 1
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.MaxProviderSteps() != 1 {
+		t.Fatalf("project max provider steps = %d, want 1", project.MaxProviderSteps())
+	}
+
+	configuration := defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.maxProviderSteps != 1 {
+		t.Fatalf("applied max provider steps = %d, want 1", configuration.maxProviderSteps)
+	}
+
+	model := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "skill-call", Name: SkillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
+	}}}
+	agent, err := New(context.Background(), WithProject(project), WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	run, err := agent.Start(context.Background(), userRequest("max-provider-steps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); !errors.Is(err, ErrMaxSteps) {
+		t.Fatalf("run error = %v, want ErrMaxSteps", err)
+	}
+	if got := len(model.Requests()); got != 1 {
+		t.Fatalf("provider requests = %d, want 1", got)
+	}
+}
+
+func TestLoadProjectRejectsNegativeMaxProviderSteps(t *testing.T) {
+	root := projectFixture(t)
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `max_provider_steps: -1
+providers:
+  openai:
+    type: openai
+    api_key: test-key
+`)
+	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "max_provider_steps cannot be negative") {
+		t.Fatalf("LoadProject() error = %v", err)
 	}
 }
 

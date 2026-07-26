@@ -234,7 +234,9 @@ follow-up accepted from that continuation adds another pending callback. The
 final boundary is available only when one last active turn is attempting
 completion and no accepted callback obligation remains. Earlier
 `EndResponseScope` calls are successful non-executing skips and are not retained
-for later delivery.
+for later delivery. If the tool uses `EndTurnOnSuccess`, that skipped call still
+ends the current turn so the pending callback can continue the response scope
+without another provider round.
 
 Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:

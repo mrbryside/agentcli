@@ -58,9 +58,11 @@ argument such as `message` when successful external delivery should append
 that exact value as the durable assistant response. The canonical record is
 created only after the handler succeeds. A model call made before the runtime's
 final completion boundary receives successful `status=skipped`,
-`executed=false`, continues the turn, and does not satisfy the trigger. The
-result tells the model not to retry; admission and the handler are bypassed,
-`EndTurnOnSuccess` is ignored, and no candidate is retained. This includes a
+`executed=false` and does not satisfy the trigger. The result tells the model
+not to retry; admission and the handler are bypassed, and no candidate is
+retained. `EndTurnOnSuccess` is still honored, allowing an early final-delivery
+call to yield the current turn while callbacks are pending without executing
+the handler. This includes a
 call made as the model's first tool: normal provider rounds do not carry the
 runtime-owned `CompletionBoundary` marker. When the last active scope turn
 attempts completion with no pending callback, completion repair exposes the

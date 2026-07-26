@@ -37,12 +37,13 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 // ProjectConfig is loaded from .agentcli/config.yaml. Main-agent identity and
 // capabilities live in .agentcli/MAIN.md.
 type ProjectConfig struct {
-	PermissionMode permission.Mode           `yaml:"permission_mode"`
-	MaxSubagents   int                       `yaml:"max_subagents"`
-	Providers      map[string]ProviderConfig `yaml:"providers"`
-	Compaction     *CompactionConfig         `yaml:"compaction"`
-	Logging        *LoggingConfig            `yaml:"logging"`
-	Observability  *ObservabilityConfig      `yaml:"observability"`
+	PermissionMode   permission.Mode           `yaml:"permission_mode"`
+	MaxProviderSteps int                       `yaml:"max_provider_steps"`
+	MaxSubagents     int                       `yaml:"max_subagents"`
+	Providers        map[string]ProviderConfig `yaml:"providers"`
+	Compaction       *CompactionConfig         `yaml:"compaction"`
+	Logging          *LoggingConfig            `yaml:"logging"`
+	Observability    *ObservabilityConfig      `yaml:"observability"`
 }
 
 // LoggingConfig controls structured runtime lifecycle logs written to stderr.
@@ -298,6 +299,9 @@ func WithProject(project *Project) Option {
 		configuration.permissionMode = project.PermissionMode()
 		configuration.permissionPolicy.Mode = project.PermissionMode()
 		configuration.logger = projectLogger(project.config.Logging)
+		if project.MaxProviderSteps() > 0 {
+			configuration.maxProviderSteps = project.MaxProviderSteps()
+		}
 		if project.compaction != nil && project.compaction.Auto {
 			compactionModel, err := project.CompactionModel()
 			if err != nil {
@@ -436,6 +440,15 @@ func (project *Project) PermissionMode() permission.Mode {
 	return project.config.PermissionMode
 }
 
+// MaxProviderSteps returns the configured maximum number of provider rounds
+// per turn. Zero means the runtime default is used.
+func (project *Project) MaxProviderSteps() int {
+	if project == nil {
+		return 0
+	}
+	return project.config.MaxProviderSteps
+}
+
 // MaxSubagents returns the configured maximum number of non-closed child
 // instances per parent session. Zero means the Agent default is used.
 func (project *Project) MaxSubagents() int {
@@ -543,6 +556,9 @@ func (project *Project) skillDiscoveryPrompt() string {
 }
 
 func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, string, ProviderConfig, time.Duration, error) {
+	if config.MaxProviderSteps < 0 {
+		return "", "", ProviderConfig{}, 0, errors.New("max_provider_steps cannot be negative")
+	}
 	if config.MaxSubagents < 0 {
 		return "", "", ProviderConfig{}, 0, errors.New("max_subagents cannot be negative")
 	}

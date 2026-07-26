@@ -1,6 +1,7 @@
 # Copy this file to .agentcli/config.yaml. Keep live provider keys in process
 # environment variables; ${VARIABLE} references are expanded at load time.
 permission_mode: default
+max_provider_steps: 20
 max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.

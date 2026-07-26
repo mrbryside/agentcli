@@ -186,10 +186,12 @@ not called and no candidate is retained. The model receives:
 ```
 
 The outer tool result is successful so the model does not treat the skip as an
-error, but `trigger_satisfied=false`, `EndTurnOnSuccess` is ignored, and the
-turn continues. The runtime does not invoke the handler, permission resolver,
-confirmation resolver, or tool-call guard for this skipped call. It also does
-not retain the arguments as a candidate for later execution.
+error, but `trigger_satisfied=false`. `EndTurnOnSuccess` is still honored, so a
+final-delivery tool can yield the current turn while callbacks are pending
+without executing its handler. The runtime does not invoke the handler,
+permission resolver, confirmation resolver, or tool-call guard for this
+skipped call. It also does not retain the arguments as a candidate for later
+execution.
 
 ### How the runtime distinguishes an early call
 

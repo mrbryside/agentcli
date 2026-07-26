@@ -108,8 +108,10 @@ manage child completions itself can opt out with
 
 Automatic callback turns remain in the response scope that originally
 dispatched the child. An early `EndResponseScope` call is a successful
-non-executing skip; no handler invocation is retained for later. Intermediate
-callback turns may finish without that trigger. When the last active
+non-executing skip; no handler invocation is retained for later. A skipped tool
+configured with `EndTurnOnSuccess` still ends the current turn, allowing its
+callback to arrive without another provider round. Intermediate callback turns
+may finish without that trigger. When the last active
 continuation attempts completion and no accepted callback is pending, the
 runtime starts a restricted completion repair and only that repair call
 executes the handler. This matches `ContinueSubagentCallbackSubscribed` in
@@ -260,9 +262,10 @@ Only `tool_call_requested` contains the complete validated tool request, and
 the server-owned executor already handles it.
 
 `trigger_satisfied: false` is a successful runtime-owned skip, not proof that
-the tool's side effect happened. For an `EndResponseScope` delivery tool, keep
-the turn active and wait for the later result with `trigger_satisfied: true`
-or for the terminal run failure. Ordinary tool results omit this field.
+the tool's side effect happened. For an `EndResponseScope` delivery tool, wait
+for a later callback continuation to produce `trigger_satisfied: true` or for a
+terminal run failure; the skipped call may itself complete the current turn.
+Ordinary tool results omit this field.
 
 At `stream_completed`, `provider_event.payload.result` contains the
 provider-neutral aggregate for that step. Use its `content` and `reasoning` to

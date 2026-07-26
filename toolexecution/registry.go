@@ -259,6 +259,13 @@ func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessag
 	return tool.turnBehavior, true
 }
 
+func (r *Registry) skippedTurnBehaviorFor(name string) (agentruntime.ToolTurnBehavior, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[name]
+	return tool.turnBehavior, ok
+}
+
 func (r *Registry) canonicalAssistantMessageParameterFor(name string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ func TestNewValidatesRequiredAndNumericOptions(t *testing.T) {
 		{name: "missing model"},
 		{name: "zero channel buffer", options: []Option{WithModel(&scriptedModel{}), WithChannelBuffer(0)}},
 		{name: "zero workers", options: []Option{WithModel(&scriptedModel{}), WithToolWorkers(0)}},
+		{name: "zero provider steps", options: []Option{WithModel(&scriptedModel{}), WithMaxProviderSteps(0)}},
 		{name: "empty project root", options: []Option{WithModel(&scriptedModel{}), WithProjectRoot("")}},
 		{name: "unknown permission mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionMode("unknown")}},
 		{name: "unknown policy mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionPolicy(permission.Policy{Mode: "unknown"})}},
@@ -186,6 +188,7 @@ func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 
 func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing.T) {
 	model := &earlyThenBoundaryReportModel{message: "Hello! How can I help?"}
+	reportCalls := 0
 	agent, err := New(context.Background(),
 		WithModel(model),
 		WithTool(toolexecution.Tool{
@@ -198,6 +201,7 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 				},
 			},
 			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				reportCalls++
 				return json.RawMessage(`{"status":"reported"}`), nil
 			},
 			Trigger:                            toolexecution.EndResponseScope,
@@ -251,6 +255,26 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			}
 			if messages[5].Content != "Hello! How can I help?" {
 				t.Fatalf("canonical assistant content = %q", messages[5].Content)
+			}
+			if reportCalls != 1 {
+				t.Fatalf("report handler calls = %d, want exactly one final-boundary execution", reportCalls)
+			}
+			requests := model.Requests()
+			if len(requests) != 3 {
+				t.Fatalf("provider requests = %d, want early report then bounded final-trigger repairs", len(requests))
+			}
+			if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
+				t.Fatalf("first repair tools = %#v, want only report", requests[1].Tools)
+			}
+			foundFinalBoundaryReminder := false
+			for _, reminder := range requests[1].ContextReminders {
+				if strings.Contains(reminder.Content, "response scope is ready to end") {
+					foundFinalBoundaryReminder = true
+					break
+				}
+			}
+			if !foundFinalBoundaryReminder {
+				t.Fatalf("first repair reminders = %#v, want final response-scope boundary instruction", requests[1].ContextReminders)
 			}
 			return
 		case <-deadline:
@@ -902,16 +926,16 @@ type scriptedModel struct {
 }
 
 type earlyThenBoundaryReportModel struct {
-	mu      sync.Mutex
-	starts  int
-	message string
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+	message  string
 }
 
-func (m *earlyThenBoundaryReportModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+func (m *earlyThenBoundaryReportModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.starts++
-	switch m.starts {
+	m.requests = append(m.requests, request)
+	switch len(m.requests) {
 	case 1:
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
 			ID: "early-report", Name: "report", Arguments: map[string]any{"message": "progress"},
@@ -923,6 +947,12 @@ func (m *earlyThenBoundaryReportModel) Start(_ context.Context, _ agentruntime.M
 			ID: "final-report", Name: "report", Arguments: map[string]any{"message": m.message},
 		}}, Finished: true}}, nil
 	}
+}
+
+func (m *earlyThenBoundaryReportModel) Requests() []agentruntime.ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), m.requests...)
 }
 
 func (m *scriptedModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
