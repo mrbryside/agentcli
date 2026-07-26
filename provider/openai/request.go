@@ -21,6 +21,9 @@ type Request struct {
 	ToolSchema  []Tool
 	MaxTokens   int
 	Temperature float32
+	// Reasoning controls the enable_thinking chat-template option used by
+	// compatible reasoning models. Nil preserves the backend default.
+	Reasoning *bool
 }
 
 // Message is the provider-facing chat message shape.

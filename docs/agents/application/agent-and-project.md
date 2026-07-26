@@ -9,6 +9,11 @@ tools, and verification flow are documented in
 
 `LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
 
+Provider profiles may set the optional tri-state `reasoning` boolean. Omission
+preserves the backend default. For Qwen-compatible OpenAI chat endpoints,
+`false` and `true` become the matching `chat_template_kwargs.enable_thinking`
+value on every request using that profile.
+
 Applications explicitly register executable capabilities through `WithTool`;
 project Markdown only selects names from the registered catalog. The root
 package exposes `Tool`, `ToolDefinition`, schema builders,

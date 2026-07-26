@@ -51,7 +51,7 @@ available, it resolves `github.com/mrbryside/agentcli@latest` directly from Git
 and then runs `go mod tidy`, so the generated project uses the newest published
 semver tag without a lagging module proxy. Set `AGENTCLI_VERSION` to pin a
 release or test an unreleased branch. If Go is not installed yet, the module
-falls back to Go `1.26.3`, pins `agentcli` `v0.0.39` in `go.mod`, and prints the
+falls back to Go `1.26.3`, pins `agentcli` `v0.0.40` in `go.mod`, and prints the
 commands to run later.
 
 ## Replace provider and model placeholders

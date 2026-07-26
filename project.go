@@ -88,6 +88,9 @@ type ProviderConfig struct {
 	URL            string       `yaml:"url"`
 	APIKey         string       `yaml:"api_key"`
 	RequestTimeout string       `yaml:"request_timeout"`
+	// Reasoning controls compatible models that expose a thinking-mode switch.
+	// Nil preserves the provider default; false disables thinking explicitly.
+	Reasoning *bool `yaml:"reasoning"`
 	// Optional model-limit overrides applied to every model using this
 	// provider profile. Zero values use metadata discovery and defaults.
 	ContextWindowTokens int `yaml:"context_window_tokens"`
@@ -272,7 +275,10 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	}
 	switch providerConfig.Type {
 	case ProviderTypeOpenAI:
-		adapterConfig := openaiadapter.Config{Model: model}
+		adapterConfig := openaiadapter.Config{
+			Model:     model,
+			Reasoning: cloneBool(providerConfig.Reasoning),
+		}
 		metadata, hasMetadata := project.modelMetadata[projectModelReference{provider: providerName, model: model}]
 		if !hasMetadata {
 			var metadataErr error
@@ -535,6 +541,14 @@ func cloneCompactionConfig(config *CompactionConfig) *CompactionConfig {
 		return nil
 	}
 	clone := *config
+	return &clone
+}
+
+func cloneBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	clone := *value
 	return &clone
 }
 

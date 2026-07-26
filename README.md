@@ -83,12 +83,18 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    # reasoning: false # Optional for backends that support enable_thinking.
     context_window_tokens: 122880 # Optional provider-profile override.
     max_output_tokens: 66560
 ```
 
 Provider names such as `primary` are aliases. The required `type` selects the
 adapter; `openai` is currently supported.
+
+For Qwen and compatible OpenAI-style backends, set `reasoning: false` on a
+provider profile to send `chat_template_kwargs.enable_thinking: false` on
+every model request through that profile. Omit `reasoning` to preserve the
+backend default.
 
 The optional `compaction` mapping only selects a separate summarizer through an
 existing provider alias. Optional `context_window_tokens` and

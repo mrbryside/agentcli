@@ -21,6 +21,7 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    # reasoning: false # For backends that support enable_thinking.
     context_window_tokens: 122880 # Remove when provider discovery is available.
     max_output_tokens: 66560
 

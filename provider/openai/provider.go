@@ -140,12 +140,18 @@ func toSDKRequest(request Request, configuredTools []Tool) (sdkopenai.ChatComple
 		messages[i].ToolCalls = calls
 	}
 
-	return sdkopenai.ChatCompletionRequest{
+	sdkRequest := sdkopenai.ChatCompletionRequest{
 		Model:       request.Model,
 		Messages:    messages,
 		Tools:       tools,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		Stream:      true,
-	}, nil
+	}
+	if request.Reasoning != nil {
+		sdkRequest.ChatTemplateKwargs = map[string]any{
+			"enable_thinking": *request.Reasoning,
+		}
+	}
+	return sdkRequest, nil
 }

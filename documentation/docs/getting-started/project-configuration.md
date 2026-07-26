@@ -53,6 +53,7 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    # reasoning: false # Optional for backends that support enable_thinking.
     context_window_tokens: 122880 # Optional provider-profile override.
     max_output_tokens: 66560
 
@@ -68,6 +69,13 @@ refer to the alias, while the required `type` field selects the adapter. Both
 `primary` and `openrouter` above use `type: openai`, so their names can change
 without changing protocol behavior. `openai` is currently the only supported
 type; missing or unsupported types fail during `LoadProject`.
+
+The optional `reasoning` boolean controls thinking mode for Qwen and compatible
+OpenAI-style backends. Setting `reasoning: false` sends
+`chat_template_kwargs.enable_thinking: false` on every model request through
+that provider profile; `reasoning: true` enables it explicitly. Omit the field
+to preserve the backend default and avoid sending `chat_template_kwargs`.
+Backends that do not support this extension should leave the field unset.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.

@@ -209,6 +209,20 @@ func TestAdapterConvertsMessagesToolsAndDelegates(t *testing.T) {
 	}
 }
 
+func TestAdapterForwardsReasoningWithoutSharingConfigPointer(t *testing.T) {
+	disabled := false
+	fake := &fakeProvider{}
+	adapter := New(fake, Config{Model: "qwen-test", Reasoning: &disabled})
+	disabled = true
+
+	if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := fake.requests[0].Reasoning; got == nil || *got {
+		t.Fatalf("request reasoning = %#v, want false", got)
+	}
+}
+
 func TestAdapterRequestMaxOutputTokensOverridesConfig(t *testing.T) {
 	fake := &fakeProvider{}
 	adapter := New(fake, Config{Model: "gpt-test", MaxTokens: 321})

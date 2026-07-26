@@ -17,9 +17,12 @@ import (
 
 // Config selects the OpenAI model and optional request settings.
 type Config struct {
-	Model            string
-	MaxTokens        int
-	Temperature      float32
+	Model       string
+	MaxTokens   int
+	Temperature float32
+	// Reasoning controls thinking for compatible OpenAI-style chat backends.
+	// Nil preserves the provider default.
+	Reasoning        *bool
 	MetadataResolver ModelMetadataResolver
 }
 
@@ -34,6 +37,7 @@ func New(
 	p provider.Provider[provideropenai.Request, sdkopenai.ChatCompletionStreamResponse],
 	config Config,
 ) *Adapter {
+	config.Reasoning = cloneBool(config.Reasoning)
 	return &Adapter{provider: p, config: config}
 }
 
@@ -87,11 +91,20 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 		ToolSchema:  tools,
 		MaxTokens:   maxTokens,
 		Temperature: a.config.Temperature,
+		Reasoning:   cloneBool(a.config.Reasoning),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start OpenAI stream: %w", err)
 	}
 	return stream, nil
+}
+
+func cloneBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
 }
 
 // appendContextRemindersAtConversationTail keeps tool-call/result adjacency

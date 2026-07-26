@@ -94,6 +94,40 @@ func TestNewProviderUsesOpenAIConfigAndRequest(t *testing.T) {
 	}
 }
 
+func TestToSDKRequestControlsCompatibleModelReasoning(t *testing.T) {
+	t.Run("omitted preserves backend default", func(t *testing.T) {
+		request, err := toSDKRequest(Request{Model: "qwen-test"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.ChatTemplateKwargs != nil {
+			t.Fatalf("chat template kwargs = %#v, want nil", request.ChatTemplateKwargs)
+		}
+	})
+
+	t.Run("false disables thinking", func(t *testing.T) {
+		disabled := false
+		request, err := toSDKRequest(Request{Model: "qwen-test", Reasoning: &disabled}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := request.ChatTemplateKwargs["enable_thinking"].(bool); !ok || got {
+			t.Fatalf("enable_thinking = %#v, want false", request.ChatTemplateKwargs["enable_thinking"])
+		}
+	})
+
+	t.Run("true enables thinking", func(t *testing.T) {
+		enabled := true
+		request, err := toSDKRequest(Request{Model: "qwen-test", Reasoning: &enabled}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := request.ChatTemplateKwargs["enable_thinking"].(bool); !ok || !got {
+			t.Fatalf("enable_thinking = %#v, want true", request.ChatTemplateKwargs["enable_thinking"])
+		}
+	})
+}
+
 func TestNewProviderRequiresAPIKey(t *testing.T) {
 	p := NewProvider(Config{})
 	_, err := p.Stream(context.Background(), Request{Model: "gpt-test"})

@@ -30,4 +30,9 @@ still expose valid metadata.
 
 Keep provider type, endpoint, API key, and timeout in a named project connection profile; model selection stays in the agent definition. Profile aliases do not select adapters—the required `type` discriminator does. New provider implementations should add a validated type and translate only at their boundary without leaking provider SDK types into runtime, storage, events, or tool domains.
 
+The optional provider-profile `reasoning` boolean is translated only at the
+OpenAI boundary. When present, it becomes
+`chat_template_kwargs.enable_thinking`; when omitted, that extension is absent
+from the request so the compatible backend keeps its own default.
+
 Back to [boundaries/index.md](index.md).

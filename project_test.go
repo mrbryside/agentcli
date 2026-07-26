@@ -3,6 +3,8 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -289,6 +291,51 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	}
 	if prompt := project.SystemPrompts()[0]; !strings.Contains(prompt, `provider: "local"`) || !strings.Contains(prompt, `model: "model"`) || !strings.Contains(prompt, "# Runtime context") {
 		t.Fatalf("main runtime prompt = %q", prompt)
+	}
+}
+
+func TestProjectProviderReasoningSettingReachesModelRequest(t *testing.T) {
+	var requestBody struct {
+		ChatTemplateKwargs map[string]bool `json:"chat_template_kwargs"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `providers:
+  local:
+    type: openai
+    url: `+server.URL+`
+    api_key: test-key
+    reasoning: false
+`)
+	writeMainAgentDefinition(t, root, "local", "qwen-test", "")
+
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := project.Model()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := model.Start(context.Background(), agentruntime.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Subscribe(context.Background()) {
+	}
+	if _, err := stream.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if enabled, ok := requestBody.ChatTemplateKwargs["enable_thinking"]; !ok || enabled {
+		t.Fatalf("chat template kwargs = %#v, want enable_thinking false", requestBody.ChatTemplateKwargs)
 	}
 }
 
