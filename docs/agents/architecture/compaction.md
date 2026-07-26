@@ -103,10 +103,11 @@ the parent continues receiving the normal child callback lifecycle.
 
 The main model must implement `ModelMetadataProvider` when compaction is
 enabled. A summarizer that implements the optional capability is validated too.
-Each provider profile may supply explicit limits for every model using that
-profile. Otherwise each distinct main, child, and summarizer model resolves its
-limits from the provider `/models` endpoint, then `models.dev`, then project
-defaults of 122,880 context tokens and 66,560 output tokens. Directly
+Each provider profile may supply explicit limits in exact-name model entries.
+Those limits apply only to a matching model; otherwise each distinct main,
+child, and summarizer model resolves its limits from the provider `/models`
+endpoint, then `models.dev`, then project defaults of 122,880 context tokens
+and 66,560 output tokens. Directly
 constructed OpenAI-compatible adapters retain their exact-alias catalog.
 Applications can still override project-selected adapters through
 `agentcli.WithModel` and `agentcli.WithCompactionModel`.

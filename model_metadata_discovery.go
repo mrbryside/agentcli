@@ -135,7 +135,7 @@ func (project *Project) resolveModelMetadata(ctx context.Context, reference proj
 	if !ok {
 		return agentruntime.ModelMetadata{}, fmt.Errorf("provider %q is not configured", reference.provider)
 	}
-	configuredMetadata, configured, err := configuredProviderMetadata(reference.provider, providerConfig)
+	configuredMetadata, configured, err := configuredProviderMetadata(reference.provider, reference.model, providerConfig)
 	if err != nil {
 		return agentruntime.ModelMetadata{}, err
 	}
@@ -303,16 +303,17 @@ func fetchModelMetadataJSON(client *http.Client, request *http.Request, target a
 	return nil
 }
 
-func configuredProviderMetadata(providerName string, config ProviderConfig) (agentruntime.ModelMetadata, bool, error) {
-	if config.ContextWindowTokens == 0 && config.MaxOutputTokens == 0 {
+func configuredProviderMetadata(providerName, modelName string, config ProviderConfig) (agentruntime.ModelMetadata, bool, error) {
+	modelConfig, configured := config.Models[modelName]
+	if !configured || modelConfig.ContextWindowTokens == 0 && modelConfig.MaxOutputTokens == 0 {
 		return agentruntime.ModelMetadata{}, false, nil
 	}
 	metadata := agentruntime.ModelMetadata{
-		ContextWindowTokens: config.ContextWindowTokens,
-		MaxOutputTokens:     config.MaxOutputTokens,
+		ContextWindowTokens: modelConfig.ContextWindowTokens,
+		MaxOutputTokens:     modelConfig.MaxOutputTokens,
 	}
 	if err := metadata.Validate(); err != nil {
-		return agentruntime.ModelMetadata{}, false, fmt.Errorf("provider %q metadata: %w", providerName, err)
+		return agentruntime.ModelMetadata{}, false, fmt.Errorf("provider %q model %q metadata: %w", providerName, modelName, err)
 	}
 	return metadata, true, nil
 }

@@ -9,10 +9,13 @@ tools, and verification flow are documented in
 
 `LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
 
-Provider profiles may set the optional tri-state `reasoning` boolean. Omission
-preserves the backend default. For Qwen-compatible OpenAI chat endpoints,
-`false` and `true` become the matching `chat_template_kwargs.enable_thinking`
-value on every request using that profile.
+Provider profiles may contain optional exact-name entries under `models`.
+These entries are overrides, not an allowlist: `MAIN.md` and subagents may
+select unlisted models normally. A matching entry may set the tri-state
+`reasoning` boolean, which becomes the Qwen-compatible
+`chat_template_kwargs.enable_thinking` value, and an arbitrary `extra_body`
+mapping. `extra_body` is recursively environment-expanded and merged as
+top-level JSON only for requests using that exact model name.
 
 Applications explicitly register executable capabilities through `WithTool`;
 project Markdown only selects names from the registered catalog. The root
@@ -30,17 +33,17 @@ compactions. When the mapping is present, `auto` defaults to `true`; set
 `model` selects the separate summarizer. It is constructed through the same
 project model factory used by main and child agents.
 
-Optional `context_window_tokens` and `max_output_tokens` belong to each
-provider profile. They take priority for every model using that profile, so
-main, child, and summarizer adapters can use independent limits. When omitted,
-project loading checks each required model's authenticated provider `/models`
+Optional `context_window_tokens` and `max_output_tokens` belong to each exact
+model entry. They take priority only for that model, so main, child, and
+summarizer adapters can use independent limits while sharing a profile. When
+omitted, project loading checks each required model's authenticated provider `/models`
 endpoint first, falls back to `models.dev`, then uses exact defaults of 122,880
 context tokens and 66,560 output tokens. The Terminal displays those binary
 counts as `120k` and `65k`.
 When it is enabled, construction requires known valid limits for the main
 model. If the summarizer exposes `ModelMetadataProvider`, its limits are also
 validated at startup; a summarizer without that optional capability uses the
-internal summary cap. Explicit non-positive or partially configured shared
+internal summary cap. Explicit non-positive or partially configured model
 limits fail startup validation.
 
 The setting is inherited when the project creates child agents. It controls

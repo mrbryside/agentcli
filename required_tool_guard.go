@@ -60,7 +60,7 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 			Action:        agentruntime.CompletionRetry,
 			ToolAllowlist: append([]string(nil), missing...),
 			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
-				"This turn cannot finish until every required finalizer tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the finalizer tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
+				"This turn cannot finish until every required trigger tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the trigger tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
 				strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
 			)}},
 		}
@@ -86,7 +86,7 @@ func containsString(values []string, target string) bool {
 }
 
 func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string, terminalToolBatch bool) []string {
-	// Only the terminal result batch can finalize a turn. A successful required
+	// Only the terminal result batch can end a turn. A successful required
 	// call from an earlier continuing round is deliberately ignored.
 	if !terminalToolBatch {
 		return append([]string(nil), required...)

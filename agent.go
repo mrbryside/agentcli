@@ -174,7 +174,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	for _, tool := range registeredTools {
-		if tool.Lifecycle == toolexecution.EndTurn || tool.Lifecycle == toolexecution.EndResponseScope {
+		if tool.Trigger == toolexecution.EndTurn || tool.Trigger == toolexecution.EndResponseScope {
 			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
 		}
 	}
@@ -425,6 +425,18 @@ func (a *Agent) SubscribeSubagentCallbacks(ctx context.Context) <-chan SubagentC
 	return a.subagents.subscribeCallbacks(ctx)
 }
 
+// SubscribeScopeEvents returns a live-only stream containing
+// PreEndScope immediately before scope cleanup and EndScope after all staged
+// EndResponseScope tool handlers have run and the scope has been removed.
+func (a *Agent) SubscribeScopeEvents(ctx context.Context) <-chan ScopeEvent {
+	if a == nil || a.responseScopes == nil {
+		closed := make(chan ScopeEvent)
+		close(closed)
+		return closed
+	}
+	return a.responseScopes.SubscribeEvents(ctx)
+}
+
 // SubscribeSubagentConfirmations returns live child confirmation lifecycle
 // events addressed to parent sessions. Call PendingSubagentConfirmations when
 // attaching or reconnecting so a request cannot be missed.
@@ -518,7 +530,7 @@ func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback
 	// durable fallback unread for a future turn.
 	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
 	// Install the response-scope completion watcher only after observation so
-	// a very fast callback continuation cannot finalize its scope first.
+	// a very fast callback continuation cannot end its scope first.
 	a.watchAcceptedRun(run)
 	return run, subscription, nil
 }

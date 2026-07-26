@@ -289,6 +289,30 @@ definitions:
       turn_id:
         type: string
     type: object
+  agentcli.ScopeEventResponse:
+    properties:
+      child_ids:
+        items:
+          type: string
+        type: array
+      occurred_at:
+        type: string
+      scope_id:
+        type: string
+      session_id:
+        type: string
+      tool_names:
+        items:
+          type: string
+        type: array
+      trigger_turn_id:
+        type: string
+      type:
+        enum:
+        - pre_end_scope
+        - end_scope
+        type: string
+    type: object
   agentcli.SendSubagentMessageRequest:
     properties:
       message:
@@ -315,6 +339,7 @@ definitions:
     - turn_cancelled
     - turn_rejected
     - turn_event
+    - scope_event
     - subagent_confirmation
     - subagent_permission
     type: string
@@ -324,6 +349,7 @@ definitions:
     - SessionActivityTurnCancelled
     - SessionActivityTurnRejected
     - SessionActivityTurnEvent
+    - SessionActivityScopeEvent
     - SessionActivitySubagentConfirmation
     - SessionActivitySubagentPermission
   agentcli.SessionEventResponse:
@@ -338,6 +364,8 @@ definitions:
         type: integer
       runtime_event:
         $ref: '#/definitions/agentcli.EventResponse'
+      scope_event:
+        $ref: '#/definitions/agentcli.ScopeEventResponse'
       session_id:
         type: string
       source:
@@ -715,10 +743,12 @@ definitions:
     enum:
     - ""
     - end_turn
+    - end_turn_on_success
     type: string
     x-enum-varnames:
     - ToolTurnContinue
     - ToolTurnEnd
+    - ToolTurnEndOnSuccess
   confirmation.Answer:
     enum:
     - "yes"
@@ -1468,8 +1498,9 @@ paths:
   /v1/sessions/{sessionID}/events:
     get:
       description: Replays and follows every root turn in a session, including queued
-        lifecycle records and parent turns created automatically from subagent callbacks.
-        The session cursor is independent from each runtime event sequence.
+        lifecycle records, response-scope boundaries, and parent turns created automatically
+        from subagent callbacks. The session cursor is independent from each runtime
+        event sequence.
       operationId: streamSessionEvents
       parameters:
       - description: Session ID

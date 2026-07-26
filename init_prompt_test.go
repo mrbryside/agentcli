@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestInstallerMainPromptKeepsUserFacingOutputInsideFinalizer(t *testing.T) {
+func TestInstallerMainPromptKeepsUserFacingOutputInsideTriggerTool(t *testing.T) {
 	content, err := os.ReadFile("init/install.sh")
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
@@ -67,8 +67,8 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
 	}
-	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.40") {
-		t.Fatal("installer fallback version does not track v0.0.40")
+	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.44") {
+		t.Fatal("installer fallback version does not track v0.0.44")
 	}
 }
 
@@ -78,8 +78,14 @@ func TestInstallerIncludesProviderMetadataDefaults(t *testing.T) {
 		t.Fatalf("read installer: %v", err)
 	}
 	const required = `request_timeout: 2m
-    context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
-    max_output_tokens: 66560 # 65k`
+    models:
+      replace-model:
+        # reasoning: false # For backends that support enable_thinking.
+        # extra_body: # Optional model-specific top-level request JSON.
+        #   thinking:
+        #     type: disabled
+        context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
+        max_output_tokens: 66560 # 65k`
 	if !strings.Contains(string(content), required) {
 		t.Fatalf("installer provider metadata does not contain:\n%s", required)
 	}

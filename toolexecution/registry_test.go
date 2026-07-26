@@ -90,7 +90,8 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}{
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
-		{name: "unsupported lifecycle", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: "later"}},
+		{name: "unsupported trigger", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: "later"}},
+		{name: "trigger and end turn on success", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: EndTurn, EndTurnOnSuccess: true}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		}, ToolCallGuardPrompt: "check call"}},
@@ -123,27 +124,27 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}
 }
 
-func TestRegistryLifecycleModesApplyCompletionPolicy(t *testing.T) {
+func TestRegistryTriggerModesApplyCompletionPolicy(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		lifecycle ToolLifecycle
-		behavior  agentruntime.ToolTurnBehavior
+		name     string
+		trigger  ToolTrigger
+		behavior agentruntime.ToolTurnBehavior
 	}{
 		{name: "default continues", behavior: agentruntime.ToolTurnContinue},
-		{name: "end turn", lifecycle: EndTurn, behavior: agentruntime.ToolTurnEnd},
-		{name: "end response scope", lifecycle: EndResponseScope, behavior: agentruntime.ToolTurnEnd},
+		{name: "end turn", trigger: EndTurn, behavior: agentruntime.ToolTurnEnd},
+		{name: "end response scope", trigger: EndResponseScope, behavior: agentruntime.ToolTurnEnd},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			registry := NewRegistry()
 			if err := registry.Register(Tool{
 				Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 				Handler:    testHandler,
-				Lifecycle:  test.lifecycle,
+				Trigger:    test.trigger,
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if lifecycle, ok := registry.lifecycleFor("report"); !ok || lifecycle != test.lifecycle {
-				t.Fatalf("lifecycle = (%q, %t)", lifecycle, ok)
+			if trigger, ok := registry.triggerFor("report"); !ok || trigger != test.trigger {
+				t.Fatalf("trigger = (%q, %t)", trigger, ok)
 			}
 			if behavior, ok := registry.turnBehaviorFor("report", nil, nil); !ok || behavior != test.behavior {
 				t.Fatalf("turn behavior = (%q, %t), want %q", behavior, ok, test.behavior)
@@ -152,12 +153,32 @@ func TestRegistryLifecycleModesApplyCompletionPolicy(t *testing.T) {
 	}
 }
 
-func TestToolExposesOnlyLifecycleForCompletionPolicy(t *testing.T) {
-	toolType := reflect.TypeOf(Tool{})
-	if _, found := toolType.FieldByName("Lifecycle"); !found {
-		t.Fatal("Tool has no Lifecycle field")
+func TestRegistryEndTurnOnSuccessAppliesOptionalTurnBehavior(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition:       agentruntime.ToolDefinition{Name: "handoff", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler:          testHandler,
+		EndTurnOnSuccess: true,
+	}); err != nil {
+		t.Fatal(err)
 	}
-	for _, removed := range []string{"TurnBehavior", "RequiredAtTurnEnd"} {
+	if trigger, ok := registry.triggerFor("handoff"); !ok || trigger != "" {
+		t.Fatalf("trigger = (%q, %t), want optional tool", trigger, ok)
+	}
+	if behavior, ok := registry.turnBehaviorFor("handoff", nil, nil); !ok || behavior != agentruntime.ToolTurnEndOnSuccess {
+		t.Fatalf("turn behavior = (%q, %t), want %q", behavior, ok, agentruntime.ToolTurnEndOnSuccess)
+	}
+}
+
+func TestToolExposesTriggerAndEndTurnOnSuccessOnly(t *testing.T) {
+	toolType := reflect.TypeOf(Tool{})
+	if _, found := toolType.FieldByName("Trigger"); !found {
+		t.Fatal("Tool has no Trigger field")
+	}
+	if field, found := toolType.FieldByName("EndTurnOnSuccess"); !found || field.Type.Kind() != reflect.Bool {
+		t.Fatal("Tool has no boolean EndTurnOnSuccess field")
+	}
+	for _, removed := range []string{"Lifecycle", "TurnBehavior", "RequiredAtTurnEnd"} {
 		if _, found := toolType.FieldByName(removed); found {
 			t.Fatalf("Tool still exposes legacy completion field %q", removed)
 		}

@@ -85,7 +85,7 @@ func TestServerSessionEventsReplayAndReconnectAcrossTurns(t *testing.T) {
 	getSSEEvents(t, baseURL+first.EventsURL, "")
 	feedURL := baseURL + "/v1/sessions/session-feed/events"
 	firstFeed := getSessionEventsUntil(t, feedURL, "", func(event SessionEventResponse) bool {
-		return event.TurnID == first.TurnID && event.RuntimeEvent != nil && event.RuntimeEvent.Type == agentruntime.RunCompleted
+		return event.ScopeEvent != nil && event.ScopeEvent.ScopeID == first.TurnID && event.ScopeEvent.Type == EndScope
 	})
 	if len(firstFeed) < 2 || firstFeed[0].Type != SessionActivityTurnAdmitted {
 		t.Fatalf("first session feed = %#v", firstFeed)
@@ -95,12 +95,13 @@ func TestServerSessionEventsReplayAndReconnectAcrossTurns(t *testing.T) {
 			t.Fatalf("first session event %d = %#v", index, event)
 		}
 	}
+	assertScopeEventOrder(t, firstFeed, first.TurnID)
 	lastCursor := firstFeed[len(firstFeed)-1].Cursor
 
 	second := startHTTPRun(t, baseURL, "session-feed", `{"message":"second"}`)
 	getSSEEvents(t, baseURL+second.EventsURL, "")
 	secondFeed := getSessionEventsUntil(t, feedURL, strconv.FormatUint(lastCursor, 10), func(event SessionEventResponse) bool {
-		return event.TurnID == second.TurnID && event.RuntimeEvent != nil && event.RuntimeEvent.Type == agentruntime.RunCompleted
+		return event.ScopeEvent != nil && event.ScopeEvent.ScopeID == second.TurnID && event.ScopeEvent.Type == EndScope
 	})
 	if len(secondFeed) == 0 || secondFeed[0].Cursor != lastCursor+1 {
 		t.Fatalf("reconnected session feed = %#v, last cursor %d", secondFeed, lastCursor)
@@ -109,6 +110,54 @@ func TestServerSessionEventsReplayAndReconnectAcrossTurns(t *testing.T) {
 		if event.TurnID != second.TurnID {
 			t.Fatalf("reconnect replayed an old turn: %#v", event)
 		}
+	}
+	assertScopeEventOrder(t, secondFeed, second.TurnID)
+}
+
+func assertScopeEventOrder(t *testing.T, events []SessionEventResponse, scopeID string) {
+	t.Helper()
+	runCompletedIndex, preEndIndex, endIndex := -1, -1, -1
+	for index, event := range events {
+		if event.RuntimeEvent != nil && event.RuntimeEvent.TurnID == scopeID && event.RuntimeEvent.Type == agentruntime.RunCompleted {
+			runCompletedIndex = index
+		}
+		if event.ScopeEvent == nil || event.ScopeEvent.ScopeID != scopeID {
+			continue
+		}
+		switch event.ScopeEvent.Type {
+		case PreEndScope:
+			preEndIndex = index
+		case EndScope:
+			endIndex = index
+		}
+	}
+	if runCompletedIndex < 0 || preEndIndex <= runCompletedIndex || endIndex <= preEndIndex {
+		t.Fatalf("scope event order run_completed=%d pre_end=%d end=%d events=%#v", runCompletedIndex, preEndIndex, endIndex, events)
+	}
+}
+
+func TestWriteSessionSSEUsesScopeBoundaryAsEventName(t *testing.T) {
+	output := httptest.NewRecorder()
+	err := writeSessionSSE(output, SessionEventResponse{
+		Cursor:    7,
+		Type:      SessionActivityScopeEvent,
+		SessionID: "session",
+		TurnID:    "trigger",
+		ScopeEvent: &ScopeEventResponse{
+			Type:          PreEndScope,
+			SessionID:     "session",
+			ScopeID:       "root",
+			TriggerTurnID: "trigger",
+			ChildIDs:      []string{},
+			ToolNames:     []string{"report"},
+			OccurredAt:    time.Now().UTC(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := output.Body.String(); !strings.Contains(got, "event: pre_end_scope\n") || !strings.Contains(got, `"type":"scope_event"`) {
+		t.Fatalf("scope SSE = %q", got)
 	}
 }
 

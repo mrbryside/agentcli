@@ -26,6 +26,12 @@ The HTTP message views retain the checkpoint's `compaction_checkpoint` type but
 deliberately omit its summary and coverage boundaries. Clients must treat these
 records as opaque runtime state rather than displayable transcript content.
 
-The Echo server adds retained HTTP/SSE recovery and a bounded FIFO for same-session turns above the runtime's strict single-active-turn rule. Session SSE uses one cursor across user and automatic subagent callback turns.
+The Echo server adds retained HTTP/SSE recovery and a bounded FIFO for
+same-session turns above the runtime's strict single-active-turn rule. Session
+SSE uses one cursor across user turns, automatic subagent callback turns, and
+the scope-level `PreEndScope`/`EndScope` events forwarded by the Agent facade.
+The server waits until the triggering turn's runtime events are published
+before forwarding either scope event, so `run_completed` remains ordered before
+`pre_end_scope`.
 
 Back to [architecture/index.md](index.md).

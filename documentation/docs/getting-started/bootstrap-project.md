@@ -79,8 +79,10 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    context_window_tokens: 122880 # Remove when provider discovery is available.
-    max_output_tokens: 66560
+    models:
+      replace-model:
+        context_window_tokens: 122880 # Remove when provider discovery is available.
+        max_output_tokens: 66560
 
   guardrails:
     type: openai
@@ -93,11 +95,15 @@ The generated compaction mapping is enabled explicitly and initially reuses
 the starter's provider/model placeholders for its separate summarizer. Replace
 those placeholders before running the project. Remove the mapping or set
 `auto: false` to prevent new checkpoints. The two optional token-limit fields
-are shared by project-created main, summarizer, and subagent adapters. The
-summarizer receives no application tools, and the full original transcript
-remains stored. See
+apply only to the exact `replace-model` entry. Main, summarizer, and subagent
+definitions remain free to select other model names. The summarizer receives
+no application tools, and the full original transcript remains stored. See
 [Context compaction](../capabilities/context-compaction.md) for model metadata,
 request projection, events, subagent behavior, and resume semantics.
+
+Provider-specific `reasoning` and `extra_body` overrides may be added beside
+the two token-limit fields under the same exact model name. Do not place those
+fields directly on the provider profile.
 
 Replace `replace-provider` consistently in the compaction mapping, provider
 profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
@@ -105,7 +111,7 @@ profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
 definition with a model supported by that provider. The starter includes
 exact 122,880-token context and 66,560-token output limits for a custom
 `replace-model`, displayed as `120k` and `65k`; remove the inline-commented
-limits from the `replace-provider` profile when provider discovery is
+limits from its model entry when provider discovery is
 available.
 `tool_report_discord.go` separately selects the `guardrails` profile and
 `replace-guard-model`; replace its connection settings and model without
@@ -151,7 +157,7 @@ starter tool, but neither generated agent exposes it by default:
   `filesystem.write` permission and a separate confirmation; neither generated
   agent is allowed to use it until its name is explicitly added to an
   allowlist.
-- `report_discord` is a deterministic mock finalizer. The main agent calls it
+- `report_discord` is a deterministic mock trigger tool. The main agent calls it
   exactly once as the standalone final action with the complete user-facing
   response. The generated prompt forbids sending user-facing conversational,
   progress, or final messages outside the tool; all such content must be

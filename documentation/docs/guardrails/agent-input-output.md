@@ -153,7 +153,7 @@ model.
   provider request but is not stored as a user message.
 - Every retry counts toward the runtime's `MaxSteps` provider-round limit.
 - Output guards run before the existing completion guard for required
-  finalizers and subagent outcomes.
+  trigger tools and subagent outcomes.
 
 The rejected assistant attempt remains in transcript storage so the model can
 inspect and repair it. See [Guardrails overview](overview.md#guardrails-are-not-a-sandbox)

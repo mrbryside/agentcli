@@ -2,13 +2,14 @@ package agentruntime
 
 import "encoding/json"
 
-// ToolTurnBehavior controls what the agent loop does after a successful tool
-// result has been persisted. The zero value preserves the normal tool loop.
+// ToolTurnBehavior controls what the agent loop does after a tool batch has
+// been persisted. The zero value preserves the normal tool loop.
 type ToolTurnBehavior string
 
 const (
-	ToolTurnContinue ToolTurnBehavior = ""
-	ToolTurnEnd      ToolTurnBehavior = "end_turn"
+	ToolTurnContinue     ToolTurnBehavior = ""
+	ToolTurnEnd          ToolTurnBehavior = "end_turn"
+	ToolTurnEndOnSuccess ToolTurnBehavior = "end_turn_on_success"
 )
 
 // ToolDefinition describes a provider-neutral callable tool.

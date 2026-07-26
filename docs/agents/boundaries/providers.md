@@ -14,11 +14,11 @@ adapters may provide a more exact estimator without exposing SDK types in
 runtime.
 
 The OpenAI-compatible adapter can resolve known aliases for directly
-constructed adapters. Explicit limits belong to each provider profile and
-apply to every model using it. Without them, distinct main, child, and
-summarizer models resolve limits from their provider `/models` endpoint first,
-then models.dev, then deterministic defaults of 122,880 context tokens and
-66,560 output tokens.
+constructed adapters. Explicit limits belong to exact-name model entries under
+each provider profile and apply only when that name is selected. Without them,
+distinct main, child, and summarizer models resolve limits from their provider
+`/models` endpoint first, then models.dev, then deterministic defaults of
+122,880 context tokens and 66,560 output tokens.
 Applications can still construct a custom adapter with
 `openai.Config.MetadataResolver` and pass it through
 `agentcli.WithModel` or `agentcli.WithCompactionModel`. An application can pass a
@@ -30,9 +30,11 @@ still expose valid metadata.
 
 Keep provider type, endpoint, API key, and timeout in a named project connection profile; model selection stays in the agent definition. Profile aliases do not select adapters—the required `type` discriminator does. New provider implementations should add a validated type and translate only at their boundary without leaking provider SDK types into runtime, storage, events, or tool domains.
 
-The optional provider-profile `reasoning` boolean is translated only at the
-OpenAI boundary. When present, it becomes
-`chat_template_kwargs.enable_thinking`; when omitted, that extension is absent
-from the request so the compatible backend keeps its own default.
+The optional per-model `reasoning` boolean is translated only at the OpenAI
+boundary to `chat_template_kwargs.enable_thinking`. Arbitrary provider-specific
+wire fields belong in that model's `extra_body`, which is cloned with the
+provider and merged into the encoded top-level request JSON. Extra-body values
+win on key collisions. Selection depends only on an exact model-name match,
+not on provider-specific inference.
 
 Back to [boundaries/index.md](index.md).

@@ -132,7 +132,9 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 		return failEffects(event, errors.New("tool result received without a pending tool round"))
 	}
 	result := event.ToolResult
-	if result.TurnBehavior != ToolTurnContinue && result.TurnBehavior != ToolTurnEnd {
+	if result.TurnBehavior != ToolTurnContinue &&
+		result.TurnBehavior != ToolTurnEnd &&
+		result.TurnBehavior != ToolTurnEndOnSuccess {
 		return failEffects(event, fmt.Errorf("tool result has unsupported turn behavior %q", result.TurnBehavior))
 	}
 	if result.SessionID != event.SessionID || result.TurnID != event.TurnID {
@@ -161,15 +163,24 @@ func toolResultEffects(current AgentState, event AgentEvent) []Effect {
 		})
 	}
 	effects := []Effect{{Type: AppendMessages, Messages: messages}}
+	allEnd := true
+	endOnSuccess := false
 	for _, callID := range round.order {
 		if round.accepted[callID].Status != ToolResultSucceeded {
 			return append(effects, Effect{Type: StartProvider})
 		}
-		if round.behaviors[callID] != ToolTurnEnd {
-			return append(effects, Effect{Type: StartProvider})
+		switch round.behaviors[callID] {
+		case ToolTurnEndOnSuccess:
+			endOnSuccess = true
+		case ToolTurnEnd:
+		default:
+			allEnd = false
 		}
 	}
-	return append(effects, Effect{Type: AttemptComplete})
+	if endOnSuccess || allEnd {
+		return append(effects, Effect{Type: AttemptComplete})
+	}
+	return append(effects, Effect{Type: StartProvider})
 }
 
 func interruptionEffects(current AgentState, event AgentEvent) []Effect {

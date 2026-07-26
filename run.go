@@ -3,6 +3,7 @@ package agentcli
 import (
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/provider"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 // Run and its event types are exposed at the root package so ordinary
@@ -15,6 +16,12 @@ type AgentEvent = agentruntime.AgentEvent
 type EventType = agentruntime.EventType
 type EventCursor = agentruntime.EventCursor
 type EventSubscription = agentruntime.EventSubscription
+
+// ScopeEventType identifies PreEndScope or EndScope.
+type ScopeEventType = toolexecution.ScopeEventType
+
+// ScopeEvent describes one live response-scope boundary.
+type ScopeEvent = toolexecution.ScopeEvent
 
 const (
 	RunStarted                 = agentruntime.RunStarted
@@ -33,6 +40,13 @@ const (
 	AgentConfirmationCancelled = agentruntime.AgentConfirmationCancelled
 	AgentConfirmationExpired   = agentruntime.AgentConfirmationExpired
 	PermissionModeChanged      = agentruntime.PermissionModeChanged
+
+	// PreEndScope is emitted when a response scope becomes quiescent, before
+	// cleanup and staged EndResponseScope tool handlers run.
+	PreEndScope = toolexecution.PreEndScope
+	// EndScope is emitted after cleanup and staged EndResponseScope tool
+	// handlers finish and the scope is removed.
+	EndScope = toolexecution.EndScope
 
 	RunStatusActive                 = agentruntime.RunStatusActive
 	RunStatusWaitingForPermission   = agentruntime.RunStatusWaitingForPermission

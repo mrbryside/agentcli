@@ -25,18 +25,25 @@ providers:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
-    context_window_tokens: 122880 # Optional provider-profile override.
-    max_output_tokens: 66560
+    models:
+      gpt-4.1-mini:
+        context_window_tokens: 122880
+        max_output_tokens: 66560
 ```
 
 `provider` is an existing provider-profile alias and `model` selects the
 separate summarizer. When present, `auto` defaults to `true`; omit the mapping
 to disable compaction, or set `auto: false` to stop creating new checkpoints.
 
-Optional limits are provider-profile metadata, not tunable compaction budgets.
-Main, child, and summarizer models therefore use the limits of their own
-profiles. The runtime derives its budgets from the active main model's
-provider-neutral metadata.
+Optional limits are exact-model metadata, not tunable compaction budgets.
+Main, child, and summarizer models therefore use their own matching entries,
+even when they share one profile. The runtime derives its budgets from the
+active main model's provider-neutral metadata.
+
+The name under `providers.<alias>.models` must exactly match the `model` string
+selected by `MAIN.md`, a subagent, or the `compaction` mapping. The `models`
+mapping is not an allowlist; models without an entry continue through metadata
+discovery and deterministic defaults.
 
 The model's output limit remains capability metadata. For compacted main-model
 rounds, the runtime reserves one eighth of the main model's context window,
@@ -142,12 +149,12 @@ When compaction is enabled, the main model must expose valid context-window and
 output-limit metadata. A summarizer that implements the optional metadata
 capability is validated as well.
 
-Each provider profile may declare `context_window_tokens` and
-`max_output_tokens`. Those values take priority for every model using that
-profile. Otherwise each distinct model is checked against its authenticated
-provider `/models` endpoint and then models.dev. The final defaults are 122,880
-context tokens and 66,560 output tokens, displayed as `120k` and `65k`.
-Explicit invalid or incomplete limits still fail validation.
+Each provider profile may declare optional exact-name entries under `models`.
+An entry's `context_window_tokens` and `max_output_tokens` take priority only
+for that model. Unlisted model names remain valid and are checked against the
+authenticated provider `/models` endpoint and then models.dev. The final
+defaults are 122,880 context tokens and 66,560 output tokens, displayed as
+`120k` and `65k`. Explicit invalid or incomplete limits still fail validation.
 
 The default `GenericContextEstimator` works across providers and estimates all
 generic request surfaces conservatively, including multilingual text and tool

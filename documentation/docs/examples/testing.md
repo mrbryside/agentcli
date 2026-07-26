@@ -69,14 +69,19 @@ The `playground/terminal` package's `confirm_demo` is a complete executable
 example. Its colocated tests cover output encoding, unknown fields, bounded
 display input, and cancelled contexts.
 
-## Required finalizer test
+## Required trigger tool test
 
 Use a scripted provider to return text without the required tool, then assert
-the repair request contains a reminder naming the missing finalizer while
-restricting the tool catalog to missing finalizers. Return a successful
+the repair request contains a reminder naming the missing trigger tool while
+restricting the tool catalog to missing trigger tools. Return a successful
 standalone call and assert completion without another provider step. Also cover three
-consecutive no-progress repairs, multiple finalizers, mixed continuing batches,
+consecutive no-progress repairs, multiple trigger tools, mixed continuing batches,
 and progress resetting the repair budget.
+
+For `EndTurnOnSuccess`, assert that the tool is optional when omitted, a
+successful mixed batch ends without another provider request, any failed result
+continues, and a required trigger omitted from the terminal batch still causes
+a bounded repair.
 
 ## HTTP test
 

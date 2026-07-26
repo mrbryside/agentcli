@@ -26,13 +26,14 @@ import "github.com/mrbryside/agentcli"
 
 The bootstrap script creates a minimal terminal application plus a `.agentcli`
 project with an example skill and researcher subagent. The main agent receives
-only the network-free `report_discord` finalizer with a pre-execution prompt
+only the network-free `report_discord` trigger tool with a pre-execution prompt
 tool-call guard; the researcher stays read-only with bounded `glob` and `read`.
 The generated application also registers double-gated exact-match `edit`, but
 neither generated agent exposes it by default. `read` returns at most 2,000
 lines and a `next_offset` when more content remains. Tool source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
-`tool_report_discord.go`. The finalizer is called once at the end of every turn,
+`tool_report_discord.go`. The trigger tool is called once after the complete
+response scope settles, including accepted subagent callbacks and follow-ups,
 but the agent decides whether a report is useful: omitting
 `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without writing a report entry. A rejected
@@ -83,29 +84,39 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    # reasoning: false # Optional for backends that support enable_thinking.
-    context_window_tokens: 122880 # Optional provider-profile override.
-    max_output_tokens: 66560
+    models:
+      gpt-4.1-mini:
+        context_window_tokens: 122880
+        max_output_tokens: 66560
+        # reasoning: false # Optional Qwen-compatible shorthand.
+        # extra_body: # Optional model-specific top-level request JSON.
+        #   thinking:
+        #     type: disabled
 ```
 
 Provider names such as `primary` are aliases. The required `type` selects the
 adapter; `openai` is currently supported.
 
-For Qwen and compatible OpenAI-style backends, set `reasoning: false` on a
-provider profile to send `chat_template_kwargs.enable_thinking: false` on
-every model request through that profile. Omit `reasoning` to preserve the
-backend default.
+Entries under `models` are optional exact-name overrides, not an allowlist.
+`MAIN.md` and subagents remain free to select any model name; an unlisted model
+simply uses provider discovery/default metadata and receives no request
+override. Within a matching entry, `reasoning: false` is a Qwen-compatible
+shorthand for `chat_template_kwargs.enable_thinking: false`. For other
+OpenAI-compatible extensions, `extra_body` merges arbitrary top-level JSON
+into every request for that exact model. For example, DeepSeek-compatible
+gateways can use `extra_body: {thinking: {type: disabled}}`. Extra-body values
+override standard request fields with the same names.
 
 The optional `compaction` mapping only selects a separate summarizer through an
 existing provider alias. Optional `context_window_tokens` and
-`max_output_tokens` belong to each provider profile, so main, child, and
-summarizer models can use independent limits. When omitted, startup checks
-that profile's `/models` endpoint, then models.dev, and finally defaults to
-122,880 context tokens and 66,560 output tokens (`120k` and `65k`). The output value
-remains model capability metadata; the operational main-model output reserve
-defaults to one eighth of its context window, capped at 16,384 tokens and
-reduced by lower model or request limits. Compaction preserves the complete
-stored transcript and appends
+`max_output_tokens` belong to each exact model entry, so main, child, and
+summarizer models sharing one provider can still use independent limits. When
+omitted, startup checks that profile's `/models` endpoint, then models.dev, and
+finally defaults to 122,880 context tokens and 66,560 output tokens (`120k` and
+`65k`). The output value remains model capability metadata; the operational
+main-model output reserve defaults to one eighth of its context window, capped
+at 16,384 tokens and reduced by lower model or request limits. Compaction
+preserves the complete stored transcript and appends
 internal checkpoints that resumed sessions keep projecting, even after
 `auto: false` disables future compactions. See
 the [project configuration guide](https://mrbryside.github.io/agentcli/getting-started/project-configuration/)

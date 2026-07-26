@@ -6,7 +6,7 @@ sidebar_position: 1
 # Custom tools
 
 `WithTool` is the application-tool registration API. A tool explicitly owns
-its model-facing definition, raw JSON handler, turn behavior, finalizer flag,
+its model-facing definition, raw JSON handler, turn behavior, trigger mode,
 and optional permission and confirmation descriptors.
 
 ## Define a tool
@@ -101,32 +101,56 @@ invocation, ok := agentcli.ToolInvocationFromContext(ctx)
 admission policy is available through `ToolPermissionPolicyFromContext`.
 Metadata and policy are not user input or substitutes for authorization.
 
-## Tool lifecycle
+## Tool trigger
 
-The zero lifecycle is the default: the handler executes immediately and the
+The zero trigger is the default: the handler executes immediately and the
 provider continues. Do not set a field for this mode.
 
-`EndTurn` makes the tool a required finalizer, runs the handler immediately,
+`EndTurn` makes the tool a required trigger tool, runs the handler immediately,
 and permits completion without another provider request:
 
 ```go
-Lifecycle: agentcli.EndTurn,
+Trigger: agentcli.EndTurn,
 ```
 
 The runtime waits for every call in a parallel batch. It ends the turn only
 when all results succeeded and all called tools resolve to `EndTurn`. A mixed,
 failed, denied, declined, or interrupted batch continues.
 
-## Required end-of-turn tools
+## Optional end after success
+
+Use `EndTurnOnSuccess` when a tool should stay optional, run immediately, and
+end the current turn when it succeeds:
+
+```go
+agentcli.Tool{
+    Definition:       definition,
+    Handler:          handler,
+    EndTurnOnSuccess: true,
+}
+```
+
+The runtime waits for the whole parallel batch. If every result succeeds, one
+`EndTurnOnSuccess` tool ends the turn even when the batch also contains normal
+immediate tools. Any failed, denied, declined, or interrupted result continues
+to another provider round. Required trigger tools are still enforced by the
+completion guard, so this setting cannot bypass a missing `EndTurn` or
+`EndResponseScope` trigger.
+
+`EndTurnOnSuccess` does not make the tool required and does not defer its
+handler. Do not combine it with `Trigger`; registration rejects that ambiguous
+configuration.
+
+## End-of-scope trigger tools
 
 For a side effect that must happen once after the whole user response,
-including subagent callbacks and follow-ups, set one lifecycle:
+including subagent callbacks and follow-ups, set one trigger:
 
 ```go
 agentcli.Tool{
     Definition: definition,
     Handler:    handler,
-    Lifecycle:  agentcli.EndResponseScope,
+    Trigger:    agentcli.EndResponseScope,
 }
 ```
 
@@ -136,19 +160,40 @@ candidate and invokes it exactly once when every turn and accepted subagent
 callback in the response scope has settled. Before invoking deferred handlers,
 the runtime automatically reconciles children touched by that scope: unshared
 completed/failed children close, while incomplete children remain available
-for follow-up. Only a successful terminal
-all-end batch satisfies completion; an earlier call
-or a mixed continuing batch does not. If the model attempts to finish while a
-finalizer is missing, the completion guard starts another provider round with a
-reminder naming every missing finalizer and exposes only those tools. A
+for follow-up. Only a successful terminal batch satisfies completion. That
+batch must either contain only `EndTurn` tools or include an
+`EndTurnOnSuccess` tool; an earlier or continuing batch does not. If the model
+attempts to finish while a
+trigger tool is missing, the completion guard starts another provider round with a
+reminder naming every missing trigger tool and exposes only those tools. A
 caller-supplied completion guard may merge additional bounded allowlist entries.
 AgentRuntime does not set provider-specific tool choice. It permits up to three
 consecutive no-progress repairs; progress resets that budget.
 
-Required finalizers should therefore be described as standalone final actions.
+Required trigger tools should therefore be described as standalone final actions.
 
-Several finalizers are supported. The terminal batch must successfully include
-every still-missing finalizer and contain no continuing tool.
+Several trigger tools are supported. The terminal batch must successfully
+include every still-missing trigger tool. A normal continuing tool may share
+that batch only when another tool has `EndTurnOnSuccess: true`.
+
+Applications can observe scope shutdown without adding another tool:
+
+```go
+events := agent.SubscribeScopeEvents(ctx)
+for event := range events {
+    switch event.Type {
+    case agentcli.PreEndScope:
+        // The scope is quiescent; cleanup and staged handlers have not run.
+    case agentcli.EndScope:
+        // Cleanup and staged handler invocation are complete; the scope ended.
+    }
+}
+```
+
+The stream is live-only. Subscribe before starting the root turn when neither
+boundary may be missed. `PreEndScope` always precedes automatic subagent
+cleanup and staged `EndResponseScope` handlers. `EndScope` is emitted only
+after those operations and scope removal.
 
 ## Permissions and confirmations
 
@@ -208,7 +253,7 @@ A rejection prevents the handler from executing and publishes a failed tool
 result whose error contains the feedback. The agent receives that result on the
 next provider round and may call the tool again with corrected arguments. See
 [Tool-call guards](../guardrails/tool-call.md) for the complete lifecycle,
-failure posture, prompt mode, and finalizer behavior.
+failure posture, prompt mode, and trigger tool behavior.
 
 ## Project allowlists
 
@@ -217,7 +262,7 @@ failure posture, prompt mode, and finalizer behavior.
 - A subagent definition selects which registered application tools that child
   sees.
 
-Required finalizer behavior applies only to agents that expose that tool.
+Required trigger tool behavior applies only to agents that expose that tool.
 Subagents never receive root-only management tools and cannot nest.
 
 ## Handler checklist

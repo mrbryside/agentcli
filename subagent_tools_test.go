@@ -130,7 +130,7 @@ func TestCloseSubagentToolRequiresCurrentHumanInstructionAndClosesImmediately(t 
 	if err := json.Unmarshal(output, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.UserDirected || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed close completed") || !strings.Contains(result.Instruction, "normal response or required finalizer") {
+	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.UserDirected || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed close completed") || !strings.Contains(result.Instruction, "normal response or required trigger tool") {
 		t.Fatalf("close result = %s", output)
 	}
 }
@@ -316,7 +316,7 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || !strings.Contains(changed.Instruction, "Nothing new was queued") {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || queued.Callback != "wait" || !queued.MustWait || !slices.Contains(queued.Prohibited, "duplicate_delegated_work") || queued.Behavior != "continue_turn" || !strings.Contains(queued.Instruction, "already-planned independent work") || !strings.Contains(queued.Instruction, "normal response or required finalizer") || !strings.Contains(queued.Instruction, "wait for its authoritative callback") {
+	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || queued.Callback != "wait" || !queued.MustWait || !slices.Contains(queued.Prohibited, "duplicate_delegated_work") || queued.Behavior != "continue_turn" || !strings.Contains(queued.Instruction, "already-planned independent work") || !strings.Contains(queued.Instruction, "normal response or required trigger tool") || !strings.Contains(queued.Instruction, "wait for its authoritative callback") {
 		t.Fatalf("next turn = %#v", queued)
 	}
 }
@@ -363,7 +363,7 @@ func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *test
 		if err := json.Unmarshal(output, &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "wait_existing" || !result.MustWait || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "authoritative callback") || !strings.Contains(result.Instruction, "already-planned independent work") || !strings.Contains(result.Instruction, "normal response or required finalizer") {
+		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "wait_existing" || !result.MustWait || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "authoritative callback") || !strings.Contains(result.Instruction, "already-planned independent work") || !strings.Contains(result.Instruction, "normal response or required trigger tool") {
 			t.Fatalf("callback_pending result = %s", output)
 		}
 	}

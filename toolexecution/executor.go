@@ -61,8 +61,8 @@ type Config struct {
 	// ToolCallGuardTimeout bounds each tool-call guard evaluation.
 	// A zero value uses the safe default.
 	ToolCallGuardTimeout time.Duration
-	// ResponseScopes coordinates handlers using the EndResponseScope
-	// lifecycle. Agent construction supplies it automatically.
+	// ResponseScopes coordinates handlers using the EndResponseScope trigger.
+	// Agent construction supplies it automatically.
 	ResponseScopes *ResponseScopeCoordinator
 }
 

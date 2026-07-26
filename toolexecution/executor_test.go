@@ -118,7 +118,7 @@ func TestNewExecutorRejectsInvalidConfiguration(t *testing.T) {
 	if err := afterScope.Register(Tool{
 		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler:    testHandler,
-		Lifecycle:  EndResponseScope,
+		Trigger:    EndResponseScope,
 	}); err != nil {
 		t.Fatal(err)
 	}

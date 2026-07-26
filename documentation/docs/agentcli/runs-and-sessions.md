@@ -140,13 +140,16 @@ provider is free to return a normal assistant response instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce up to three `report_subagent_outcome` repairs without re-running domain
-tools. Required end-of-turn finalizers are satisfied only by the final
-all-successful, all-`EndTurn` tool batch; an early or mixed continuing batch
-must be finalized again. If the model attempts to finish while a finalizer
+tools. Required end-of-turn trigger tools are satisfied only by a terminal,
+all-successful tool batch that includes every required trigger. Ordinarily
+every call in that batch must use `EndTurn`; an optional `EndTurnOnSuccess`
+tool also makes a successful mixed batch terminal. An earlier or continuing
+batch must call the required trigger tools again. If the model attempts to
+finish while a trigger tool
 remains unsatisfied, the completion guard starts a repair round with a reminder
-naming every missing finalizer and exposes only those missing finalizer tools.
+naming every missing trigger tool and exposes only those missing trigger tools.
 If an application completion guard also returns a bounded tool allowlist, its
-tools are merged with the missing finalizers. AgentRuntime does not send
+tools are merged with the missing trigger tools. AgentRuntime does not send
 provider-specific tool-choice directives. The bounded completion guard fails
 the turn after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append a repair reminder as an ephemeral
@@ -159,6 +162,18 @@ its unshared completed/failed children before executing deferred
 `EndResponseScope` handlers. Incomplete children remain open. The model-facing
 `close_subagent` tool is reserved for an explicit current human instruction and
 is never part of ordinary callback cleanup.
+
+`Agent.SubscribeScopeEvents(ctx)` exposes two live-only boundaries for
+each human response scope:
+
+- `PreEndScope` (`pre_end_scope`) fires after all turns and accepted callbacks
+  settle, before automatic child cleanup and staged `EndResponseScope`
+  handlers.
+- `EndScope` (`end_scope`) fires after cleanup and all staged handlers run and
+  the scope has been removed.
+
+Each event carries the session, root scope ID, turn that made the scope
+quiescent, touched child IDs, staged tool names, and occurrence time.
 
 ## Run status
 

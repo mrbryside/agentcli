@@ -10,7 +10,7 @@ const subagentOutcomeRepairReminder = `This child turn attempted to finish witho
 
 // subagentOutcomeCompletionGuard gives a child a few bounded opportunities to
 // repair a missing semantic outcome before its callback becomes visible. The
-// required-finalizer wrapper restricts repair rounds to
+// required-trigger-tool wrapper restricts repair rounds to
 // report_subagent_outcome and reminds the child not to repeat an
 // already-completed domain action during repair.
 func subagentOutcomeCompletionGuard(_ context.Context, attempt agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {

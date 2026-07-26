@@ -14,16 +14,21 @@ compaction:
 
 # Provider names are application-defined connection profile aliases. The
 # required type selects the protocol adapter independently from that alias.
-# Optional limits apply to every model using this provider profile.
+# Model entries are optional exact-name overrides, not an allowlist.
 providers:
   your_provider_name:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    # reasoning: false # For backends that support enable_thinking.
-    context_window_tokens: 122880 # Remove when provider discovery is available.
-    max_output_tokens: 66560
+    models:
+      your-compaction-model:
+        context_window_tokens: 122880 # Remove when provider discovery is available.
+        max_output_tokens: 66560
+        # reasoning: false # Optional Qwen-compatible shorthand.
+        # extra_body: # Optional model-specific top-level request JSON.
+        #   thinking:
+        #     type: disabled
 
   # openrouter:
   #   type: openai

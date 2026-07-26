@@ -50,7 +50,7 @@ Permission and confirmation descriptors must normalize and bound
 argument-derived display text. The handler must revalidate target state after
 approval because descriptors and schemas are not execution boundaries.
 
-The generated `report_discord` finalizer is a deterministic local mock and
+The generated `report_discord` trigger tool is a deterministic local mock and
 therefore declares no network permission. Its prompt tool-call guard checks
 the requested arguments before handler execution; rejection leaves the report
 file unchanged. It also requires a direct standalone message without

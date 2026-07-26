@@ -282,7 +282,7 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 			delivered <- input.Message
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Lifecycle: EndResponseScope,
+		Trigger: EndResponseScope,
 	}
 	definition := SubagentDefinition{
 		Name: "researcher", Description: "research work", Provider: "test",

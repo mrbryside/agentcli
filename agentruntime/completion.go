@@ -24,8 +24,9 @@ type CompletionAttempt struct {
 	TurnID    string
 	Messages  []Message
 	// TerminalToolBatch is true only when Messages ends in the current
-	// successful all-EndTurn tool batch. It distinguishes that batch from a
-	// prior or mixed continuing round.
+	// successful terminal tool batch: either every call ends the turn or at
+	// least one call is configured to end the turn on success. It distinguishes
+	// that batch from a prior continuing round.
 	TerminalToolBatch bool
 	ProviderSteps     int
 	RepairCount       int

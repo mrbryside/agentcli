@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.40
+agentcli_fallback_version=v0.0.44
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -188,16 +188,22 @@ compaction:
   model: replace-model
 
 # Agent identities and models live in MAIN.md, subagent definitions, and tool
-# declarations. Provider profiles own connection settings and model limits.
+# declarations. Provider profiles own connections; exact model entries own
+# request overrides and capability limits.
 providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
-    # reasoning: false # For backends that support enable_thinking.
     request_timeout: 2m
-    context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
-    max_output_tokens: 66560 # 65k
+    models:
+      replace-model:
+        # reasoning: false # For backends that support enable_thinking.
+        # extra_body: # Optional model-specific top-level request JSON.
+        #   thinking:
+        #     type: disabled
+        context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
+        max_output_tokens: 66560 # 65k
 
   guardrails:
     type: openai

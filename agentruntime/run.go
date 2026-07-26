@@ -854,13 +854,22 @@ func (r *Run) hasTerminalToolBatch(messages []Message) bool {
 	if !found || len(round.order) == 0 || len(round.accepted) != len(round.order) {
 		return false
 	}
+	allEnd := true
+	endOnSuccess := false
 	for _, callID := range round.order {
 		result := round.accepted[callID]
-		if result.Status != ToolResultSucceeded || round.behaviors[callID] != ToolTurnEnd {
+		if result.Status != ToolResultSucceeded {
 			return false
 		}
+		switch round.behaviors[callID] {
+		case ToolTurnEndOnSuccess:
+			endOnSuccess = true
+		case ToolTurnEnd:
+		default:
+			allEnd = false
+		}
 	}
-	return true
+	return endOnSuccess || allEnd
 }
 
 // CompletionRepairCount reports how many provider retries the completion

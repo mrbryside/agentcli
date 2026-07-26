@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 )
@@ -57,7 +58,7 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		t.Fatalf("handler calls = %v, want latest candidate once", got)
 	}
 	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay", "child", "child-turn-1"); err == nil {
-		t.Fatal("late callback replay reopened a finalized response scope")
+		t.Fatal("late callback replay reopened an ended response scope")
 	}
 	if got := snapshotStrings(&mu, received); len(got) != 1 {
 		t.Fatalf("handler calls after late replay = %v, want exactly one", got)
@@ -69,7 +70,7 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 	coordinator.RegisterDispatch("session", "new-root", "child", "new-dispatch")
 	coordinator.FinishTurn("session", "new-root")
 	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay-with-new-work", "child", "child-turn-1"); err == nil {
-		t.Fatal("late replay from finalized scope consumed newer response-scope work")
+		t.Fatal("late replay from ended scope consumed newer response-scope work")
 	}
 	newCallback, err := coordinator.ReserveCallbackTurn("session", "new-callback", "child", "child-turn-2")
 	if err != nil {
@@ -156,6 +157,7 @@ func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *test
 
 func TestResponseScopeCleanupRunsBeforeDeferredHandlersAndSeesTouchedChildren(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
+	scopeEvents := coordinator.SubscribeEvents(context.Background())
 	var events []string
 	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, children []string) {
 		events = append(events, "cleanup:"+sessionID+":"+scopeID+":"+strings.Join(children, ","))
@@ -178,7 +180,96 @@ func TestResponseScopeCleanupRunsBeforeDeferredHandlersAndSeesTouchedChildren(t 
 	coordinator.FinishTurn("session", "root-turn")
 	coordinator.FinishTurn("session", "callback-turn")
 	if got, want := strings.Join(events, "|"), "cleanup:session:root-turn:child|handler"; got != want {
-		t.Fatalf("scope finalization order = %q, want %q", got, want)
+		t.Fatalf("scope end order = %q, want %q", got, want)
+	}
+	preEnd := <-scopeEvents
+	end := <-scopeEvents
+	if preEnd.Type != PreEndScope || end.Type != EndScope {
+		t.Fatalf("scope event types = %q, %q; want %q, %q", preEnd.Type, end.Type, PreEndScope, EndScope)
+	}
+	for _, event := range []ScopeEvent{preEnd, end} {
+		if event.SessionID != "session" || event.ScopeID != "root-turn" || event.TriggerTurnID != "callback-turn" {
+			t.Fatalf("scope event correlation = %+v", event)
+		}
+		if got := strings.Join(event.ChildIDs, ","); got != "child" {
+			t.Fatalf("scope event children = %q, want child", got)
+		}
+		if got := strings.Join(event.ToolNames, ","); got != "report" {
+			t.Fatalf("scope event tools = %q, want report", got)
+		}
+		if event.OccurredAt.IsZero() {
+			t.Fatal("scope event occurred_at is zero")
+		}
+	}
+}
+
+func TestScopeEventsBracketCleanupAndEndScopeHandlers(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	scopeEvents := coordinator.SubscribeEvents(context.Background())
+	cleanupStarted := make(chan struct{})
+	releaseCleanup := make(chan struct{})
+	handlerCalled := make(chan struct{})
+	finished := make(chan struct{})
+	coordinator.SetCleanup(func(context.Context, string, string, []string) {
+		close(cleanupStarted)
+		<-releaseCleanup
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		close(handlerCalled)
+		return json.RawMessage(`{}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		coordinator.FinishTurn("session", "turn")
+		close(finished)
+	}()
+
+	select {
+	case <-cleanupStarted:
+	case <-time.After(time.Second):
+		t.Fatal("scope cleanup did not start")
+	}
+	select {
+	case event := <-scopeEvents:
+		if event.Type != PreEndScope {
+			t.Fatalf("first scope event = %q, want %q", event.Type, PreEndScope)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("PreEndScope was not emitted before blocked cleanup")
+	}
+	select {
+	case event := <-scopeEvents:
+		t.Fatalf("scope event %q arrived before cleanup completed", event.Type)
+	default:
+	}
+	select {
+	case <-handlerCalled:
+		t.Fatal("EndResponseScope handler ran before cleanup completed")
+	default:
+	}
+
+	close(releaseCleanup)
+	select {
+	case <-handlerCalled:
+	case <-time.After(time.Second):
+		t.Fatal("EndResponseScope handler did not run after cleanup")
+	}
+	select {
+	case event := <-scopeEvents:
+		if event.Type != EndScope {
+			t.Fatalf("second scope event = %q, want %q", event.Type, EndScope)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("EndScope was not emitted after handler execution")
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("FinishTurn did not return")
 	}
 }
 
@@ -234,6 +325,26 @@ func TestResponseScopeCleanupFailureDoesNotSuppressDeferredHandler(t *testing.T)
 	}
 }
 
+func TestResponseScopeEndEventSurvivesCleanupAndHandlerPanics(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	scopeEvents := coordinator.SubscribeEvents(context.Background())
+	coordinator.SetCleanup(func(context.Context, string, string, []string) {
+		panic("cleanup failed")
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		panic("handler failed")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.FinishTurn("session", "turn")
+	if preEnd, end := <-scopeEvents, <-scopeEvents; preEnd.Type != PreEndScope || end.Type != EndScope {
+		t.Fatalf("scope events after panics = %q, %q", preEnd.Type, end.Type)
+	}
+}
+
 func TestResponseScopeRolledBackDispatchIsNotCleanupCandidate(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	var children []string
@@ -251,6 +362,21 @@ func TestResponseScopeRolledBackDispatchIsNotCleanupCandidate(t *testing.T) {
 	}
 }
 
+func TestScopeEventStreamClosesWithCoordinatorContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	coordinator := NewResponseScopeCoordinator(ctx)
+	scopeEvents := coordinator.SubscribeEvents(context.Background())
+	cancel()
+	select {
+	case _, open := <-scopeEvents:
+		if open {
+			t.Fatal("scope event stream remained open after coordinator context ended")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scope event stream did not close with coordinator context")
+	}
+}
+
 func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
@@ -264,7 +390,7 @@ func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing
 			calls++
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Lifecycle: EndResponseScope,
+		Trigger: EndResponseScope,
 	}); err != nil {
 		t.Fatal(err)
 	}

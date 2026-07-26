@@ -78,7 +78,7 @@ runs, the parent may continue already-planned independent work that neither
 duplicates the delegated task nor depends on its result. It must not retry the
 dispatch, redo delegated work, poll, or claim completion before the callback.
 Once independent work is exhausted, the model completes through the
-application's normal response or required finalizer so callbacks can arrive on
+application's normal response or required trigger tool so callbacks can arrive on
 later turns. Duplicate, already-sent, and callback-pending results use
 `callback_action: wait_existing` because they create no new callback.
 `selection_required` uses `callback_action: none`. The child turn outcome

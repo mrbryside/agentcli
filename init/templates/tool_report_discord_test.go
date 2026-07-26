@@ -13,13 +13,13 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
+func TestReportDiscordToolIsRequiredTriggerTool(t *testing.T) {
 	tool := newReportDiscordTool(t.TempDir())
 	if tool.Definition.Name != "report_discord" || tool.Handler == nil {
 		t.Fatalf("tool = %#v", tool)
 	}
-	if tool.Lifecycle != agentcli.EndResponseScope {
-		t.Fatalf("tool lifecycle = %q, want EndResponseScope", tool.Lifecycle)
+	if tool.Trigger != agentcli.EndResponseScope {
+		t.Fatalf("tool trigger = %q, want EndResponseScope", tool.Trigger)
 	}
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)

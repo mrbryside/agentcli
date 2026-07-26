@@ -19,7 +19,7 @@ const defaultToolWorkers = 4
 const defaultMaxSubagents = 4
 
 // defaultCompletionRepairLimit bounds provider retries when a completion
-// guard requires a finalizer or semantic outcome tool. A bounded retry keeps
+// guard requires a trigger or semantic-outcome tool. A bounded retry keeps
 // a non-compliant provider from consuming the entire run indefinitely while
 // allowing compatible providers more than one opportunity to emit the tool.
 const defaultCompletionRepairLimit = 3

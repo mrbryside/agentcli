@@ -67,7 +67,7 @@ The generated `report_discord` tool is a deterministic, network-free mock. It
 is allowlisted only for the main agent and must be called exactly once as the
 standalone final action of each turn with the complete user-facing response.
 Generated instructions forbid sending user-facing conversational, progress, or
-final messages outside the tool; the finalizer's `message` argument is the only
+final messages outside the tool; the trigger tool's `message` argument is the only
 user-facing delivery channel. They explicitly require empty ordinary assistant
 content and require the first user-facing text to appear inside the tool
 arguments.
@@ -89,7 +89,7 @@ progress includes delegation attribution, rejection feedback preserves the
 progress and provides a concrete direct rewrite instead of recommending
 `skipReport`. It uses the generated `guardrails` provider profile and
 `replace-guard-model`, independently of the main agent provider/model.
-Rejection leaves the report file unchanged and becomes a failed finalizer
+Rejection leaves the report file unchanged and becomes a failed tool
 result with retry feedback.
 
 The `read` tool is project-root scoped, rejects sensitive paths and escaping

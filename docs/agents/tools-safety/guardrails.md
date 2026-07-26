@@ -23,7 +23,7 @@ model or tools. Prompt-backed input guards map a rejected verdict to
 `InputRespond`, using the verdict reason as the user-facing response.
 
 `agentruntime.OutputGuard` runs after a terminal assistant message is stored
-and before completion/finalizer checks. `OutputRetry` adds trusted ephemeral
+and before completion/trigger tool checks. `OutputRetry` adds trusted ephemeral
 feedback to the next model request and consumes another provider step.
 
 `agentruntime.ToolCallGuard` runs in the executor after permission and
@@ -67,7 +67,9 @@ The executor does not retry a handler directly. A rejected tool call becomes a
 correlated failed tool result without invoking the handler. AgentRuntime stores
 that result, starts the next provider round, and lets the model choose corrected
 arguments and a new call ID. A later success restores the tool's configured
-lifecycle. Rejected `EndTurn` and `EndResponseScope` finalizers remain unsatisfied.
+trigger or end-on-success behavior. Rejected `EndTurn` and `EndResponseScope`
+trigger tools remain unsatisfied; rejected `EndTurnOnSuccess` tools do not end
+the turn.
 
 Guard callback panics/errors, invalid decisions, and malformed prompt verdicts
 also become failed tool results without invoking the handler. Invalid JSON from
@@ -107,6 +109,6 @@ feedback preserves it, removes internal attribution, and suggests a concrete
 direct rewrite instead of `skipReport`. The skip option is reserved for a
 submitted message with no meaningful user-facing action, progress, status,
 finding, or conclusion. It uses the main model fallback and returns rejection
-as finalizer feedback.
+as trigger tool feedback.
 
 Back to [tools-safety/index.md](index.md).

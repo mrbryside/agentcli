@@ -36,6 +36,7 @@ const (
 	SessionActivityTurnCancelled        SessionActivityType = "turn_cancelled"
 	SessionActivityTurnRejected         SessionActivityType = "turn_rejected"
 	SessionActivityTurnEvent            SessionActivityType = "turn_event"
+	SessionActivityScopeEvent           SessionActivityType = "scope_event"
 	SessionActivitySubagentConfirmation SessionActivityType = "subagent_confirmation"
 	SessionActivitySubagentPermission   SessionActivityType = "subagent_permission"
 )
@@ -126,6 +127,20 @@ type SessionEventResponse struct {
 	SubagentConfirmation *SubagentConfirmationReference `json:"subagent_confirmation,omitempty"`
 	SubagentPermission   *SubagentPermissionReference   `json:"subagent_permission,omitempty"`
 	RuntimeEvent         *EventResponse                 `json:"runtime_event,omitempty"`
+	ScopeEvent           *ScopeEventResponse            `json:"scope_event,omitempty"`
+}
+
+// ScopeEventResponse is the HTTP-safe view of PreEndScope and
+// EndScope. ScopeID is the originating human turn; TriggerTurnID is the final
+// turn whose completion made the scope quiescent.
+type ScopeEventResponse struct {
+	Type          ScopeEventType `json:"type" swaggertype:"string" enums:"pre_end_scope,end_scope"`
+	SessionID     string         `json:"session_id"`
+	ScopeID       string         `json:"scope_id"`
+	TriggerTurnID string         `json:"trigger_turn_id"`
+	ChildIDs      []string       `json:"child_ids"`
+	ToolNames     []string       `json:"tool_names"`
+	OccurredAt    time.Time      `json:"occurred_at"`
 }
 
 type InterruptRequest struct {

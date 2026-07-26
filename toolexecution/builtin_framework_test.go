@@ -51,15 +51,15 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == CloseSubagentToolName {
-			if tool.Lifecycle != "" || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
+			if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
 			}
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one start_subagent call per provider round") || !strings.Contains(tool.Definition.Description, "Never emit multiple start_subagent calls in the same tool batch")) {
 			t.Fatalf("start_subagent does not describe sequential starts: %#v", tool)
 		}
-		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && tool.Lifecycle != "" {
-			t.Fatalf("subagent management tool %q lifecycle = %q, want default continue", tool.Definition.Name, tool.Lifecycle)
+		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && (tool.Trigger != "" || tool.EndTurnOnSuccess) {
+			t.Fatalf("subagent management tool %q has terminal behavior, want default continue", tool.Definition.Name)
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child of the requested definition is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
@@ -96,8 +96,8 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 
 func TestSubagentToolTurnBehavior(t *testing.T) {
 	for _, tool := range NewSubagentToolBridge().Tools() {
-		if tool.Lifecycle != "" || tool.resultTurnBehavior != nil {
-			t.Fatalf("%s lifecycle = (%q, dynamic=%v), want default continue", tool.Definition.Name, tool.Lifecycle, tool.resultTurnBehavior != nil)
+		if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil {
+			t.Fatalf("%s terminal behavior = (trigger=%q, end_on_success=%t, dynamic=%v), want default continue", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess, tool.resultTurnBehavior != nil)
 		}
 	}
 }

@@ -145,14 +145,18 @@ providers:
     type: openai
     url: `+mainServer.URL+`/v1
     api_key: test-key
-    context_window_tokens: 262144
-    max_output_tokens: 32768
+    models:
+      gpt-test:
+        context_window_tokens: 262144
+        max_output_tokens: 32768
   compact:
     type: openai
     url: `+compactionServer.URL+`/v1
     api_key: test-key
-    context_window_tokens: 131072
-    max_output_tokens: 16384
+    models:
+      compact-model:
+        context_window_tokens: 131072
+        max_output_tokens: 16384
 `)
 	writeMainAgentDefinition(t, root, "main", "gpt-test", "skills: [reviewing-go, testing-go]")
 
@@ -202,8 +206,10 @@ func TestProjectModelUsesProviderMetadataWithoutCompaction(t *testing.T) {
   main:
     type: openai
     api_key: test-key
-    context_window_tokens: 196608
-    max_output_tokens: 24576
+    models:
+      custom-model:
+        context_window_tokens: 196608
+        max_output_tokens: 24576
 `)
 	writeMainAgentDefinition(t, root, "main", "custom-model", "skills: [reviewing-go, testing-go]")
 
@@ -240,23 +246,29 @@ func TestConfiguredProviderMetadataValidation(t *testing.T) {
 			config: ProviderConfig{},
 		},
 		{
-			name:   "missing context",
-			config: ProviderConfig{MaxOutputTokens: 1024},
-			want:   "context window tokens must be positive",
+			name: "missing context",
+			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+				"selected": {MaxOutputTokens: 1024},
+			}},
+			want: "context window tokens must be positive",
 		},
 		{
-			name:   "output exceeds context",
-			config: ProviderConfig{ContextWindowTokens: 1024, MaxOutputTokens: 2048},
-			want:   "maximum output tokens cannot exceed",
+			name: "output exceeds context",
+			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+				"selected": {ContextWindowTokens: 1024, MaxOutputTokens: 2048},
+			}},
+			want: "maximum output tokens cannot exceed",
 		},
 		{
-			name:   "valid",
-			config: ProviderConfig{ContextWindowTokens: 122880, MaxOutputTokens: 66560},
+			name: "valid",
+			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+				"selected": {ContextWindowTokens: 122880, MaxOutputTokens: 66560},
+			}},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, configured, err := configuredProviderMetadata("test", test.config)
+			_, configured, err := configuredProviderMetadata("test", "selected", test.config)
 			if test.want != "" {
 				if err == nil || !strings.Contains(err.Error(), test.want) {
 					t.Fatalf("error = %v; want %q", err, test.want)
@@ -271,6 +283,21 @@ func TestConfiguredProviderMetadataValidation(t *testing.T) {
 				t.Fatalf("configured = %t; want %t", configured, wantConfigured)
 			}
 		})
+	}
+}
+
+func TestConfiguredProviderMetadataMatchesExactModelName(t *testing.T) {
+	config := ProviderConfig{Models: map[string]ProviderModelConfig{
+		"selected": {
+			ContextWindowTokens: 122880,
+			MaxOutputTokens:     66560,
+		},
+	}}
+
+	if _, configured, err := configuredProviderMetadata("test", "other", config); err != nil {
+		t.Fatal(err)
+	} else if configured {
+		t.Fatal("unlisted model unexpectedly received configured metadata")
 	}
 }
 

@@ -17,8 +17,9 @@ import (
 // Callers provide an explicit object schema and a raw JSON handler.
 type Tool = toolexecution.Tool
 
-// ToolLifecycle controls when a tool handler performs its side effect.
-type ToolLifecycle = toolexecution.ToolLifecycle
+// ToolTrigger groups a custom tool's required-completion and handler-delivery
+// behavior into one mode.
+type ToolTrigger = toolexecution.ToolTrigger
 
 const (
 	// EndTurn requires the tool at turn completion and ends the turn after its

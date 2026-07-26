@@ -13,8 +13,8 @@ import (
 	"github.com/mrbryside/agentcli/provider"
 )
 
-func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
-	model := &requiredFinalizerModel{}
+func TestRequiredRawToolRepairsOneMissingTriggerToolCall(t *testing.T) {
+	model := &requiredTriggerToolModel{}
 	var calls int
 	tool := Tool{
 		Definition: ToolDefinition{
@@ -26,12 +26,12 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 			calls++
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		Lifecycle: EndTurn,
+		Trigger: EndTurn,
 	}
 	distractor := Tool{
 		Definition: ToolDefinition{
 			Name:        "distractor",
-			Description: "A normal tool that must not be exposed during strict finalizer repair.",
+			Description: "A normal tool that must not be exposed during strict trigger tool repair.",
 			InputSchema: ObjectSchema(struct{}{}),
 		},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
@@ -43,7 +43,7 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close()
-	run, err := agent.Start(context.Background(), userRequest("required-finalizer"))
+	run, err := agent.Start(context.Background(), userRequest("required-trigger-tool"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,8 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	}
 }
 
-func TestEndResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
-	model := &requiredFinalizerModel{}
+func TestEndResponseScopeAutomaticallyRequiresAndDefersTriggerTool(t *testing.T) {
+	model := &requiredTriggerToolModel{}
 	delivered := make(chan struct{}, 1)
 	tool := Tool{
 		Definition: ToolDefinition{
@@ -79,7 +79,7 @@ func TestEndResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
 			delivered <- struct{}{}
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		Lifecycle: EndResponseScope,
+		Trigger: EndResponseScope,
 	}
 	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
 	if err != nil {
@@ -116,7 +116,7 @@ func TestEndResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
 }
 
 func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
-	model := &requiredFinalizerModel{repairMisses: 2}
+	model := &requiredTriggerToolModel{repairMisses: 2}
 	var calls int
 	tool := Tool{
 		Definition: ToolDefinition{
@@ -128,14 +128,14 @@ func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
 			calls++
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		Lifecycle: EndTurn,
+		Trigger: EndTurn,
 	}
 	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer agent.Close()
-	run, err := agent.Start(context.Background(), userRequest("required-finalizer-bounded"))
+	run, err := agent.Start(context.Background(), userRequest("required-trigger-tool-bounded"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +151,14 @@ func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
 	}
 }
 
-func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
+func TestRequiredTriggerToolMixedContinuingBatchRequiresItAgain(t *testing.T) {
 	model := &requiredMixedBatchModel{}
 	report := Tool{
 		Definition: ToolDefinition{Name: "report", Description: "Required report.", InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("message").Required()})},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
-		Lifecycle: EndTurn,
+		Trigger: EndTurn,
 	}
 	work := Tool{
 		Definition: ToolDefinition{Name: "work", Description: "Continue work.", InputSchema: ObjectSchema(struct{}{})},
@@ -171,7 +171,7 @@ func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close()
-	run, err := agent.Start(context.Background(), userRequest("mixed-finalizer"))
+	run, err := agent.Start(context.Background(), userRequest("mixed-trigger-tool"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,116 @@ func TestRequiredFinalizerMixedContinuingBatchRequiresItAgain(t *testing.T) {
 	}
 }
 
-func TestRequiredFinalizerRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
+func TestEndTurnOnSuccessIsOptionalAndDoesNotRunWhenOmitted(t *testing.T) {
+	model := &scriptedModel{}
+	var calls int
+	tool := Tool{
+		Definition:       ToolDefinition{Name: "handoff", Description: "Optional terminal handoff.", InputSchema: ObjectSchema(struct{}{})},
+		EndTurnOnSuccess: true,
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("optional-end-turn-on-success"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 || run.CompletionRepairCount() != 0 || len(model.Requests()) != 1 {
+		t.Fatalf("calls = %d, repairs = %d, requests = %d; want 0, 0, 1", calls, run.CompletionRepairCount(), len(model.Requests()))
+	}
+}
+
+func TestEndTurnOnSuccessEndsSuccessfulMixedBatch(t *testing.T) {
+	model := &scriptedModel{toolCalls: []provider.ToolCall{
+		{ID: "handoff", Name: "handoff", Arguments: map[string]any{}},
+		{ID: "audit", Name: "audit", Arguments: map[string]any{}},
+	}}
+	var handoffs, audits int
+	handoff := Tool{
+		Definition:       ToolDefinition{Name: "handoff", Description: "Optional terminal handoff.", InputSchema: ObjectSchema(struct{}{})},
+		EndTurnOnSuccess: true,
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handoffs++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	audit := Tool{
+		Definition: ToolDefinition{Name: "audit", Description: "Normal immediate tool.", InputSchema: ObjectSchema(struct{}{})},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			audits++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(handoff), WithTool(audit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("mixed-end-turn-on-success"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if handoffs != 1 || audits != 1 || len(model.Requests()) != 1 {
+		t.Fatalf("handoffs = %d, audits = %d, requests = %d; want 1, 1, 1", handoffs, audits, len(model.Requests()))
+	}
+}
+
+func TestEndTurnOnSuccessCannotBypassRequiredTrigger(t *testing.T) {
+	model := &endTurnOnSuccessRepairModel{}
+	var handoffs, reports int
+	handoff := Tool{
+		Definition:       ToolDefinition{Name: "handoff", Description: "Optional terminal handoff.", InputSchema: ObjectSchema(struct{}{})},
+		EndTurnOnSuccess: true,
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handoffs++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	report := Tool{
+		Definition: ToolDefinition{Name: "report", Description: "Required final report.", InputSchema: ObjectSchema(struct{}{})},
+		Trigger:    EndTurn,
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			reports++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(handoff), WithTool(report))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("end-turn-on-success-required-repair"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	if handoffs != 1 || reports != 1 || run.CompletionRepairCount() != 1 || len(requests) != 2 {
+		t.Fatalf("handoffs = %d, reports = %d, repairs = %d, requests = %d; want 1, 1, 1, 2", handoffs, reports, run.CompletionRepairCount(), len(requests))
+	}
+	if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
+		t.Fatalf("repair tools = %#v, want only report", requests[1].Tools)
+	}
+}
+
+func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 	base := func(context.Context, agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
 		return agentruntime.CompletionDecision{
 			Action:           agentruntime.CompletionRetry,
@@ -209,7 +318,7 @@ func TestRequiredFinalizerRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 	}
 }
 
-type requiredFinalizerModel struct {
+type requiredTriggerToolModel struct {
 	mu           sync.Mutex
 	requests     []agentruntime.ModelRequest
 	repairMisses int
@@ -219,6 +328,28 @@ type requiredFinalizerModel struct {
 type requiredMixedBatchModel struct {
 	mu       sync.Mutex
 	requests []agentruntime.ModelRequest
+}
+
+type endTurnOnSuccessRepairModel struct {
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+}
+
+func (m *endTurnOnSuccessRepairModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := len(m.requests)
+	m.requests = append(m.requests, request)
+	m.mu.Unlock()
+	if index == 0 {
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "handoff", Name: "handoff", Arguments: map[string]any{}}}, Finished: true}}, nil
+	}
+	return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "report", Name: "report", Arguments: map[string]any{}}}, Finished: true}}, nil
+}
+
+func (m *endTurnOnSuccessRepairModel) Requests() []agentruntime.ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), m.requests...)
 }
 
 func (m *requiredMixedBatchModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
@@ -238,7 +369,7 @@ func (m *requiredMixedBatchModel) Requests() []agentruntime.ModelRequest {
 	return append([]agentruntime.ModelRequest(nil), m.requests...)
 }
 
-func (m *requiredFinalizerModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+func (m *requiredTriggerToolModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, request)
@@ -249,7 +380,7 @@ func (m *requiredFinalizerModel) Start(_ context.Context, request agentruntime.M
 	return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil
 }
 
-func (m *requiredFinalizerModel) Requests() []agentruntime.ModelRequest {
+func (m *requiredTriggerToolModel) Requests() []agentruntime.ModelRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]agentruntime.ModelRequest(nil), m.requests...)

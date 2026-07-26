@@ -19,18 +19,23 @@ var (
 // agentruntime.Run can start. Runtime itself deliberately rejects overlapping
 // turns; the server serializes accepted requests before calling Agent.Start.
 type serverTurn struct {
-	mu       sync.RWMutex
-	request  agentruntime.Request
-	source   ServerTurnSource
-	callback *SubagentCallback
-	ready    chan struct{}
-	once     sync.Once
-	run      *agentruntime.Run
-	err      error
+	mu                sync.RWMutex
+	request           agentruntime.Request
+	source            ServerTurnSource
+	callback          *SubagentCallback
+	ready             chan struct{}
+	runtimeEventsDone chan struct{}
+	once              sync.Once
+	runtimeEventsOnce sync.Once
+	run               *agentruntime.Run
+	err               error
 }
 
 func newServerTurn(request agentruntime.Request, source ServerTurnSource, callback *SubagentCallback) *serverTurn {
-	return &serverTurn{request: request, source: source, callback: callback, ready: make(chan struct{})}
+	return &serverTurn{
+		request: request, source: source, callback: callback,
+		ready: make(chan struct{}), runtimeEventsDone: make(chan struct{}),
+	}
 }
 
 func (turn *serverTurn) resolve(run *agentruntime.Run, err error) {
@@ -138,6 +143,7 @@ func (server *Server) startAcceptedTurn(turn *serverTurn) error {
 }
 
 func (server *Server) watchAcceptedTurn(turn *serverTurn, run *agentruntime.Run) {
+	defer turn.runtimeEventsOnce.Do(func() { close(turn.runtimeEventsDone) })
 	subscription := run.Subscribe(server.context)
 	backfill, err := run.EventsBetween(agentruntime.EventCursor{}, subscription.Cursor)
 	if err == nil {

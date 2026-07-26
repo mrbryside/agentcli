@@ -29,8 +29,8 @@ starts that turn. Cancelling the queued turn wakes the connection with a
 ## Session stream
 
 Use the whole-session endpoint for interactive applications. It replays and
-follows queued lifecycle records, ordinary user turns, and parent turns created
-automatically when subagents complete.
+follows queued lifecycle records, ordinary user turns, parent turns created
+automatically when subagents complete, and response-scope boundaries.
 
 ```text
 id: 19
@@ -39,9 +39,17 @@ data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id"
 ```
 
 Session lifecycle types are `turn_queued`, `turn_admitted`, `turn_cancelled`,
-`turn_rejected`, and `turn_event`. For `turn_event`, the SSE event name is the
-nested `runtime_event.type`. The outer `cursor` is the value to persist for
-session reconnect; the nested `sequence` remains the cursor for that one turn.
+`turn_rejected`, `turn_event`, and `scope_event`. For `turn_event`, the SSE
+event name is the nested `runtime_event.type`. For `scope_event`, it is the
+nested `scope_event.type`: `pre_end_scope` or `end_scope`. The outer `cursor`
+is the value to persist for session reconnect; the nested `sequence` remains
+the cursor for one turn.
+
+`pre_end_scope` is published after the scope has no active turn or accepted
+callback, before child cleanup and staged `EndResponseScope` tool handlers.
+`end_scope` is published after cleanup, handler invocation, and scope removal.
+The nested payload includes `scope_id`, `trigger_turn_id`, `child_ids`,
+`tool_names`, and `occurred_at`.
 
 ## Wire format
 

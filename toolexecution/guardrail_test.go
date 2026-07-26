@@ -31,7 +31,7 @@ func TestToolCallFunctionGuardRejectsBeforeHandlerWithRetryableFailedResult(t *t
 			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		Lifecycle:     EndTurn,
+		Trigger:       EndTurn,
 		ToolCallGuard: guard,
 	}); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestToolCallFunctionGuardAllowExecutesHandlerAndPreservesTurnBehavior(t *te
 			handlerCalls++
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
-		Lifecycle: EndTurn,
+		Trigger: EndTurn,
 		ToolCallGuard: func(_ context.Context, attempt agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			attempt.Arguments = append(attempt.Arguments, ' ')
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
@@ -94,7 +94,7 @@ func TestToolCallPromptGuardUsesConfiguredModelAndRejectsBeforeHandler(t *testin
 			handlerCalls++
 			return json.RawMessage(`{"items":[]}`), nil
 		},
-		Lifecycle:           EndTurn,
+		Trigger:             EndTurn,
 		ToolCallGuardPrompt: "Require a narrow query.",
 	}); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"status":"done"}`), nil
 		},
-		Lifecycle:           EndTurn,
+		Trigger:             EndTurn,
 		ToolCallGuardPrompt: "Allow an empty argument object.",
 	}); err != nil {
 		t.Fatal(err)

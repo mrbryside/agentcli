@@ -131,8 +131,8 @@ the handler. Invalid JSON returned by an allowed handler remains a normal
 failed tool result.
 
 Guard rejection always continues so the model can correct the call. A later
-successful retry restores the configured lifecycle. A rejected `EndTurn` or
-`EndResponseScope` attempt does not satisfy the finalizer.
+successful retry restores the configured trigger. A rejected `EndTurn` or
+`EndResponseScope` attempt does not satisfy its trigger requirement.
 
 For `EndResponseScope` tools, guard and admission checks happen before the
 invocation is staged. A rejection therefore never replaces the staged
@@ -158,7 +158,7 @@ presented as the reporting agent's own action. For example, the guard rejects
 `A subagent is analyzing main.go and will report back` but accepts `Analyzing
 main.go to prepare a summary of its purpose, architecture, and key components.`
 A rejected check returns feedback to the main agent, leaves the report file
-unchanged, and allows a corrected finalizer call. When useful progress exists,
+unchanged, and allows a corrected trigger tool call. When useful progress exists,
 the feedback preserves it, removes delegation attribution, includes a concrete
 suggested message, and does not recommend skipping the report.
 

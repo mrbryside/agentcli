@@ -26,11 +26,14 @@ type GuardModelConfig struct {
 // Tool combines a provider-neutral definition with its implementation.
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
-// policy or mode. Lifecycle is the only completion-policy setting.
+// policy or mode. Trigger selects required execution timing.
+// EndTurnOnSuccess is independent: the tool stays optional and executes
+// immediately, but a successful batch containing it ends the current turn.
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
-	Lifecycle            ToolLifecycle
+	Trigger              ToolTrigger
+	EndTurnOnSuccess     bool
 	ToolCallGuard        agentruntime.ToolCallGuard
 	ToolCallGuardPrompt  string
 	ToolCallGuardModel   *GuardModelConfig
@@ -65,7 +68,7 @@ type Registry struct {
 type registeredTool struct {
 	definition            agentruntime.ToolDefinition
 	handler               Handler
-	lifecycle             ToolLifecycle
+	trigger               ToolTrigger
 	turnBehavior          agentruntime.ToolTurnBehavior
 	toolCallGuard         agentruntime.ToolCallGuard
 	toolCallGuardPrompt   string
@@ -91,8 +94,11 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.Handler == nil {
 		return fmt.Errorf("tool %q handler is required", tool.Definition.Name)
 	}
-	if tool.Lifecycle != "" && tool.Lifecycle != EndTurn && tool.Lifecycle != EndResponseScope {
-		return fmt.Errorf("tool %q has unsupported lifecycle %q", tool.Definition.Name, tool.Lifecycle)
+	if tool.Trigger != "" && tool.Trigger != EndTurn && tool.Trigger != EndResponseScope {
+		return fmt.Errorf("tool %q has unsupported trigger %q", tool.Definition.Name, tool.Trigger)
+	}
+	if tool.Trigger != "" && tool.EndTurnOnSuccess {
+		return fmt.Errorf("tool %q cannot configure both Trigger and EndTurnOnSuccess", tool.Definition.Name)
 	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
@@ -127,11 +133,13 @@ func (r *Registry) Register(tool Tool) error {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
 	turnBehavior := agentruntime.ToolTurnContinue
-	if tool.Lifecycle == EndTurn || tool.Lifecycle == EndResponseScope {
+	if tool.Trigger == EndTurn || tool.Trigger == EndResponseScope {
 		turnBehavior = agentruntime.ToolTurnEnd
+	} else if tool.EndTurnOnSuccess {
+		turnBehavior = agentruntime.ToolTurnEndOnSuccess
 	}
 	r.tools[definition.Name] = registeredTool{
-		definition: definition, handler: tool.Handler, lifecycle: tool.Lifecycle, turnBehavior: turnBehavior,
+		definition: definition, handler: tool.Handler, trigger: tool.Trigger, turnBehavior: turnBehavior,
 		toolCallGuard: tool.ToolCallGuard, toolCallGuardPrompt: tool.ToolCallGuardPrompt,
 		toolCallGuardProvider: guardProvider, toolCallGuardModel: guardModel,
 		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
@@ -141,18 +149,18 @@ func (r *Registry) Register(tool Tool) error {
 	return nil
 }
 
-func (r *Registry) lifecycleFor(name string) (ToolLifecycle, bool) {
+func (r *Registry) triggerFor(name string) (ToolTrigger, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	tool, ok := r.tools[name]
-	return tool.lifecycle, ok
+	return tool.trigger, ok
 }
 
 func (r *Registry) hasEndResponseScopeTools() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, tool := range r.tools {
-		if tool.lifecycle == EndResponseScope {
+		if tool.trigger == EndResponseScope {
 			return true
 		}
 	}

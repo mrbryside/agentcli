@@ -313,7 +313,9 @@ func TestProjectProviderReasoningSettingReachesModelRequest(t *testing.T) {
     type: openai
     url: `+server.URL+`
     api_key: test-key
-    reasoning: false
+    models:
+      qwen-test:
+        reasoning: false
 `)
 	writeMainAgentDefinition(t, root, "local", "qwen-test", "")
 
@@ -336,6 +338,83 @@ func TestProjectProviderReasoningSettingReachesModelRequest(t *testing.T) {
 	}
 	if enabled, ok := requestBody.ChatTemplateKwargs["enable_thinking"]; !ok || enabled {
 		t.Fatalf("chat template kwargs = %#v, want enable_thinking false", requestBody.ChatTemplateKwargs)
+	}
+}
+
+func TestProjectProviderExtraBodyReachesModelRequest(t *testing.T) {
+	t.Setenv("PROJECT_TEST_THINKING_TYPE", "disabled")
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `providers:
+  local:
+    type: openai
+    url: `+server.URL+`
+    api_key: test-key
+    models:
+      provider-specific-model-alias:
+        extra_body:
+          thinking:
+            type: ${PROJECT_TEST_THINKING_TYPE}
+          provider_options:
+            flags: [one, true, 3]
+`)
+	writeMainAgentDefinition(t, root, "local", "provider-specific-model-alias", "")
+
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := project.Model()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := model.Start(context.Background(), agentruntime.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Subscribe(context.Background()) {
+	}
+	if _, err := stream.Result(); err != nil {
+		t.Fatal(err)
+	}
+
+	thinking, ok := requestBody["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking = %#v, want disabled", requestBody["thinking"])
+	}
+	options, ok := requestBody["provider_options"].(map[string]any)
+	if !ok || len(options["flags"].([]any)) != 3 {
+		t.Fatalf("provider_options = %#v", requestBody["provider_options"])
+	}
+
+	requestBody = nil
+	unlistedModel, err := project.ModelFor("local", "unlisted-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err = unlistedModel.Start(context.Background(), agentruntime.ModelRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Subscribe(context.Background()) {
+	}
+	if _, err := stream.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := requestBody["thinking"]; found {
+		t.Fatalf("unlisted model unexpectedly received thinking override: %#v", requestBody)
+	}
+	if _, found := requestBody["provider_options"]; found {
+		t.Fatalf("unlisted model unexpectedly received provider_options override: %#v", requestBody)
 	}
 }
 
@@ -387,8 +466,10 @@ providers:
   openai:
     type: openai
     api_key: test-key
-    context_window_tokens: 8192
-    max_output_tokens: 1024
+    models:
+      compact-model:
+        context_window_tokens: 8192
+        max_output_tokens: 1024
 `)
 	project, err := LoadProject(root)
 	if err != nil {
@@ -420,8 +501,10 @@ providers:
   openai:
     type: openai
     api_key: test-key
-    context_window_tokens: 8192
-    max_output_tokens: 1024
+    models:
+      compact-model:
+        context_window_tokens: 8192
+        max_output_tokens: 1024
 `)
 	project, err := LoadProject(root)
 	if err != nil {
@@ -550,11 +633,13 @@ func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T
 		wantNoError bool
 	}{
 		{name: "arbitrary alias selects openai by type", provider: "type: openai\n    api_key: key", wantNoError: true},
-		{name: "provider metadata", provider: "type: openai\n    api_key: key\n    context_window_tokens: 131072\n    max_output_tokens: 16384", wantNoError: true},
+		{name: "model metadata", provider: "type: openai\n    api_key: key\n    models:\n      model:\n        context_window_tokens: 131072\n        max_output_tokens: 16384", wantNoError: true},
+		{name: "legacy provider metadata", provider: "type: openai\n    api_key: key\n    context_window_tokens: 131072\n    max_output_tokens: 16384", want: "field context_window_tokens"},
+		{name: "legacy provider extra body", provider: "type: openai\n    api_key: key\n    extra_body: {thinking: {type: disabled}}", want: "field extra_body"},
 		{name: "missing type", provider: "api_key: key", want: `provider "custom-profile" type is required`},
 		{name: "unsupported type", provider: "type: anthropic\n    api_key: key", want: `provider "custom-profile" has unsupported type "anthropic"`},
-		{name: "metadata missing context", provider: "type: openai\n    api_key: key\n    max_output_tokens: 1024", want: `provider "custom-profile" metadata`},
-		{name: "metadata output exceeds context", provider: "type: openai\n    api_key: key\n    context_window_tokens: 10\n    max_output_tokens: 11", want: "maximum output tokens cannot exceed"},
+		{name: "metadata missing context", provider: "type: openai\n    api_key: key\n    models:\n      model:\n        max_output_tokens: 1024", want: `provider "custom-profile" model "model" metadata`},
+		{name: "metadata output exceeds context", provider: "type: openai\n    api_key: key\n    models:\n      model:\n        context_window_tokens: 10\n        max_output_tokens: 11", want: "maximum output tokens cannot exceed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -574,6 +659,19 @@ func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T
 				t.Fatalf("LoadProject() error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestValidateProviderConfigRejectsNonJSONExtraBody(t *testing.T) {
+	_, err := validateProviderConfig("custom-profile", ProviderConfig{
+		Type:   ProviderTypeOpenAI,
+		APIKey: "key",
+		Models: map[string]ProviderModelConfig{
+			"selected": {ExtraBody: map[string]any{"invalid": func() {}}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "extra_body must contain valid JSON values") {
+		t.Fatalf("validateProviderConfig() error = %v", err)
 	}
 }
 

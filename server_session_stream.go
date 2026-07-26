@@ -157,7 +157,7 @@ func (hub *sessionEventHub) close() {
 // streamSessionEvents godoc
 // @Summary Stream retained and live session activity
 // @ID streamSessionEvents
-// @Description Replays and follows every root turn in a session, including queued lifecycle records and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.
+// @Description Replays and follows every root turn in a session, including queued lifecycle records, response-scope boundaries, and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.
 // @Tags Event streams
 // @Produce text/event-stream
 // @Param sessionID path string true "Session ID"
@@ -226,6 +226,8 @@ func writeSessionSSE(writer http.ResponseWriter, event SessionEventResponse) err
 	eventName := string(event.Type)
 	if event.Type == SessionActivityTurnEvent && event.RuntimeEvent != nil {
 		eventName = string(event.RuntimeEvent.Type)
+	} else if event.Type == SessionActivityScopeEvent && event.ScopeEvent != nil {
+		eventName = string(event.ScopeEvent.Type)
 	}
 	_, err = fmt.Fprintf(writer, "id: %d\nevent: %s\ndata: %s\n\n", event.Cursor, eventName, payload)
 	return err

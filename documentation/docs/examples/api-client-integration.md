@@ -180,12 +180,22 @@ types:
 | `turn_cancelled` | Queued work was removed before execution. |
 | `turn_rejected` | The server admitted the turn but runtime startup failed. |
 | `turn_event` | `runtime_event` contains one ordinary AgentRuntime event. |
+| `scope_event` | `scope_event` contains `pre_end_scope` or `end_scope`. |
 
-For `turn_event`, the SSE `event:` name is the nested runtime event type. This
-lets an EventSource client use the same listeners as a per-turn stream.
+For `turn_event`, the SSE `event:` name is the nested runtime event type. For
+`scope_event`, it is the nested scope event type. This lets clients distinguish
+the quiescent pre-cleanup boundary from the fully ended scope.
 
 ```js
 function handleActivity(activity) {
+  if (activity.type === "scope_event") {
+    if (activity.scope_event.type === "pre_end_scope") {
+      showScopeFinishing(activity.scope_event.scope_id);
+    } else if (activity.scope_event.type === "end_scope") {
+      showScopeEnded(activity.scope_event.scope_id);
+    }
+    return;
+  }
   if (activity.type !== "turn_event") {
     updateTurnLifecycle(activity.turn_id, activity.type, activity.queue_position);
     return;

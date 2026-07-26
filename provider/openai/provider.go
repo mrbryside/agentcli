@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -16,18 +19,29 @@ type Config struct {
 	URL        string
 	APIKey     string
 	ToolSchema []Tool
-	Timeout    time.Duration
+	// ExtraBody contains provider-specific top-level JSON fields merged into
+	// every chat-completions request after the standard request is encoded.
+	ExtraBody map[string]any
+	Timeout   time.Duration
 }
 
 // Provider adapts go-openai to the generic provider contract.
 type Provider struct {
-	config Config
+	config        Config
+	extraBodyJSON json.RawMessage
+	configError   error
 }
 
 // NewProvider creates an OpenAI provider with copied tool configuration.
 func NewProvider(config Config) generic.Provider[Request, sdkopenai.ChatCompletionStreamResponse] {
 	config.ToolSchema = cloneTools(config.ToolSchema)
-	return Provider{config: config}
+	var extraBodyJSON json.RawMessage
+	var configError error
+	if len(config.ExtraBody) != 0 {
+		extraBodyJSON, configError = json.Marshal(config.ExtraBody)
+	}
+	config.ExtraBody = nil
+	return Provider{config: config, extraBodyJSON: extraBodyJSON, configError: configError}
 }
 
 func cloneTools(tools []Tool) []Tool {
@@ -78,20 +92,29 @@ func (p Provider) Stream(ctx context.Context, request Request) (generic.ChunkStr
 	if p.config.APIKey == "" {
 		return nil, fmt.Errorf("openai API key is required")
 	}
-
-	config := sdkopenai.DefaultConfig(p.config.APIKey)
-	if p.config.URL != "" {
-		config.BaseURL = p.config.URL
+	if p.configError != nil {
+		return nil, fmt.Errorf("encode OpenAI extra body: %w", p.configError)
 	}
-	if p.config.Timeout > 0 {
-		config.HTTPClient = &http.Client{Timeout: p.config.Timeout}
-	}
-	client := sdkopenai.NewClientWithConfig(config)
 
 	sdkRequest, err := toSDKRequest(request, p.config.ToolSchema)
 	if err != nil {
 		return nil, err
 	}
+
+	config := sdkopenai.DefaultConfig(p.config.APIKey)
+	if p.config.URL != "" {
+		config.BaseURL = p.config.URL
+	}
+	httpClient := &http.Client{Timeout: p.config.Timeout}
+	if len(p.extraBodyJSON) != 0 {
+		httpClient.Transport = extraBodyTransport{
+			base:      http.DefaultTransport,
+			extraBody: p.extraBodyJSON,
+		}
+	}
+	config.HTTPClient = httpClient
+	client := sdkopenai.NewClientWithConfig(config)
+
 	stream, err := client.CreateChatCompletionStream(ctx, sdkRequest)
 	if err != nil {
 		return nil, fmt.Errorf("create OpenAI chat stream: %w", err)
@@ -154,4 +177,48 @@ func toSDKRequest(request Request, configuredTools []Tool) (sdkopenai.ChatComple
 		}
 	}
 	return sdkRequest, nil
+}
+
+type extraBodyTransport struct {
+	base      http.RoundTripper
+	extraBody json.RawMessage
+}
+
+func (transport extraBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request == nil || request.Body == nil {
+		return nil, errors.New("OpenAI request body is required")
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read OpenAI request body: %w", err)
+	}
+	_ = request.Body.Close()
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("decode OpenAI request body: %w", err)
+	}
+	var extraBody map[string]json.RawMessage
+	if err := json.Unmarshal(transport.extraBody, &extraBody); err != nil {
+		return nil, fmt.Errorf("decode OpenAI extra body: %w", err)
+	}
+	for key, value := range extraBody {
+		payload[key] = value
+	}
+	body, err = json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode OpenAI request body: %w", err)
+	}
+
+	clone := request.Clone(request.Context())
+	clone.Body = io.NopCloser(bytes.NewReader(body))
+	clone.ContentLength = int64(len(body))
+	clone.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(clone)
 }

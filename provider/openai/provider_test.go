@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,6 +127,61 @@ func TestToSDKRequestControlsCompatibleModelReasoning(t *testing.T) {
 			t.Fatalf("enable_thinking = %#v, want true", request.ChatTemplateKwargs["enable_thinking"])
 		}
 	})
+}
+
+func TestProviderMergesClonedExtraBodyIntoRequest(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	extraBody := map[string]any{
+		"thinking":    map[string]any{"type": "disabled"},
+		"custom_flag": true,
+		"temperature": 0.75,
+	}
+	provider := NewProvider(Config{URL: server.URL, APIKey: "secret", ExtraBody: extraBody})
+	extraBody["thinking"].(map[string]any)["type"] = "enabled"
+	extraBody["custom_flag"] = false
+
+	stream, err := provider.Stream(context.Background(), Request{
+		Model:       "provider-specific-model-alias",
+		Temperature: 0.25,
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	defer stream.Close()
+	if _, err := stream.Recv(); err != nil && err != io.EOF {
+		t.Fatalf("Recv: %v", err)
+	}
+
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking = %#v, want disabled", body["thinking"])
+	}
+	if body["custom_flag"] != true {
+		t.Fatalf("custom_flag = %#v, want true", body["custom_flag"])
+	}
+	if body["temperature"] != 0.75 {
+		t.Fatalf("temperature = %#v, want extra-body override 0.75", body["temperature"])
+	}
+}
+
+func TestProviderRejectsNonJSONExtraBody(t *testing.T) {
+	provider := NewProvider(Config{
+		APIKey:    "secret",
+		ExtraBody: map[string]any{"invalid": func() {}},
+	})
+	if _, err := provider.Stream(context.Background(), Request{Model: "model"}); err == nil ||
+		!strings.Contains(err.Error(), "encode OpenAI extra body") {
+		t.Fatalf("Stream() error = %v", err)
+	}
 }
 
 func TestNewProviderRequiresAPIKey(t *testing.T) {

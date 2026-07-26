@@ -196,6 +196,8 @@ func NewServer(agent *Agent, options ...ServerOption) (*Server, error) {
 	go server.forwardSubagentConfirmations(subagentConfirmations)
 	subagentPermissions := agent.SubscribeSubagentPermissions(serverContext)
 	go server.forwardSubagentPermissions(subagentPermissions)
+	scopeEvents := agent.SubscribeScopeEvents(serverContext)
+	go server.forwardScopeEvents(scopeEvents)
 	return server, nil
 }
 

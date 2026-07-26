@@ -3,6 +3,7 @@ package agentcli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -88,11 +89,23 @@ type ProviderConfig struct {
 	URL            string       `yaml:"url"`
 	APIKey         string       `yaml:"api_key"`
 	RequestTimeout string       `yaml:"request_timeout"`
-	// Reasoning controls compatible models that expose a thinking-mode switch.
-	// Nil preserves the provider default; false disables thinking explicitly.
+	// Models contains optional exact-name overrides. It does not restrict which
+	// model names agents may select.
+	Models map[string]ProviderModelConfig `yaml:"models"`
+}
+
+// ProviderModelConfig contains capability and request overrides for one exact
+// model name within a provider profile.
+type ProviderModelConfig struct {
+	// Reasoning controls the Qwen-compatible enable_thinking switch. Nil
+	// preserves the provider default; use ExtraBody for other wire formats.
 	Reasoning *bool `yaml:"reasoning"`
-	// Optional model-limit overrides applied to every model using this
-	// provider profile. Zero values use metadata discovery and defaults.
+	// ExtraBody contains provider-specific top-level JSON fields merged into
+	// chat-completions requests for this model. Values override standard
+	// request fields with the same names.
+	ExtraBody map[string]any `yaml:"extra_body"`
+	// Optional model-limit overrides applied only when this exact model name
+	// is selected. Zero values use metadata discovery and defaults.
 	ContextWindowTokens int `yaml:"context_window_tokens"`
 	MaxOutputTokens     int `yaml:"max_output_tokens"`
 }
@@ -275,14 +288,15 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	}
 	switch providerConfig.Type {
 	case ProviderTypeOpenAI:
+		modelConfig := providerConfig.Models[model]
 		adapterConfig := openaiadapter.Config{
 			Model:     model,
-			Reasoning: cloneBool(providerConfig.Reasoning),
+			Reasoning: cloneBool(modelConfig.Reasoning),
 		}
 		metadata, hasMetadata := project.modelMetadata[projectModelReference{provider: providerName, model: model}]
 		if !hasMetadata {
 			var metadataErr error
-			metadata, hasMetadata, metadataErr = configuredProviderMetadata(providerName, providerConfig)
+			metadata, hasMetadata, metadataErr = configuredProviderMetadata(providerName, model, providerConfig)
 			if metadataErr != nil {
 				return nil, metadataErr
 			}
@@ -294,7 +308,10 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 		}
 		return openaiadapter.New(
 			provideropenai.NewProvider(provideropenai.Config{
-				URL: providerConfig.URL, APIKey: providerConfig.APIKey, Timeout: timeout,
+				URL:       providerConfig.URL,
+				APIKey:    providerConfig.APIKey,
+				ExtraBody: modelConfig.ExtraBody,
+				Timeout:   timeout,
 			}),
 			adapterConfig,
 		), nil
@@ -429,13 +446,13 @@ func (project *Project) subagentDiscoveryPrompt() string {
 
 2. Address instances correctly. available_subagents contains configured agent types. active_subagents contains live instances with a random display_name and stable id. Speak to the user using display_name; pass the stable id to instance tools. If exactly one child of the requested definition is open, a vague follow-up reuses it. Children of a different definition are never implicit reuse candidates. If several matching children are open and intent is ambiguous, ask which display_name the user means. Set new_instance=true only when the user explicitly requests another, new, separate, or parallel instance.
 
-3. Dispatch is not completion. start_subagent and send_subagent_message are always asynchronous. Their successful tool results do not necessarily mean work was dispatched and never mean the delegated task finished. Count a child as dispatched only when the result has accepted=true; duplicate, already_sent, callback_pending, and selection_required return accepted=false. start_subagent and send_subagent_message always continue the parent turn. Issue exactly one start_subagent call per provider round. Never batch multiple start_subagent calls in one tool-call response. After an accepted start or send, a callback is authoritative and cannot arrive until the current parent turn ends. You may continue other already-planned independent work only when it neither duplicates delegated work nor depends on callback results. Never redo a delegated task, retry the same dispatch, poll, call list/status to wait, or claim delegated completion before its callback. When independent work is exhausted, finish through the application's normal response or required finalizer and wait for authoritative callbacks. A start_subagent result with selection_required has callback_action=none because no dispatch occurred, so ask which display_name the user means. Duplicate, already_sent, and callback_pending have callback_action=wait_existing: they create no new callback, so never count or retry them; finish and wait for the existing callback after independent work.
+3. Dispatch is not completion. start_subagent and send_subagent_message are always asynchronous. Their successful tool results do not necessarily mean work was dispatched and never mean the delegated task finished. Count a child as dispatched only when the result has accepted=true; duplicate, already_sent, callback_pending, and selection_required return accepted=false. start_subagent and send_subagent_message always continue the parent turn. Issue exactly one start_subagent call per provider round. Never batch multiple start_subagent calls in one tool-call response. After an accepted start or send, a callback is authoritative and cannot arrive until the current parent turn ends. You may continue other already-planned independent work only when it neither duplicates delegated work nor depends on callback results. Never redo a delegated task, retry the same dispatch, poll, call list/status to wait, or claim delegated completion before its callback. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for authoritative callbacks. A start_subagent result with selection_required has callback_action=none because no dispatch occurred, so ask which display_name the user means. Duplicate, already_sent, and callback_pending have callback_action=wait_existing: they create no new callback, so never count or retry them; finish and wait for the existing callback after independent work.
 
 4. Never poll. list_subagents is for explicit discovery or selection, not progress. subagent_status is one lightweight snapshot only for an explicit user status question or an immediate decision; never retry it in the same parent turn. Repeated status calls return a cached already_checked result and cannot reveal a callback sooner.
 
 5. Callbacks are authoritative. Each child turn later produces completed, incomplete, or failed. completed means the child explicitly confirmed all delegated work is resolved. incomplete means required work, information, confirmation, or a decision remains. failed contains a terminal error. Use the callback's final answer, summary, and next_step directly; never infer outcome from a send/start result or stale active_subagents data.
 
-6. Follow up or recover safely. A running child may receive queued input. For any idle outcome, its latest callback must be consumed before another message can be sent. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required. Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. Do not call a lifecycle tool for routine cleanup. A later one-shot system reminder reports which children were automatically closed.
+6. Follow up or recover safely. A running child may receive queued input. For any idle outcome, its latest callback must be consumed before another message can be sent. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required. Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. Do not call close_subagent for routine cleanup. A later one-shot system reminder reports which children were automatically closed.
 
 7. close_subagent is destructive and reserved for a direct human request. Call it only when the latest human user message explicitly directs you to close, stop, or discard a specific child. Never choose it autonomously, never use it for routine cleanup, never infer permission from an older message or callback, and never shorten, invent, or paraphrase user_instruction. user_instruction must reproduce the exact full current human message; the runtime rejects calls without same-turn evidence. Closing may interrupt active work and discard queued child messages.
 
@@ -528,11 +545,43 @@ func expandProjectConfig(config *ProjectConfig) {
 		providerConfig.URL = os.ExpandEnv(strings.TrimSpace(providerConfig.URL))
 		providerConfig.APIKey = os.ExpandEnv(strings.TrimSpace(providerConfig.APIKey))
 		providerConfig.RequestTimeout = os.ExpandEnv(strings.TrimSpace(providerConfig.RequestTimeout))
+		for modelName, modelConfig := range providerConfig.Models {
+			modelConfig.ExtraBody = expandEnvironmentJSONMap(modelConfig.ExtraBody)
+			providerConfig.Models[modelName] = modelConfig
+		}
 		config.Providers[name] = providerConfig
 	}
 	if config.Compaction != nil {
 		config.Compaction.Provider = os.ExpandEnv(strings.TrimSpace(config.Compaction.Provider))
 		config.Compaction.Model = os.ExpandEnv(strings.TrimSpace(config.Compaction.Model))
+	}
+}
+
+func expandEnvironmentJSONMap(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	expanded := make(map[string]any, len(values))
+	for key, value := range values {
+		expanded[key] = expandEnvironmentJSONValue(value)
+	}
+	return expanded
+}
+
+func expandEnvironmentJSONValue(value any) any {
+	switch value := value.(type) {
+	case string:
+		return os.ExpandEnv(value)
+	case map[string]any:
+		return expandEnvironmentJSONMap(value)
+	case []any:
+		expanded := make([]any, len(value))
+		for index, item := range value {
+			expanded[index] = expandEnvironmentJSONValue(item)
+		}
+		return expanded
+	default:
+		return value
 	}
 }
 
@@ -562,8 +611,20 @@ func validateProviderConfig(providerName string, providerConfig ProviderConfig) 
 	if strings.TrimSpace(providerConfig.APIKey) == "" {
 		return 0, fmt.Errorf("provider %q api_key is required", providerName)
 	}
-	if _, _, err := configuredProviderMetadata(providerName, providerConfig); err != nil {
-		return 0, err
+	for modelName, modelConfig := range providerConfig.Models {
+		trimmedModelName := strings.TrimSpace(modelName)
+		if trimmedModelName == "" {
+			return 0, fmt.Errorf("provider %q model name is required", providerName)
+		}
+		if trimmedModelName != modelName {
+			return 0, fmt.Errorf("provider %q model name %q must not have surrounding whitespace", providerName, modelName)
+		}
+		if _, err := json.Marshal(modelConfig.ExtraBody); err != nil {
+			return 0, fmt.Errorf("provider %q model %q extra_body must contain valid JSON values: %w", providerName, modelName, err)
+		}
+		if _, _, err := configuredProviderMetadata(providerName, modelName, providerConfig); err != nil {
+			return 0, err
+		}
 	}
 	timeout := 2 * time.Minute
 	if providerConfig.RequestTimeout != "" {

@@ -923,7 +923,7 @@
         },
         "/v1/sessions/{sessionID}/events": {
             "get": {
-                "description": "Replays and follows every root turn in a session, including queued lifecycle records and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.",
+                "description": "Replays and follows every root turn in a session, including queued lifecycle records, response-scope boundaries, and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -1715,6 +1715,42 @@
                 }
             }
         },
+        "agentcli.ScopeEventResponse": {
+            "type": "object",
+            "properties": {
+                "child_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "occurred_at": {
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "trigger_turn_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "pre_end_scope",
+                        "end_scope"
+                    ]
+                }
+            }
+        },
         "agentcli.SendSubagentMessageRequest": {
             "type": "object",
             "required": [
@@ -1749,6 +1785,7 @@
                 "turn_cancelled",
                 "turn_rejected",
                 "turn_event",
+                "scope_event",
                 "subagent_confirmation",
                 "subagent_permission"
             ],
@@ -1758,6 +1795,7 @@
                 "SessionActivityTurnCancelled",
                 "SessionActivityTurnRejected",
                 "SessionActivityTurnEvent",
+                "SessionActivityScopeEvent",
                 "SessionActivitySubagentConfirmation",
                 "SessionActivitySubagentPermission"
             ]
@@ -1779,6 +1817,9 @@
                 },
                 "runtime_event": {
                     "$ref": "#/definitions/agentcli.EventResponse"
+                },
+                "scope_event": {
+                    "$ref": "#/definitions/agentcli.ScopeEventResponse"
                 },
                 "session_id": {
                     "type": "string"
@@ -2316,11 +2357,13 @@
             "type": "string",
             "enum": [
                 "",
-                "end_turn"
+                "end_turn",
+                "end_turn_on_success"
             ],
             "x-enum-varnames": [
                 "ToolTurnContinue",
-                "ToolTurnEnd"
+                "ToolTurnEnd",
+                "ToolTurnEndOnSuccess"
             ]
         },
         "confirmation.Answer": {

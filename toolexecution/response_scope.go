@@ -11,18 +11,19 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
-// ToolLifecycle is the single completion-policy setting for a custom tool.
-// The zero value executes immediately and continues the current turn.
-type ToolLifecycle string
+// ToolTrigger groups a custom tool's required-completion and handler-delivery
+// behavior into one setting. The zero value executes immediately and
+// continues the current turn.
+type ToolTrigger string
 
 const (
 	// EndTurn requires the tool before a turn completes, executes its handler
 	// immediately, and ends the turn after a successful result.
-	EndTurn ToolLifecycle = "end_turn"
+	EndTurn ToolTrigger = "end_turn"
 	// EndResponseScope requires the tool before a turn completes, stages its
 	// latest invocation, and executes the handler once the originating user
 	// response has no active turns or accepted subagent callbacks left.
-	EndResponseScope ToolLifecycle = "end_response_scope"
+	EndResponseScope ToolTrigger = "end_response_scope"
 )
 
 type responseScopeKey struct {
@@ -44,8 +45,8 @@ type responseScopeState uint8
 
 const (
 	responseScopeOpen responseScopeState = iota
-	responseScopeFinalizing
-	responseScopeFinalized
+	responseScopeEnding
+	responseScopeEnded
 )
 
 type responseScope struct {
@@ -53,11 +54,11 @@ type responseScope struct {
 	activeTurns      int
 	pendingCallbacks int
 	children         map[string]int
-	finalizers       map[string]deferredToolCall
-	finalizerOrder   []string
+	endScopeCalls    map[string]endScopeToolCall
+	endScopeOrder    []string
 }
 
-type deferredToolCall struct {
+type endScopeToolCall struct {
 	ctx       context.Context
 	handler   Handler
 	arguments json.RawMessage
@@ -101,6 +102,7 @@ type ResponseScopeCoordinator struct {
 	dispatch  map[responseChildKey][]*responseDispatch
 	callbacks map[responseChildKey]map[string]callbackRecord
 	cleanup   ResponseScopeCleanup
+	events    *scopeEventHub
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -114,6 +116,7 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 		turns:     make(map[responseTurnKey]responseScopeKey),
 		dispatch:  make(map[responseChildKey][]*responseDispatch),
 		callbacks: make(map[responseChildKey]map[string]callbackRecord),
+		events:    newScopeEventHub(ctx),
 	}
 }
 
@@ -150,10 +153,10 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		return fmt.Errorf("response scope %q already exists", turnID)
 	}
 	c.scopes[scopeKey] = &responseScope{
-		state:       responseScopeOpen,
-		activeTurns: 1,
-		children:    make(map[string]int),
-		finalizers:  make(map[string]deferredToolCall),
+		state:         responseScopeOpen,
+		activeTurns:   1,
+		children:      make(map[string]int),
+		endScopeCalls: make(map[string]endScopeToolCall),
 	}
 	c.turns[turn] = scopeKey
 	return nil
@@ -240,7 +243,7 @@ func (c *ResponseScopeCoordinator) ChildExclusiveToScope(sessionID, scopeID, chi
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	scope := c.scopes[scopeKey]
-	if scope == nil || scope.state != responseScopeFinalizing {
+	if scope == nil || scope.state != responseScopeEnding {
 		return false
 	}
 	for candidateKey, candidate := range c.scopes {
@@ -381,26 +384,26 @@ func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, re
 	if scope == nil {
 		return nil, errors.New("response scope does not exist")
 	}
-	if scope.state == responseScopeFinalized {
+	if scope.state == responseScopeEnded {
 		return json.Marshal(map[string]any{
-			"status":                "already_finalized",
+			"status":                "already_ended",
 			"delivery":              "end_response_scope",
 			"retry_in_current_turn": false,
 		})
 	}
-	if scope.state == responseScopeFinalizing {
+	if scope.state == responseScopeEnding {
 		return json.Marshal(map[string]any{
-			"status":                "finalizing",
+			"status":                "ending",
 			"delivery":              "end_response_scope",
 			"retry_in_current_turn": false,
 		})
 	}
 
-	_, replacing := scope.finalizers[request.Call.Name]
+	_, replacing := scope.endScopeCalls[request.Call.Name]
 	if !replacing {
-		scope.finalizerOrder = append(scope.finalizerOrder, request.Call.Name)
+		scope.endScopeOrder = append(scope.endScopeOrder, request.Call.Name)
 	}
-	scope.finalizers[request.Call.Name] = deferredToolCall{
+	scope.endScopeCalls[request.Call.Name] = endScopeToolCall{
 		ctx:       context.WithoutCancel(ctx),
 		handler:   handler,
 		arguments: cloneRawJSON(request.Call.Arguments),
@@ -416,8 +419,8 @@ func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, re
 	})
 }
 
-// FinishTurn closes one accepted runtime turn and executes staged finalizers
-// only after the whole response scope becomes quiescent.
+// FinishTurn closes one accepted runtime turn and ends the response scope only
+// after the whole scope becomes quiescent.
 func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	if c == nil {
 		return
@@ -440,19 +443,24 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		c.mu.Unlock()
 		return
 	}
-	scope.state = responseScopeFinalizing
+	scope.state = responseScopeEnding
 	children := make([]string, 0, len(scope.children))
 	for childID := range scope.children {
 		children = append(children, childID)
 	}
 	sort.Strings(children)
 	cleanup := c.cleanup
-	calls := make([]deferredToolCall, 0, len(scope.finalizerOrder))
-	for _, name := range scope.finalizerOrder {
-		calls = append(calls, scope.finalizers[name])
+	toolNames := append([]string(nil), scope.endScopeOrder...)
+	calls := make([]endScopeToolCall, 0, len(toolNames))
+	for _, name := range toolNames {
+		calls = append(calls, scope.endScopeCalls[name])
 	}
 	c.mu.Unlock()
 
+	c.publishEvent(ScopeEvent{
+		Type: PreEndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
+		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
+	})
 	if cleanup != nil {
 		c.executeCleanup(cleanup, scopeKey, children)
 	}
@@ -462,10 +470,14 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 
 	c.mu.Lock()
 	if current := c.scopes[scopeKey]; current != nil {
-		current.state = responseScopeFinalized
+		current.state = responseScopeEnded
 	}
 	c.deleteScopeLocked(scopeKey)
 	c.mu.Unlock()
+	c.publishEvent(ScopeEvent{
+		Type: EndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
+		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
+	})
 }
 
 func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) {
@@ -510,7 +522,7 @@ func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, 
 	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
 }
 
-func (c *ResponseScopeCoordinator) executeDeferred(call deferredToolCall) {
+func (c *ResponseScopeCoordinator) executeDeferred(call endScopeToolCall) {
 	if call.handler == nil {
 		return
 	}

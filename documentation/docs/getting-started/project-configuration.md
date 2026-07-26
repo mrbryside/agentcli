@@ -53,9 +53,14 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    # reasoning: false # Optional for backends that support enable_thinking.
-    context_window_tokens: 122880 # Optional provider-profile override.
-    max_output_tokens: 66560
+    models:
+      gpt-4.1-mini:
+        context_window_tokens: 122880
+        max_output_tokens: 66560
+        # reasoning: false # Optional Qwen-compatible shorthand.
+        # extra_body: # Optional model-specific top-level request JSON.
+        #   thinking:
+        #     type: disabled
 
   openrouter:
     type: openai
@@ -70,12 +75,47 @@ refer to the alias, while the required `type` field selects the adapter. Both
 without changing protocol behavior. `openai` is currently the only supported
 type; missing or unsupported types fail during `LoadProject`.
 
-The optional `reasoning` boolean controls thinking mode for Qwen and compatible
-OpenAI-style backends. Setting `reasoning: false` sends
-`chat_template_kwargs.enable_thinking: false` on every model request through
-that provider profile; `reasoning: true` enables it explicitly. Omit the field
-to preserve the backend default and avoid sending `chat_template_kwargs`.
-Backends that do not support this extension should leave the field unset.
+The optional `models` mapping holds overrides keyed by the exact model name
+used in `MAIN.md`, a subagent definition, or `compaction.model`. It is not an
+allowlist: agents may select unlisted model names, which continue through
+metadata discovery/defaults without request overrides.
+
+Within a matching model entry, the optional `reasoning` boolean is a
+Qwen-compatible shorthand for `chat_template_kwargs.enable_thinking`. Omit it
+to preserve the backend default. Provider extensions that use another wire
+shape belong in the optional `extra_body` mapping. Its arbitrary YAML values
+are encoded as JSON and merged into the top level of chat-completions requests
+for that exact model. For example, a DeepSeek-compatible gateway can disable
+thinking with `extra_body: {thinking: {type: disabled}}`, while a gateway using
+a flat effort field can set `extra_body: {reasoning_effort: none}`. Environment
+references are expanded recursively inside `extra_body`. Extra-body values
+override standard request fields with the same names.
+
+For example, one OpenAI-compatible gateway can configure DeepSeek and Qwen
+independently while leaving every other model unmodified:
+
+```yaml
+providers:
+  openzen:
+    type: openai
+    url: https://gateway.example/v1
+    api_key: ${OPENZEN_API_KEY}
+    models:
+      deepseek-model-id:
+        context_window_tokens: 122880
+        max_output_tokens: 66560
+        extra_body:
+          thinking:
+            type: disabled
+
+      qwen-model-id:
+        reasoning: false
+```
+
+If `MAIN.md` or a subagent selects `deepseek-model-id`, only the DeepSeek
+entry is added to its requests. Selecting `qwen-model-id` sends only
+`chat_template_kwargs.enable_thinking: false`. Selecting any other model name
+still works and receives neither override.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.
@@ -96,13 +136,13 @@ disable creation of future checkpoints.
 `model` is the separate summarizer model. It is resolved through the same
 factory as the main agent and subagents; the alias's `type` still chooses the
 adapter. Optional `context_window_tokens` and `max_output_tokens` live on each
-provider profile. This lets main, child, and summarizer models using different
-profiles carry independent limits. The runtime derives compaction budgets from
-the active main model's profile.
+exact model entry. This lets main, child, and summarizer models carry
+independent limits even when they share a provider profile. The runtime derives
+compaction budgets from the active main model's metadata.
 
 With compaction enabled, the main model must expose valid context-window and
-output metadata. Explicit limits on a provider profile take priority and avoid
-metadata requests for models using that profile. Without them, each distinct
+output metadata. Explicit limits on its exact model entry take priority and
+avoid metadata requests for that model. Without them, each distinct
 model requests its authenticated provider `/models` endpoint first, then
 `https://models.dev/api.json`; the final defaults are 122,880 context tokens
 and 66,560 output tokens. The Terminal UI displays those binary token counts
