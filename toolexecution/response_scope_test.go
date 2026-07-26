@@ -61,6 +61,20 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 	if got := snapshotStrings(&mu, received); len(got) != 1 {
 		t.Fatalf("handler calls after late replay = %v, want exactly one", got)
 	}
+
+	if err := coordinator.BeginRootTurn("session", "new-root"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "new-root", "child", "new-dispatch")
+	coordinator.FinishTurn("session", "new-root")
+	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay-with-new-work", "child", "child-turn-1"); err == nil {
+		t.Fatal("late replay from finalized scope consumed newer response-scope work")
+	}
+	newCallback, err := coordinator.ReserveCallbackTurn("session", "new-callback", "child", "child-turn-2")
+	if err != nil {
+		t.Fatalf("new callback after late replay error = %v", err)
+	}
+	newCallback.Commit()
 }
 
 func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *testing.T) {

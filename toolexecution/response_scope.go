@@ -432,16 +432,9 @@ func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) 
 			c.dispatch[child] = kept
 		}
 	}
-	for child, callbacks := range c.callbacks {
-		for turnID, record := range callbacks {
-			if record.scope == scopeKey {
-				delete(callbacks, turnID)
-			}
-		}
-		if len(callbacks) == 0 {
-			delete(c.callbacks, child)
-		}
-	}
+	// Callback tombstones deliberately outlive their response scope. Without
+	// them, a late replay from an older scope could consume the first pending
+	// dispatch of a newer scope that happens to reuse the same child.
 }
 
 func (c *ResponseScopeCoordinator) executeDeferred(call deferredToolCall) {
