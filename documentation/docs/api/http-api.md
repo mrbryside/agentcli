@@ -303,9 +303,13 @@ has been consumed; otherwise it returns `409 conflict`.
 
 Delete uses the same destructive lifecycle path as `Agent.CloseSubagent`. It
 may interrupt active work, drops queued input, retains transcript and completed
-event history, and cancels outstanding unreserved callback obligations so the
-parent response scope is not stranded. Bind it to an explicit application or
-user action.
+event history, and cancels outstanding unreserved callback obligations to
+release the parent response scope's callback barrier. Bind it to an explicit
+application or user action. Cancellation remains terminal across racing
+dispatch registration and callback-reservation rollback. The endpoint changes
+lifecycle and scope accounting; it does not create a provider turn or
+user-visible response. See
+[Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 
 ## Errors
 

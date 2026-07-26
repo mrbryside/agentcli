@@ -9,5 +9,6 @@ Read this section when constructing `agentcli.Agent`, changing project files, or
 | How the Terminal UI handles input, streaming Markdown, reasoning, and interrupts | [terminal-ui.md](terminal-ui.md) |
 | How Terminal UI and Echo server clients expose runs, decisions, and history | [client-surfaces.md](client-surfaces.md) |
 | How skills and asynchronous subagents are defined and managed | [skills-and-subagents.md](skills-and-subagents.md) |
+| How application-owned child close interacts with callback and response-scope accounting | [subagent-lifecycle.md](subagent-lifecycle.md) |
 
 Back to [AGENTS.md](../../../AGENTS.md).

@@ -51,7 +51,9 @@ receives one framework-owned `report_subagent_outcome` tool. Before its final
 answer, the child reports either `completed` or `incomplete` with a concise
 summary and, for incomplete work, the required next step.
 Destructive closure is not model-facing. Applications may close a child through
-the Go API, Terminal, or HTTP endpoint.
+the Go API, Terminal, or HTTP endpoint. See
+[Subagent lifecycle control](./subagent-lifecycle-control.md) for the ownership
+contract and response-scope accounting.
 
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
@@ -260,11 +262,13 @@ incomplete child. They are available through `Agent.CloseSubagent`, Terminal
 `/close`, and the HTTP `DELETE` endpoint, but not through the model tool
 catalog. Existing transcript messages and retained run events remain available,
 while pending mailbox messages are removed and future sends are rejected.
-Closing also cancels every outstanding, not-yet-reserved callback obligation
-for that child. This prevents a callback that can no longer arrive from keeping
-the parent response scope open and blocking its final `EndResponseScope`
-delivery. Bind these destructive surfaces only to explicit application or user
-actions.
+Closing also makes callback cancellation terminal for that child: queued
+dispatches release their response-scope counters, racing registrations are
+ignored, and a rejected callback reservation cannot restore an obligation.
+This releases the callback barrier without creating a provider turn or
+user-visible response. Bind these destructive surfaces only to explicit
+application or user actions. The complete contract is documented in
+[Subagent lifecycle control](./subagent-lifecycle-control.md).
 
 ## Capacity
 

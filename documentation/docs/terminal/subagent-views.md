@@ -107,7 +107,9 @@ The command can interrupt a running child and drops queued child messages.
 Closing preserves the stored transcript but changes its lifecycle state to
 closed, so the view remains available as read-only history. It also cancels
 outstanding callback obligations for that child so the parent response scope
-can still reach final delivery.
+can reach a later final completion boundary. The command itself does not start
+a provider turn or produce a model response. See
+[Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 
 ## View isolation
 

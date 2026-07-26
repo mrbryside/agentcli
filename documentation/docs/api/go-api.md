@@ -258,11 +258,15 @@ agent.WaitSubagent(ctx, parentSessionID, subagentIDs, afterVersions)
 `CloseSubagent` is an explicit destructive command: it may interrupt active
 work, drops queued child input, cancels outstanding unreserved callback
 obligations, retains transcript/run history, and rejects future sends. The
-callback cancellation prevents an impossible callback from keeping a parent
-response scope open. Bind it to a direct user action. Routine cleanup does not
-require an application call: after a response scope fully settles, AgentCLI
-automatically closes completed and failed children that are not referenced by
-another live scope, while retaining incomplete children for follow-up.
+callback cancellation releases the parent response scope's callback barrier.
+Bind it to a direct user action. Routine cleanup does not require an application
+call: after a response scope fully settles, AgentCLI automatically closes
+completed and failed children that are not referenced by another live scope,
+while retaining incomplete children for follow-up.
+Cancellation is terminal for the closed child, so racing dispatch registration
+and callback-reservation rollback cannot recreate the obligation. It releases
+scope accounting but does not create a provider turn. See
+[Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 `SubscribeSystemEvents` reports agent-level facts that are not owned by one
 runtime turn. `SystemSubagentClosed` includes both explicit and automatic
 successful closes with the final child snapshot and close effects.

@@ -169,8 +169,12 @@ the final `EndResponseScope` tools, closes unshared completed/failed children,
 and executes those handlers. Incomplete children remain open. The model-facing
 catalog has no destructive close tool. When the application closes a child
 through Go, Terminal, or HTTP, the coordinator cancels that child's outstanding
-unreserved callback obligations so an impossible callback cannot strand the
-scope.
+unreserved callback obligations and releases the scope's callback barrier. A
+terminal cancellation marker also prevents a racing registration or rejected
+callback reservation from recreating an obligation. Close does not synthesize
+a provider continuation; final handlers still require an active turn to reach
+the completion boundary. See
+[Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 
 `Agent.SubscribeScopeEvents(ctx)` exposes two live-only boundaries for
 each human response scope:
