@@ -275,6 +275,7 @@ func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, er
 	options := []Option{
 		withChildAgent(),
 		withChildProject(childProject),
+		withSharedLangfuse(m.config.langfuse),
 		WithModel(model),
 		withChildSystemPrompts(childProject, definition),
 		WithMessageStorage(m.config.messages),

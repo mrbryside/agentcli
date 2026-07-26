@@ -294,6 +294,74 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadProjectExpandsAndValidatesLangfuseObservability(t *testing.T) {
+	t.Setenv("TEST_LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
+	t.Setenv("TEST_LANGFUSE_PUBLIC_KEY", "pk-test")
+	t.Setenv("TEST_LANGFUSE_SECRET_KEY", "sk-test")
+	t.Setenv("TEST_APP_VERSION", "v1.2.3")
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `observability:
+  langfuse:
+    enabled: true
+    base_url: ${TEST_LANGFUSE_BASE_URL}
+    public_key: ${TEST_LANGFUSE_PUBLIC_KEY}
+    secret_key: ${TEST_LANGFUSE_SECRET_KEY}
+    environment: testing
+    service_name: agentcli-test
+    release: ${TEST_APP_VERSION}
+    sample_rate: 0.25
+    capture:
+      input: true
+      output: true
+      reasoning: false
+providers:
+  openai:
+    type: openai
+    api_key: key
+`)
+	writeMainAgentDefinition(t, root, "openai", "model", "")
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := project.config.Observability.Langfuse
+	if config.BaseURL != "https://us.cloud.langfuse.com" || config.PublicKey != "pk-test" ||
+		config.SecretKey != "sk-test" || config.Release != "v1.2.3" {
+		t.Fatalf("expanded Langfuse config = %#v", config)
+	}
+	if config.SampleRate == nil || *config.SampleRate != 0.25 {
+		t.Fatalf("sample rate = %v", config.SampleRate)
+	}
+	if !config.Capture.Input || !config.Capture.Output || config.Capture.Reasoning {
+		t.Fatalf("capture config = %#v", config.Capture)
+	}
+}
+
+func TestLoadProjectRejectsInvalidLangfuseObservability(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config string
+		want   string
+	}{
+		{name: "missing public key", config: "enabled: true\n    secret_key: sk", want: "public_key"},
+		{name: "missing secret key", config: "enabled: true\n    public_key: pk", want: "secret_key"},
+		{name: "invalid base URL", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    base_url: ftp://example.test", want: "base_url"},
+		{name: "invalid sample rate", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    sample_rate: 1.1", want: "sample_rate"},
+		{name: "invalid environment", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    environment: Production", want: "environment"},
+		{name: "reserved environment", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    environment: langfuse-prod", want: "environment"},
+		{name: "unknown capture field", config: "enabled: false\n    capture:\n      prompt: true", want: "field prompt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "observability:\n  langfuse:\n    "+test.config+"\nproviders:\n  openai:\n    type: openai\n    api_key: key\n")
+			writeMainAgentDefinition(t, root, "openai", "model", "")
+			if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadProject error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestProjectProviderReasoningSettingReachesModelRequest(t *testing.T) {
 	var requestBody struct {
 		ChatTemplateKwargs map[string]bool `json:"chat_template_kwargs"`

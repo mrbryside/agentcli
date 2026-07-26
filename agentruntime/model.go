@@ -69,6 +69,20 @@ type Model interface {
 	Start(context.Context, ModelRequest) (ModelStream, error)
 }
 
+// ModelIdentity describes the configured provider and model used by a Model.
+// It is observability metadata only and does not affect provider behavior.
+type ModelIdentity struct {
+	Provider string
+	Model    string
+}
+
+// ModelIdentityProvider is an optional model capability used by
+// observability decorators to label provider calls without depending on a
+// provider-specific adapter.
+type ModelIdentityProvider interface {
+	ModelIdentity() ModelIdentity
+}
+
 // ModelMetadataProvider is an optional model capability. Runtime consumers
 // use it when a feature, such as context compaction, needs known model limits.
 // Keeping it separate from Model preserves compatibility with models that do

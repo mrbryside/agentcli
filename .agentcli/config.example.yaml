@@ -5,6 +5,24 @@ max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 
+# Optional LLM-call observability. Credentials are used to construct Langfuse
+# Basic Auth and are never sent to the configured model provider. Prompt,
+# response, and reasoning capture are opt-in because they may be sensitive.
+# observability:
+#   langfuse:
+#     enabled: true
+#     base_url: ${LANGFUSE_BASE_URL} # Defaults to https://cloud.langfuse.com
+#     public_key: ${LANGFUSE_PUBLIC_KEY}
+#     secret_key: ${LANGFUSE_SECRET_KEY}
+#     environment: development
+#     service_name: agentcli
+#     release: ${APP_VERSION}
+#     sample_rate: 1.0
+#     capture:
+#       input: true
+#       output: true
+#       reasoning: false
+
 # Automatic transcript compaction. provider must name one of the profiles
 # below. Remove this mapping or set auto: false to disable new compactions.
 compaction:

@@ -17,6 +17,9 @@ import (
 
 // Config selects the OpenAI model and optional request settings.
 type Config struct {
+	// Provider names the configured provider profile for observability. Empty
+	// values fall back to the protocol name "openai".
+	Provider    string
 	Model       string
 	MaxTokens   int
 	Temperature float32
@@ -37,8 +40,21 @@ func New(
 	p provider.Provider[provideropenai.Request, sdkopenai.ChatCompletionStreamResponse],
 	config Config,
 ) *Adapter {
+	config.Provider = strings.TrimSpace(config.Provider)
+	if config.Provider == "" {
+		config.Provider = "openai"
+	}
 	config.Reasoning = cloneBool(config.Reasoning)
 	return &Adapter{provider: p, config: config}
+}
+
+// ModelIdentity reports provider/model labels without exposing SDK request
+// types to runtime-level observability.
+func (a *Adapter) ModelIdentity() agentruntime.ModelIdentity {
+	if a == nil {
+		return agentruntime.ModelIdentity{}
+	}
+	return agentruntime.ModelIdentity{Provider: a.config.Provider, Model: a.config.Model}
 }
 
 // Start validates and transforms a generic model request, then starts the

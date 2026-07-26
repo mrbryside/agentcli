@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
+	langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/storage/inmemory"
@@ -60,6 +61,7 @@ type config struct {
 	compactionModel      agentruntime.Model
 	contextEstimator     agentruntime.ContextEstimator
 	toolCallGuardTimeout time.Duration
+	langfuse             *langfuseobs.Client
 }
 
 func defaultConfig(projectRoot string) config {

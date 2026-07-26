@@ -12,6 +12,7 @@ import (
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/confirmation"
+	langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/storage/inmemory"
@@ -37,6 +38,9 @@ type Agent struct {
 
 	closeOnce sync.Once
 	closeErr  error
+
+	langfuse     *langfuseobs.Client
+	ownsLangfuse bool
 
 	subagents      *subagentManager
 	responseScopes *toolexecution.ResponseScopeCoordinator
@@ -150,11 +154,31 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	confirmationRequests := make(chan confirmation.Request, configuration.channelBuffer)
 	confirmationDecisions := make(chan confirmation.Decision, configuration.channelBuffer)
 
+	langfuseClient := configuration.langfuse
+	ownsLangfuse := false
+	if langfuseClient == nil {
+		var enabled bool
+		langfuseClient, enabled, err = newProjectLangfuse(runContext, configuration.project)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		ownsLangfuse = enabled
+	}
+	if langfuseClient != nil {
+		configuration.model = langfuseClient.ObserveModel(configuration.model)
+		configuration.compactionModel = langfuseClient.ObserveModel(configuration.compactionModel)
+		inputGuardModel = langfuseClient.ObserveModel(inputGuardModel)
+		outputGuardModel = langfuseClient.ObserveModel(outputGuardModel)
+		configuration.langfuse = langfuseClient
+	}
+
 	closing, closeSignal := context.WithCancel(context.Background())
 	agent := &Agent{
 		model: configuration.model, messages: configuration.messages, project: configuration.project,
 		context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal,
 		executorDone: make(chan struct{}), responseScopes: toolexecution.NewResponseScopeCoordinator(runContext),
+		langfuse: langfuseClient, ownsLangfuse: ownsLangfuse,
 	}
 	var manager *subagentManager
 	if rootHasSubagents {
@@ -162,6 +186,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		if err != nil {
 			closeSignal()
 			cancel()
+			shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 			return nil, fmt.Errorf("create subagent manager: %w", err)
 		}
 		subagentTools.Bind(manager)
@@ -216,6 +241,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	if err != nil {
 		closeSignal()
 		cancel()
+		shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 		return nil, fmt.Errorf("create runtime: %w", err)
 	}
 	executor, err := toolexecution.NewExecutor(registry, configuration.toolWorkers, toolexecution.Config{
@@ -238,12 +264,17 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			if configuration.project == nil {
 				return nil, errors.New("tool-call guard provider requires a project with provider profiles")
 			}
-			return configuration.project.ModelFor(providerName, modelName)
+			model, modelErr := configuration.project.ModelFor(providerName, modelName)
+			if modelErr != nil {
+				return nil, modelErr
+			}
+			return langfuseClient.ObserveModel(model), nil
 		},
 	})
 	if err != nil {
 		closeSignal()
 		cancel()
+		shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 		return nil, fmt.Errorf("create tool executor: %w", err)
 	}
 

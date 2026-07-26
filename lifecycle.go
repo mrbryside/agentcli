@@ -1,12 +1,17 @@
 package agentcli
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"time"
+)
 
 // ErrClosed reports that an operation was attempted after Close began.
 var ErrClosed = errors.New("agent is closed")
 
-// Close cancels the executor and waits for its workers to stop. It is safe to
-// call repeatedly and returns the executor's terminal error, if any.
+// Close cancels the executor, waits for its workers, and flushes any
+// Agent-owned observability exporter. It is safe to call repeatedly and
+// returns the first shutdown error, if any.
 func (a *Agent) Close() error {
 	if a == nil {
 		return nil
@@ -21,6 +26,13 @@ func (a *Agent) Close() error {
 		a.cancel()
 		if err := a.Wait(); err != nil && a.closeErr == nil {
 			a.closeErr = err
+		}
+		if a.ownsLangfuse && a.langfuse != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := a.langfuse.Shutdown(ctx); err != nil && a.closeErr == nil {
+				a.closeErr = err
+			}
+			cancel()
 		}
 	})
 	return a.closeErr

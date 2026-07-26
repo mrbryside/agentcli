@@ -205,6 +205,9 @@ func TestPromptInputGuardUsesDefaultModel(t *testing.T) {
 	if len(requests) != 2 || !strings.Contains(requests[0].SystemPrompts[0], "allow ordinary user input") {
 		t.Fatalf("guard model requests = %#v", requests)
 	}
+	if requests[0].SessionID != "prompt-input" || requests[0].TurnID != "turn-1" {
+		t.Fatalf("guard correlation = session %q turn %q", requests[0].SessionID, requests[0].TurnID)
+	}
 	if len(requests[0].Messages) != 2 || !strings.Contains(requests[0].Messages[0].Content, `"Content":"hello"`) {
 		t.Fatalf("guard candidate messages = %#v", requests[0].Messages)
 	}

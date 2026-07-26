@@ -209,7 +209,7 @@ Keep reason brief. Feedback may be empty.
 
 func newPromptInputGuard(model Model, prompt string) InputGuard {
 	return func(ctx context.Context, attempt InputGuardAttempt) (InputGuardDecision, error) {
-		verdict, err := evaluatePromptGuard(ctx, model, prompt, "input", attempt.Message)
+		verdict, err := evaluatePromptGuard(ctx, model, prompt, "input", attempt.SessionID, attempt.TurnID, attempt.Message)
 		if err != nil {
 			return InputGuardDecision{}, err
 		}
@@ -226,7 +226,7 @@ func newPromptInputGuard(model Model, prompt string) InputGuard {
 
 func newPromptOutputGuard(model Model, prompt string) OutputGuard {
 	return func(ctx context.Context, attempt OutputGuardAttempt) (OutputGuardDecision, error) {
-		verdict, err := evaluatePromptGuard(ctx, model, prompt, "output", attempt.Output)
+		verdict, err := evaluatePromptGuard(ctx, model, prompt, "output", attempt.SessionID, attempt.TurnID, attempt.Output)
 		if err != nil {
 			return OutputGuardDecision{}, err
 		}
@@ -257,7 +257,7 @@ func NewPromptToolCallGuard(model Model, prompt string) ToolCallGuard {
 			ToolName:  attempt.ToolName,
 			Arguments: cloneRawJSON(attempt.Arguments),
 		}
-		verdict, err := evaluatePromptGuard(ctx, model, prompt, "tool call", payload)
+		verdict, err := evaluatePromptGuard(ctx, model, prompt, "tool call", attempt.SessionID, attempt.TurnID, payload)
 		if err != nil {
 			return ToolCallGuardDecision{}, err
 		}
@@ -275,7 +275,7 @@ func NewPromptToolCallGuard(model Model, prompt string) ToolCallGuard {
 	}
 }
 
-func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction string, value any) (promptGuardVerdict, error) {
+func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction, sessionID, turnID string, value any) (promptGuardVerdict, error) {
 	if isNil(model) {
 		return promptGuardVerdict{}, errors.New("prompt guard model is nil")
 	}
@@ -292,6 +292,8 @@ func evaluatePromptGuard(ctx context.Context, model Model, prompt, direction str
 		responseRules = promptInputGuardResponseRules
 	}
 	request := ModelRequest{
+		SessionID: sessionID,
+		TurnID:    turnID,
 		SystemPrompts: []string{fmt.Sprintf(
 			"You are the %s guard for an agent. Apply the policy below. Return one JSON object only, with exactly these fields: allowed (boolean), reason (string), feedback (string). Always include all three fields. %s\n\nPolicy:\n%s",
 			direction, verdictInstructions, strings.TrimSpace(prompt),

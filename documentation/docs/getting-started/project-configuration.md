@@ -35,7 +35,8 @@ This makes configuration mistakes visible before the first model request.
 ## Provider configuration
 
 `.agentcli/config.yaml` owns connections, the initial permission mode, the
-optional per-parent open-subagent quota, and optional transcript compaction:
+optional per-parent open-subagent quota, LLM observability, and optional
+transcript compaction:
 
 ```yaml
 permission_mode: default
@@ -124,6 +125,52 @@ project value when constructing an Agent.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
+
+## Langfuse LLM observability
+
+The optional `observability.langfuse` mapping exports one OpenTelemetry
+generation span for every model call. It instruments the provider-neutral
+model boundary, so main-agent, subagent, prompt-guard, tool-call guard, and
+compaction model calls use the same exporter. Tool handler execution and other
+runtime events are not traced.
+
+```yaml
+observability:
+  langfuse:
+    enabled: true
+    base_url: ${LANGFUSE_BASE_URL}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    environment: production
+    service_name: agentcli
+    release: ${APP_VERSION}
+    sample_rate: 1.0
+    capture:
+      input: true
+      output: true
+      reasoning: false
+```
+
+`base_url` defaults to `https://cloud.langfuse.com`. Use the matching Langfuse
+Cloud region or the root URL of a self-hosted installation. Agentcli appends
+`/api/public/otel/v1/traces`, authenticates with the configured project keys,
+and requests Langfuse ingestion version 4. `sample_rate` defaults to `1.0` and
+accepts values from `0` through `1`.
+
+Every generation carries the runtime `SessionID` as `langfuse.session.id`, so
+multiple turns and provider rounds appear in the same Langfuse session.
+`TurnID`, provider profile, model, finish reason, release, environment,
+latency, first-output time, and errors are attached automatically; they do not
+belong in YAML.
+
+Input, output, and reasoning capture all default to `false`. Enable only the
+payloads that the project's data policy permits. Input includes system
+prompts, messages, context reminders, and tool schemas. Reasoning is controlled
+separately from normal output and remains omitted in the example above.
+
+The root Agent owns one asynchronous exporter shared by its child agents.
+Always call `Agent.Close()` during graceful shutdown so queued observations are
+flushed. Export failures do not change model-call results.
 
 ## Automatic transcript compaction
 
@@ -232,6 +279,7 @@ register tools.
 ## Configuration checklist
 
 - Keep API keys in the process environment.
+- Keep Langfuse payload capture aligned with the project's data policy.
 - Give every main/subagent tool an exact registered-name match.
 - Keep tool allowlists minimal.
 - Describe skills and subagents narrowly enough that the model can avoid

@@ -15,6 +15,17 @@ import (
 	sdkopenai "github.com/sashabaranov/go-openai"
 )
 
+func TestAdapterModelIdentity(t *testing.T) {
+	adapter := New(&fakeProvider{}, Config{Provider: "primary", Model: "gpt-test"})
+	if got := adapter.ModelIdentity(); got != (agentruntime.ModelIdentity{Provider: "primary", Model: "gpt-test"}) {
+		t.Fatalf("ModelIdentity() = %#v", got)
+	}
+	defaulted := New(&fakeProvider{}, Config{Model: "gpt-test"})
+	if got := defaulted.ModelIdentity().Provider; got != "openai" {
+		t.Fatalf("default provider identity = %q", got)
+	}
+}
+
 func TestAdapterModelMetadata(t *testing.T) {
 	t.Run("known aliases", func(t *testing.T) {
 		for _, test := range []struct {

@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: c432fb040355275949267662bc84fe091bb2acaf`
+`Last documented commit: dc21b69cab5145f2ab1ff1b272e8745aa2ca214c`
 
 ## Project structure
 
@@ -17,6 +17,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `agentruntime/modeladapter/openai/` | Provider-boundary conversion from generic messages and tools to OpenAI chat requests. |
 | `provider/` | Provider-neutral streaming interfaces, events, state, subscriptions, and results. |
 | `provider/openai/` | OpenAI-compatible streaming provider and chunk parser. |
+| `observability/` | Optional LLM-call instrumentation and Langfuse OTLP/HTTP export. |
 | `storage/` | Provider-neutral message, permission, confirmation, and subagent storage contracts. |
 | `storage/inmemory/` | Concurrency-safe in-memory implementations used by default. |
 | `toolexecution/` | Tool registry, trigger modes, response-scope coordination/events, framework tools, admission gates, interrupts, and bounded workers. |
@@ -35,6 +36,7 @@ Only open the sections below when they are relevant to the current task.
 | Agent construction, project loading, terminal/server surfaces, skills, or subagents | [docs/agents/application/index.md](docs/agents/application/index.md) |
 | Tool registration/execution, guardrails, permissions, confirmations, or shell safety | [docs/agents/tools-safety/index.md](docs/agents/tools-safety/index.md) |
 | Generic storage domains, in-memory behavior, providers, or OpenAI conversion | [docs/agents/boundaries/index.md](docs/agents/boundaries/index.md) |
+| LLM-call tracing, Langfuse configuration, session correlation, or telemetry lifecycle | [docs/agents/observability/index.md](docs/agents/observability/index.md) |
 | Testing, documentation generation, examples, or the Terminal UI playground | [docs/agents/development/index.md](docs/agents/development/index.md) |
 
 ## Maintenance note

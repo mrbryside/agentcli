@@ -62,6 +62,14 @@ module.exports = {
     },
     {
       type: 'category',
+      label: 'Observability',
+      items: [
+        'observability/overview',
+        'observability/langfuse',
+      ],
+    },
+    {
+      type: 'category',
       label: 'API reference',
       items: [
         'api/api-reference',

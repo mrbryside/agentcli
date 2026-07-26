@@ -105,6 +105,9 @@ func TestCompactorPrepareCreatesCumulativeCheckpointAndUsesToolFreeModel(t *test
 	if len(model.request.Tools) != 0 || model.request.MaxOutputTokens != 64 || !strings.Contains(model.request.Messages[0].Content, "<history_to_merge>") || !strings.Contains(model.request.Messages[0].Content, "<previous_summary>") || !strings.Contains(model.request.Messages[0].Content, "# Objective") || !strings.Contains(model.request.Messages[0].Content, "## Completed") || !strings.Contains(model.request.Messages[0].Content, "exact file paths and exact IDs") || !strings.Contains(model.request.Messages[0].Content, "primary language") {
 		t.Fatalf("summary request = %#v", model.request)
 	}
+	if model.request.SessionID != "session" || model.request.TurnID != "turn" {
+		t.Fatalf("summary correlation = session %q turn %q", model.request.SessionID, model.request.TurnID)
+	}
 	if result.Request.Messages[len(result.Request.Messages)-1].ID != "latest" {
 		t.Fatalf("latest tail not retained: %#v", result.Request.Messages)
 	}
@@ -154,6 +157,11 @@ func TestCompactorSummarizesEveryHeadChunkCumulatively(t *testing.T) {
 	}
 	if !strings.Contains(model.requests[1].Messages[0].Content, "cumulative summary") {
 		t.Fatalf("second chunk did not merge prior summary: %q", model.requests[1].Messages[0].Content)
+	}
+	for index, request := range model.requests {
+		if request.SessionID != "session" || request.TurnID != "turn" {
+			t.Fatalf("summary request %d correlation = session %q turn %q", index, request.SessionID, request.TurnID)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,6 +41,36 @@ type ProjectConfig struct {
 	MaxSubagents   int                       `yaml:"max_subagents"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	Compaction     *CompactionConfig         `yaml:"compaction"`
+	Observability  *ObservabilityConfig      `yaml:"observability"`
+}
+
+// ObservabilityConfig contains optional project-wide telemetry backends.
+// A nil backend leaves model calls uninstrumented.
+type ObservabilityConfig struct {
+	Langfuse *LangfuseConfig `yaml:"langfuse"`
+}
+
+// LangfuseConfig sends LLM-call spans to Langfuse through its OTLP/HTTP
+// endpoint. Credentials may contain ${VARIABLE} references and are expanded
+// when the project is loaded.
+type LangfuseConfig struct {
+	Enabled     bool                  `yaml:"enabled"`
+	BaseURL     string                `yaml:"base_url"`
+	PublicKey   string                `yaml:"public_key"`
+	SecretKey   string                `yaml:"secret_key"`
+	Environment string                `yaml:"environment"`
+	ServiceName string                `yaml:"service_name"`
+	Release     string                `yaml:"release"`
+	SampleRate  *float64              `yaml:"sample_rate"`
+	Capture     LangfuseCaptureConfig `yaml:"capture"`
+}
+
+// LangfuseCaptureConfig controls potentially sensitive generation payloads.
+// All fields default to false.
+type LangfuseCaptureConfig struct {
+	Input     bool `yaml:"input"`
+	Output    bool `yaml:"output"`
+	Reasoning bool `yaml:"reasoning"`
 }
 
 // CompactionConfig selects the project provider profile and model used to
@@ -290,6 +321,7 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	case ProviderTypeOpenAI:
 		modelConfig := providerConfig.Models[model]
 		adapterConfig := openaiadapter.Config{
+			Provider:  providerName,
 			Model:     model,
 			Reasoning: cloneBool(modelConfig.Reasoning),
 		}
@@ -490,6 +522,9 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 	if config.MaxSubagents < 0 {
 		return "", "", ProviderConfig{}, 0, errors.New("max_subagents cannot be negative")
 	}
+	if err := validateObservabilityConfig(config.Observability); err != nil {
+		return "", "", ProviderConfig{}, 0, err
+	}
 	if len(config.Providers) == 0 {
 		return "", "", ProviderConfig{}, 0, errors.New("providers must contain at least one provider")
 	}
@@ -554,6 +589,15 @@ func expandProjectConfig(config *ProjectConfig) {
 	if config.Compaction != nil {
 		config.Compaction.Provider = os.ExpandEnv(strings.TrimSpace(config.Compaction.Provider))
 		config.Compaction.Model = os.ExpandEnv(strings.TrimSpace(config.Compaction.Model))
+	}
+	if config.Observability != nil && config.Observability.Langfuse != nil {
+		langfuse := config.Observability.Langfuse
+		langfuse.BaseURL = os.ExpandEnv(strings.TrimSpace(langfuse.BaseURL))
+		langfuse.PublicKey = os.ExpandEnv(strings.TrimSpace(langfuse.PublicKey))
+		langfuse.SecretKey = os.ExpandEnv(strings.TrimSpace(langfuse.SecretKey))
+		langfuse.Environment = os.ExpandEnv(strings.TrimSpace(langfuse.Environment))
+		langfuse.ServiceName = os.ExpandEnv(strings.TrimSpace(langfuse.ServiceName))
+		langfuse.Release = os.ExpandEnv(strings.TrimSpace(langfuse.Release))
 	}
 }
 
@@ -635,6 +679,34 @@ func validateProviderConfig(providerName string, providerConfig ProviderConfig) 
 		timeout = parsed
 	}
 	return timeout, nil
+}
+
+func validateObservabilityConfig(config *ObservabilityConfig) error {
+	if config == nil || config.Langfuse == nil || !config.Langfuse.Enabled {
+		return nil
+	}
+	langfuse := config.Langfuse
+	if langfuse.PublicKey == "" {
+		return errors.New("observability langfuse public_key is required when enabled")
+	}
+	if langfuse.SecretKey == "" {
+		return errors.New("observability langfuse secret_key is required when enabled")
+	}
+	if langfuse.BaseURL != "" {
+		parsed, err := url.Parse(langfuse.BaseURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return errors.New("observability langfuse base_url must be an absolute HTTP(S) URL without query or fragment")
+		}
+	}
+	if langfuse.SampleRate != nil && (*langfuse.SampleRate < 0 || *langfuse.SampleRate > 1) {
+		return errors.New("observability langfuse sample_rate must be between 0 and 1")
+	}
+	if environment := langfuse.Environment; environment != "" {
+		if len(environment) > 40 || strings.HasPrefix(environment, "langfuse") || !regexp.MustCompile(`^[a-z0-9_-]+$`).MatchString(environment) {
+			return errors.New("observability langfuse environment must be at most 40 lowercase letters, numbers, hyphens, or underscores and must not start with langfuse")
+		}
+	}
+	return nil
 }
 
 func unsupportedProviderType(providerName string, providerType ProviderType) error {

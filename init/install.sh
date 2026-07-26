@@ -180,6 +180,23 @@ cat >"$target/.agentcli/config.yaml" <<'EOF'
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
+# Optional LLM-call observability. Input/output/reasoning capture is opt-in
+# because these payloads may contain sensitive data.
+# observability:
+#   langfuse:
+#     enabled: true
+#     base_url: ${LANGFUSE_BASE_URL}
+#     public_key: ${LANGFUSE_PUBLIC_KEY}
+#     secret_key: ${LANGFUSE_SECRET_KEY}
+#     environment: development
+#     service_name: agentcli
+#     release: ${APP_VERSION}
+#     sample_rate: 1.0
+#     capture:
+#       input: true
+#       output: true
+#       reasoning: false
+
 # Automatic transcript compaction uses the same provider/model placeholders as
 # the starter agents. Remove this mapping or set auto: false to disable it.
 compaction:
