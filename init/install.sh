@@ -42,7 +42,7 @@ go_version=1.26.3
 # available for pinning a release or testing an unreleased branch.
 agentcli_version=${AGENTCLI_VERSION:-latest}
 # Used in go.mod when Go is unavailable and `go get` cannot resolve latest.
-agentcli_fallback_version=v0.0.44
+agentcli_fallback_version=v0.0.49
 agentcli_module_version=$agentcli_fallback_version
 case "$agentcli_version" in
   v[0-9]*) agentcli_module_version=$agentcli_version ;;
@@ -111,7 +111,7 @@ func run() (runErr error) {
 	}
 	agent, err := agentcli.New(ctx,
 		agentcli.WithProject(project),
-		agentcli.WithNonInteractive(false),
+		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
 		agentcli.WithTool(newEditTool(projectRoot)),
@@ -179,13 +179,17 @@ cat >"$target/.agentcli/config.yaml" <<'EOF'
 # API_KEY and GUARDRAILS_API_KEY are loaded from the process environment.
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
+max_subagents: 4
 
-# Optional LLM-call observability. Input/output/reasoning capture is opt-in
-# because these payloads may contain sensitive data.
+# Main-agent identity, model, and capability allowlists live in MAIN.md.
+
+# Optional LLM-call observability. Credentials are used to construct Langfuse
+# Basic Auth and are never sent to the configured model provider. Prompt,
+# response, and reasoning capture are opt-in because they may be sensitive.
 # observability:
 #   langfuse:
 #     enabled: true
-#     base_url: ${LANGFUSE_BASE_URL}
+#     base_url: ${LANGFUSE_BASE_URL} # Defaults to https://cloud.langfuse.com
 #     public_key: ${LANGFUSE_PUBLIC_KEY}
 #     secret_key: ${LANGFUSE_SECRET_KEY}
 #     environment: development
@@ -197,16 +201,16 @@ permission_mode: criticalOnly
 #       output: true
 #       reasoning: false
 
-# Automatic transcript compaction uses the same provider/model placeholders as
-# the starter agents. Remove this mapping or set auto: false to disable it.
+# Automatic transcript compaction. provider must name one of the profiles
+# below. Remove this mapping or set auto: false to disable new compactions.
 compaction:
   auto: true
   provider: replace-provider
   model: replace-model
 
-# Agent identities and models live in MAIN.md, subagent definitions, and tool
-# declarations. Provider profiles own connections; exact model entries own
-# request overrides and capability limits.
+# Provider names are application-defined connection profile aliases. The
+# required type selects the protocol adapter independently from that alias.
+# Model entries are optional exact-name overrides, not an allowlist.
 providers:
   replace-provider:
     type: openai
@@ -215,18 +219,24 @@ providers:
     request_timeout: 2m
     models:
       replace-model:
-        # reasoning: false # For backends that support enable_thinking.
+        context_window_tokens: 122880 # Remove when provider discovery is available.
+        max_output_tokens: 66560
+        # reasoning: false # Optional Qwen-compatible shorthand.
         # extra_body: # Optional model-specific top-level request JSON.
         #   thinking:
         #     type: disabled
-        context_window_tokens: 122880 # 120k; remove these limits when provider discovery is available.
-        max_output_tokens: 66560 # 65k
 
   guardrails:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${GUARDRAILS_API_KEY}
     request_timeout: 30s
+
+  # openrouter:
+  #   type: openai
+  #   url: https://openrouter.ai/api/v1
+  #   api_key: ${OPENROUTER_API_KEY}
+  #   request_timeout: 2m
 EOF
 
 cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'

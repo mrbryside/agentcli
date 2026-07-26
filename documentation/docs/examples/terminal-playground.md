@@ -56,7 +56,9 @@ manual testing, while `main.go` only loads the project, registers those tools,
 and calls `agent.RunTerminal`. It reads provider, model, and compaction
 settings from the repository root `.agentcli/config.yaml`; there is no separate
 playground config. For a clean setup, copy `.agentcli/config.example.yaml` and
-replace both its main-agent and compaction model placeholders. The repository
+replace both its main-agent and compaction model placeholders. That template
+also includes commented examples for Langfuse and OpenRouter; observability
+stays disabled unless the Langfuse block is uncommented. The repository
 playground compaction mapping declares an exact 122,880-token context window
 and 66,560-token output limit for its custom model. When the Terminal UI opens,
 the binary-formatted context window appears beside the model name in the

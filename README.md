@@ -46,9 +46,11 @@ updates and returns feedback with a direct rewrite suggestion. The installer
 asks for the project folder name and then the Go module path used in `go.mod`.
 It detects the installed Go version for that file, falling back to `1.26.3`
 when Go is not installed. Generated projects start in `criticalOnly` permission
-mode and read provider credentials only from the process environment. When Go
-is available, the installer also runs `go mod tidy` so the project can start
-immediately.
+mode, cap each parent at four open subagents, and read provider credentials
+only from the process environment. The generated config includes disabled,
+commented examples for Langfuse observability and an OpenRouter-compatible
+provider. When Go is available, the installer also runs `go mod tidy` so the
+project can start immediately.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
@@ -71,6 +73,23 @@ Create `.agentcli/config.yaml`:
 ```yaml
 permission_mode: default
 max_subagents: 4
+
+# Optional LLM-call observability. The whole example remains commented, so
+# model calls are not observed unless it is explicitly enabled.
+# observability:
+#   langfuse:
+#     enabled: true
+#     base_url: ${LANGFUSE_BASE_URL} # Defaults to https://cloud.langfuse.com
+#     public_key: ${LANGFUSE_PUBLIC_KEY}
+#     secret_key: ${LANGFUSE_SECRET_KEY}
+#     environment: development
+#     service_name: agentcli
+#     release: ${APP_VERSION}
+#     sample_rate: 1.0
+#     capture:
+#       input: true
+#       output: true
+#       reasoning: false
 
 # Remove this mapping or set auto: false to disable new compactions.
 compaction:
@@ -169,7 +188,9 @@ err := agent.RunTerminal(
 ```
 
 The included playground registers example `glob`, `read`, and confirmation
-tools:
+tools. Its `.agentcli/config.example.yaml` also shows the current compaction,
+model metadata, OpenRouter-compatible provider, and disabled Langfuse
+observability settings:
 
 ```sh
 make terminal
