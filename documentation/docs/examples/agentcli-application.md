@@ -13,7 +13,6 @@ confirmation, permissions, streaming events, and the HTTP server.
 ```text
 my-agent/
 ├── main.go
-├── AGENTS.md
 └── .agentcli/
     ├── config.yaml
     └── MAIN.md
@@ -50,15 +49,6 @@ tools:
 
 Help the user prepare reports. Call publish_report only when the user asks to
 publish, and accurately report permission denials or declined confirmations.
-```
-
-## `AGENTS.md`
-
-```markdown
-# Application rules
-
-- Never invent a publication destination.
-- Summarize the final tool result in plain language.
 ```
 
 ## `main.go`

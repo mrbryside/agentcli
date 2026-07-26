@@ -17,7 +17,6 @@ the `guardrails` provider profile and `replace-guard-model`. See
 inputs:
 
 ```text
-AGENTS.md
 .agentcli/
 ├── config.yaml
 ├── MAIN.md
@@ -27,8 +26,8 @@ AGENTS.md
     └── researcher/researcher.md
 ```
 
-`config.yaml` and `MAIN.md` are required. `AGENTS.md`, skill directories, and
-subagent directories are optional. Invalid YAML, unknown frontmatter fields, missing provider profiles, unknown
+`config.yaml` and `MAIN.md` are required. Skill and subagent directories are
+optional. Invalid YAML, unknown frontmatter fields, missing provider profiles, unknown
 skills, or unregistered tool allowlist entries cause initialization to fail.
 This makes configuration mistakes visible before the first model request.
 
@@ -281,15 +280,16 @@ researcher intentionally exposes `glob` and `read`, not `edit` or
 
 ## Project instructions
 
-`AGENTS.md` contains owner instructions shared with the model. When it exists,
-project loading creates exactly two system messages:
+Project loading creates exactly two system messages:
 
 1. One framework message containing runtime rules, environment/model context,
-   `MAIN.md`, and discovery-only skill/subagent catalogs.
-2. One project-owner message containing `AGENTS.md` verbatim.
+   and discovery-only skill/subagent catalogs.
+2. One main-agent instruction message containing the body of `MAIN.md`.
 
-Without `AGENTS.md`, only the grouped framework message is sent. Neither system message is persisted in conversation storage. They are rebuilt
-for provider calls from the loaded project snapshot.
+Root `AGENTS.md` is not loaded. Neither system message is persisted in
+conversation storage; both are rebuilt for provider calls from the loaded
+project snapshot. Subagents use the same separation, with their definition
+body as the second system message.
 
 ## Programmatic overrides
 

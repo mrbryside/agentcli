@@ -159,8 +159,7 @@ Understand the requested outcome and provide a clear, self-contained result.
 ```
 
 Omit `tools` or `skills` when none are allowed. Project configuration may also
-include `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and
-`.agentcli/agent/*/*.md`.
+include `.agentcli/skill/*/SKILL.md` and `.agentcli/agent/*/*.md`.
 
 ## Create an Agent
 

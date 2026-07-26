@@ -16,8 +16,8 @@ func withChildSystemPrompts(project *Project, definition SubagentDefinition) Opt
 			return errors.New("project is required")
 		}
 		configuration.systemPrompts = append(configuration.systemPrompts, subagentSystemPrompt(project, definition))
-		if strings.TrimSpace(project.agents) != "" {
-			configuration.systemPrompts = append(configuration.systemPrompts, project.agents)
+		if instructions := strings.TrimSpace(definition.Instructions); instructions != "" {
+			configuration.systemPrompts = append(configuration.systemPrompts, "# Assignment role\n\n"+instructions)
 		}
 		return nil
 	}
@@ -26,9 +26,6 @@ func withChildSystemPrompts(project *Project, definition SubagentDefinition) Opt
 func subagentSystemPrompt(project *Project, definition SubagentDefinition) string {
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "You are the configured %q subagent. Complete delegated work independently and return a useful result to the parent agent.", definition.Name)
-
-	prompt.WriteString("\n\n# Assignment role\n\n")
-	prompt.WriteString(strings.TrimSpace(definition.Instructions))
 
 	prompt.WriteString("\n\n# Runtime context\n\n")
 	prompt.WriteString(renderPromptRuntimeContext(project, promptRuntimeContext{

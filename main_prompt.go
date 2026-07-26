@@ -20,9 +20,6 @@ func (project *Project) mainAgentSystemPrompt() string {
 		"# Operating principles\n\n" + mainAgentOperatingPrompt,
 		"# Sensitive information\n\n" + modelSecretSafetyPrompt,
 	}
-	if instructions := strings.TrimSpace(project.main.Instructions); instructions != "" {
-		sections = append(sections, "# Main agent instructions\n\n"+instructions)
-	}
 	if len(project.skills) != 0 {
 		sections = append(sections, "# Skills\n\n"+project.skillDiscoveryPrompt())
 	}

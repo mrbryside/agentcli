@@ -18,7 +18,7 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-func TestLoadProjectBuildsGroupedFrameworkPromptAndProgressiveSkillLoader(t *testing.T) {
+func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsProgressively(t *testing.T) {
 	root := projectFixture(t)
 	project, err := LoadProject(root)
 	if err != nil {
@@ -46,8 +46,11 @@ func TestLoadProjectBuildsGroupedFrameworkPromptAndProgressiveSkillLoader(t *tes
 	if !strings.Contains(prompts[0], "# Runtime context") || !strings.Contains(prompts[0], `agent: "main"`) || !strings.Contains(prompts[0], `provider: "openai"`) || !strings.Contains(prompts[0], `model: "gpt-test"`) || !strings.Contains(prompts[0], `working_directory: "`+root+`"`) {
 		t.Fatalf("main runtime context = %q", prompts[0])
 	}
-	if !strings.Contains(prompts[0], "# Main agent instructions") || !strings.Contains(prompts[0], "Coordinate work and communicate the outcome clearly.") {
-		t.Fatalf("main instructions = %q", prompts[0])
+	if strings.Contains(prompts[0], "# Main agent instructions") || strings.Contains(prompts[0], "Coordinate work and communicate the outcome clearly.") {
+		t.Fatalf("framework prompt contains MAIN.md instructions: %q", prompts[0])
+	}
+	if prompts[1] != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
+		t.Fatalf("MAIN.md system prompt = %q", prompts[1])
 	}
 	if !strings.Contains(prompts[0], "# Sensitive information") || !strings.Contains(prompts[0], modelSecretSafetyPrompt) {
 		t.Fatalf("main secret-safety prompt = %q", prompts[0])
@@ -61,8 +64,8 @@ func TestLoadProjectBuildsGroupedFrameworkPromptAndProgressiveSkillLoader(t *tes
 	if strings.Contains(prompts[0], "Run go test ./...") {
 		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[0])
 	}
-	if prompts[1] != "Always explain failures clearly.\n" {
-		t.Fatalf("AGENTS prompt = %q", prompts[1])
+	if strings.Contains(strings.Join(prompts, "\n"), "Always explain failures clearly.") {
+		t.Fatalf("AGENTS.md was included in system prompts: %#v", prompts)
 	}
 
 	configuration := defaultConfig(root)
@@ -88,6 +91,25 @@ func TestLoadProjectBuildsGroupedFrameworkPromptAndProgressiveSkillLoader(t *tes
 	}
 	if _, err := tool.Handler(toolContext, json.RawMessage(`{"name":"missing"}`)); err == nil {
 		t.Fatal("missing skill unexpectedly loaded")
+	}
+}
+
+func TestLoadProjectDoesNotReadRootAgentsMarkdown(t *testing.T) {
+	root := projectFixture(t)
+	agentsPath := filepath.Join(root, "AGENTS.md")
+	if err := os.Remove(agentsPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(agentsPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatalf("LoadProject read AGENTS.md: %v", err)
+	}
+	if got := len(project.SystemPrompts()); got != 2 {
+		t.Fatalf("system prompts = %d, want framework and MAIN.md instructions", got)
 	}
 }
 
@@ -286,7 +308,7 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.ProviderName() != "local" || project.PermissionMode() != permission.Default || len(project.SystemPrompts()) != 1 {
+	if project.ProviderName() != "local" || project.PermissionMode() != permission.Default || len(project.SystemPrompts()) != 2 {
 		t.Fatalf("project defaults = provider %q mode %q prompts %v", project.ProviderName(), project.PermissionMode(), project.SystemPrompts())
 	}
 	if prompt := project.SystemPrompts()[0]; !strings.Contains(prompt, `provider: "local"`) || !strings.Contains(prompt, `model: "model"`) || !strings.Contains(prompt, "# Runtime context") {

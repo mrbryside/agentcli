@@ -7,7 +7,12 @@ assembly API. Its prompts, placeholders, generated files, bounded starter
 tools, and verification flow are documented in
 [bootstrap-installer.md](../development/bootstrap-installer.md).
 
-`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, root `AGENTS.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
+`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session; omitted values use the default of 4. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative quotas, unknown profiles or skills, and registered-tool allowlist mismatches.
+
+Provider requests keep the framework prompt and the `MAIN.md` body (or child
+definition body) in separate ordered system messages. Root `AGENTS.md` is not
+loaded. Prompt material is rebuilt from the project snapshot rather than
+persisted in conversation history.
 
 Provider profiles may contain optional exact-name entries under `models`.
 These entries are overrides, not an allowlist: `MAIN.md` and subagents may

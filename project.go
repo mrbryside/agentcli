@@ -184,7 +184,6 @@ type Skill struct {
 // provider configuration.
 type Project struct {
 	root          string
-	agents        string
 	main          AgentDefinition
 	config        ProjectConfig
 	skills        map[string]Skill // skills available to this root/child view
@@ -199,8 +198,8 @@ type Project struct {
 	timeout       time.Duration
 }
 
-// LoadProject reads AGENTS.md, .agentcli/MAIN.md, .agentcli/config.yaml, and
-// the configured skill and subagent definitions under root.
+// LoadProject reads .agentcli/MAIN.md, .agentcli/config.yaml, and the
+// configured skill and subagent definitions under root.
 func LoadProject(root string) (*Project, error) {
 	return LoadProjectContext(context.Background(), root)
 }
@@ -237,10 +236,6 @@ func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 		config.PermissionMode = permission.Default
 	}
 
-	agentsBytes, err := readProjectFile(filepath.Join(absoluteRoot, "AGENTS.md"), false)
-	if err != nil {
-		return nil, fmt.Errorf("load AGENTS.md: %w", err)
-	}
 	mainPath := filepath.Join(absoluteRoot, ".agentcli", "MAIN.md")
 	mainBytes, err := readProjectFile(mainPath, true)
 	if err != nil {
@@ -268,7 +263,7 @@ func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 	}
 	config.Providers[providerName] = providerConfig
 	project := &Project{
-		root: absoluteRoot, agents: string(agentsBytes), main: mainDefinition, config: config,
+		root: absoluteRoot, main: mainDefinition, config: config,
 		skills: rootSkills, allSkills: allSkills, subagents: subagents,
 		providerName: providerName, modelName: modelName,
 		compaction:    cloneCompactionConfig(config.Compaction),
@@ -483,8 +478,8 @@ func (project *Project) Subagents() []SubagentDefinition {
 	return sortedSubagentDefinitions(project.subagents)
 }
 
-// SystemPrompts returns one grouped framework prompt and keeps AGENTS.md as a
-// separate system message. Full skill bodies are loaded only through
+// SystemPrompts returns the framework prompt and MAIN.md instructions as
+// separate system messages. Full skill bodies are loaded only through
 // load_skill after the model selects a skill by description.
 func (project *Project) SystemPrompts() []string {
 	if project == nil {
@@ -494,8 +489,8 @@ func (project *Project) SystemPrompts() []string {
 	if frameworkPrompt := project.mainAgentSystemPrompt(); frameworkPrompt != "" {
 		prompts = append(prompts, frameworkPrompt)
 	}
-	if strings.TrimSpace(project.agents) != "" {
-		prompts = append(prompts, project.agents)
+	if instructions := strings.TrimSpace(project.main.Instructions); instructions != "" {
+		prompts = append(prompts, "# Main agent instructions\n\n"+instructions)
 	}
 	return prompts
 }

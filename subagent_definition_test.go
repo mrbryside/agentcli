@@ -87,8 +87,8 @@ Use sources and explain uncertainty.
 	if strings.Contains(catalog, "Use sources and explain uncertainty.") {
 		t.Fatalf("definition instructions were eagerly exposed: %q", catalog)
 	}
-	if prompts[1] != project.agents {
-		t.Fatalf("AGENTS system prompt = %q", prompts[1])
+	if strings.Contains(strings.Join(prompts, "\n"), "Always explain failures clearly.") {
+		t.Fatalf("AGENTS.md was included in main system prompts: %#v", prompts)
 	}
 }
 
@@ -187,7 +187,7 @@ func TestSubagentProjectContainsOnlyAllowedSkills(t *testing.T) {
 	}
 }
 
-func TestChildSystemPromptsGroupFrameworkMaterialAndKeepAgentsSeparate(t *testing.T) {
+func TestChildSystemPromptsKeepAssignmentSeparateFromFramework(t *testing.T) {
 	project, err := LoadProject(projectFixture(t))
 	if err != nil {
 		t.Fatal(err)
@@ -206,11 +206,9 @@ func TestChildSystemPromptsGroupFrameworkMaterialAndKeepAgentsSeparate(t *testin
 	if len(configuration.systemPrompts) != 2 {
 		t.Fatalf("child system prompts = %#v", configuration.systemPrompts)
 	}
-	combined := configuration.systemPrompts[0]
+	framework := configuration.systemPrompts[0]
 	for _, expected := range []string{
 		`configured "researcher" subagent`,
-		"# Assignment role",
-		definition.Instructions,
 		"# Runtime context",
 		`agent: "researcher"`,
 		`provider: "openai"`,
@@ -225,28 +223,24 @@ func TestChildSystemPromptsGroupFrameworkMaterialAndKeepAgentsSeparate(t *testin
 		"# Delivery contract",
 		subagentCompletionPrompt,
 	} {
-		if !strings.Contains(combined, expected) {
-			t.Fatalf("combined child prompt does not contain %q: %q", expected, combined)
+		if !strings.Contains(framework, expected) {
+			t.Fatalf("child framework prompt does not contain %q: %q", expected, framework)
 		}
 	}
-	if strings.Contains(combined, "<name>reviewing-go</name>") || strings.Contains(combined, "Run go test ./...") {
-		t.Fatalf("combined child prompt exposes disallowed skill or eager skill body: %q", combined)
+	if strings.Contains(framework, "# Assignment role") || strings.Contains(framework, definition.Instructions) {
+		t.Fatalf("child framework prompt contains subagent instructions: %q", framework)
 	}
-	if strings.Contains(combined, "Coordinate work and communicate the outcome clearly.") {
-		t.Fatalf("child prompt contains main-only instructions: %q", combined)
+	if strings.Contains(framework, "<name>reviewing-go</name>") || strings.Contains(framework, "Run go test ./...") {
+		t.Fatalf("child framework prompt exposes disallowed skill or eager skill body: %q", framework)
 	}
-	if configuration.systemPrompts[1] != project.agents {
-		t.Fatalf("AGENTS system prompt = %q", configuration.systemPrompts[1])
+	if strings.Contains(framework, "Coordinate work and communicate the outcome clearly.") {
+		t.Fatalf("child prompt contains main-only instructions: %q", framework)
 	}
-
-	withoutAgents := *childProject
-	withoutAgents.agents = ""
-	configuration = defaultConfig(project.root)
-	if err := withChildSystemPrompts(&withoutAgents, definition)(&configuration); err != nil {
-		t.Fatal(err)
+	if configuration.systemPrompts[1] != "# Assignment role\n\n"+definition.Instructions {
+		t.Fatalf("subagent instruction system prompt = %q", configuration.systemPrompts[1])
 	}
-	if len(configuration.systemPrompts) != 1 {
-		t.Fatalf("child prompts without AGENTS.md = %#v", configuration.systemPrompts)
+	if strings.Contains(strings.Join(configuration.systemPrompts, "\n"), "Always explain failures clearly.") {
+		t.Fatalf("AGENTS.md was included in child system prompts: %#v", configuration.systemPrompts)
 	}
 }
 
