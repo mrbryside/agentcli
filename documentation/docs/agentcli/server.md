@@ -46,9 +46,12 @@ session's queue.
 `WithServerAutoContinueSubagents` defaults to `true`. A completed child is
 converted into a trusted parent callback turn and published through
 `GET /v1/sessions/{sessionID}/events`, giving every client the same callback
-delivery behavior. Disable
-it only when the embedding application consumes and continues child callbacks
-itself.
+delivery behavior. If the child came from an agent-dispatched subagent call,
+the callback turn remains in the originating response scope, including its
+final `EndResponseScope` requirements. A child created directly through the
+HTTP API has no originating scope, so the server preserves its callback by
+starting a new root response scope. Disable automatic continuation only when
+the embedding application consumes and continues child callbacks itself.
 
 ## Embed in an existing process
 

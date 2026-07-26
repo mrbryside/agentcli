@@ -710,6 +710,9 @@ definitions:
       status:
         $ref: '#/definitions/agentruntime.ToolResultStatus'
       trigger_satisfied:
+        description: |-
+          TriggerSatisfied is present for successful EndResponseScope results.
+          False means an early runtime-owned skip; true means the final handler executed.
         type: boolean
     type: object
   agentcli.TurnResponse:

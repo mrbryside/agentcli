@@ -40,8 +40,20 @@ jobs:
         run: npm ci
         working-directory: documentation
 
-      - name: Build documentation
-        run: npm run build
+      - name: Generate and validate API documentation
+        run: npm run api:docs
+        working-directory: documentation
+
+      - name: Verify generated API artifacts are current
+        run: >-
+          git diff --exit-code --
+          static/openapi/swagger.json
+          static/openapi/swagger.yaml
+          static/redoc/index.html
+        working-directory: documentation
+
+      - name: Build Docusaurus
+        run: npm run site:build
         working-directory: documentation
 
       - name: Upload GitHub Pages artifact

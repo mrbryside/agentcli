@@ -315,12 +315,14 @@ type ToolCallResponse struct {
 }
 
 type ToolResultResponse struct {
-	CallID           string                        `json:"call_id"`
-	Name             string                        `json:"name"`
-	Status           agentruntime.ToolResultStatus `json:"status"`
-	Output           json.RawMessage               `json:"output,omitempty"`
-	Error            string                        `json:"error,omitempty"`
-	TriggerSatisfied *bool                         `json:"trigger_satisfied,omitempty"`
+	CallID string                        `json:"call_id"`
+	Name   string                        `json:"name"`
+	Status agentruntime.ToolResultStatus `json:"status"`
+	Output json.RawMessage               `json:"output,omitempty"`
+	Error  string                        `json:"error,omitempty"`
+	// TriggerSatisfied is present for successful EndResponseScope results.
+	// False means an early runtime-owned skip; true means the final handler executed.
+	TriggerSatisfied *bool `json:"trigger_satisfied,omitempty"`
 }
 
 type ToolRequestResponse struct {

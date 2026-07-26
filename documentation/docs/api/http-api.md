@@ -23,7 +23,10 @@ npm run api:render
 `api:generate` runs the pinned Swaggo CLI and writes `swagger.json` and
 `swagger.yaml` under `documentation/static/openapi/`. `api:render` uses the
 pinned Redocly CLI to create the standalone Redoc page. `npm run start` and
-`npm run build` run the complete `api:docs` pipeline automatically.
+`npm run build` run the complete `api:docs` pipeline automatically. On every
+push to `main`, the GitHub Pages workflow runs the same generation, lint, and
+render steps, then rejects the build if the tracked Swagger or Redoc artifacts
+differ before building Docusaurus.
 
 All request bodies use `application/json`, reject unknown fields, accept exactly
 one JSON value, and default to a 1 MiB limit.
@@ -65,6 +68,8 @@ one JSON value, and default to a 1 MiB limit.
 | `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt` |
 | `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions` |
 | `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions` |
+| `GET` | `/v1/sessions/{parentSessionID}/subagent-permissions` |
+| `GET` | `/v1/sessions/{parentSessionID}/subagent-confirmations` |
 
 Every nested route verifies parent ownership; a child ID alone is insufficient.
 
@@ -187,6 +192,13 @@ Each message contains `id`, `session_id`, `turn_id`, `type`, and `created_at`,
 plus one of text content, tool calls, or a tool result. Types include `user`,
 `runtime_event`, `assistant`, `tool_call`, and `tool_result`.
 
+Tool results normally omit `trigger_satisfied`. A successful
+`EndResponseScope` result sets it explicitly: `false` means the model called
+the tool before the final response-scope boundary, so the runtime skipped the
+handler; `true` means the final handler executed and satisfied the required
+trigger. The same field appears at `tool_result.result.trigger_satisfied` in
+SSE events and in each terminal `result.tool_results` entry.
+
 ## Resolve permission
 
 Use IDs from the `permission_requested` SSE event:
@@ -254,6 +266,11 @@ the parent session. That turn appears on the parent session event stream with
 `source: subagent_callback`; clients do not need to poll the child or manually
 ask the parent to read it.
 
+When the child originated from an agent-dispatched subagent call, its automatic
+callback remains in that original response scope. A child created directly
+through this HTTP endpoint has no originating scope, so its callback
+continuation starts a new root response scope instead.
+
 Continue an existing child:
 
 ```bash
@@ -276,7 +293,9 @@ curl -sS 'http://127.0.0.1:8080/v1/sessions/demo/subagents?include_closed=true'
 
 Child permission and confirmation bodies use the same fields as root
 decisions. Their nested endpoints force ownership and derive the child session
-from the owned record.
+from the owned record. On reload, query `subagent-permissions` and
+`subagent-confirmations` to recover unresolved child gates that may predate the
+current session-stream subscription.
 
 Sending to a running child queues the message. Sending to an idle incomplete,
 completed, or failed child starts the follow-up only after its latest callback

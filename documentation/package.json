@@ -8,7 +8,8 @@
     "api:render": "redocly build-docs agentcli@v1 --output static/redoc/index.html --title 'AgentCLI HTTP API' --template redoc-template.hbs",
     "api:docs": "npm run api:generate && npm run api:lint && npm run api:render",
     "start": "npm run api:docs && docusaurus start",
-    "build": "npm run api:docs && docusaurus build",
+    "site:build": "docusaurus build",
+    "build": "npm run api:docs && npm run site:build",
     "serve": "docusaurus serve",
     "clear": "docusaurus clear"
   },

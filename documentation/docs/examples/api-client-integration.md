@@ -229,7 +229,11 @@ function handleActivity(activity) {
       showToolRunning(event.tool_request.call);
       break;
     case "tool_result_received":
-      showToolResult(event.tool_result.result);
+      if (event.tool_result.result.trigger_satisfied === false) {
+        showToolDeferred(event.tool_result.result);
+      } else {
+        showToolResult(event.tool_result.result);
+      }
       break;
     case "permission_requested":
       showPermission(event.permission);
@@ -254,6 +258,11 @@ Provider text fragments are incremental. Append them in sequence; do not
 replace the entire message. Do not execute `provider_event.tool` fragments.
 Only `tool_call_requested` contains the complete validated tool request, and
 the server-owned executor already handles it.
+
+`trigger_satisfied: false` is a successful runtime-owned skip, not proof that
+the tool's side effect happened. For an `EndResponseScope` delivery tool, keep
+the turn active and wait for the later result with `trigger_satisfied: true`
+or for the terminal run failure. Ordinary tool results omit this field.
 
 At `stream_completed`, `provider_event.payload.result` contains the
 provider-neutral aggregate for that step. Use its `content` and `reasoning` to

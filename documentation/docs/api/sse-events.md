@@ -164,7 +164,7 @@ Queued turns emit nothing until admitted.
 | `run_started` | `message`, `permission_mode` | The turn was admitted and its user message was stored. `permission_mode.current` is the mode captured for the run. |
 | `provider_event_received` | `provider_event` | One provider-neutral streaming fragment was received. See the provider event catalog below. |
 | `tool_call_requested` | `tool_request` | A complete provider tool call was assembled, validated, and submitted for permission/confirmation/execution. |
-| `tool_result_received` | `tool_result` | Tool execution reached a terminal `succeeded`, `failed`, `interrupted`, `denied`, or `declined` result. `tool_result.turn_behavior` is `end_turn` when a successful result completes the turn without another provider step; it is omitted for the default continue behavior. |
+| `tool_result_received` | `tool_result` | Tool execution reached a terminal `succeeded`, `failed`, `interrupted`, `denied`, or `declined` result. `tool_result.turn_behavior` is `end_turn` when a successful result completes the turn without another provider step; it is omitted for the default continue behavior. For successful `EndResponseScope` tools, `tool_result.result.trigger_satisfied` is `false` for an early non-executing skip and `true` when the final handler executed; ordinary tool results omit it. |
 | `permission_requested` | `permission` | Tool execution is paused until a correlated permission decision arrives or the request expires. |
 | `permission_resolved` | `permission`, `decision` | A permission decision was accepted. This event is committed before its resulting tool result. |
 | `permission_cancelled` | `permission` | A pending permission was cancelled because its run or runtime stopped. |
