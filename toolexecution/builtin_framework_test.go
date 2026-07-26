@@ -35,8 +35,8 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 
 func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	tools := NewSubagentToolBridge().Tools()
-	if len(tools) != 5 {
-		t.Fatalf("subagent tool count = %d, want 5", len(tools))
+	if len(tools) != 4 {
+		t.Fatalf("subagent tool count = %d, want 4", len(tools))
 	}
 	seen := make(map[string]bool, len(tools))
 	for _, tool := range tools {
@@ -50,7 +50,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "always asynchronous") || strings.Contains(schema, `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
-		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName || tool.Definition.Name == CloseSubagentToolName {
+		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
 			if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) || !strings.Contains(tool.Definition.Description, "always continues") {
 				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
 			}
@@ -58,7 +58,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one start_subagent call per provider round") || !strings.Contains(tool.Definition.Description, "Never emit multiple start_subagent calls in the same tool batch")) {
 			t.Fatalf("start_subagent does not describe sequential starts: %#v", tool)
 		}
-		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && tool.Definition.Name != CloseSubagentToolName && (tool.Trigger != "" || tool.EndTurnOnSuccess) {
+		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && (tool.Trigger != "" || tool.EndTurnOnSuccess) {
 			t.Fatalf("subagent management tool %q has terminal behavior, want default continue", tool.Definition.Name)
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "exactly one open child of the requested definition is reused") || !strings.Contains(tool.Definition.Description, "selection_required") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
@@ -75,11 +75,6 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "neither duplicates the delegated task nor depends on its result") || !strings.Contains(tool.Definition.Description, "A callback cannot arrive until the current parent turn ends")) {
 			t.Fatalf("asynchronous dispatch tool %q does not constrain work while waiting: %q", tool.Definition.Name, tool.Definition.Description)
-		}
-		if tool.Definition.Name == CloseSubagentToolName {
-			if tool.Confirmation != nil || !strings.Contains(tool.Definition.Description, "latest human user message explicitly") || !strings.Contains(tool.Definition.Description, "Never choose it autonomously") || !strings.Contains(tool.Definition.Description, "automatically closes completed and failed") || !strings.Contains(tool.Definition.Description, "user_instruction") || !strings.Contains(schema, `"user_instruction"`) {
-				t.Fatalf("close_subagent safety contract = %#v", tool)
-			}
 		}
 		schema = string(marshaledToolSchema(t, tool.Definition.InputSchema))
 		if strings.Contains(schema, `"type":"string"`) && !strings.Contains(schema, `"minLength":1`) {

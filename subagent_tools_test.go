@@ -44,6 +44,9 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || started.Callback != "wait" || !started.MustWait || !slices.Contains(started.Prohibited, "duplicate_delegated_work") || slices.Contains(started.Prohibited, "unrelated_or_domain_tools") || started.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(started.NextAction, "at most one start_subagent call") || !strings.Contains(started.NextAction, "already-planned independent work") || !strings.Contains(started.NextAction, "wait for its authoritative callback") {
 		t.Fatalf("start result = %s", output)
 	}
+	if strings.Contains(string(output), "close_subagent") {
+		t.Fatalf("removed destructive tool appears in start acknowledgement: %s", output)
+	}
 	statusCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "turn", CallID: "status", ToolName: SubagentStatusToolName})
 	statusJSON, err := callSubagentTool(bridge, SubagentStatusToolName, statusCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
 	if err != nil {
@@ -88,68 +91,11 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	}
 }
 
-func TestCloseSubagentToolRequiresCurrentHumanInstructionAndClosesImmediately(t *testing.T) {
-	model := &subagentGateModel{releases: make(chan struct{})}
-	manager := newTestSubagentManager(t, model, 1)
-	defer manager.Close()
-	bridge := newTestSubagentToolBridge(manager)
-	systemEvents := manager.subscribeSystemEvents(context.Background())
-	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.Send(context.Background(), "parent", record.ID, "queued"); err != nil {
-		t.Fatal(err)
-	}
-	appendParentUserMessage(t, manager, "parent", "close-turn", "please close that researcher now")
-	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "parent", TurnID: "close-turn", CallID: "close-call", ToolName: CloseSubagentToolName,
-	})
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"invented authorization"}`)); err == nil || !strings.Contains(err.Error(), "current human user message") {
-		t.Fatalf("missing same-turn authorization error = %v", err)
-	}
-	appendParentRuntimeMessage(t, manager, "parent", "callback-turn", "close that researcher")
-	callbackCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "parent", TurnID: "callback-turn", CallID: "callback-close", ToolName: CloseSubagentToolName,
-	})
-	if _, err := callSubagentTool(bridge, CloseSubagentToolName, callbackCtx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"close that researcher"}`)); err == nil || !strings.Contains(err.Error(), "current human user message") {
-		t.Fatalf("callback close authorization error = %v", err)
-	}
-	output, err := callSubagentTool(bridge, CloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"please close that researcher now"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result struct {
-		Subagent        toolexecution.SubagentToolSummary `json:"subagent"`
-		PreviousStatus  storage.SubagentStatus            `json:"previous_status"`
-		DroppedMessages int                               `json:"dropped_messages"`
-		Interrupted     bool                              `json:"interrupted"`
-		UserDirected    bool                              `json:"user_directed"`
-		TurnBehavior    string                            `json:"turn_behavior"`
-		Instruction     string                            `json:"instruction"`
-	}
-	if err := json.Unmarshal(output, &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.UserDirected || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed close completed") || !strings.Contains(result.Instruction, "normal response or required trigger tool") {
-		t.Fatalf("close result = %s", output)
-	}
-	select {
-	case event := <-systemEvents:
-		if event.Type != SystemSubagentClosed || event.SessionID != "parent" || event.TurnID != "close-turn" ||
-			event.SubagentClosed == nil || event.SubagentClosed.Subagent.ID != record.ID {
-			t.Fatalf("close tool event = %#v", event)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for close tool event")
-	}
-}
-
 func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 	bridge := toolexecution.NewSubagentToolBridge()
 	tools := bridge.Tools()
-	if len(tools) != 5 {
-		t.Fatalf("tool count = %d, want 5", len(tools))
+	if len(tools) != 4 {
+		t.Fatalf("tool count = %d, want 4", len(tools))
 	}
 	seen := make(map[string]bool)
 	for _, tool := range tools {
@@ -400,7 +346,7 @@ func TestReadSubagentRecoveryAPIReportsLastTurnFailure(t *testing.T) {
 
 func TestReadAndWaitSubagentAreNotExposedToTheModel(t *testing.T) {
 	bridge := toolexecution.NewSubagentToolBridge()
-	for _, name := range []string{"read_subagent", "wait_subagent"} {
+	for _, name := range []string{"read_subagent", "wait_subagent", "close_subagent"} {
 		if _, err := callSubagentTool(bridge, name, context.Background(), json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "unavailable") {
 			t.Fatalf("%s availability error = %v", name, err)
 		}
@@ -417,7 +363,6 @@ func TestSubagentToolsRejectRemovedFinishTurnOption(t *testing.T) {
 		{"start background", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","background":false}`)},
 		{"start finish", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","finish_turn":true}`)},
 		{"send finish", SendSubagentMessageToolName, json.RawMessage(`{"subagent_id":"child","message":"continue","finish_turn":true}`)},
-		{"close finish", CloseSubagentToolName, json.RawMessage(`{"subagent_id":"child","user_instruction":"close it","finish_turn":true}`)},
 	}
 	for _, test := range tests {
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{

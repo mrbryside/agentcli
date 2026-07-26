@@ -96,7 +96,7 @@ func (m *subagentManager) autoClosedSubagentReminders(sessionID, turnID string) 
 		fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(notice.Outcome)))
 		content.WriteString("  </subagent>\n")
 	}
-	content.WriteString("  <instruction>These completed or failed children were automatically closed after the previous response scope. They cannot receive follow-up messages. Start a new subagent if more work is required. Never call close_subagent for routine cleanup; it is reserved for an explicit instruction in the current human user message.</instruction>\n")
+	content.WriteString("  <instruction>These completed or failed children were automatically closed after the previous response scope. They cannot receive follow-up messages. Start a new subagent if more work is required. Destructive child closure is controlled by the host application and is not available as a model action.</instruction>\n")
 	content.WriteString("</subagents_automatically_closed>")
 	return []agentruntime.ContextReminder{{Content: content.String()}}
 }
@@ -185,7 +185,7 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Never call close_subagent for routine cleanup.</callback_policy>\n")
+		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Destructive closure is controlled by the host application.</callback_policy>\n")
 		content.WriteString("</active_subagents>")
 		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
 		if request.TurnID != "" {

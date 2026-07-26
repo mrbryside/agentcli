@@ -940,13 +940,9 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 	return closed, true
 }
 
-// CloseSubagent destructively closes one owned child for an explicit caller
-// request. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
+// CloseSubagent destructively closes one owned child for an application-owned
+// caller. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
 func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentCloseResult, error) {
-	return m.closeSubagent(ctx, parentSessionID, "", id)
-}
-
-func (m *subagentManager) closeSubagent(ctx context.Context, parentSessionID, parentTurnID, id string) (toolexecution.SubagentCloseResult, error) {
 	ctx = nonNilContext(ctx)
 	record, err := m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
@@ -969,8 +965,9 @@ func (m *subagentManager) closeSubagent(ctx context.Context, parentSessionID, pa
 			Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 			DroppedMessages: len(record.Pending),
 		}
+		m.parent.responseScopes.CancelChildDispatches(parentSessionID, id)
 		m.publishSystemEvent(SystemEvent{
-			Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: parentTurnID,
+			Type: SystemSubagentClosed, SessionID: parentSessionID,
 			SubagentClosed: &SubagentClosedEvent{
 				Subagent: closed, PreviousStatus: result.PreviousStatus,
 				PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
@@ -1011,8 +1008,9 @@ func (m *subagentManager) closeSubagent(ctx context.Context, parentSessionID, pa
 		Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 		DroppedMessages: len(record.Pending), Interrupted: interrupted,
 	}
+	m.parent.responseScopes.CancelChildDispatches(parentSessionID, id)
 	m.publishSystemEvent(SystemEvent{
-		Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: parentTurnID,
+		Type: SystemSubagentClosed, SessionID: parentSessionID,
 		SubagentClosed: &SubagentClosedEvent{
 			Subagent: closed, PreviousStatus: result.PreviousStatus,
 			PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
@@ -1020,36 +1018,6 @@ func (m *subagentManager) closeSubagent(ctx context.Context, parentSessionID, pa
 		},
 	})
 	return result, nil
-}
-
-// CloseSubagentFromParentTurn requires same-turn human-message evidence before
-// the model-facing destructive close can reach the lifecycle operation.
-func (m *subagentManager) CloseSubagentFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id, userInstruction string) (toolexecution.SubagentCloseResult, error) {
-	if err := m.validateUserDirectedClose(nonNilContext(ctx), parentSessionID, parentTurnID, userInstruction); err != nil {
-		return toolexecution.SubagentCloseResult{}, err
-	}
-	return m.closeSubagent(ctx, parentSessionID, parentTurnID, id)
-}
-
-func (m *subagentManager) validateUserDirectedClose(ctx context.Context, parentSessionID, parentTurnID, userInstruction string) error {
-	userInstruction = strings.TrimSpace(userInstruction)
-	if userInstruction == "" {
-		return errors.New("close_subagent requires an exact instruction from the latest human user message")
-	}
-	messages, err := m.parent.ListMessages(ctx, parentSessionID)
-	if err != nil {
-		return fmt.Errorf("read parent close authorization: %w", err)
-	}
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
-		if message.TurnID != parentTurnID {
-			continue
-		}
-		if message.Type == agentruntime.MessageTypeUser && strings.TrimSpace(message.Content) == userInstruction {
-			return nil
-		}
-	}
-	return errors.New("close_subagent is allowed only when user_instruction exactly matches the current human user message")
 }
 
 // validateSubagentClose makes close a cleanup-only operation. An idle state

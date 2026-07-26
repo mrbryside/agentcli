@@ -335,10 +335,13 @@ func TestSubagentManagerPublishesCompactSuccessAndFailureCallbacks(t *testing.T)
 				t.Fatalf("callback = %#v", callback)
 			}
 			message := callback.RuntimeMessage()
-			for _, expected := range []string{"authoritative outcome", "dispatch acknowledgement", "display_name", "send one focused follow-up", "automatically closes completed and failed children", "current human user explicitly asks", "Never poll list_subagents or subagent_status", "unfinished children will callback automatically", "Never reveal secret values", "callback to be consumed"} {
+			for _, expected := range []string{"authoritative outcome", "dispatch acknowledgement", "display_name", "send one focused follow-up", "automatically closes completed and failed children", "controlled by the host application", "Never poll list_subagents or subagent_status", "unfinished children will callback automatically", "Never reveal secret values", "callback to be consumed"} {
 				if !strings.Contains(message.Content, expected) {
 					t.Fatalf("callback instruction missing %q: %s", expected, message.Content)
 				}
+			}
+			if strings.Contains(message.Content, "close_subagent") {
+				t.Fatalf("removed destructive tool appears in callback instruction: %s", message.Content)
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for success callback")
@@ -649,6 +652,38 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 	case callback := <-callbacks:
 		t.Fatalf("closed child published callback: %#v", callback)
 	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func TestSubagentManagerCloseCancelsOutstandingResponseScopeCallbacks(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	if err := manager.parent.responseScopes.BeginRootTurn("parent", "parent-turn"); err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Start(context.Background(), "parent", "parent-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	childTurnID := record.CurrentTurnID
+	if manager.parent.responseScopes.ReadyToEnd("parent", "parent-turn") {
+		t.Fatal("parent scope became ready while the child callback was pending")
+	}
+
+	if _, err := manager.CloseSubagent(context.Background(), "parent", record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.parent.responseScopes.ReadyToEnd("parent", "parent-turn") {
+		t.Fatal("application close left an impossible callback obligation in the parent scope")
+	}
+	if _, err := manager.parent.responseScopes.ReserveCallbackTurn(
+		"parent",
+		"callback-turn",
+		record.ID,
+		childTurnID,
+	); !errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) {
+		t.Fatalf("callback reservation after close error = %v, want ErrResponseScopeDispatchNotFound", err)
 	}
 }
 

@@ -167,8 +167,10 @@ Intermediate turns with pending callbacks may complete without an
 last turn reaches completion with no pending callback, runtime repair requests
 the final `EndResponseScope` tools, closes unshared completed/failed children,
 and executes those handlers. Incomplete children remain open. The model-facing
-`close_subagent` tool is reserved for an explicit current human instruction and
-is never part of ordinary callback cleanup.
+catalog has no destructive close tool. When the application closes a child
+through Go, Terminal, or HTTP, the coordinator cancels that child's outstanding
+unreserved callback obligations so an impossible callback cannot strand the
+scope.
 
 `Agent.SubscribeScopeEvents(ctx)` exposes two live-only boundaries for
 each human response scope:

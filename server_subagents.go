@@ -135,7 +135,7 @@ func (server *Server) getSubagent(c echo.Context) error {
 
 // closeSubagent godoc
 // @Summary Close one owned subagent
-// @Description Destructively closes one child, interrupting active work and dropping queued input when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the parent session event stream.
+// @Description Destructively closes one child, interrupting active work, dropping queued input, and cancelling outstanding response-scope callback obligations when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the parent session event stream.
 // @ID closeSubagent
 // @Tags Subagents
 // @Produce json

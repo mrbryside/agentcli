@@ -275,6 +275,58 @@ func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, chi
 	}
 }
 
+// CancelChildDispatches removes every callback obligation that has not yet
+// been reserved for delivery for childID. Application-owned destructive close
+// paths call this after the child is durably closed so a callback that can no
+// longer arrive cannot keep any parent response scope open forever.
+func (c *ResponseScopeCoordinator) CancelChildDispatches(sessionID, childID string) int {
+	if c == nil || sessionID == "" || childID == "" {
+		return 0
+	}
+	child := responseChildKey{sessionID: sessionID, childID: childID}
+
+	c.mu.Lock()
+	queue := c.dispatch[child]
+	if len(queue) == 0 {
+		c.mu.Unlock()
+		return 0
+	}
+	delete(c.dispatch, child)
+	scopeIDs := make([]string, 0, len(queue))
+	seenScopes := make(map[responseScopeKey]struct{}, len(queue))
+	for _, dispatch := range queue {
+		scope := c.scopes[dispatch.scope]
+		if scope == nil {
+			continue
+		}
+		if _, seen := seenScopes[dispatch.scope]; !seen {
+			seenScopes[dispatch.scope] = struct{}{}
+			scopeIDs = append(scopeIDs, dispatch.scope.scopeID)
+		}
+		if scope.pendingCallbacks > 0 {
+			scope.pendingCallbacks--
+		}
+		if scope.children[childID] > 0 {
+			scope.children[childID]--
+			if scope.children[childID] == 0 {
+				delete(scope.children, childID)
+			}
+		}
+	}
+	logger := c.logger
+	c.mu.Unlock()
+	sort.Strings(scopeIDs)
+	if logger != nil {
+		logger.DebugContext(c.ctx, "response scope callback obligations cancelled",
+			"session_id", sessionID,
+			"child_id", childID,
+			"cancelled_dispatches", len(queue),
+			"scope_ids", scopeIDs,
+		)
+	}
+	return len(queue)
+}
+
 // ChildExclusiveToScope reports whether no other live response scope has
 // accepted work for childID. Cleanup callers use it while holding the child's
 // own lifecycle lock so a concurrent follow-up cannot race an automatic close.

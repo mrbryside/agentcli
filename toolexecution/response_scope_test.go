@@ -118,6 +118,35 @@ func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T)
 	newCallback.Commit()
 }
 
+func TestResponseScopeCancelChildDispatchesReleasesPendingCallbackBarrier(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	rollback := coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-2")
+	if coordinator.ReadyToEnd("session", "root-turn") {
+		t.Fatal("scope became ready while child callbacks were pending")
+	}
+
+	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 2 {
+		t.Fatalf("cancelled dispatches = %d, want 2", cancelled)
+	}
+	if !coordinator.ReadyToEnd("session", "root-turn") {
+		t.Fatal("scope did not become ready after destructive child close cancelled every callback obligation")
+	}
+	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 0 {
+		t.Fatalf("second cancellation = %d, want 0", cancelled)
+	}
+	rollback()
+	if !coordinator.ReadyToEnd("session", "root-turn") {
+		t.Fatal("late dispatch rollback changed the already-cancelled barrier")
+	}
+	if _, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn"); !errors.Is(err, ErrResponseScopeDispatchNotFound) {
+		t.Fatalf("callback after destructive close error = %v, want ErrResponseScopeDispatchNotFound", err)
+	}
+}
+
 func TestResponseScopeRecordsCanonicalAssistantAfterSuccessfulFinalExecution(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	var recorded []agentruntime.Message

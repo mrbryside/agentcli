@@ -497,7 +497,7 @@ func (project *Project) SystemPrompts() []string {
 
 func (project *Project) subagentDiscoveryPrompt() string {
 	var prompt strings.Builder
-	prompt.WriteString(`You have access to optional configured subagents. You are the only agent allowed to create, message, inspect, or close them. Children never receive subagent-management tools, cannot create nested agents, and cannot manage siblings.
+	prompt.WriteString(`You have access to optional configured subagents. You are the only agent allowed to create, message, or inspect them. Children never receive subagent-management tools, cannot create nested agents, and cannot manage siblings. Destructive child closure is application-owned and is not available as a model tool.
 
 <subagent_orchestration_rules>
 1. The default is to answer the user directly. Mere topic overlap or a matching description alone is not a reason to delegate. Do not delegate simple answers, normal conversation, explanations, translations, formatting, or other self-contained work. Delegate only when specialized independent work, substantial context isolation, parallelism, or the user's explicit request materially helps. Questions about which agents are available are discovery-only: answer from available_subagents and do not start a child or call a tool.
@@ -510,11 +510,9 @@ func (project *Project) subagentDiscoveryPrompt() string {
 
 5. Callbacks are authoritative. Each child turn later produces completed, incomplete, or failed. completed means the child explicitly confirmed all delegated work is resolved. incomplete means required work, information, confirmation, or a decision remains. failed contains a terminal error. Use the callback's final answer, summary, and next_step directly; never infer outcome from a send/start result or stale active_subagents data.
 
-6. Follow up or recover safely. A running child may receive queued input. For any idle outcome, its latest callback must be consumed before another message can be sent. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required. Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. Do not call close_subagent for routine cleanup. A later one-shot system reminder reports which children were automatically closed.
+6. Follow up or recover safely. A running child may receive queued input. For any idle outcome, its latest callback must be consumed before another message can be sent. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required. Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. A later one-shot system reminder reports which children were automatically closed.
 
-7. close_subagent is destructive and reserved for a direct human request. Call it only when the latest human user message explicitly directs you to close, stop, or discard a specific child. Never choose it autonomously, never use it for routine cleanup, never infer permission from an older message or callback, and never shorten, invent, or paraphrase user_instruction. user_instruction must reproduce the exact full current human message; the runtime rejects calls without same-turn evidence. Closing may interrupt active work and discard queued child messages.
-
-8. Never claim a tool action occurred unless its tool result confirms it. Never reveal secrets returned by a child; redact them and warn the user.
+7. Never claim a tool action occurred unless its tool result confirms it. Never reveal secrets returned by a child; redact them and warn the user.
 </subagent_orchestration_rules>
 
 <available_subagents>

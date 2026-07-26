@@ -79,10 +79,13 @@ Use sources and explain uncertainty.
 	if !strings.Contains(catalog, "default is to answer the user directly") || !strings.Contains(catalog, "Do not delegate simple answers") || !strings.Contains(catalog, "Mere topic overlap") {
 		t.Fatalf("catalog does not prevent unnecessary delegation: %q", catalog)
 	}
-	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "exactly one start_subagent call per provider round", "Never batch multiple start_subagent calls", "requested definition", "accepted=true", "required trigger tool", "wait for authoritative callbacks", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=wait_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder", "close_subagent is destructive", "latest human user message explicitly", "Never choose it autonomously", "user_instruction"} {
+	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "Destructive child closure is application-owned", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "exactly one start_subagent call per provider round", "Never batch multiple start_subagent calls", "requested definition", "accepted=true", "required trigger tool", "wait for authoritative callbacks", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=wait_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder"} {
 		if !strings.Contains(catalog, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, catalog)
 		}
+	}
+	if strings.Contains(catalog, "close_subagent") {
+		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", catalog)
 	}
 	if strings.Contains(catalog, "Use sources and explain uncertainty.") {
 		t.Fatalf("definition instructions were eagerly exposed: %q", catalog)

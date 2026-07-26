@@ -110,7 +110,7 @@ func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) 
 		t.Fatal(err)
 	}
 	if len(callbackTurn) != 0 {
-		t.Fatalf("callback turn consumed human-only close reminder: %#v", callbackTurn)
+		t.Fatalf("callback turn consumed human-only lifecycle reminder: %#v", callbackTurn)
 	}
 
 	rejectedReservation := manager.reserveAutoClosedSubagentReminder("parent", "rejected-human-turn")
@@ -121,8 +121,11 @@ func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(humanTurn) != 1 || !strings.Contains(humanTurn[0].Content, "<subagents_automatically_closed>") || !strings.Contains(humanTurn[0].Content, "ember-fox") || !strings.Contains(humanTurn[0].Content, "Never call close_subagent for routine cleanup") {
+	if len(humanTurn) != 1 || !strings.Contains(humanTurn[0].Content, "<subagents_automatically_closed>") || !strings.Contains(humanTurn[0].Content, "ember-fox") || !strings.Contains(humanTurn[0].Content, "controlled by the host application") {
 		t.Fatalf("human close reminder = %#v", humanTurn)
+	}
+	if strings.Contains(humanTurn[0].Content, "close_subagent") {
+		t.Fatalf("removed destructive tool appears in lifecycle reminder: %s", humanTurn[0].Content)
 	}
 	manager.finishAutoClosedSubagentReminder("parent", "human-turn")
 	later, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "later-human-turn"})

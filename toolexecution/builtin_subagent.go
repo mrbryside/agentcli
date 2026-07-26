@@ -18,12 +18,11 @@ const (
 	ListSubagentsToolName       = "list_subagents"
 	SubagentStatusToolName      = "subagent_status"
 	SendSubagentMessageToolName = "send_subagent_message"
-	CloseSubagentToolName       = "close_subagent"
 )
 
 var subagentToolNames = map[string]struct{}{
 	StartSubagentToolName: {}, ListSubagentsToolName: {}, SubagentStatusToolName: {},
-	SendSubagentMessageToolName: {}, CloseSubagentToolName: {},
+	SendSubagentMessageToolName: {},
 }
 
 // IsSubagentToolName reports whether name is reserved by the subagent built-ins.
@@ -39,7 +38,6 @@ type SubagentController interface {
 	List(context.Context, string, bool) ([]storage.Subagent, error)
 	StatusFromParentTurn(context.Context, string, string, string) (SubagentStatusSnapshot, error)
 	SendFromParentTurn(context.Context, string, string, string, string) (SubagentSendResult, error)
-	CloseSubagentFromParentTurn(context.Context, string, string, string, string) (SubagentCloseResult, error)
 }
 
 // SubagentStartAction describes how the conversational start request was
@@ -85,7 +83,7 @@ type SubagentSendResult struct {
 }
 
 // SubagentCloseResult describes the destructive lifecycle state removed by an
-// explicit user-directed close.
+// application-owned close.
 type SubagentCloseResult struct {
 	Subagent        storage.Subagent
 	PreviousStatus  storage.SubagentStatus
@@ -135,8 +133,7 @@ func (bridge *SubagentToolBridge) Tools() []Tool {
 		bridge.tool(StartSubagentToolName, "Start substantial delegated work or route it to an existing child of the requested definition. Do not use this tool for simple answers, ordinary conversation, formatting, or work the parent can complete directly. With new_instance=false, exactly one open child of the requested definition is reused and multiple matching open children produce selection_required; ask the user which display_name they mean. Set new_instance=true only for an explicitly new, separate, additional, or parallel child. Execution is always asynchronous: dispatch never proves completion. Inspect accepted in the result: only accepted=true means work was created, started, or queued; duplicate, already_sent, callback_pending, and selection_required return accepted=false and must not be counted as dispatched work. This tool always continues the parent turn. Issue exactly one start_subagent call per provider round. Never emit multiple start_subagent calls in the same tool batch. While the child runs, the parent may continue other already-planned independent work that neither duplicates the delegated task nor depends on its result. A callback cannot arrive until the current parent turn ends. After independent work is exhausted, finish through the application's normal response or required trigger tool and wait for authoritative callbacks. Do not redo delegated work, poll, inspect status, retry the dispatch, or claim completion before the callback.", `{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact definition name from available_subagents. This is a configured agent type, not a child ID or display_name."},"message":{"type":"string","minLength":1,"description":"Self-contained delegated task including relevant context, constraints, and the result expected from the child."},"label":{"type":"string","minLength":1,"maxLength":120,"description":"Optional short UI label for this delegated task. Do not put instructions here."},"new_instance":{"type":"boolean","default":false,"description":"False reuses the only open child of the requested definition when unambiguous. True creates a separate child and is valid only when the user explicitly requests another/new/parallel instance."}},"required":["name","message"],"additionalProperties":false}`, bridge.start),
 		bridge.tool(ListSubagentsToolName, "List lightweight child identities and lifecycle summaries for explicit discovery, selection, or UI-style enumeration. It does not return child findings or wait for progress. Never call it after start_subagent or send_subagent_message to check whether work finished, and never use it as a polling loop; callbacks report outcomes automatically after the current parent turn ends.", `{"type":"object","properties":{"include_closed":{"type":"boolean","default":false,"description":"Include closed historical child sessions. Keep false when selecting an open child for follow-up work."}},"additionalProperties":false}`, bridge.list),
 		bridge.tool(SubagentStatusToolName, "Read one lightweight lifecycle snapshot only when the user explicitly asks for status or a concrete immediate decision requires it. This does not return the child's answer and cannot wait for completion. The runtime permits one fresh snapshot per subagent_id in a parent turn; repeats return action=already_checked with the cached snapshot. Never call it after dispatch merely to see whether the callback arrived.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable child ID resolved from active_subagents. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.status),
-		bridge.tool(SendSubagentMessageToolName, "Send one focused follow-up to an existing child selected by ID. Running children accept the message into their FIFO queue. Idle incomplete children accept missing information, idle completed children accept a distinct next task, and idle failed children accept recovery instructions—but every idle outcome requires its latest callback to have been consumed first. If that callback is still pending, the tool returns action=callback_pending as a successful controlled result with accepted=false; do not retry, answer the user, or replace the callback's question. Exact same-turn retries return duplicate or already_sent before trigger admission. A successful accepted result means started or queued, not completed. This tool always continues the parent turn. While the child runs, the parent may continue other already-planned independent work that neither duplicates the delegated task nor depends on its result. A callback cannot arrive until the current parent turn ends. After independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the authoritative callback. Do not redo delegated work, poll, call status/list/close, retry the dispatch, or claim completion before the callback.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of an existing running child, or an idle completed/incomplete/failed child whose latest callback has been consumed. A pending callback returns a controlled callback_pending result without sending this message."},"message":{"type":"string","minLength":1,"description":"One focused follow-up, recovery instruction, or distinct next task. Do not send a waiting/status request."}},"required":["subagent_id","message"],"additionalProperties":false}`, bridge.send),
-		bridge.tool(CloseSubagentToolName, "Destructively stop and close one child while retaining its existing transcript and event history. Use this tool only when the latest human user message explicitly directs you to close, stop, or discard that specific child. Never choose it autonomously, never use it for routine lifecycle cleanup, and never infer permission from an older user message or a subagent callback. The runtime automatically closes completed and failed children at response-scope end and retains incomplete children for follow-up. This tool may interrupt active work, discard queued child messages, and suppress unfinished work. user_instruction must reproduce the exact full text of the current human message that explicitly authorizes this close; the runtime rejects calls without that same-turn evidence. This tool always continues the parent turn.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of the child the current human user explicitly directed you to close. Do not pass a definition name or display_name."},"user_instruction":{"type":"string","minLength":1,"description":"Exact full text of the latest human user message that explicitly directs closing, stopping, or discarding this child. Never shorten, invent, or paraphrase authorization."}},"required":["subagent_id","user_instruction"],"additionalProperties":false}`, bridge.close),
+		bridge.tool(SendSubagentMessageToolName, "Send one focused follow-up to an existing child selected by ID. Running children accept the message into their FIFO queue. Idle incomplete children accept missing information, idle completed children accept a distinct next task, and idle failed children accept recovery instructions—but every idle outcome requires its latest callback to have been consumed first. If that callback is still pending, the tool returns action=callback_pending as a successful controlled result with accepted=false; do not retry, answer the user, or replace the callback's question. Exact same-turn retries return duplicate or already_sent before trigger admission. A successful accepted result means started or queued, not completed. This tool always continues the parent turn. While the child runs, the parent may continue other already-planned independent work that neither duplicates the delegated task nor depends on its result. A callback cannot arrive until the current parent turn ends. After independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the authoritative callback. Do not redo delegated work, poll, call status/list, retry the dispatch, or claim completion before the callback.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of an existing running child, or an idle completed/incomplete/failed child whose latest callback has been consumed. A pending callback returns a controlled callback_pending result without sending this message."},"message":{"type":"string","minLength":1,"description":"One focused follow-up, recovery instruction, or distinct next task. Do not send a waiting/status request."}},"required":["subagent_id","message"],"additionalProperties":false}`, bridge.send),
 	}
 }
 
@@ -402,37 +399,4 @@ func (bridge *SubagentToolBridge) send(ctx context.Context, arguments json.RawMe
 		TurnBehavior string              `json:"turn_behavior"`
 		Instruction  string              `json:"instruction"`
 	}{result.Action, result.Accepted, result.Deduplicated, summarizeSubagent(result.Subagent), callbackAction, true, subagentCallbackProhibitedActions(), "continue_turn", instruction})
-}
-
-func (bridge *SubagentToolBridge) close(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
-	var input struct {
-		ID              string `json:"subagent_id"`
-		UserInstruction string `json:"user_instruction"`
-	}
-	if err := decodeSubagentTool(arguments, &input); err != nil {
-		return nil, err
-	}
-	invocation, err := subagentInvocation(ctx, CloseSubagentToolName)
-	if err != nil {
-		return nil, err
-	}
-	controller, err := bridge.get()
-	if err != nil {
-		return nil, err
-	}
-	result, err := controller.CloseSubagentFromParentTurn(ctx, invocation.SessionID, invocation.TurnID, input.ID, input.UserInstruction)
-	if err != nil {
-		return nil, err
-	}
-	instruction := "User-directed close completed. The parent turn remains open. Continue only with work explicitly required by the same latest human request; otherwise finish through the application's normal response or required trigger tool."
-	return json.Marshal(struct {
-		Subagent        SubagentToolSummary         `json:"subagent"`
-		PreviousStatus  storage.SubagentStatus      `json:"previous_status"`
-		PreviousOutcome storage.SubagentTurnOutcome `json:"previous_outcome,omitempty"`
-		DroppedMessages int                         `json:"dropped_messages"`
-		Interrupted     bool                        `json:"interrupted"`
-		UserDirected    bool                        `json:"user_directed"`
-		TurnBehavior    string                      `json:"turn_behavior"`
-		Instruction     string                      `json:"instruction"`
-	}{summarizeSubagent(result.Subagent), result.PreviousStatus, result.PreviousOutcome, result.DroppedMessages, result.Interrupted, true, "continue_turn", instruction})
 }

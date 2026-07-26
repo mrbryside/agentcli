@@ -502,10 +502,13 @@ childStore.Replace(closed.ID, closed)
 ```
 
 `CloseSubagent` interrupts active work when necessary, removes queued child
-messages, and rejects future sends. It still retains the child transcript and
-completed event history for a read-only view. Do not expose it as an automatic
-cleanup path; bind it to an explicit user action. Routine completed/failed
-cleanup is owned by the response-scope runtime.
+messages, cancels outstanding unreserved callback obligations, and rejects
+future sends. It still retains the child transcript and completed event history
+for a read-only view. Releasing the obligations lets a parent response scope
+continue to final delivery even though the closed child can no longer callback.
+Do not expose it as an automatic cleanup path; bind it to an explicit user
+action. Routine completed/failed cleanup is owned by the response-scope
+runtime.
 
 Closing retains the transcript. Keep the view available as read-only when the
 application lists children with `includeClosed` set to `true`.

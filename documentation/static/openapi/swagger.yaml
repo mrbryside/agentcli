@@ -1193,10 +1193,11 @@ paths:
       - Subagents
   /v1/sessions/{parentSessionID}/subagents/{subagentID}:
     delete:
-      description: Destructively closes one child, interrupting active work and dropping
-        queued input when necessary, while retaining transcript and completed event
-        history. Bind this endpoint to an explicit user action. A successful close
-        also emits subagent_closed on the parent session event stream.
+      description: Destructively closes one child, interrupting active work, dropping
+        queued input, and cancelling outstanding response-scope callback obligations
+        when necessary, while retaining transcript and completed event history. Bind
+        this endpoint to an explicit user action. A successful close also emits subagent_closed
+        on the parent session event stream.
       operationId: closeSubagent
       parameters:
       - description: Owning parent session ID

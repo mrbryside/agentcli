@@ -33,14 +33,12 @@ from `Trigger` and ends the turn when every result in that tool batch succeeds.
 Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
-triggers. Framework
-`start_subagent`, `send_subagent_message`, and `close_subagent` always
+triggers. Framework `start_subagent` and `send_subagent_message` always
 continue. The start contract permits exactly one call per provider round.
 Accepted start/send results require a later
 callback but allow independent, non-duplicative work before the parent finishes
-through its normal response or required trigger tool. `close_subagent` is a
-destructive escape hatch for a current explicit human instruction; it is not an
-`EndResponseScope` trigger tool or automatic cleanup mechanism.
+through its normal response or required trigger tool. Destructive child close
+is application-owned and is not registered in the model tool catalog.
 
 `EndTurn` executes its handler immediately. Its latest successful result
 anywhere in the turn satisfies the requirement; a later failed attempt makes it
@@ -79,9 +77,9 @@ handlers. It emits
 scope-level events rather than per-turn `AgentEvent` values.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by
-`toolexecution`; application tools remain caller-owned. Model-facing
-`close_subagent` requires `user_instruction`, the exact full text of the
-current human turn. The manager rejects callback turns and shortened,
-fabricated, or absent same-turn evidence.
+`toolexecution`; application tools remain caller-owned. Go, Terminal, and HTTP
+close paths call the same manager operation. After durable close, it cancels
+every outstanding unreserved dispatch for that child and decrements the owning
+response scopes' callback barriers.
 
 Back to [tools-safety/index.md](index.md).

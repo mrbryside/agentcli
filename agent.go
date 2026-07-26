@@ -801,8 +801,9 @@ func (a *Agent) SendSubagentMessage(ctx context.Context, parentSessionID, subage
 }
 
 // CloseSubagent destructively closes one owned child, interrupts active work,
-// drops queued input, and retains transcript history. Applications should call
-// it only for an explicit user-directed close.
+// drops queued input, cancels its outstanding response-scope callback
+// obligations, and retains transcript history. Applications should bind it to
+// an explicit user or operator action.
 func (a *Agent) CloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {

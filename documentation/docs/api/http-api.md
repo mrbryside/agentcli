@@ -301,10 +301,11 @@ Sending to a running child queues the message. Sending to an idle incomplete,
 completed, or failed child starts the follow-up only after its latest callback
 has been consumed; otherwise it returns `409 conflict`.
 
-Delete closes only a completed or failed child after its latest callback has
-been consumed, and retains its transcript and completed event history. Closing
-is not cancellation. Running, incomplete, and callback-pending children return
-`409 conflict`.
+Delete uses the same destructive lifecycle path as `Agent.CloseSubagent`. It
+may interrupt active work, drops queued input, retains transcript and completed
+event history, and cancels outstanding unreserved callback obligations so the
+parent response scope is not stranded. Bind it to an explicit application or
+user action.
 
 ## Errors
 

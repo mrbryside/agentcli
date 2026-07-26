@@ -37,13 +37,12 @@ project loading/agent initialization.
 
 ## Root management tools
 
-When definitions exist, the root model receives five fixed framework tools:
+When definitions exist, the root model receives four fixed framework tools:
 
 | Tool | Use |
 | --- | --- |
 | `start_subagent` | Create or reuse a child and asynchronously route work. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
-| `close_subagent` | Destructively interrupt and close a specific child only when the current human user message explicitly requests it. Drops queued child messages and retains history. Routine cleanup is automatic. |
 | `list_subagents` | List lightweight child summaries for explicit discovery or selection. |
 | `subagent_status` | Read one compact snapshot for an explicit status question; repeated checks in one parent turn return the cached snapshot. |
 
@@ -51,6 +50,8 @@ Child agents do not receive these management tools. Every child instead
 receives one framework-owned `report_subagent_outcome` tool. Before its final
 answer, the child reports either `completed` or `incomplete` with a concise
 summary and, for incomplete work, the required next step.
+Destructive closure is not model-facing. Applications may close a child through
+the Go API, Terminal, or HTTP endpoint.
 
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
@@ -69,8 +70,7 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. `start_subagent`, `send_subagent_message`, and a user-directed
-`close_subagent` always continue the parent turn. The model issues
+work and always continue the parent turn. The model issues
 exactly one start per provider round and never batches multiple starts in one
 tool-call response. Accepted start/send results
 set `callback_action: wait` and `must_wait_for_callback: true`. While a child
@@ -110,8 +110,8 @@ Each model-facing start result reports that the parent remains open:
 }
 ```
 
-Send and user-directed close results also report
-`turn_behavior: "continue_turn"`. A `selection_required` start result reports
+Send results also report `turn_behavior: "continue_turn"`. A
+`selection_required` start result reports
 `callback_action: "none"` and `turn_behavior: "continue_turn"`.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
@@ -255,15 +255,16 @@ between provider rounds, the active turn continues seeing its original
 snapshot; the queued callback becomes authoritative input in the following
 callback turn.
 
-`close_subagent` is the destructive, user-directed escape hatch. It can stop a
-running child or discard an incomplete child. The model must never select it
-for automatic cleanup or infer authorization from a callback or older user
-message. Its required `user_instruction` argument must reproduce the exact
-full text of the current human message; the runtime rejects callback turns and
-shortened, fabricated, or older evidence. Existing transcript messages and retained
-run events remain available, while pending mailbox messages are removed and
-future sends are rejected. Direct Go, Terminal, and HTTP close operations are
-also destructive commands and should be exposed only as explicit user actions.
+Application-owned close operations can stop a running child or discard an
+incomplete child. They are available through `Agent.CloseSubagent`, Terminal
+`/close`, and the HTTP `DELETE` endpoint, but not through the model tool
+catalog. Existing transcript messages and retained run events remain available,
+while pending mailbox messages are removed and future sends are rejected.
+Closing also cancels every outstanding, not-yet-reserved callback obligation
+for that child. This prevents a callback that can no longer arrive from keeping
+the parent response scope open and blocking its final `EndResponseScope`
+delivery. Bind these destructive surfaces only to explicit application or user
+actions.
 
 ## Capacity
 

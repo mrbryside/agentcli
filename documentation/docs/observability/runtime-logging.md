@@ -27,7 +27,7 @@ Omitting `logging` disables console records. When the mapping is present,
 
 | Level | Records |
 | --- | --- |
-| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, and canonical assistant persistence. |
+| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, callback-obligation cancellation after application-owned child close, and canonical assistant persistence. |
 | `info` | Turn start/completion, response-scope start/end, subagent close lifecycle, and repair requests. |
 | `warn` | Recoverable framework warnings. |
 | `error` | Failed/interrupted turns, failed repairs, final delivery failures, and canonical transcript persistence failures. |
