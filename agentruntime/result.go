@@ -91,6 +91,10 @@ func terminalProviderResult(event provider.StreamEvent) (provider.StreamResult, 
 func cloneToolResult(result ToolResult) ToolResult {
 	clone := result
 	clone.Output = cloneRawJSON(result.Output)
+	if result.TriggerSatisfied != nil {
+		satisfied := *result.TriggerSatisfied
+		clone.TriggerSatisfied = &satisfied
+	}
 	return clone
 }
 

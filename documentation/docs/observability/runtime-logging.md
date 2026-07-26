@@ -30,7 +30,7 @@ Omitting `logging` disables console records. When the mapping is present,
 | `debug` | Provider completion, tool request/result details, compaction details, response-scope details, and canonical assistant persistence. |
 | `info` | Turn start/completion, response-scope start/end, subagent close lifecycle, and repair requests. |
 | `warn` | Recoverable framework warnings. |
-| `error` | Failed/interrupted turns, failed repairs, deferred delivery failures, and canonical transcript persistence failures. |
+| `error` | Failed/interrupted turns, failed repairs, final delivery failures, and canonical transcript persistence failures. |
 
 Selecting a level includes records at that severity and above.
 
@@ -114,4 +114,3 @@ go run ./playground/terminal
 
 Uncomment the `logging` example and choose a level. Runtime records go to stderr
 while the Terminal UI continues to use stdout.
-

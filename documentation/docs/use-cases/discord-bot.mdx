@@ -54,7 +54,7 @@ go 1.26.3
 
 require (
     github.com/bwmarrin/discordgo v0.28.1
-    github.com/mrbryside/agentcli v0.0.51
+    github.com/mrbryside/agentcli v0.0.53
 )
 ```
 
@@ -200,9 +200,9 @@ func NewTool(discord messageSender) agentcli.Tool {
 This follows the same delivery contract as the `report_discord` tool in the
 reference Discord agent:
 
-- `EndResponseScope` makes the tool required at completion and runs its handler
-  once, after the response scope settles.
-- `EndTurnOnSuccess` stops the model after it successfully stages the report.
+- `EndResponseScope` skips early calls, then makes the tool required when the
+  response scope reaches its final completion boundary.
+- `EndTurnOnSuccess` stops the model only after the final handler succeeds.
 - `CanonicalAssistantMessageParameter` stores the delivered `message` as the
   assistant response in conversation history.
 

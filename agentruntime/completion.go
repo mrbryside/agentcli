@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,6 +42,9 @@ type CompletionDecision struct {
 	Action           CompletionAction
 	ContextReminders []ContextReminder
 	ToolAllowlist    []string
+	// DiscardAssistant allows a non-final response-scope turn to finish
+	// without persisting its internal assistant candidate.
+	DiscardAssistant bool
 }
 
 // CompletionGuard can defer terminal completion after output becomes available
@@ -57,6 +61,9 @@ func validateCompletionDecision(decision CompletionDecision, available []ToolDef
 	case CompletionRetry:
 	default:
 		return fmt.Errorf("unknown completion action %q", decision.Action)
+	}
+	if decision.DiscardAssistant {
+		return errors.New("completion retry cannot discard the assistant candidate")
 	}
 
 	if len(decision.ContextReminders) == 0 {

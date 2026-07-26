@@ -121,7 +121,7 @@ permission checks.
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool and execute its handler once the originating user response settles. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
-| `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after deferred delivery succeeds. |
+| `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after final delivery succeeds. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
@@ -142,30 +142,30 @@ The zero trigger executes immediately and continues normally.
 Neither trigger ends the turn by itself. `EndTurnOnSuccess: true` independently
 ends the turn after every call in its batch succeeds. Without a trigger the
 tool remains optional and immediate; with `EndTurn` it is required and
-immediate; with `EndResponseScope` it is required and deferred. It can share a
+immediate; with `EndResponseScope` it is required only at the final
+response-scope boundary. It can share a
 batch with normal tools and cannot bypass missing required triggers.
 Missing trigger tools use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
-For a response-delivery tool whose successful staging should also finish the
+For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
-`EndTurnOnSuccess: true`. Calls made while the response scope is active return a clear
-`status=deferred` tool result; the handler runs exactly once after all turns
-and accepted subagent callbacks in that user-message scope settle. The
-coordinator keeps one in-memory candidate per tool name rather than a FIFO
-queue, so a later allowed invocation replaces the earlier candidate.
-`status=deferred` acknowledges staging, not completion of the handler's side
-effect; callers must honor `retry_in_current_turn=false`. If
+`EndTurnOnSuccess: true`. Calls made before the runtime requests the final
+trigger return successful `status=skipped`, `executed=false`, continue the
+turn, and do not invoke the handler or satisfy the trigger. The result tells the
+model not to retry. Once the scope has no pending callbacks and its last turn
+attempts completion, runtime repair exposes the required tool again and that
+call executes the handler. If
 `CanonicalAssistantMessageParameter` names a required string schema property,
 the coordinator appends that argument as the canonical assistant transcript
-message only after the deferred handler succeeds.
+message only after the final handler succeeds.
 
 Use `agent.SubscribeScopeEvents(ctx)` for live-only scope boundaries.
-`agentcli.PreEndScope` is emitted after the callback/turn barrier reaches zero
-but before cleanup and staged handlers. `agentcli.EndScope` is emitted after
-cleanup, staged handler invocation, and scope removal. Both events include
+`agentcli.PreEndScope` is emitted when the last turn reaches the final boundary
+but before cleanup and final handlers. `agentcli.EndScope` is emitted after
+cleanup, final handler invocation, and scope removal. Both events include
 `SessionID`, root `ScopeID`, `TriggerTurnID`, `ChildIDs`, `ToolNames`, and
 `OccurredAt`.
 

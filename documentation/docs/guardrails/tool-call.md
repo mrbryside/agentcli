@@ -134,11 +134,11 @@ Guard rejection always continues so the model can correct the call. A later
 successful retry restores the configured trigger. A rejected `EndTurn` or
 `EndResponseScope` attempt does not satisfy its trigger requirement.
 
-For `EndResponseScope` tools, guard and admission checks happen before the
-invocation is staged. A rejection therefore never replaces the staged
-candidate and the deferred handler is not called. An allowed invocation
-returns a clear deferred result; its handler runs only after the response scope
-settles.
+For `EndResponseScope` tools, calls made before the final completion boundary
+are skipped before the handler or tool-call guard runs. They return successful
+`status=skipped`, `executed=false`, continue the turn, and do not satisfy the
+trigger. At the final boundary, ordinary guard and admission checks apply
+before the handler executes. A rejection remains unsatisfied and is repaired.
 
 ## Side-effect boundary
 

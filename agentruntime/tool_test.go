@@ -68,14 +68,16 @@ func TestToolTransportClonesDoNotShareMutableValues(t *testing.T) {
 			Arguments: json.RawMessage(`{"city":"Bangkok"}`),
 		},
 	}
+	satisfied := true
 	result := ToolResultEnvelope{
 		SessionID: "session-1",
 		TurnID:    "turn-1",
 		Result: ToolResult{
-			CallID: "call-1",
-			Name:   "weather",
-			Status: ToolResultSucceeded,
-			Output: json.RawMessage(`{"temperature":30}`),
+			CallID:           "call-1",
+			Name:             "weather",
+			Status:           ToolResultSucceeded,
+			Output:           json.RawMessage(`{"temperature":30}`),
+			TriggerSatisfied: &satisfied,
 		},
 	}
 	interrupt := ToolInterrupt{SessionID: "session-1", TurnID: "turn-1", CallIDs: []string{"call-1", "call-2"}, Reason: "cancelled"}
@@ -88,6 +90,7 @@ func TestToolTransportClonesDoNotShareMutableValues(t *testing.T) {
 	definition.InputSchema.Properties["city"] = ToolSchema{Type: "number"}
 	request.Call.Arguments[2] = 'X'
 	result.Result.Output[2] = 'X'
+	*result.Result.TriggerSatisfied = false
 	interrupt.CallIDs[0] = "changed"
 
 	if definitionClone.InputSchema.Properties["city"].Type == definition.InputSchema.Properties["city"].Type {
@@ -98,6 +101,9 @@ func TestToolTransportClonesDoNotShareMutableValues(t *testing.T) {
 	}
 	if bytes.Equal(resultClone.Result.Output, result.Result.Output) {
 		t.Fatal("ToolResultEnvelope clone shares Result.Output")
+	}
+	if resultClone.Result.TriggerSatisfied == nil || !*resultClone.Result.TriggerSatisfied {
+		t.Fatal("ToolResultEnvelope clone shares TriggerSatisfied")
 	}
 	if interruptClone.CallIDs[0] != "call-1" {
 		t.Fatalf("ToolInterrupt clone CallIDs = %v, want independent copy", interruptClone.CallIDs)

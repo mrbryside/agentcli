@@ -54,24 +54,23 @@ There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 
 For user-visible delivery, prefer `Trigger: EndResponseScope`; add
-`EndTurnOnSuccess: true` when staging the delivery should also finish the
+`EndTurnOnSuccess: true` when successful final delivery should finish the
 current turn. Set `CanonicalAssistantMessageParameter` to a required string
 argument such as `message` when successful external delivery should append
 that exact value as the durable assistant response. The canonical record is
-created only after the deferred handler succeeds. A model call stages the latest arguments and receives a successful JSON result with
-`status=deferred`, `delivery=end_response_scope`, active-turn and
-pending-callback counts, and `retry_in_current_turn=false`; the handler is not
-called during that turn. One user message opens one response scope. Accepted
-subagent work keeps it open, callback continuations remain in the same scope,
-and completed, failed, or incomplete callbacks all settle one accepted
-dispatch. Once every continuation turn has fully completed and no accepted
-callback remains, the runtime first reconciles children touched by the scope:
-unshared completed/failed children close, while incomplete children remain
-open. It then calls each staged handler exactly once. Callback replays cannot
-settle a newer follow-up dispatch.
+created only after the handler succeeds. A model call made before the runtime's
+final completion boundary receives successful `status=skipped`,
+`executed=false`, continues the turn, and does not satisfy the trigger. The
+result tells the model not to retry; no handler or candidate is retained.
+When the response scope is ready to end, completion repair exposes the missing
+`EndResponseScope` tools with a final-call reminder. Those calls execute their
+handlers and satisfy the trigger. One user message opens one response scope.
+Accepted subagent work keeps it open, and intermediate parent/callback
+assistant drafts are discarded until the final scope turn.
 
 The live response-scope event stream emits `PreEndScope` after the scope
-becomes quiescent but before child cleanup and staged handlers. It emits
+enters its final completion boundary but before child cleanup and final
+handlers. It emits
 `EndScope` after cleanup, handler invocation, and scope removal. These are
 scope-level events rather than per-turn `AgentEvent` values.
 

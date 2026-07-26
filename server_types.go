@@ -315,11 +315,12 @@ type ToolCallResponse struct {
 }
 
 type ToolResultResponse struct {
-	CallID string                        `json:"call_id"`
-	Name   string                        `json:"name"`
-	Status agentruntime.ToolResultStatus `json:"status"`
-	Output json.RawMessage               `json:"output,omitempty"`
-	Error  string                        `json:"error,omitempty"`
+	CallID           string                        `json:"call_id"`
+	Name             string                        `json:"name"`
+	Status           agentruntime.ToolResultStatus `json:"status"`
+	Output           json.RawMessage               `json:"output,omitempty"`
+	Error            string                        `json:"error,omitempty"`
+	TriggerSatisfied *bool                         `json:"trigger_satisfied,omitempty"`
 }
 
 type ToolRequestResponse struct {
@@ -567,7 +568,10 @@ func newToolCallResponse(call agentruntime.ToolCall) ToolCallResponse {
 }
 
 func newToolResultResponse(result agentruntime.ToolResult) ToolResultResponse {
-	return ToolResultResponse{CallID: result.CallID, Name: result.Name, Status: result.Status, Output: result.Output, Error: result.Error}
+	return ToolResultResponse{
+		CallID: result.CallID, Name: result.Name, Status: result.Status,
+		Output: result.Output, Error: result.Error, TriggerSatisfied: result.TriggerSatisfied,
+	}
 }
 
 func newRunResultResponse(result agentruntime.RunResult) RunResultResponse {

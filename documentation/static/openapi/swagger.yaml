@@ -709,6 +709,8 @@ definitions:
         type: array
       status:
         $ref: '#/definitions/agentruntime.ToolResultStatus'
+      trigger_satisfied:
+        type: boolean
     type: object
   agentcli.TurnResponse:
     properties:

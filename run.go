@@ -42,9 +42,9 @@ const (
 	PermissionModeChanged      = agentruntime.PermissionModeChanged
 
 	// PreEndScope is emitted when a response scope becomes quiescent, before
-	// cleanup and staged EndResponseScope tool handlers run.
+	// cleanup and final EndResponseScope tool handlers run.
 	PreEndScope = toolexecution.PreEndScope
-	// EndScope is emitted after cleanup and staged EndResponseScope tool
+	// EndScope is emitted after cleanup and final EndResponseScope tool
 	// handlers finish and the scope is removed.
 	EndScope = toolexecution.EndScope
 

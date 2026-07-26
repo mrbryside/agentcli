@@ -39,7 +39,7 @@ func TestResponseScopeLoggerRecordsLifecycleAndDetails(t *testing.T) {
 	}
 }
 
-func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T) {
+func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
@@ -56,11 +56,18 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		mu.Unlock()
 		return json.RawMessage(`{"sent":true}`), nil
 	}
-	rootOutput, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("root-turn", `{"message":"early"}`), handler)
+	rootOutput, executed, err := coordinator.ExecuteEndResponseScope(
+		context.Background(),
+		scopeToolRequest("root-turn", `{"message":"early"}`),
+		handler,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDeferredScopeResult(t, rootOutput, 1, 1, "scheduled")
+	assertSkippedScopeResult(t, rootOutput)
+	if executed {
+		t.Fatal("early EndResponseScope call executed")
+	}
 
 	coordinator.FinishTurn("session", "root-turn")
 	if got := snapshotStrings(&mu, received); len(got) != 0 {
@@ -72,19 +79,23 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		t.Fatal(err)
 	}
 	reservation.Commit()
-	callbackOutput, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-turn", `{"message":"final"}`), handler)
+	request := scopeToolRequest("callback-turn", `{"message":"final"}`)
+	request.CompletionBoundary = true
+	callbackOutput, executed, err := coordinator.ExecuteEndResponseScope(
+		context.Background(),
+		request,
+		handler,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDeferredScopeResult(t, callbackOutput, 0, 1, "replaced")
-	if got := snapshotStrings(&mu, received); len(got) != 0 {
-		t.Fatalf("handler calls before callback turn finishes = %v, want none", got)
+	if !executed || string(callbackOutput) != `{"sent":true}` {
+		t.Fatalf("final execution = (%t, %s), want executed handler result", executed, callbackOutput)
 	}
-
-	coordinator.FinishTurn("session", "callback-turn")
 	if got := snapshotStrings(&mu, received); len(got) != 1 || got[0] != `{"message":"final"}` {
-		t.Fatalf("handler calls = %v, want latest candidate once", got)
+		t.Fatalf("handler calls = %v, want final call once", got)
 	}
+	coordinator.FinishTurn("session", "callback-turn")
 	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay", "child", "child-turn-1"); err == nil {
 		t.Fatal("late callback replay reopened an ended response scope")
 	}
@@ -107,7 +118,7 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 	newCallback.Commit()
 }
 
-func TestResponseScopeRecordsCanonicalAssistantOnlyAfterSuccessfulDelivery(t *testing.T) {
+func TestResponseScopeRecordsCanonicalAssistantAfterSuccessfulFinalExecution(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	var recorded []agentruntime.Message
 	coordinator.SetCanonicalAssistantRecorder(func(_ context.Context, message agentruntime.Message) error {
@@ -123,18 +134,21 @@ func TestResponseScopeRecordsCanonicalAssistantOnlyAfterSuccessfulDelivery(t *te
 		}
 		return json.RawMessage(`{"status":"reported"}`), nil
 	}
-	if _, err := coordinator.StageEndResponseScope(
+	request := scopeToolRequest("turn", `{"message":"Hello from Discord"}`)
+	request.CompletionBoundary = true
+	if _, executed, err := coordinator.ExecuteEndResponseScope(
 		context.Background(),
-		scopeToolRequest("turn", `{"message":"Hello from Discord"}`),
+		request,
 		handler,
 		"message",
 	); err != nil {
 		t.Fatal(err)
+	} else if !executed {
+		t.Fatal("final EndResponseScope call was skipped")
 	}
 	if len(recorded) != 0 {
-		t.Fatalf("canonical messages before scope end = %#v", recorded)
+		t.Fatalf("canonical messages before turn transcript completed = %#v", recorded)
 	}
-
 	coordinator.FinishTurn("session", "turn")
 	if len(recorded) != 1 {
 		t.Fatalf("canonical messages = %#v, want one", recorded)
@@ -157,15 +171,19 @@ func TestResponseScopeDoesNotRecordCanonicalAssistantWhenDeliveryFails(t *testin
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := coordinator.StageEndResponseScope(
+	request := scopeToolRequest("turn", `{"message":"not delivered"}`)
+	request.CompletionBoundary = true
+	if _, executed, err := coordinator.ExecuteEndResponseScope(
 		context.Background(),
-		scopeToolRequest("turn", `{"message":"not delivered"}`),
+		request,
 		func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return nil, errors.New("discord unavailable")
 		},
 		"message",
-	); err != nil {
-		t.Fatal(err)
+	); err == nil {
+		t.Fatal("failed final delivery returned nil error")
+	} else if !executed {
+		t.Fatal("failed final delivery was not attempted")
 	}
 
 	coordinator.FinishTurn("session", "turn")
@@ -194,8 +212,10 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		calls++
 		return json.RawMessage(`{}`), nil
 	}
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-1", `{"message":"waiting"}`), handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "callback-1", `{"message":"waiting"}`, false, handler); err != nil {
 		t.Fatal(err)
+	} else if executed {
+		t.Fatal("follow-up-pending call executed")
 	}
 	coordinator.FinishTurn("session", "callback-1")
 	if calls != 0 {
@@ -207,8 +227,10 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		t.Fatal(err)
 	}
 	replay.Commit()
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-replay", `{"message":"replay"}`), handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "callback-replay", `{"message":"replay"}`, false, handler); err != nil {
 		t.Fatal(err)
+	} else if executed {
+		t.Fatal("callback replay call executed")
 	}
 	coordinator.FinishTurn("session", "callback-replay")
 	if calls != 0 {
@@ -220,8 +242,10 @@ func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *t
 		t.Fatal(err)
 	}
 	second.Commit()
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("callback-2", `{"message":"done after failed or incomplete callback"}`), handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "callback-2", `{"message":"done after failed or incomplete callback"}`, true, handler); err != nil {
 		t.Fatal(err)
+	} else if !executed {
+		t.Fatal("final callback call was skipped")
 	}
 	coordinator.FinishTurn("session", "callback-2")
 	if calls != 1 {
@@ -250,7 +274,7 @@ func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *test
 	retry.Commit()
 }
 
-func TestResponseScopeCleanupRunsBeforeDeferredHandlersAndSeesTouchedChildren(t *testing.T) {
+func TestResponseScopeCleanupRunsBeforeFinalHandlerAndSeesTouchedChildren(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	scopeEvents := coordinator.SubscribeEvents(context.Background())
 	var events []string
@@ -266,13 +290,16 @@ func TestResponseScopeCleanupRunsBeforeDeferredHandlersAndSeesTouchedChildren(t 
 		t.Fatal(err)
 	}
 	callback.Commit()
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("root-turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	handler := func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		events = append(events, "handler")
 		return json.RawMessage(`{}`), nil
-	}); err != nil {
-		t.Fatal(err)
 	}
 	coordinator.FinishTurn("session", "root-turn")
+	if _, executed, err := executeScopeTool(coordinator, "callback-turn", `{}`, true, handler); err != nil {
+		t.Fatal(err)
+	} else if !executed {
+		t.Fatal("final handler was skipped")
+	}
 	coordinator.FinishTurn("session", "callback-turn")
 	if got, want := strings.Join(events, "|"), "cleanup:session:root-turn:child|handler"; got != want {
 		t.Fatalf("scope end order = %q, want %q", got, want)
@@ -312,13 +339,11 @@ func TestScopeEventsBracketCleanupAndEndScopeHandlers(t *testing.T) {
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
-		close(handlerCalled)
-		return json.RawMessage(`{}`), nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 	go func() {
+		_, _, _ = executeScopeTool(coordinator, "turn", `{}`, true, func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			close(handlerCalled)
+			return json.RawMessage(`{}`), nil
+		})
 		coordinator.FinishTurn("session", "turn")
 		close(finished)
 	}()
@@ -399,7 +424,7 @@ func TestResponseScopeChildExclusiveRejectsAnotherLiveScopeReference(t *testing.
 	}
 }
 
-func TestResponseScopeCleanupFailureDoesNotSuppressDeferredHandler(t *testing.T) {
+func TestResponseScopeCleanupFailureDoesNotSuppressFinalHandler(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	coordinator.SetCleanup(func(context.Context, string, string, []string) {
 		panic("cleanup failed")
@@ -408,19 +433,21 @@ func TestResponseScopeCleanupFailureDoesNotSuppressDeferredHandler(t *testing.T)
 		t.Fatal(err)
 	}
 	calls := 0
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	if _, executed, err := executeScopeTool(coordinator, "turn", `{}`, true, func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		calls++
 		return json.RawMessage(`{}`), nil
 	}); err != nil {
 		t.Fatal(err)
+	} else if !executed {
+		t.Fatal("final handler was skipped")
 	}
 	coordinator.FinishTurn("session", "turn")
 	if calls != 1 {
-		t.Fatalf("deferred handler calls = %d, want one after cleanup failure", calls)
+		t.Fatalf("final handler calls = %d, want one after cleanup failure", calls)
 	}
 }
 
-func TestResponseScopeEndEventSurvivesCleanupAndHandlerPanics(t *testing.T) {
+func TestResponseScopeEndEventSurvivesCleanupPanic(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	scopeEvents := coordinator.SubscribeEvents(context.Background())
 	coordinator.SetCleanup(func(context.Context, string, string, []string) {
@@ -429,10 +456,12 @@ func TestResponseScopeEndEventSurvivesCleanupAndHandlerPanics(t *testing.T) {
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
-		panic("handler failed")
+	if _, executed, err := executeScopeTool(coordinator, "turn", `{}`, true, func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return json.RawMessage(`{}`), nil
 	}); err != nil {
 		t.Fatal(err)
+	} else if !executed {
+		t.Fatal("final handler was skipped")
 	}
 	coordinator.FinishTurn("session", "turn")
 	if preEnd, end := <-scopeEvents, <-scopeEvents; preEnd.Type != PreEndScope || end.Type != EndScope {
@@ -472,7 +501,7 @@ func TestScopeEventStreamClosesWithCoordinatorContext(t *testing.T) {
 	}
 }
 
-func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing.T) {
+func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
 		t.Fatal(err)
@@ -485,7 +514,8 @@ func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing
 			calls++
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Trigger: EndResponseScope,
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -495,16 +525,29 @@ func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing
 	}
 	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"hello"}`))
 	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnContinue {
-		t.Fatalf("result = %+v, want successful continuing deferral", result)
+		t.Fatalf("result = %+v, want successful skipped call that continues", result)
 	}
-	assertDeferredScopeResult(t, result.Result.Output, 0, 1, "scheduled")
+	assertSkippedScopeResult(t, result.Result.Output)
+	if result.Result.TriggerSatisfied == nil || *result.Result.TriggerSatisfied {
+		t.Fatalf("early trigger satisfaction = %v, want false", result.Result.TriggerSatisfied)
+	}
 	if calls != 0 {
-		t.Fatalf("handler calls = %d before scope end, want zero", calls)
+		t.Fatalf("handler calls = %d after early call, want zero", calls)
+	}
+
+	finalRequest := scopeToolRequest("turn", `{"message":"final"}`)
+	finalRequest.CompletionBoundary = true
+	finalResult := executor.execute(context.Background(), finalRequest)
+	if finalResult.Result.Status != agentruntime.ToolResultSucceeded ||
+		finalResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess ||
+		finalResult.Result.TriggerSatisfied == nil ||
+		!*finalResult.Result.TriggerSatisfied {
+		t.Fatalf("final result = %+v, want executed satisfied end-on-success", finalResult)
+	}
+	if calls != 1 {
+		t.Fatalf("handler calls = %d after final call, want one", calls)
 	}
 	coordinator.FinishTurn("session", "turn")
-	if calls != 1 {
-		t.Fatalf("handler calls = %d after scope end, want one", calls)
-	}
 }
 
 func scopeToolRequest(turnID, arguments string) agentruntime.ToolRequest {
@@ -519,25 +562,34 @@ func scopeToolRequest(turnID, arguments string) agentruntime.ToolRequest {
 	}
 }
 
-func assertDeferredScopeResult(t *testing.T, raw json.RawMessage, pending, active int, candidate string) {
+func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 	t.Helper()
 	var result struct {
-		Status             string `json:"status"`
-		Reason             string `json:"reason"`
-		Delivery           string `json:"delivery"`
-		Candidate          string `json:"candidate"`
-		ActiveTurns        int    `json:"active_turns"`
-		PendingCallbacks   int    `json:"pending_callbacks"`
-		RetryInCurrentTurn bool   `json:"retry_in_current_turn"`
+		Status      string `json:"status"`
+		Executed    bool   `json:"executed"`
+		Reason      string `json:"reason"`
+		Instruction string `json:"instruction"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode result %s: %v", raw, err)
 	}
-	if result.Status != "deferred" || result.Reason != "response_scope_active" ||
-		result.Delivery != "end_response_scope" || result.Candidate != candidate ||
-		result.ActiveTurns != active || result.PendingCallbacks != pending || result.RetryInCurrentTurn {
-		t.Fatalf("deferred result = %+v", result)
+	if result.Status != "skipped" || result.Executed ||
+		result.Reason != "response_scope_not_ready_to_end" ||
+		!strings.Contains(result.Instruction, "do not retry") {
+		t.Fatalf("skipped result = %+v", result)
 	}
+}
+
+func executeScopeTool(
+	coordinator *ResponseScopeCoordinator,
+	turnID string,
+	arguments string,
+	completionBoundary bool,
+	handler Handler,
+) (json.RawMessage, bool, error) {
+	request := scopeToolRequest(turnID, arguments)
+	request.CompletionBoundary = completionBoundary
+	return coordinator.ExecuteEndResponseScope(context.Background(), request, handler)
 }
 
 func snapshotStrings(mu *sync.Mutex, values []string) []string {

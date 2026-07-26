@@ -66,7 +66,7 @@ func TestRequiredRawToolRepairsOneMissingTriggerToolCall(t *testing.T) {
 	}
 }
 
-func TestEndResponseScopeAutomaticallyRequiresAndDefersTriggerTool(t *testing.T) {
+func TestEndResponseScopeAutomaticallyRequiresAndExecutesTriggerAtBoundary(t *testing.T) {
 	model := &requiredTriggerToolModel{}
 	delivered := make(chan struct{}, 1)
 	tool := Tool{
@@ -106,15 +106,75 @@ func TestEndResponseScopeAutomaticallyRequiresAndDefersTriggerTool(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var deferred bool
+	var executed bool
 	for _, message := range messages {
 		if message.ToolResult == nil || message.ToolResult.Name != "report" {
 			continue
 		}
-		deferred = strings.Contains(string(message.ToolResult.Output), `"status":"deferred"`)
+		executed = message.ToolResult.TriggerSatisfied != nil &&
+			*message.ToolResult.TriggerSatisfied
 	}
-	if !deferred {
-		t.Fatalf("report tool result did not clearly report deferral: %#v", messages)
+	if !executed {
+		t.Fatalf("report tool result did not satisfy the final trigger: %#v", messages)
+	}
+}
+
+func TestEndResponseScopeFirstToolCallIsSkippedThenWorkContinues(t *testing.T) {
+	model := &earlyReportThenWorkModel{}
+	var reportCalls, workCalls int
+	report := Tool{
+		Definition: ToolDefinition{
+			Name: "report",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{
+				Message: StringParameter("Final message").Required(),
+			}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			reportCalls++
+			return json.RawMessage(`{"status":"reported"}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}
+	work := Tool{
+		Definition: ToolDefinition{Name: "work", InputSchema: ObjectSchema(struct{}{})},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			workCalls++
+			return json.RawMessage(`{"status":"done"}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(report), WithTool(work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("early-report-then-work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if reportCalls != 1 || workCalls != 1 {
+		t.Fatalf("handler calls report=%d work=%d; want report=1 work=1", reportCalls, workCalls)
+	}
+	messages, err := agent.ListMessages(context.Background(), run.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var satisfactions []bool
+	for _, message := range messages {
+		if message.ToolResult == nil || message.ToolResult.Name != "report" {
+			continue
+		}
+		if message.ToolResult.TriggerSatisfied == nil {
+			t.Fatalf("report result has no trigger satisfaction: %#v", message.ToolResult)
+		}
+		satisfactions = append(satisfactions, *message.ToolResult.TriggerSatisfied)
+	}
+	if !slices.Equal(satisfactions, []bool{false, true}) {
+		t.Fatalf("report trigger satisfactions = %v, want [false true]", satisfactions)
 	}
 }
 
@@ -349,7 +409,7 @@ func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 			ToolAllowlist:    []string{"revise", "report"},
 		}, nil
 	}
-	guard := completionGuardWithRequiredTools(base, []string{"report"})
+	guard := completionGuardWithRequiredTools(base, []string{"report"}, nil, nil, nil)
 	decision, err := guard(context.Background(), agentruntime.CompletionAttempt{
 		SessionID: "session",
 		TurnID:    "turn",
@@ -365,11 +425,69 @@ func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 	}
 }
 
+func TestCanonicalEndResponseScopeDiscardsTrailingAssistantAfterExecution(t *testing.T) {
+	satisfied := true
+	guard := completionGuardWithRequiredTools(
+		nil,
+		nil,
+		[]string{"report"},
+		[]string{"report"},
+		func(string, string) bool { return true },
+	)
+	decision, err := guard(context.Background(), agentruntime.CompletionAttempt{
+		SessionID: "session",
+		TurnID:    "turn",
+		Messages: []agentruntime.Message{{
+			TurnID: "turn",
+			Type:   agentruntime.MessageTypeToolResult,
+			ToolResult: &agentruntime.ToolResult{
+				Name: "report", Status: agentruntime.ToolResultSucceeded,
+				Output:           json.RawMessage(`{"status":"reported"}`),
+				TriggerSatisfied: &satisfied,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != agentruntime.CompletionProceed || !decision.DiscardAssistant {
+		t.Fatalf("decision = %#v, want proceed with discarded assistant", decision)
+	}
+}
+
 type requiredTriggerToolModel struct {
 	mu           sync.Mutex
 	requests     []agentruntime.ModelRequest
 	repairMisses int
 	starts       int
+}
+
+type earlyReportThenWorkModel struct {
+	mu       sync.Mutex
+	requests int
+}
+
+func (m *earlyReportThenWorkModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := m.requests
+	m.requests++
+	m.mu.Unlock()
+	switch index {
+	case 0:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "early-report", Name: "report", Arguments: map[string]any{"message": "still working"},
+		}}, Finished: true}}, nil
+	case 1:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "work", Name: "work", Arguments: map[string]any{},
+		}}, Finished: true}}, nil
+	case 2:
+		return scriptedStream{result: provider.StreamResult{Content: "work is complete", Finished: true}}, nil
+	default:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "final-report", Name: "report", Arguments: map[string]any{"message": "finished"},
+		}}, Finished: true}}, nil
+	}
 }
 
 type requiredMixedBatchModel struct {

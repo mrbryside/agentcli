@@ -40,15 +40,15 @@ At the Agent facade, one accepted human root turn opens one in-memory response
 scope. Accepted subagent dispatches increment that scope's callback barrier;
 callback continuations reserve and settle the matching dispatch, remain in the
 originating scope, and may accept follow-up dispatches that reopen the barrier.
-The scope starts ending only when active turns and pending callbacks both reach
-zero. It emits `PreEndScope`, then runs cleanup before deferred
-`EndResponseScope` handlers:
+The scope starts ending when its last active turn reaches a completion boundary
+with no pending callbacks. It emits `PreEndScope`, then runs cleanup before
+final `EndResponseScope` handlers:
 completed/failed children touched only by that scope close automatically,
 incomplete or cross-scope children remain open, and successful closes become a
 one-shot trusted reminder reserved for the next human root turn. After all
-staged handlers run and the scope is removed, it emits `EndScope`.
+final handlers run and the scope is removed, it emits `EndScope`.
 An `EndResponseScope` tool may declare
-`CanonicalAssistantMessageParameter`; after its deferred handler succeeds, the
+`CanonicalAssistantMessageParameter`; after its final handler succeeds, the
 coordinator persists that string argument as the canonical assistant message.
 Failed delivery never creates the assistant record.
 

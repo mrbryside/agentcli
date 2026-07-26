@@ -54,6 +54,10 @@ type ToolResult struct {
 	Status ToolResultStatus
 	Output json.RawMessage
 	Error  string
+	// TriggerSatisfied overrides the default rule that a succeeded result
+	// satisfies a required trigger. Runtime-owned skipped trigger calls set
+	// this to false while ordinary tool results leave it nil.
+	TriggerSatisfied *bool
 }
 
 // CompactionCheckpoint retains the cumulative summary of messages through
@@ -241,6 +245,9 @@ func validateToolResult(result ToolResult) error {
 		}
 	default:
 		return fmt.Errorf("unknown status %q", result.Status)
+	}
+	if result.TriggerSatisfied != nil && *result.TriggerSatisfied && result.Status != ToolResultSucceeded {
+		return errors.New("only a succeeded result can satisfy a trigger")
 	}
 	return nil
 }

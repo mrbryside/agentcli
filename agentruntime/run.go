@@ -639,6 +639,7 @@ func (r *Run) interpretEffect(ctx context.Context, runtime *Runtime, effect Effe
 			return r.fail(ctx, runtime, errors.New("dispatch tool effect without a request"))
 		}
 		request := cloneToolRequest(*effect.ToolRequest)
+		request.CompletionBoundary = r.CompletionRepairCount() > 0
 		select {
 		case runtime.toolRequests <- request:
 		case <-ctx.Done():
@@ -868,8 +869,12 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 		return r.fail(ctx, runtime, err)
 	}
 	if decision.Action == CompletionProceed {
-		if !r.commitPendingAssistant(ctx, runtime) {
-			return false
+		if decision.DiscardAssistant {
+			r.clearPendingAssistant()
+		} else {
+			if !r.commitPendingAssistant(ctx, runtime) {
+				return false
+			}
 		}
 		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
 	}

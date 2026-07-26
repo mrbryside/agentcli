@@ -47,7 +47,7 @@ the child permission and confirmation lifecycles described below). For
 the nested `sequence` remains the cursor for one turn.
 
 `pre_end_scope` is published after the scope has no active turn or accepted
-callback, before child cleanup and staged `EndResponseScope` tool handlers.
+callback, before child cleanup and final `EndResponseScope` tool handlers.
 `end_scope` is published after cleanup, handler invocation, and scope removal.
 The nested payload includes `scope_id`, `trigger_turn_id`, `child_ids`,
 `tool_names`, and `occurred_at`.

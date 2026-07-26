@@ -185,9 +185,7 @@ func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 }
 
 func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing.T) {
-	model := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "report-call", Name: "report", Arguments: map[string]any{"message": "Hello! How can I help?"},
-	}}}
+	model := &earlyThenBoundaryReportModel{message: "Hello! How can I help?"}
 	agent, err := New(context.Background(),
 		WithModel(model),
 		WithTool(toolexecution.Tool{
@@ -229,11 +227,13 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			if listErr != nil {
 				t.Fatal(listErr)
 			}
-			if len(messages) != 4 {
-				t.Fatalf("messages = %#v, want user, tool call, tool result, assistant", messages)
+			if len(messages) != 6 {
+				t.Fatalf("messages = %#v, want user, skipped call/result, final call/result, assistant", messages)
 			}
 			wantTypes := []agentruntime.MessageType{
 				agentruntime.MessageTypeUser,
+				agentruntime.MessageTypeToolCall,
+				agentruntime.MessageTypeToolResult,
 				agentruntime.MessageTypeToolCall,
 				agentruntime.MessageTypeToolResult,
 				agentruntime.MessageTypeAssistant,
@@ -243,8 +243,14 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 					t.Fatalf("message %d type = %q, want %q", index, messages[index].Type, want)
 				}
 			}
-			if messages[3].Content != "Hello! How can I help?" {
-				t.Fatalf("canonical assistant content = %q", messages[3].Content)
+			if messages[2].ToolResult.TriggerSatisfied == nil || *messages[2].ToolResult.TriggerSatisfied {
+				t.Fatalf("early result trigger satisfaction = %#v, want false", messages[2].ToolResult)
+			}
+			if messages[4].ToolResult.TriggerSatisfied == nil || !*messages[4].ToolResult.TriggerSatisfied {
+				t.Fatalf("final result trigger satisfaction = %#v, want true", messages[4].ToolResult)
+			}
+			if messages[5].Content != "Hello! How can I help?" {
+				t.Fatalf("canonical assistant content = %q", messages[5].Content)
 			}
 			return
 		case <-deadline:
@@ -893,6 +899,30 @@ type scriptedModel struct {
 	requests  []agentruntime.ModelRequest
 	toolCalls []provider.ToolCall
 	starts    int
+}
+
+type earlyThenBoundaryReportModel struct {
+	mu      sync.Mutex
+	starts  int
+	message string
+}
+
+func (m *earlyThenBoundaryReportModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.starts++
+	switch m.starts {
+	case 1:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "early-report", Name: "report", Arguments: map[string]any{"message": "progress"},
+		}}, Finished: true}}, nil
+	case 2:
+		return scriptedStream{result: provider.StreamResult{Content: "completed work", Finished: true}}, nil
+	default:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "final-report", Name: "report", Arguments: map[string]any{"message": m.message},
+		}}, Finished: true}}, nil
+	}
 }
 
 func (m *scriptedModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {

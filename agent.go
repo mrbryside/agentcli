@@ -199,12 +199,26 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		completionGuard = subagentOutcomeCompletionGuard
 	}
 	requiredAtTurnEnd := make([]string, 0)
+	requiredAtResponseScopeEnd := make([]string, 0)
+	canonicalAtResponseScopeEnd := make([]string, 0)
 	for _, tool := range registeredTools {
-		if tool.Trigger == toolexecution.EndTurn || tool.Trigger == toolexecution.EndResponseScope {
+		switch tool.Trigger {
+		case toolexecution.EndTurn:
 			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
+		case toolexecution.EndResponseScope:
+			requiredAtResponseScopeEnd = append(requiredAtResponseScopeEnd, tool.Definition.Name)
+			if tool.CanonicalAssistantMessageParameter != "" {
+				canonicalAtResponseScopeEnd = append(canonicalAtResponseScopeEnd, tool.Definition.Name)
+			}
 		}
 	}
-	completionGuard = completionGuardWithRequiredTools(completionGuard, requiredAtTurnEnd)
+	completionGuard = completionGuardWithRequiredTools(
+		completionGuard,
+		requiredAtTurnEnd,
+		requiredAtResponseScopeEnd,
+		canonicalAtResponseScopeEnd,
+		agent.responseScopes.ReadyToEnd,
+	)
 	if manager != nil {
 		reminderProvider = composeContextReminderProviders(reminderProvider, subagentReminderProvider(manager))
 	}
@@ -471,7 +485,7 @@ func (a *Agent) SubscribeSystemEvents(ctx context.Context) <-chan SystemEvent {
 }
 
 // SubscribeScopeEvents returns a live-only stream containing
-// PreEndScope immediately before scope cleanup and EndScope after all staged
+// PreEndScope immediately before scope cleanup and EndScope after all final
 // EndResponseScope tool handlers have run and the scope has been removed.
 func (a *Agent) SubscribeScopeEvents(ctx context.Context) <-chan ScopeEvent {
 	if a == nil || a.responseScopes == nil {

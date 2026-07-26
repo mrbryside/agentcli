@@ -36,6 +36,7 @@ func TestAgentLoggerRecordsRequiredToolRepairLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close()
+	scopeEvents := agent.SubscribeScopeEvents(context.Background())
 
 	run, err := agent.Start(context.Background(), userRequest("logging-repair"))
 	if err != nil {
@@ -44,6 +45,11 @@ func TestAgentLoggerRecordsRequiredToolRepairLifecycle(t *testing.T) {
 	waitRun(t, run)
 	if _, err := run.Result(); err != nil {
 		t.Fatal(err)
+	}
+	for event := range scopeEvents {
+		if event.Type == EndScope {
+			break
+		}
 	}
 
 	output := logs.String()

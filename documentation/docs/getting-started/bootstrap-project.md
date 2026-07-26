@@ -157,9 +157,10 @@ starter tool, but neither generated agent exposes it by default:
   `filesystem.write` permission and a separate confirmation; neither generated
   agent is allowed to use it until its name is explicitly added to an
   allowlist.
-- `report_discord` is a deterministic mock trigger tool. The main agent calls it
-  exactly once as the standalone final action with the complete user-facing
-  response. The generated prompt forbids sending user-facing conversational,
+- `report_discord` is a deterministic mock trigger tool. Calls made before the
+  final response-scope boundary are skipped and continue the model; runtime
+  completion repair requests the executable final call with the complete
+  user-facing response. The generated prompt forbids sending user-facing conversational,
   progress, or final messages outside the tool; all such content must be
   delivered through the final call's `message` argument. It explicitly keeps
   ordinary assistant content empty and targets at most 1,800 Unicode characters

@@ -385,6 +385,14 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 			}
 			request = cloneRequest(request)
 			admission := e.policy.currentSnapshot()
+			if trigger, _ := e.registry.triggerFor(request.Call.Name); trigger == EndResponseScope &&
+				(!request.CompletionBoundary || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
+				// Early EndResponseScope calls are runtime-owned successful
+				// no-ops. Do not ask for permission or confirmation for a
+				// handler that will not execute.
+				pending = append(pending, e.newJob(ctx, request, admission))
+				continue
+			}
 			confirmationDescription, confirmationErr, confirmationRegistered := e.registry.confirmationFor(request.Call.Name, request.Call.Arguments)
 			if !confirmationRegistered {
 				pending = append(pending, e.newJob(ctx, request, admission))

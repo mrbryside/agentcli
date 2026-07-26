@@ -145,9 +145,11 @@ provider is free to return a normal assistant response instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce up to three `report_subagent_outcome` repairs without re-running domain
-tools. A required trigger is satisfied by its latest successful result anywhere
-in the current turn, even when that batch continues to another provider round.
-A later failed attempt for the same tool makes it unsatisfied again. Trigger
+tools. A required `EndTurn` trigger is satisfied by its latest successful
+result in the current turn. An `EndResponseScope` trigger is satisfied only by
+a handler executed from the final response-scope completion boundary; earlier
+calls are successful skipped results that continue the model round. A later
+failed attempt for the same tool makes it unsatisfied again. Trigger
 timing is independent of `EndTurnOnSuccess`, which controls only whether a
 successful batch becomes terminal. If the model attempts to finish while a trigger tool
 remains unsatisfied, the completion guard starts a repair round with a reminder
@@ -159,25 +161,26 @@ the turn after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append repair reminders as ephemeral user-role
 messages. Rejected assistant drafts never become repeated trailing transcript
 messages.
-Root callback turns do not use a completion repair. Their accepted follow-ups
-and callback obligations instead participate in the originating response-scope
-barrier. When that scope becomes quiescent, the runtime automatically closes
-its unshared completed/failed children before executing deferred
-`EndResponseScope` handlers. Incomplete children remain open. The model-facing
+Root callback turns participate in the originating response-scope barrier.
+Intermediate turns with pending callbacks may complete without an
+`EndResponseScope` call, and their assistant drafts are discarded. When the
+last turn reaches completion with no pending callback, runtime repair requests
+the final `EndResponseScope` tools, closes unshared completed/failed children,
+and executes those handlers. Incomplete children remain open. The model-facing
 `close_subagent` tool is reserved for an explicit current human instruction and
 is never part of ordinary callback cleanup.
 
 `Agent.SubscribeScopeEvents(ctx)` exposes two live-only boundaries for
 each human response scope:
 
-- `PreEndScope` (`pre_end_scope`) fires after all turns and accepted callbacks
-  settle, before automatic child cleanup and staged `EndResponseScope`
+- `PreEndScope` (`pre_end_scope`) fires at the final completion boundary,
+  before automatic child cleanup and final `EndResponseScope`
   handlers.
-- `EndScope` (`end_scope`) fires after cleanup and all staged handlers run and
+- `EndScope` (`end_scope`) fires after cleanup and all final handlers run and
   the scope has been removed.
 
 Each event carries the session, root scope ID, turn that made the scope
-quiescent, touched child IDs, staged tool names, and occurrence time.
+ready to end, touched child IDs, final tool names, and occurrence time.
 
 ## Run status
 

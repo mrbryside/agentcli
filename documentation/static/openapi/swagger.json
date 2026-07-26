@@ -2333,6 +2333,9 @@
                 },
                 "status": {
                     "$ref": "#/definitions/agentruntime.ToolResultStatus"
+                },
+                "trigger_satisfied": {
+                    "type": "boolean"
                 }
             }
         },

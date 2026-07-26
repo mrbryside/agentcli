@@ -142,7 +142,7 @@ terminal failures. Repair records identify output-guard versus
 completion-guard retries, their attempt number, provider-step count, and any
 restricted tool allowlist. Debug logging additionally includes provider
 content, tool arguments/results, compaction details, and successful canonical
-assistant persistence after deferred delivery. Delivery, extraction, and
+assistant persistence after final delivery. Delivery, extraction, and
 canonical transcript persistence failures are error records. Tool JSON fields that look like tokens,
 secrets, passwords, authorization values, or API keys are redacted and large
 values are truncated. Model reasoning, guard feedback, and completion

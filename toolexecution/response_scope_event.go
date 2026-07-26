@@ -11,9 +11,9 @@ type ScopeEventType string
 
 const (
 	// PreEndScope is emitted after the scope becomes quiescent and
-	// before cleanup or any staged EndResponseScope tool handler runs.
+	// before cleanup or any final EndResponseScope tool handler runs.
 	PreEndScope ScopeEventType = "pre_end_scope"
-	// EndScope is emitted after cleanup and all staged EndResponseScope tool
+	// EndScope is emitted after cleanup and all final EndResponseScope tool
 	// handlers have run and the scope has been removed.
 	EndScope ScopeEventType = "end_scope"
 )

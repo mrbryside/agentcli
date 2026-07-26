@@ -871,6 +871,8 @@ func (m *responseScopeIntegrationParentModel) Start(_ context.Context, _ agentru
 		}}
 	case 1:
 		calls = []provider.ToolCall{{ID: "report-waiting", Name: "report", Arguments: map[string]any{"message": "waiting response"}}}
+	case 2, 3:
+		return scriptedStream{result: provider.StreamResult{Content: "work completed for this turn", Finished: true}}, nil
 	default:
 		calls = []provider.ToolCall{{ID: "report-final", Name: "report", Arguments: map[string]any{"message": "final verified response"}}}
 	}

@@ -9,8 +9,16 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
-func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, required []string) agentruntime.CompletionGuard {
-	required = append([]string(nil), required...)
+func completionGuardWithRequiredTools(
+	base agentruntime.CompletionGuard,
+	requiredAtTurnEnd []string,
+	requiredAtResponseScopeEnd []string,
+	canonicalAtResponseScopeEnd []string,
+	responseScopeReady func(string, string) bool,
+) agentruntime.CompletionGuard {
+	requiredAtTurnEnd = append([]string(nil), requiredAtTurnEnd...)
+	requiredAtResponseScopeEnd = append([]string(nil), requiredAtResponseScopeEnd...)
+	canonicalAtResponseScopeEnd = append([]string(nil), canonicalAtResponseScopeEnd...)
 	var mu sync.Mutex
 	type repairProgress struct {
 		missing    []string
@@ -19,6 +27,12 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 	progress := make(map[string]repairProgress)
 	return func(ctx context.Context, attempt agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
 		progressKey := attempt.SessionID + "\x00" + attempt.TurnID
+		required := append([]string(nil), requiredAtTurnEnd...)
+		scopeReady := responseScopeReady != nil &&
+			responseScopeReady(attempt.SessionID, attempt.TurnID)
+		if scopeReady {
+			required = append(required, requiredAtResponseScopeEnd...)
+		}
 		missing := missingRequiredTools(attempt.TurnID, attempt.Messages, required)
 		baseDecision := agentruntime.CompletionDecision{Action: agentruntime.CompletionProceed}
 		var err error
@@ -32,6 +46,17 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 			mu.Lock()
 			delete(progress, progressKey)
 			mu.Unlock()
+			if !scopeReady &&
+				len(requiredAtResponseScopeEnd) != 0 &&
+				baseDecision.Action == agentruntime.CompletionProceed {
+				baseDecision.DiscardAssistant = true
+			}
+			if scopeReady &&
+				len(canonicalAtResponseScopeEnd) != 0 &&
+				len(missingRequiredTools(attempt.TurnID, attempt.Messages, canonicalAtResponseScopeEnd)) == 0 &&
+				baseDecision.Action == agentruntime.CompletionProceed {
+				baseDecision.DiscardAssistant = true
+			}
 			return baseDecision, nil
 		}
 		mu.Lock()
@@ -56,13 +81,27 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 			)
 		}
 
-		decision := agentruntime.CompletionDecision{
-			Action:        agentruntime.CompletionRetry,
-			ToolAllowlist: append([]string(nil), missing...),
-			ContextReminders: []agentruntime.ContextReminder{{Content: fmt.Sprintf(
-				"This turn cannot finish until every required trigger tool has succeeded. Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. Do not emit a user-facing assistant message before the trigger tool call. Do not repeat prior work or any already-successful tool call. This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
+		instruction := fmt.Sprintf(
+			"This turn cannot finish until every required trigger tool has succeeded. "+
+				"Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. "+
+				"Do not emit a user-facing assistant message before the trigger tool call. "+
+				"Do not repeat prior work or any already-successful tool call. "+
+				"This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
+			strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
+		)
+		if scopeReady && containsAnyString(missing, requiredAtResponseScopeEnd) {
+			instruction = fmt.Sprintf(
+				"The response scope is ready to end. Call these required end-response-scope tools now with the final completed response: %s. "+
+					"The runtime skipped any earlier calls and they did not satisfy this final trigger. "+
+					"Do not repeat prior work or emit a user-facing assistant message before the tool call. "+
+					"This is repair attempt %d of %d.",
 				strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
-			)}},
+			)
+		}
+		decision := agentruntime.CompletionDecision{
+			Action:           agentruntime.CompletionRetry,
+			ToolAllowlist:    append([]string(nil), missing...),
+			ContextReminders: []agentruntime.ContextReminder{{Content: instruction}},
 		}
 		if baseDecision.Action == agentruntime.CompletionRetry {
 			decision.ContextReminders = append(decision.ContextReminders, baseDecision.ContextReminders...)
@@ -74,6 +113,15 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 		}
 		return decision, nil
 	}
+}
+
+func containsAnyString(values, candidates []string) bool {
+	for _, candidate := range candidates {
+		if containsString(values, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsString(values []string, target string) bool {
@@ -101,7 +149,11 @@ func missingRequiredTools(turnID string, messages []agentruntime.Message, requir
 		}
 		// The latest attempt wins. A failed correction after an earlier success
 		// must be repaired instead of silently accepting the stale invocation.
-		succeeded[name] = message.ToolResult.Status == agentruntime.ToolResultSucceeded
+		satisfied := message.ToolResult.Status == agentruntime.ToolResultSucceeded
+		if message.ToolResult.TriggerSatisfied != nil {
+			satisfied = *message.ToolResult.TriggerSatisfied
+		}
+		succeeded[name] = satisfied
 	}
 	missing := make([]string, 0, len(required))
 	for _, name := range required {

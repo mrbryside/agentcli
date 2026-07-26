@@ -15,6 +15,10 @@ func CloneMessage(message Message) Message {
 	if message.ToolResult != nil {
 		result := *message.ToolResult
 		result.Output = cloneRawMessage(result.Output)
+		if message.ToolResult.TriggerSatisfied != nil {
+			satisfied := *message.ToolResult.TriggerSatisfied
+			result.TriggerSatisfied = &satisfied
+		}
 		clone.ToolResult = &result
 	}
 	if message.CompactionCheckpoint != nil {

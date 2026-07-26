@@ -232,7 +232,7 @@ follow-up accepted from that continuation adds another pending callback. The
 scope becomes quiescent only when all of its turns, tool results, callback
 continuations, and accepted callback obligations have settled.
 
-Immediately before deferred `EndResponseScope` handlers execute, the runtime
+Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:
 
 - idle `completed` and `failed` children are automatically closed;

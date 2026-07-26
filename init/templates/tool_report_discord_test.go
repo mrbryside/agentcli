@@ -22,7 +22,7 @@ func TestReportDiscordToolIsRequiredTriggerTool(t *testing.T) {
 		t.Fatalf("tool trigger = %q, want EndResponseScope", tool.Trigger)
 	}
 	if !tool.EndTurnOnSuccess {
-		t.Fatal("report_discord must end the current turn after staging succeeds")
+		t.Fatal("report_discord must end the current turn after final execution succeeds")
 	}
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)
@@ -145,8 +145,12 @@ func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
 	if err := registry.Register(tool); err != nil {
 		t.Fatal(err)
 	}
+	responseScopes := toolexecution.NewResponseScopeCoordinator(context.Background())
+	if err := responseScopes.BeginRootTurn("session-rejected", "turn-rejected"); err != nil {
+		t.Fatal(err)
+	}
 	executor, err := toolexecution.NewExecutor(registry, 1, toolexecution.Config{
-		ResponseScopes: toolexecution.NewResponseScopeCoordinator(context.Background()),
+		ResponseScopes: responseScopes,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,8 +165,9 @@ func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
 		done <- executor.Run(ctx, requests, results, interrupts)
 	}()
 	requests <- agentruntime.ToolRequest{
-		SessionID: "session-rejected",
-		TurnID:    "turn-rejected",
+		SessionID:          "session-rejected",
+		TurnID:             "turn-rejected",
+		CompletionBoundary: true,
 		Call: agentruntime.ToolCall{
 			CallID:    "call-rejected",
 			Name:      "report_discord",

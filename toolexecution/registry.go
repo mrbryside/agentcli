@@ -27,8 +27,9 @@ type GuardModelConfig struct {
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
 // policy or mode. Trigger selects required execution timing and handler
-// delivery. EndTurnOnSuccess independently controls whether a successful batch
-// containing the tool ends the current turn.
+// delivery. EndTurnOnSuccess independently controls whether a successfully
+// executed batch containing the tool ends the current turn. Skipped
+// EndResponseScope calls always continue.
 type Tool struct {
 	Definition       agentruntime.ToolDefinition
 	Handler          Handler

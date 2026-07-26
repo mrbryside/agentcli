@@ -26,8 +26,8 @@ const (
 	// immediately. Set Tool.EndTurnOnSuccess separately to end the turn after
 	// the tool batch succeeds.
 	EndTurn = toolexecution.EndTurn
-	// EndResponseScope stages the latest invocation and runs its handler
-	// exactly once after the originating user response has fully settled.
+	// EndResponseScope runs only when the originating response scope is ready
+	// to end. Earlier model calls are skipped and continue the current turn.
 	EndResponseScope = toolexecution.EndResponseScope
 )
 

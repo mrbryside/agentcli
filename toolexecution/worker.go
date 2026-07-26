@@ -73,6 +73,25 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.Result.Error = fmt.Sprintf("tool %q is not registered", request.Call.Name)
 		return result
 	}
+	trigger, _ := e.registry.triggerFor(request.Call.Name)
+	if trigger == EndResponseScope &&
+		(!request.CompletionBoundary || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
+		output, executed, err := e.config.ResponseScopes.ExecuteEndResponseScope(
+			ctx,
+			request,
+			handler,
+			e.registry.canonicalAssistantMessageParameterFor(request.Call.Name),
+		)
+		if err != nil {
+			result.Result.Status = agentruntime.ToolResultFailed
+			result.Result.Error = err.Error()
+			return result
+		}
+		result.Result.Status = agentruntime.ToolResultSucceeded
+		result.Result.Output = cloneRawJSON(output)
+		result.Result.TriggerSatisfied = boolPointer(executed)
+		return result
+	}
 
 	guard, prompt, _ := e.registry.callGuardFor(request.Call.Name)
 	if prompt != "" {
@@ -103,8 +122,8 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		}
 	}
 
-	if trigger, _ := e.registry.triggerFor(request.Call.Name); trigger == EndResponseScope {
-		output, err := e.config.ResponseScopes.StageEndResponseScope(
+	if trigger == EndResponseScope {
+		output, executed, err := e.config.ResponseScopes.ExecuteEndResponseScope(
 			ctx,
 			request,
 			handler,
@@ -117,8 +136,14 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		}
 		result.Result.Status = agentruntime.ToolResultSucceeded
 		result.Result.Output = cloneRawJSON(output)
-		if behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output); registered {
-			result.TurnBehavior = behavior
+		result.Result.TriggerSatisfied = boolPointer(executed)
+		if executed {
+			behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output)
+			if registered {
+				result.TurnBehavior = behavior
+			}
+		} else {
+			result.TurnBehavior = agentruntime.ToolTurnContinue
 		}
 		return result
 	}
@@ -140,6 +165,10 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.TurnBehavior = behavior
 	}
 	return result
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 type toolCallGuardOutcome struct {

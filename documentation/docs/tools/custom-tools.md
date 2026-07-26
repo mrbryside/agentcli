@@ -152,11 +152,13 @@ agentcli.Tool{
 }
 ```
 
-Here the invocation is required, its handler remains deferred until scope end,
-and a successful staging result ends the current turn. The optional canonical
-parameter must name a required string property in the tool schema. After the
-deferred handler succeeds, its exact argument value is appended as the durable
-assistant message. Handler failure or cancellation appends nothing.
+Here the invocation is required only at the final response-scope boundary.
+Earlier model calls are skipped and continue the turn. When runtime completion
+repair requests the tool, the handler executes and `EndTurnOnSuccess` may end
+the turn. The optional canonical parameter must name a required string
+property in the tool schema. After the handler succeeds, its exact argument
+value is appended as the durable assistant message. Handler failure or
+cancellation appends nothing.
 
 ## End-of-scope trigger tools
 
@@ -171,20 +173,36 @@ agentcli.Tool{
 }
 ```
 
-The model receives a successful `status=deferred` tool result while the scope
-is active; the handler is not called yet. The runtime retains the latest
-candidate and invokes it exactly once when every turn and accepted subagent
-callback in the response scope has settled. Before invoking deferred handlers,
-the runtime automatically reconciles children touched by that scope: unshared
-completed/failed children close, while incomplete children remain available
-for follow-up. A successful invocation satisfies the trigger even though its
-tool result normally continues to another provider round. If a later attempt
-for the same trigger tool fails, it becomes unsatisfied again. If the model
-attempts to finish while a trigger tool is missing, the completion guard starts another provider round with a
-reminder naming every missing trigger tool and exposes only those tools. A
-caller-supplied completion guard may merge additional bounded allowlist entries.
-AgentRuntime does not set provider-specific tool choice. It permits up to three
-consecutive no-progress repairs; progress resets that budget.
+If the model calls the tool during an ordinary provider round, the handler is
+not called and no candidate is retained. The model receives:
+
+```json
+{
+  "status": "skipped",
+  "executed": false,
+  "reason": "response_scope_not_ready_to_end",
+  "instruction": "This tool only runs when the response scope is ready to end. Continue the remaining work and do not retry this tool now. The runtime will request it again at the correct time."
+}
+```
+
+The outer tool result is successful so the model does not treat the skip as an
+error, but `trigger_satisfied=false` and the turn continues. Intermediate turns
+with accepted callback obligations may finish without this trigger, and their
+assistant drafts are discarded rather than becoming conversation history.
+
+When the last active turn attempts completion with no pending callbacks, the
+completion guard exposes the missing `EndResponseScope` tools and adds:
+
+```text
+The response scope is ready to end. Call these required
+end-response-scope tools now with the final completed response.
+```
+
+That repair call passes through admission and tool-call guards, runs cleanup,
+executes the handler, and satisfies the trigger. `EndTurnOnSuccess` applies
+only to this executed result. Handler failure remains unsatisfied and enters
+bounded repair. The runtime allows up to three consecutive no-progress
+repairs.
 
 Required trigger tools should therefore be described as standalone final actions.
 
@@ -199,104 +217,17 @@ events := agent.SubscribeScopeEvents(ctx)
 for event := range events {
     switch event.Type {
     case agentcli.PreEndScope:
-        // The scope is quiescent; cleanup and staged handlers have not run.
+        // The final boundary was reached; cleanup and handlers have not run.
     case agentcli.EndScope:
-        // Cleanup and staged handler invocation are complete; the scope ended.
+        // Cleanup and final handler invocation are complete; the scope ended.
     }
 }
 ```
 
 The stream is live-only. Subscribe before starting the root turn when neither
-boundary may be missed. `PreEndScope` always precedes automatic subagent
-cleanup and staged `EndResponseScope` handlers. `EndScope` is emitted only
-after those operations and scope removal.
-
-### How deferred candidates are staged
-
-`EndResponseScope` does not use a FIFO job queue. The in-memory response-scope
-coordinator keeps one candidate slot per tool name within the originating user
-response:
-
-1. The first allowed invocation stores the handler and a copy of its arguments.
-   Its result contains `candidate=scheduled`.
-2. A later allowed invocation of the same tool replaces that slot, including
-   its arguments. Its result contains `candidate=replaced`.
-3. Calls to different `EndResponseScope` tools use separate slots. At scope
-   end, the runtime invokes those tools in the order their slots were first
-   created, using the latest candidate stored in each slot.
-4. The scope becomes ready to end only when it has no active turns and no
-   accepted callback obligations. A callback or follow-up accepted within the
-   same response keeps the scope open and may replace a candidate.
-5. The runtime reconciles children, invokes every staged handler once, removes
-   the scope, and then emits `EndScope`.
-
-Candidate state is live, in-memory coordination state, not durable conversation
-or job-queue state. It exists only for the lifetime of that response scope.
-
-A successful staging result has this shape:
-
-```json
-{
-  "status": "deferred",
-  "reason": "response_scope_active",
-  "delivery": "end_response_scope",
-  "candidate": "scheduled",
-  "active_turns": 1,
-  "pending_callbacks": 1,
-  "retry_in_current_turn": false
-}
-```
-
-`active_turns` and `pending_callbacks` are snapshots taken when the invocation
-is staged. They explain why the scope is still open; callers must not poll or
-retry based on those values.
-
-`status=deferred` acknowledges that the candidate was staged successfully. It
-does **not** acknowledge that the handler's external side effect has completed.
-Do not retry a deferred result in the current turn. A later call is appropriate
-only when it intentionally supplies a newer final candidate.
-
-For example, consider a Discord delivery tool configured with both
-`EndResponseScope` and `EndTurnOnSuccess`:
-
-```go
-agentcli.Tool{
-    Definition: agentcli.ToolDefinition{
-        Name:        "report_discord",
-        Description: "Stage the final Discord response for delivery at scope end.",
-        InputSchema: reportSchema,
-    },
-    Handler:                            sendDiscordMessage,
-    Trigger:                            agentcli.EndResponseScope,
-    EndTurnOnSuccess:                   true,
-    CanonicalAssistantMessageParameter: "message",
-}
-```
-
-Suppose the root turn has already dispatched a child, so one callback remains
-pending. The root stages an early summary:
-
-```text
-report_discord({"message":"Still investigating."})
-→ {"status":"deferred","candidate":"scheduled","retry_in_current_turn":false}
-```
-
-The successful staging ends that root turn, but the pending callback keeps the
-response scope open. When the callback arrives, it can stage the final answer:
-
-```text
-report_discord({"message":"Investigation complete: the service is healthy."})
-→ {"status":"deferred","candidate":"replaced","retry_in_current_turn":false}
-```
-
-After that callback turn finishes with no further accepted follow-up, the scope
-is quiescent. The runtime calls `sendDiscordMessage` once with
-`"Investigation complete: the service is healthy."`; it never invokes the
-handler with `"Still investigating."`. In this configuration,
-`EndTurnOnSuccess` reacts to successful staging, not to eventual Discord
-delivery. Only after that delivery succeeds does the transcript append one
-assistant message containing `"Investigation complete: the service is
-healthy."`.
+boundary may be missed. `PreEndScope` precedes automatic subagent cleanup and
+the first final `EndResponseScope` handler. `EndScope` is emitted only after
+the turn completes, canonical messages are persisted, and the scope is removed.
 
 ## Permissions and confirmations
 

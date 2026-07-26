@@ -21,9 +21,10 @@ type ToolDefinition struct {
 
 // ToolRequest is sent by a runtime to the shared tool worker channel.
 type ToolRequest struct {
-	SessionID string
-	TurnID    string
-	Call      ToolCall
+	SessionID          string
+	TurnID             string
+	Call               ToolCall
+	CompletionBoundary bool
 }
 
 // ToolResultEnvelope correlates a completed tool result to its turn.
@@ -67,7 +68,7 @@ func cloneToolRequest(request ToolRequest) ToolRequest {
 
 func cloneToolResultEnvelope(envelope ToolResultEnvelope) ToolResultEnvelope {
 	clone := envelope
-	clone.Result.Output = cloneRawJSON(envelope.Result.Output)
+	clone.Result = cloneToolResult(envelope.Result)
 	return clone
 }
 

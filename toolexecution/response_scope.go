@@ -27,9 +27,9 @@ const (
 	// EndTurn requires the tool before a turn completes and executes its handler
 	// immediately.
 	EndTurn ToolTrigger = "end_turn"
-	// EndResponseScope requires the tool before a turn completes, stages its
-	// latest invocation, and executes the handler once the originating user
-	// response has no active turns or accepted subagent callbacks left.
+	// EndResponseScope requires the tool when the originating response scope
+	// is ready to end. Earlier calls are skipped; the handler executes only
+	// from the runtime's final completion-repair boundary.
 	EndResponseScope ToolTrigger = "end_response_scope"
 )
 
@@ -57,20 +57,14 @@ const (
 )
 
 type responseScope struct {
-	state            responseScopeState
-	activeTurns      int
-	pendingCallbacks int
-	children         map[string]int
-	endScopeCalls    map[string]endScopeToolCall
-	endScopeOrder    []string
-}
-
-type endScopeToolCall struct {
-	ctx                                context.Context
-	handler                            Handler
-	request                            agentruntime.ToolRequest
-	arguments                          json.RawMessage
-	canonicalAssistantMessageParameter string
+	state             responseScopeState
+	activeTurns       int
+	pendingCallbacks  int
+	children          map[string]int
+	endScopeCompleted map[string]struct{}
+	endScopeExecuting map[string]struct{}
+	canonicalMessages map[string]agentruntime.Message
+	endScopeOrder     []string
 }
 
 type responseDispatch struct {
@@ -82,8 +76,8 @@ type callbackRecord struct {
 	scope responseScopeKey
 }
 
-// ResponseScopeCleanup runs after a response scope becomes quiescent and
-// before its deferred EndResponseScope handlers execute. childIDs contains
+// ResponseScopeCleanup runs when a response scope enters its final completion
+// boundary, before its EndResponseScope handlers execute. childIDs contains
 // every child that accepted work in the scope.
 type ResponseScopeCleanup func(context.Context, string, string, []string)
 
@@ -191,10 +185,12 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		return fmt.Errorf("response scope %q already exists", turnID)
 	}
 	c.scopes[scopeKey] = &responseScope{
-		state:         responseScopeOpen,
-		activeTurns:   1,
-		children:      make(map[string]int),
-		endScopeCalls: make(map[string]endScopeToolCall),
+		state:             responseScopeOpen,
+		activeTurns:       1,
+		children:          make(map[string]int),
+		endScopeCompleted: make(map[string]struct{}),
+		endScopeExecuting: make(map[string]struct{}),
+		canonicalMessages: make(map[string]agentruntime.Message),
 	}
 	c.turns[turn] = scopeKey
 	logger := c.logger
@@ -413,63 +409,157 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 	}
 }
 
-// StageEndResponseScope replaces the candidate for this tool and returns a
-// clear successful result for the model. The handler is never called here.
-func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, request agentruntime.ToolRequest, handler Handler, canonicalAssistantMessageParameter ...string) (json.RawMessage, error) {
+// ReadyToEnd reports whether completing turnID would make its response scope
+// quiescent. A scope already finalizing remains ready so a failed end-scope
+// handler can be repaired without reopening application work.
+func (c *ResponseScopeCoordinator) ReadyToEnd(sessionID, turnID string) bool {
 	if c == nil {
-		return nil, errors.New("response scope coordinator is not configured")
+		return false
 	}
-	turn := responseTurnKey{sessionID: request.SessionID, turnID: request.TurnID}
-
+	turn := responseTurnKey{sessionID: sessionID, turnID: turnID}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	scopeKey, found := c.turns[turn]
 	if !found {
-		return nil, errors.New("tool turn does not belong to a response scope")
+		return false
 	}
 	scope := c.scopes[scopeKey]
-	if scope == nil {
-		return nil, errors.New("response scope does not exist")
-	}
-	if scope.state == responseScopeEnded {
-		return json.Marshal(map[string]any{
-			"status":                "already_ended",
-			"delivery":              "end_response_scope",
-			"retry_in_current_turn": false,
-		})
-	}
-	if scope.state == responseScopeEnding {
-		return json.Marshal(map[string]any{
-			"status":                "ending",
-			"delivery":              "end_response_scope",
-			"retry_in_current_turn": false,
-		})
-	}
+	return scope != nil &&
+		scope.state != responseScopeEnded &&
+		scope.activeTurns == 1 &&
+		scope.pendingCallbacks == 0
+}
 
-	_, replacing := scope.endScopeCalls[request.Call.Name]
-	if !replacing {
-		scope.endScopeOrder = append(scope.endScopeOrder, request.Call.Name)
+// ExecuteEndResponseScope runs handler only from a completion-repair boundary
+// when completing the current turn would end its response scope. Earlier calls
+// are successful no-ops for the model but deliberately do not satisfy the
+// required trigger.
+func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
+	ctx context.Context,
+	request agentruntime.ToolRequest,
+	handler Handler,
+	canonicalAssistantMessageParameter ...string,
+) (json.RawMessage, bool, error) {
+	if c == nil {
+		return nil, false, errors.New("response scope coordinator is not configured")
 	}
+	turn := responseTurnKey{sessionID: request.SessionID, turnID: request.TurnID}
 	canonicalParameter := ""
 	if len(canonicalAssistantMessageParameter) > 0 {
 		canonicalParameter = strings.TrimSpace(canonicalAssistantMessageParameter[0])
 	}
-	scope.endScopeCalls[request.Call.Name] = endScopeToolCall{
-		ctx:                                context.WithoutCancel(ctx),
-		handler:                            handler,
-		request:                            cloneRequest(request),
-		arguments:                          cloneRawJSON(request.Call.Arguments),
-		canonicalAssistantMessageParameter: canonicalParameter,
+
+	c.mu.Lock()
+	scopeKey, found := c.turns[turn]
+	if !found {
+		c.mu.Unlock()
+		return nil, false, errors.New("tool turn does not belong to a response scope")
 	}
-	return json.Marshal(map[string]any{
-		"status":                "deferred",
-		"reason":                "response_scope_active",
-		"delivery":              "end_response_scope",
-		"candidate":             map[bool]string{false: "scheduled", true: "replaced"}[replacing],
-		"active_turns":          scope.activeTurns,
-		"pending_callbacks":     scope.pendingCallbacks,
-		"retry_in_current_turn": false,
-	})
+	scope := c.scopes[scopeKey]
+	if scope == nil || scope.state == responseScopeEnded {
+		c.mu.Unlock()
+		return nil, false, errors.New("response scope does not exist")
+	}
+	ready := request.CompletionBoundary &&
+		scope.activeTurns == 1 &&
+		scope.pendingCallbacks == 0
+	if !ready {
+		c.mu.Unlock()
+		output, err := json.Marshal(map[string]any{
+			"status":   "skipped",
+			"executed": false,
+			"reason":   "response_scope_not_ready_to_end",
+			"instruction": "This tool only runs when the response scope is ready to end. " +
+				"Continue the remaining work and do not retry this tool now. " +
+				"The runtime will request it again at the correct time.",
+		})
+		return output, false, err
+	}
+	if _, completed := scope.endScopeCompleted[request.Call.Name]; completed {
+		c.mu.Unlock()
+		output, err := json.Marshal(map[string]any{
+			"status":           "succeeded",
+			"executed":         true,
+			"already_executed": true,
+		})
+		return output, true, err
+	}
+	if _, executing := scope.endScopeExecuting[request.Call.Name]; executing {
+		c.mu.Unlock()
+		output, err := json.Marshal(map[string]any{
+			"status":   "skipped",
+			"executed": false,
+			"reason":   "end_response_scope_tool_already_executing",
+			"instruction": "Another invocation of this tool is already running. " +
+				"Continue without retrying it.",
+		})
+		return output, false, err
+	}
+
+	scope.endScopeExecuting[request.Call.Name] = struct{}{}
+	if !containsResponseScopeTool(scope.endScopeOrder, request.Call.Name) {
+		scope.endScopeOrder = append(scope.endScopeOrder, request.Call.Name)
+	}
+	beginEnding := scope.state == responseScopeOpen
+	var children []string
+	cleanup := c.cleanup
+	logger := c.logger
+	if beginEnding {
+		scope.state = responseScopeEnding
+		children = make([]string, 0, len(scope.children))
+		for childID := range scope.children {
+			children = append(children, childID)
+		}
+		sort.Strings(children)
+	}
+	c.mu.Unlock()
+
+	if beginEnding {
+		c.beginEnding(scopeKey, request.TurnID, children, []string{request.Call.Name}, cleanup, logger)
+	}
+
+	output, err := handler(ctx, cloneRawJSON(request.Call.Arguments))
+	if err == nil && !json.Valid(output) {
+		err = errors.New("tool returned invalid JSON")
+	}
+	var canonicalMessage *agentruntime.Message
+	if err == nil && canonicalParameter != "" {
+		content, contentErr := canonicalAssistantContent(request.Call.Arguments, canonicalParameter)
+		if contentErr != nil {
+			err = contentErr
+		} else {
+			canonicalMessage = &agentruntime.Message{
+				SessionID: request.SessionID,
+				TurnID:    request.TurnID,
+				Type:      agentruntime.MessageTypeAssistant,
+				Content:   content,
+			}
+		}
+	}
+
+	c.mu.Lock()
+	if current := c.scopes[scopeKey]; current != nil {
+		delete(current.endScopeExecuting, request.Call.Name)
+		if err == nil {
+			current.endScopeCompleted[request.Call.Name] = struct{}{}
+			if canonicalMessage != nil {
+				current.canonicalMessages[request.Call.Name] = *canonicalMessage
+			}
+		}
+	}
+	c.mu.Unlock()
+	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(c.ctx, "response scope tool failed",
+				"session_id", request.SessionID,
+				"turn_id", request.TurnID,
+				"tool_name", request.Call.Name,
+				"error", err,
+			)
+		}
+		return nil, true, err
+	}
+	return cloneRawJSON(output), true, nil
 }
 
 // FinishTurn closes one accepted runtime turn and ends the response scope only
@@ -492,49 +582,53 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		return
 	}
 	scope.activeTurns--
-	if scope.activeTurns != 0 || scope.pendingCallbacks != 0 || scope.state != responseScopeOpen {
+	if scope.activeTurns != 0 || scope.pendingCallbacks != 0 || scope.state == responseScopeEnded {
 		c.mu.Unlock()
 		return
 	}
-	scope.state = responseScopeEnding
+	beginEnding := scope.state == responseScopeOpen
+	if beginEnding {
+		scope.state = responseScopeEnding
+	}
 	children := make([]string, 0, len(scope.children))
 	for childID := range scope.children {
 		children = append(children, childID)
 	}
 	sort.Strings(children)
 	cleanup := c.cleanup
-	canonicalAssistantRecorder := c.canonicalAssistantRecorder
+	recorder := c.canonicalAssistantRecorder
 	logger := c.logger
 	toolNames := append([]string(nil), scope.endScopeOrder...)
-	calls := make([]endScopeToolCall, 0, len(toolNames))
+	canonicalMessages := make([]agentruntime.Message, 0, len(toolNames))
 	for _, name := range toolNames {
-		calls = append(calls, scope.endScopeCalls[name])
+		if message, found := scope.canonicalMessages[name]; found {
+			canonicalMessages = append(canonicalMessages, message)
+		}
 	}
 	c.mu.Unlock()
 
-	if logger != nil {
-		logger.InfoContext(c.ctx, "response scope ending",
-			"session_id", scopeKey.sessionID,
-			"scope_id", scopeKey.scopeID,
-			"trigger_turn_id", turnID,
-		)
-		logger.DebugContext(c.ctx, "response scope ending details",
-			"session_id", scopeKey.sessionID,
-			"scope_id", scopeKey.scopeID,
-			"trigger_turn_id", turnID,
-			"child_ids", children,
-			"tool_names", toolNames,
-		)
+	if beginEnding {
+		c.beginEnding(scopeKey, turnID, children, toolNames, cleanup, logger)
 	}
-	c.publishEvent(ScopeEvent{
-		Type: PreEndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
-		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
-	})
-	if cleanup != nil {
-		c.executeCleanup(cleanup, scopeKey, children)
-	}
-	for _, call := range calls {
-		c.executeDeferred(call, canonicalAssistantRecorder, logger)
+	if recorder != nil {
+		for _, message := range canonicalMessages {
+			if err := recorder(c.ctx, message); err != nil {
+				if logger != nil {
+					logger.ErrorContext(c.ctx, "canonical assistant message persistence failed",
+						"session_id", message.SessionID,
+						"turn_id", message.TurnID,
+						"error", err,
+					)
+				}
+				continue
+			}
+			if logger != nil {
+				logger.DebugContext(c.ctx, "canonical assistant message persisted",
+					"session_id", message.SessionID,
+					"turn_id", message.TurnID,
+				)
+			}
+		}
 	}
 
 	c.mu.Lock()
@@ -561,6 +655,37 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		Type: EndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
 		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
 	})
+}
+
+func (c *ResponseScopeCoordinator) beginEnding(
+	scopeKey responseScopeKey,
+	turnID string,
+	children []string,
+	toolNames []string,
+	cleanup ResponseScopeCleanup,
+	logger *slog.Logger,
+) {
+	if logger != nil {
+		logger.InfoContext(c.ctx, "response scope ending",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+		)
+		logger.DebugContext(c.ctx, "response scope ending details",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+			"child_ids", children,
+			"tool_names", toolNames,
+		)
+	}
+	c.publishEvent(ScopeEvent{
+		Type: PreEndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
+		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
+	})
+	if cleanup != nil {
+		c.executeCleanup(cleanup, scopeKey, children)
+	}
 }
 
 func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) {
@@ -605,80 +730,6 @@ func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, 
 	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
 }
 
-func (c *ResponseScopeCoordinator) executeDeferred(call endScopeToolCall, recorder CanonicalAssistantRecorder, logger *slog.Logger) {
-	if call.handler == nil {
-		return
-	}
-	ctx, cancel := context.WithCancel(call.ctx)
-	stop := context.AfterFunc(c.ctx, cancel)
-	defer func() {
-		stop()
-		cancel()
-		if recovered := recover(); recovered != nil && logger != nil {
-			logger.ErrorContext(c.ctx, "response scope tool failed",
-				"session_id", call.request.SessionID,
-				"turn_id", call.request.TurnID,
-				"tool_name", call.request.Call.Name,
-				"error", fmt.Sprint(recovered),
-			)
-		}
-	}()
-	if c.ctx.Err() != nil {
-		return
-	}
-	_, err := call.handler(ctx, cloneRawJSON(call.arguments))
-	if err != nil {
-		if logger != nil {
-			logger.ErrorContext(c.ctx, "response scope tool failed",
-				"session_id", call.request.SessionID,
-				"turn_id", call.request.TurnID,
-				"tool_name", call.request.Call.Name,
-				"error", err,
-			)
-		}
-		return
-	}
-	if call.canonicalAssistantMessageParameter == "" || recorder == nil {
-		return
-	}
-	content, err := canonicalAssistantContent(call.arguments, call.canonicalAssistantMessageParameter)
-	if err != nil {
-		if logger != nil {
-			logger.ErrorContext(c.ctx, "canonical assistant message extraction failed",
-				"session_id", call.request.SessionID,
-				"turn_id", call.request.TurnID,
-				"tool_name", call.request.Call.Name,
-				"error", err,
-			)
-		}
-		return
-	}
-	message := agentruntime.Message{
-		SessionID: call.request.SessionID,
-		TurnID:    call.request.TurnID,
-		Type:      agentruntime.MessageTypeAssistant,
-		Content:   content,
-	}
-	if err := recorder(ctx, message); err != nil {
-		if logger != nil {
-			logger.ErrorContext(c.ctx, "canonical assistant message persistence failed",
-				"session_id", call.request.SessionID,
-				"turn_id", call.request.TurnID,
-				"tool_name", call.request.Call.Name,
-				"error", err,
-			)
-		}
-		return
-	}
-	if logger != nil {
-		logger.DebugContext(c.ctx, "canonical assistant message persisted",
-			"session_id", call.request.SessionID,
-			"turn_id", call.request.TurnID,
-			"tool_name", call.request.Call.Name,
-		)
-	}
-}
-
 func canonicalAssistantContent(arguments json.RawMessage, parameter string) (string, error) {
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(arguments, &values); err != nil {
@@ -696,4 +747,13 @@ func canonicalAssistantContent(arguments json.RawMessage, parameter string) (str
 		return "", fmt.Errorf("tool argument %q is empty", parameter)
 	}
 	return content, nil
+}
+
+func containsResponseScopeTool(names []string, target string) bool {
+	for _, name := range names {
+		if name == target {
+			return true
+		}
+	}
+	return false
 }
