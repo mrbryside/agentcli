@@ -147,6 +147,61 @@ func TestResponseScopeCancelChildDispatchesReleasesPendingCallbackBarrier(t *tes
 	}
 }
 
+func TestResponseScopeCancelChildDispatchesPreventsReservationRollbackFromRestoringObligation(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.FinishTurn("session", "root-turn")
+
+	reservation, err := coordinator.ReserveCallbackTurn(
+		"session",
+		"rejected-callback-turn",
+		"child",
+		"child-turn",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 0 {
+		t.Fatalf("cancelled queued dispatches = %d, want 0 for reserved callback", cancelled)
+	}
+	reservation.Rollback("child", "child-turn")
+
+	coordinator.mu.Lock()
+	scope := coordinator.scopes[responseScopeKey{sessionID: "session", scopeID: "root-turn"}]
+	if scope == nil {
+		coordinator.mu.Unlock()
+		t.Fatal("response scope disappeared")
+	}
+	pendingCallbacks := scope.pendingCallbacks
+	activeTurns := scope.activeTurns
+	coordinator.mu.Unlock()
+	if pendingCallbacks != 0 {
+		t.Fatalf("reservation rollback restored %d callback obligations after destructive close", pendingCallbacks)
+	}
+	if activeTurns != 0 {
+		t.Fatalf("active turns after rejected callback rollback = %d, want 0", activeTurns)
+	}
+	if _, err := coordinator.ReserveCallbackTurn(
+		"session",
+		"retry-callback-turn",
+		"child",
+		"child-turn",
+	); !errors.Is(err, ErrResponseScopeDispatchNotFound) {
+		t.Fatalf("callback retry after close error = %v, want ErrResponseScopeDispatchNotFound", err)
+	}
+
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-after-close")
+	coordinator.mu.Lock()
+	pendingCallbacks = scope.pendingCallbacks
+	coordinator.mu.Unlock()
+	if pendingCallbacks != 0 {
+		t.Fatalf("dispatch registration recreated %d obligations for a closed child", pendingCallbacks)
+	}
+}
+
 func TestResponseScopeRecordsCanonicalAssistantAfterSuccessfulFinalExecution(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	var recorded []agentruntime.Message

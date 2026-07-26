@@ -108,6 +108,7 @@ type ResponseScopeCoordinator struct {
 	turns                      map[responseTurnKey]responseScopeKey
 	dispatch                   map[responseChildKey][]*responseDispatch
 	callbacks                  map[responseChildKey]map[string]callbackRecord
+	cancelledChildren          map[responseChildKey]struct{}
 	cleanup                    ResponseScopeCleanup
 	canonicalAssistantRecorder CanonicalAssistantRecorder
 	events                     *scopeEventHub
@@ -120,12 +121,13 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 		ctx = context.Background()
 	}
 	return &ResponseScopeCoordinator{
-		ctx:       ctx,
-		scopes:    make(map[responseScopeKey]*responseScope),
-		turns:     make(map[responseTurnKey]responseScopeKey),
-		dispatch:  make(map[responseChildKey][]*responseDispatch),
-		callbacks: make(map[responseChildKey]map[string]callbackRecord),
-		events:    newScopeEventHub(ctx),
+		ctx:               ctx,
+		scopes:            make(map[responseScopeKey]*responseScope),
+		turns:             make(map[responseTurnKey]responseScopeKey),
+		dispatch:          make(map[responseChildKey][]*responseDispatch),
+		callbacks:         make(map[responseChildKey]map[string]callbackRecord),
+		cancelledChildren: make(map[responseChildKey]struct{}),
+		events:            newScopeEventHub(ctx),
 	}
 }
 
@@ -232,6 +234,10 @@ func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, chi
 	child := responseChildKey{sessionID: sessionID, childID: childID}
 
 	c.mu.Lock()
+	if _, cancelled := c.cancelledChildren[child]; cancelled {
+		c.mu.Unlock()
+		return func() {}
+	}
 	scopeKey, found := c.turns[turn]
 	if !found {
 		c.mu.Unlock()
@@ -286,6 +292,7 @@ func (c *ResponseScopeCoordinator) CancelChildDispatches(sessionID, childID stri
 	child := responseChildKey{sessionID: sessionID, childID: childID}
 
 	c.mu.Lock()
+	c.cancelledChildren[child] = struct{}{}
 	queue := c.dispatch[child]
 	if len(queue) == 0 {
 		c.mu.Unlock()
@@ -448,9 +455,11 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 	}
 	if r.dispatch != nil {
 		child := responseChildKey{sessionID: r.turn.sessionID, childID: childID}
-		c.dispatch[child] = append([]*responseDispatch{r.dispatch}, c.dispatch[child]...)
-		if scope != nil {
-			scope.pendingCallbacks++
+		if _, cancelled := c.cancelledChildren[child]; !cancelled {
+			c.dispatch[child] = append([]*responseDispatch{r.dispatch}, c.dispatch[child]...)
+			if scope != nil {
+				scope.pendingCallbacks++
+			}
 		}
 		if seen := c.callbacks[child]; seen != nil {
 			delete(seen, callbackTurnID)
