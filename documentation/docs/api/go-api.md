@@ -119,7 +119,7 @@ permission checks.
 | `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
-| `EndResponseScope` | Require a tool and execute its handler once the originating user response settles. |
+| `EndResponseScope` | Require a tool at the final response-scope completion repair; earlier calls are successful non-executing skips. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
 | `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after final delivery succeeds. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
@@ -154,10 +154,12 @@ For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
 `EndTurnOnSuccess: true`. Calls made before the runtime requests the final
 trigger return successful `status=skipped`, `executed=false`, continue the
-turn, and do not invoke the handler or satisfy the trigger. The result tells the
-model not to retry. Once the scope has no pending callbacks and its last turn
-attempts completion, runtime repair exposes the required tool again and that
-call executes the handler. If
+turn, ignore `EndTurnOnSuccess`, and do not invoke admission, the tool-call
+guard, or the handler. They also do not satisfy the trigger or retain a
+candidate for later execution. The result tells the model not to retry. Once
+the scope has no pending callbacks and its last active turn attempts
+completion, runtime repair exposes the required tool again and only that
+completion-boundary call can execute the handler. If
 `CanonicalAssistantMessageParameter` names a required string schema property,
 the coordinator appends that argument as the canonical assistant transcript
 message only after the final handler succeeds.

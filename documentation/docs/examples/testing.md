@@ -82,7 +82,12 @@ latest-attempt failure, and progress resetting the repair budget.
 For `EndTurnOnSuccess`, cover both standalone optional tools and tools that also
 set `EndTurn` or `EndResponseScope`. Assert that a successful mixed batch ends
 without another provider request, any failed result continues, and a missing
-required trigger still causes a bounded repair.
+required trigger still causes a bounded repair. For `EndResponseScope`,
+explicitly test the first-tool-call case: the early call must return successful
+`status=skipped` with `executed=false`, bypass admission and the handler, ignore
+`EndTurnOnSuccess`, and continue the turn. After ordinary work and a natural
+completion attempt, assert that the restricted completion-repair call executes
+the handler exactly once and satisfies the trigger.
 
 ## HTTP test
 

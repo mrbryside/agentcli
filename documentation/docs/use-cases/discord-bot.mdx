@@ -54,7 +54,7 @@ go 1.26.3
 
 require (
     github.com/bwmarrin/discordgo v0.28.1
-    github.com/mrbryside/agentcli v0.0.53
+    github.com/mrbryside/agentcli v0.0.54
 )
 ```
 
@@ -205,6 +205,25 @@ reference Discord agent:
 - `EndTurnOnSuccess` stops the model only after the final handler succeeds.
 - `CanonicalAssistantMessageParameter` stores the delivered `message` as the
   assistant response in conversation history.
+
+An early call—including calling `report_discord` as the first tool—does not
+send to Discord and cannot end the turn. It returns:
+
+```json
+{
+  "status": "skipped",
+  "executed": false,
+  "reason": "response_scope_not_ready_to_end",
+  "instruction": "This tool only runs when the response scope is ready to end. Continue the remaining work and do not retry this tool now. The runtime will request it again at the correct time."
+}
+```
+
+The runtime does not guess whether the message sounds final. Normal provider
+rounds are not completion-boundary requests, so they always skip this trigger.
+After the model finishes its remaining work and attempts a normal completion,
+the runtime verifies that this is the last active turn with no pending callback
+and opens a restricted repair round for the executable final call. Early
+arguments are never staged or delivered later.
 
 The handler sends through Discord itself. The embedded bot and API client must
 therefore wait for completion and handle errors, but must not send

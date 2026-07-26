@@ -186,9 +186,33 @@ not called and no candidate is retained. The model receives:
 ```
 
 The outer tool result is successful so the model does not treat the skip as an
-error, but `trigger_satisfied=false` and the turn continues. Intermediate turns
-with accepted callback obligations may finish without this trigger, and their
-assistant drafts are discarded rather than becoming conversation history.
+error, but `trigger_satisfied=false`, `EndTurnOnSuccess` is ignored, and the
+turn continues. The runtime does not invoke the handler, permission resolver,
+confirmation resolver, or tool-call guard for this skipped call. It also does
+not retain the arguments as a candidate for later execution.
+
+### How the runtime distinguishes an early call
+
+The runtime does not infer intent from the tool's position or message text.
+It requires both independent conditions below before executing an
+`EndResponseScope` handler:
+
+| Condition | Early provider round | Final completion repair |
+| --- | --- | --- |
+| The call was requested from a completion-repair boundary | No | Yes |
+| This is the scope's last active turn and no callback is pending | Maybe | Yes |
+| Handler executes and trigger is satisfied | No | Yes |
+
+Therefore, even if `report_discord` is the first tool the model calls, its
+request is not marked as a completion-boundary request. It receives the
+successful skipped result above and the model continues. A normal assistant
+completion attempt is what lets the completion guard determine whether the
+scope is ready; only its restricted repair round can produce the executable
+final call.
+
+Intermediate turns with accepted callback obligations may finish without this
+trigger, and their assistant drafts are discarded rather than becoming
+conversation history.
 
 When the last active turn attempts completion with no pending callbacks, the
 completion guard exposes the missing `EndResponseScope` tools and adds:

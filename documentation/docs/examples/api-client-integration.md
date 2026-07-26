@@ -107,9 +107,13 @@ manage child completions itself can opt out with
 `agentcli.WithServerAutoContinueSubagents(false)`.
 
 Automatic callback turns remain in the response scope that originally
-dispatched the child. Deferred `EndResponseScope` handlers therefore run only
-after the callback continuation settles, matching
-`ContinueSubagentCallbackSubscribed` in direct Go integrations.
+dispatched the child. An early `EndResponseScope` call is a successful
+non-executing skip; no handler invocation is retained for later. Intermediate
+callback turns may finish without that trigger. When the last active
+continuation attempts completion and no accepted callback is pending, the
+runtime starts a restricted completion repair and only that repair call
+executes the handler. This matches `ContinueSubagentCallbackSubscribed` in
+direct Go integrations.
 
 ## End-to-end browser flow
 

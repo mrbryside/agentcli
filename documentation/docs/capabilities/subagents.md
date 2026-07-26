@@ -229,8 +229,10 @@ Routine lifecycle cleanup happens at the response-scope boundary. One human
 user message opens one response scope. Accepted child dispatches keep that
 scope open; every callback continuation remains in the same scope, and a
 follow-up accepted from that continuation adds another pending callback. The
-scope becomes quiescent only when all of its turns, tool results, callback
-continuations, and accepted callback obligations have settled.
+final boundary is available only when one last active turn is attempting
+completion and no accepted callback obligation remains. Earlier
+`EndResponseScope` calls are successful non-executing skips and are not retained
+for later delivery.
 
 Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:

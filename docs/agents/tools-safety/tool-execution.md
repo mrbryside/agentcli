@@ -61,12 +61,16 @@ that exact value as the durable assistant response. The canonical record is
 created only after the handler succeeds. A model call made before the runtime's
 final completion boundary receives successful `status=skipped`,
 `executed=false`, continues the turn, and does not satisfy the trigger. The
-result tells the model not to retry; no handler or candidate is retained.
-When the response scope is ready to end, completion repair exposes the missing
-`EndResponseScope` tools with a final-call reminder. Those calls execute their
-handlers and satisfy the trigger. One user message opens one response scope.
-Accepted subagent work keeps it open, and intermediate parent/callback
-assistant drafts are discarded until the final scope turn.
+result tells the model not to retry; admission and the handler are bypassed,
+`EndTurnOnSuccess` is ignored, and no candidate is retained. This includes a
+call made as the model's first tool: normal provider rounds do not carry the
+runtime-owned `CompletionBoundary` marker. When the last active scope turn
+attempts completion with no pending callback, completion repair exposes the
+missing `EndResponseScope` tools with a final-call reminder. Only requests from
+that repair boundary execute their handlers and satisfy the trigger. One user
+message opens one response scope. Accepted subagent work keeps it open, and
+intermediate parent/callback assistant drafts are discarded until the final
+scope turn.
 
 The live response-scope event stream emits `PreEndScope` after the scope
 enters its final completion boundary but before child cleanup and final
