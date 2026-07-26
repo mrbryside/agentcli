@@ -602,6 +602,87 @@ func TestRuntimeLoopFailsForProviderStorageMalformedResultAndMaxSteps(t *testing
 	}
 }
 
+func TestRuntimeInjectsTrustedMessageBeforeNextProviderRound(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				CompletedTools: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: map[string]any{}}},
+				Finished:       true,
+			}},
+		}}},
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "done", Finished: true,
+			}},
+		}}},
+	}}
+	runtime, requests, results := newLoopRuntime(t, model, inmemory.NewMessageStorage(), 5)
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "session",
+		TurnID:    "turn",
+		Message:   Message{Type: MessageTypeUser, Content: "start"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := receiveToolRequest(t, requests)
+	accepted := make(chan struct{}, 1)
+	injected := make(chan error, 1)
+	go func() {
+		injected <- runtime.InjectRuntimeMessage(
+			context.Background(),
+			"session",
+			"turn",
+			Message{Type: MessageTypeRuntimeEvent, Content: "<callback>done</callback>"},
+			func() { accepted <- struct{}{} },
+		)
+	}()
+	deadline := time.After(time.Second)
+	for {
+		run.mu.RLock()
+		queued := len(run.runtimeInputs)
+		run.mu.RUnlock()
+		if queued == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("runtime input was not queued")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	results <- successfulEnvelope("session", "turn", request.Call.CallID, request.Call.Name, `{"ok":true}`)
+	select {
+	case err := <-injected:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime input was not accepted")
+	}
+	select {
+	case <-accepted:
+	default:
+		t.Fatal("accepted hook was not called")
+	}
+	collectRuntimeEvents(t, run)
+	modelRequests := model.Requests()
+	if len(modelRequests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(modelRequests))
+	}
+	found := false
+	for _, message := range modelRequests[1].Messages {
+		if message.Type == MessageTypeRuntimeEvent && message.Content == "<callback>done</callback>" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("second provider request did not include injected callback: %#v", modelRequests[1].Messages)
+	}
+}
+
 type scriptedRuntimeModel struct {
 	mu       sync.Mutex
 	streams  []ModelStream

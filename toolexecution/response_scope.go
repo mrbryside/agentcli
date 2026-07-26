@@ -29,7 +29,8 @@ const (
 	EndTurn ToolTrigger = "end_turn"
 	// EndResponseScope requires the tool when the originating response scope
 	// is ready to end. Earlier calls are skipped; the handler executes only
-	// from the runtime's final completion-repair boundary.
+	// after the initial human root action or from a callback/final repair
+	// boundary.
 	EndResponseScope ToolTrigger = "end_response_scope"
 )
 
@@ -60,7 +61,9 @@ type responseScope struct {
 	state             responseScopeState
 	activeTurns       int
 	pendingCallbacks  int
+	pendingInputs     int
 	children          map[string]int
+	toolCalls         map[string]int
 	endScopeCompleted map[string]struct{}
 	endScopeExecuting map[string]struct{}
 	canonicalMessages map[string]agentruntime.Message
@@ -93,6 +96,7 @@ type ResponseScopeReservation struct {
 	turn        responseTurnKey
 	scope       responseScopeKey
 	dispatch    *responseDispatch
+	inline      bool
 	committed   bool
 	closed      bool
 }
@@ -106,6 +110,7 @@ type ResponseScopeCoordinator struct {
 	mu                         sync.Mutex
 	scopes                     map[responseScopeKey]*responseScope
 	turns                      map[responseTurnKey]responseScopeKey
+	callbackTurns              map[responseTurnKey]struct{}
 	dispatch                   map[responseChildKey][]*responseDispatch
 	callbacks                  map[responseChildKey]map[string]callbackRecord
 	cancelledChildren          map[responseChildKey]struct{}
@@ -124,6 +129,7 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 		ctx:               ctx,
 		scopes:            make(map[responseScopeKey]*responseScope),
 		turns:             make(map[responseTurnKey]responseScopeKey),
+		callbackTurns:     make(map[responseTurnKey]struct{}),
 		dispatch:          make(map[responseChildKey][]*responseDispatch),
 		callbacks:         make(map[responseChildKey]map[string]callbackRecord),
 		cancelledChildren: make(map[responseChildKey]struct{}),
@@ -190,6 +196,7 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		state:             responseScopeOpen,
 		activeTurns:       1,
 		children:          make(map[string]int),
+		toolCalls:         make(map[string]int),
 		endScopeCompleted: make(map[string]struct{}),
 		endScopeExecuting: make(map[string]struct{}),
 		canonicalMessages: make(map[string]agentruntime.Message),
@@ -220,6 +227,7 @@ func (c *ResponseScopeCoordinator) RollbackRootTurn(sessionID, turnID string) {
 		return
 	}
 	delete(c.turns, turn)
+	delete(c.callbackTurns, turn)
 	delete(c.scopes, scopeKey)
 }
 
@@ -385,6 +393,7 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 			}
 			scope.activeTurns++
 			c.turns[turn] = prior.scope
+			c.callbackTurns[turn] = struct{}{}
 			return &ResponseScopeReservation{
 				coordinator: c,
 				turn:        turn,
@@ -412,6 +421,7 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 	scope.pendingCallbacks--
 	scope.activeTurns++
 	c.turns[turn] = dispatch.scope
+	c.callbackTurns[turn] = struct{}{}
 	if c.callbacks[child] == nil {
 		c.callbacks[child] = make(map[string]callbackRecord)
 	}
@@ -424,6 +434,65 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 	}, nil
 }
 
+// ReserveInlineCallback binds one callback to an already-active turn in the
+// same response scope. The callback obligation stays non-quiescent as a
+// pending runtime input until the active run has durably appended it at a
+// provider boundary.
+func (c *ResponseScopeCoordinator) ReserveInlineCallback(sessionID, activeTurnID, childID, callbackTurnID string) (*ResponseScopeReservation, error) {
+	if c == nil {
+		return nil, errors.New("response scope coordinator is nil")
+	}
+	if sessionID == "" || activeTurnID == "" || childID == "" || callbackTurnID == "" {
+		return nil, errors.New("inline callback response scope identifiers are required")
+	}
+	turn := responseTurnKey{sessionID: sessionID, turnID: activeTurnID}
+	child := responseChildKey{sessionID: sessionID, childID: childID}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	activeScope, found := c.turns[turn]
+	if !found {
+		return nil, errors.New("active callback turn does not belong to a response scope")
+	}
+	if seen := c.callbacks[child]; seen != nil {
+		if _, duplicate := seen[callbackTurnID]; duplicate {
+			return nil, errors.New("subagent callback was already reserved")
+		}
+	}
+	queue := c.dispatch[child]
+	if len(queue) == 0 {
+		return nil, ErrResponseScopeDispatchNotFound
+	}
+	dispatch := queue[0]
+	if dispatch.scope != activeScope {
+		return nil, errors.New("active turn belongs to a different response scope")
+	}
+	scope := c.scopes[dispatch.scope]
+	if scope == nil || scope.state != responseScopeOpen {
+		return nil, errors.New("subagent callback response scope is not open")
+	}
+	if scope.pendingCallbacks == 0 {
+		return nil, errors.New("subagent callback counter is inconsistent")
+	}
+	c.dispatch[child] = queue[1:]
+	if len(c.dispatch[child]) == 0 {
+		delete(c.dispatch, child)
+	}
+	scope.pendingCallbacks--
+	scope.pendingInputs++
+	if c.callbacks[child] == nil {
+		c.callbacks[child] = make(map[string]callbackRecord)
+	}
+	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope}
+	return &ResponseScopeReservation{
+		coordinator: c,
+		turn:        turn,
+		scope:       dispatch.scope,
+		dispatch:    dispatch,
+		inline:      true,
+	}, nil
+}
+
 // Commit keeps a callback turn reservation after the runtime accepts it.
 func (r *ResponseScopeReservation) Commit() {
 	if r == nil || r.coordinator == nil {
@@ -432,7 +501,13 @@ func (r *ResponseScopeReservation) Commit() {
 	r.coordinator.mu.Lock()
 	defer r.coordinator.mu.Unlock()
 	if !r.closed {
+		if r.inline {
+			if scope := r.coordinator.scopes[r.scope]; scope != nil && scope.pendingInputs > 0 {
+				scope.pendingInputs--
+			}
+		}
 		r.committed = true
+		r.closed = true
 	}
 }
 
@@ -448,10 +523,17 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 		return
 	}
 	r.closed = true
-	delete(c.turns, r.turn)
 	scope := c.scopes[r.scope]
-	if scope != nil && scope.activeTurns > 0 {
-		scope.activeTurns--
+	if r.inline {
+		if scope != nil && scope.pendingInputs > 0 {
+			scope.pendingInputs--
+		}
+	} else {
+		delete(c.turns, r.turn)
+		delete(c.callbackTurns, r.turn)
+		if scope != nil && scope.activeTurns > 0 {
+			scope.activeTurns--
+		}
 	}
 	if r.dispatch != nil {
 		child := responseChildKey{sessionID: r.turn.sessionID, childID: childID}
@@ -488,13 +570,60 @@ func (c *ResponseScopeCoordinator) ReadyToEnd(sessionID, turnID string) bool {
 	return scope != nil &&
 		scope.state != responseScopeEnded &&
 		scope.activeTurns == 1 &&
-		scope.pendingCallbacks == 0
+		scope.pendingCallbacks == 0 &&
+		scope.pendingInputs == 0
 }
 
-// ExecuteEndResponseScope runs handler only from a completion-repair boundary
-// when completing the current turn would end its response scope. Earlier calls
-// are successful no-ops for the model but deliberately do not satisfy the
-// required trigger.
+// EndResponseScopeBoundaryReached allows callback continuation turns to
+// deliver their final boundary tool on provider step one, while retaining the
+// first-action guard for the initial human root turn.
+func (c *ResponseScopeCoordinator) EndResponseScopeBoundaryReached(request agentruntime.ToolRequest) bool {
+	if request.CompletionBoundary {
+		return true
+	}
+	turn := responseTurnKey{sessionID: request.SessionID, turnID: request.TurnID}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, callbackTurn := c.callbackTurns[turn]; callbackTurn {
+		return true
+	}
+	return request.ProviderStep > 1
+}
+
+// ReserveToolCall atomically consumes one per-response-scope call allowance.
+// Admitted calls count even if the handler later fails, preventing retry loops
+// from bypassing a hard scope budget.
+func (c *ResponseScopeCoordinator) ReserveToolCall(sessionID, turnID, toolName string, limit int) (int, bool, error) {
+	if c == nil {
+		return 0, false, errors.New("response scope coordinator is nil")
+	}
+	if limit <= 0 {
+		return 0, false, errors.New("response scope tool-call limit must be positive")
+	}
+	turn := responseTurnKey{sessionID: sessionID, turnID: turnID}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	scopeKey, found := c.turns[turn]
+	if !found {
+		return 0, false, errors.New("tool turn does not belong to a response scope")
+	}
+	scope := c.scopes[scopeKey]
+	if scope == nil || scope.state == responseScopeEnded {
+		return 0, false, errors.New("response scope does not exist")
+	}
+	used := scope.toolCalls[toolName]
+	if used >= limit {
+		return used, false, nil
+	}
+	used++
+	scope.toolCalls[toolName] = used
+	return used, true, nil
+}
+
+// ExecuteEndResponseScope runs handler only after the initial human root
+// action, or from a callback/final repair boundary, when completing the
+// current turn would end its response scope. Earlier calls are successful
+// no-ops but deliberately do not satisfy the required trigger.
 func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 	ctx context.Context,
 	request agentruntime.ToolRequest,
@@ -521,13 +650,17 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 		c.mu.Unlock()
 		return nil, false, errors.New("response scope does not exist")
 	}
-	ready := (request.CompletionBoundary || request.ProviderStep > 1) &&
+	_, callbackTurn := c.callbackTurns[turn]
+	boundaryReached := request.CompletionBoundary || callbackTurn || request.ProviderStep > 1
+	ready := boundaryReached &&
 		scope.activeTurns == 1 &&
-		scope.pendingCallbacks == 0
+		scope.pendingCallbacks == 0 &&
+		scope.pendingInputs == 0
 	if !ready {
 		logger := c.logger
 		activeTurns := scope.activeTurns
 		pendingCallbacks := scope.pendingCallbacks
+		pendingInputs := scope.pendingInputs
 		c.mu.Unlock()
 		if logger != nil {
 			logger.DebugContext(c.ctx, "response scope tool skipped",
@@ -538,15 +671,15 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 				"completion_boundary", request.CompletionBoundary,
 				"active_turns", activeTurns,
 				"pending_callbacks", pendingCallbacks,
+				"pending_inputs", pendingInputs,
 			)
 		}
 		instruction := "This call was skipped because the tool only runs when the response scope is ready to end. " +
 			"The handler did not run and the arguments were not retained. " +
 			"Continue the remaining work and do not retry this tool now. " +
 			"The runtime will request it again at the correct time."
-		if !request.CompletionBoundary && request.ProviderStep <= 1 &&
-			activeTurns == 1 && pendingCallbacks == 0 {
-			instruction = "This call was skipped because an EndResponseScope tool cannot end the turn as the model's first provider action. " +
+		if !boundaryReached && activeTurns == 1 && pendingCallbacks == 0 && pendingInputs == 0 {
+			instruction = "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. " +
 				"The handler did not run and the arguments were not retained. " +
 				"Continue the remaining work and do not retry it in this provider round. " +
 				"On a later provider round, call it again only after the response is complete and the scope is quiescent; " +
@@ -667,7 +800,7 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		return
 	}
 	scope.activeTurns--
-	if scope.activeTurns != 0 || scope.pendingCallbacks != 0 || scope.state == responseScopeEnded {
+	if scope.activeTurns != 0 || scope.pendingCallbacks != 0 || scope.pendingInputs != 0 || scope.state == responseScopeEnded {
 		c.mu.Unlock()
 		return
 	}
@@ -778,6 +911,7 @@ func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) 
 	for turn, scope := range c.turns {
 		if scope == scopeKey {
 			delete(c.turns, turn)
+			delete(c.callbackTurns, turn)
 		}
 	}
 	for child, queue := range c.dispatch {

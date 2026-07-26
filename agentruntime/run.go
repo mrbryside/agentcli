@@ -48,6 +48,7 @@ type Run struct {
 	outputGuardRetries        int
 	outputGuardReminder       []ContextReminder
 	pendingAssistant          *Message
+	runtimeInputs             []runtimeMessageInjection
 	completionToolsRestricted bool
 	completionToolAllowlist   []string
 	terminalNotify            chan struct{}
@@ -110,6 +111,12 @@ type runSubscription struct {
 
 type runControl struct {
 	reason string
+}
+
+type runtimeMessageInjection struct {
+	message  Message
+	accepted func()
+	result   chan error
 }
 
 func newRun(sessionID, turnID string) *Run {
@@ -717,6 +724,9 @@ func (r *Run) prepareMessages(runtime *Runtime, messages []Message) ([]Message, 
 }
 
 func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
+	if _, err := r.appendRuntimeInputs(ctx, runtime); err != nil {
+		return err
+	}
 	steps := r.providerSteps()
 	if steps >= runtime.maxSteps {
 		return ErrMaxSteps
@@ -799,6 +809,17 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 }
 
 func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
+	injected, err := r.appendRuntimeInputs(ctx, runtime)
+	if err != nil {
+		return r.fail(ctx, runtime, err)
+	}
+	if injected {
+		r.clearPendingAssistant()
+		if err := r.startProvider(ctx, runtime); err != nil {
+			return r.fail(ctx, runtime, err)
+		}
+		return true
+	}
 	messages, err := runtime.messages.List(ctx, r.sessionID)
 	if err != nil {
 		return r.fail(ctx, runtime, fmt.Errorf("inspect output messages: %w", err))
@@ -1097,9 +1118,84 @@ func (r *Run) fail(ctx context.Context, runtime *Runtime, err error) bool {
 
 func (r *Run) finish(runtime *Runtime) {
 	r.cancelProvider()
+	r.rejectRuntimeInputs(ErrRunNotFound)
 	r.markEffectsDone()
 	runtime.unregister(r)
 	r.finishOnce.Do(func() { close(r.finished) })
+}
+
+func (r *Run) enqueueRuntimeInput(ctx context.Context, message Message, accepted func()) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	injection := runtimeMessageInjection{
+		message:  storage.CloneMessage(message),
+		accepted: accepted,
+		result:   make(chan error, 1),
+	}
+	r.mu.Lock()
+	if r.done || r.effectsDone {
+		r.mu.Unlock()
+		return ErrRunNotFound
+	}
+	r.runtimeInputs = append(r.runtimeInputs, injection)
+	finished := r.finished
+	r.mu.Unlock()
+
+	select {
+	case err := <-injection.result:
+		return err
+	case <-finished:
+		select {
+		case err := <-injection.result:
+			return err
+		default:
+			return ErrRunNotFound
+		}
+	}
+}
+
+func (r *Run) appendRuntimeInputs(ctx context.Context, runtime *Runtime) (bool, error) {
+	r.mu.Lock()
+	inputs := r.runtimeInputs
+	r.runtimeInputs = nil
+	r.mu.Unlock()
+	if len(inputs) == 0 {
+		return false, nil
+	}
+	messages := make([]Message, len(inputs))
+	for index := range inputs {
+		messages[index] = inputs[index].message
+	}
+	if err := r.appendMessages(ctx, runtime, messages); err != nil {
+		for index := range inputs {
+			inputs[index].result <- err
+		}
+		return false, err
+	}
+	for index := range inputs {
+		if inputs[index].accepted != nil {
+			inputs[index].accepted()
+		}
+		inputs[index].result <- nil
+	}
+	return true, nil
+}
+
+func (r *Run) rejectRuntimeInputs(err error) {
+	if err == nil {
+		err = ErrRunNotFound
+	}
+	r.mu.Lock()
+	inputs := r.runtimeInputs
+	r.runtimeInputs = nil
+	r.mu.Unlock()
+	for index := range inputs {
+		inputs[index].result <- err
+	}
 }
 
 func (r *Run) markEffectsDone() {

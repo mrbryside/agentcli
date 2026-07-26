@@ -121,6 +121,7 @@ permission checks.
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool at the final response-scope completion repair; earlier calls are successful non-executing skips. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
+| `Tool.ResponseScopeCallLimit` | Set a hard cumulative call budget shared by all turns in one response scope. |
 | `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after final delivery succeeds. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
@@ -128,6 +129,7 @@ permission checks.
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
 `Tool` fields are `Definition`, `Handler`, `Trigger`, `EndTurnOnSuccess`,
+`ResponseScopeCallLimit`,
 `CanonicalAssistantMessageParameter`,
 `ToolCallGuard`, `ToolCallGuardPrompt`, `ToolCallGuardModel`, `Permission`,
 `PermissionWithPolicy`, and
@@ -157,9 +159,15 @@ rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
+When `ResponseScopeCallLimit` is positive, admitted calls share one counter
+across the root turn and all inline/callback continuation work. Exhaustion
+returns a successful non-executing
+`reason=response_scope_tool_budget_exhausted` result without admission or
+handler execution.
+
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
-`EndTurnOnSuccess: true`. Calls made as the model's initial provider action or
+`EndTurnOnSuccess: true`. Calls made as the human root turn's initial provider action or
 while the scope is busy return successful `status=skipped`, `executed=false`,
 `reason=response_scope_not_ready_to_end`, and `trigger_satisfied=false`, and do
 not invoke admission, the tool-call guard, or the handler. They also do not
@@ -168,8 +176,8 @@ retry. Without `EndTurnOnSuccess` the provider continues. With it, a successful
 skipped result ends the current turn only when callbacks or other active turns
 keep the response scope open; if the scope is otherwise quiescent, a premature
 call continues so the model can finish ordinary work. Once the scope has no
-pending callbacks, a later provider-round call from its last active turn can
-execute the handler directly. A normal completion attempt can also make
+pending callbacks, a later provider-round root call can execute the handler
+directly. Callback continuation turns may execute it on provider step one. A normal completion attempt can also make
 runtime repair expose the required tool. If
 `CanonicalAssistantMessageParameter` names a required string schema property,
 the coordinator appends that argument as the canonical assistant transcript
@@ -261,10 +269,16 @@ agent.SubscribeSubagentPermissions(ctx)
 agent.PendingSubagentPermissions(ctx, parentSessionID)
 agent.SubscribeSubagentConfirmations(ctx)
 agent.PendingSubagentConfirmations(ctx, parentSessionID)
+agent.TryInjectSubagentCallback(ctx, callback)
 agent.ContinueSubagentCallbackSubscribed(ctx, callback)
 agent.ReadSubagent(ctx, parentSessionID, subagentID, afterMessageID)
 agent.WaitSubagent(ctx, parentSessionID, subagentIDs, afterVersions)
 ```
+
+`TryInjectSubagentCallback` returns `true` after the trusted callback has been
+durably appended at a safe provider boundary of a compatible active parent.
+When it returns `false`, use `ContinueSubagentCallbackSubscribed` as the
+fallback continuation turn.
 
 `CloseSubagent` is an explicit destructive command: it may interrupt active
 work, drops queued child input, cancels outstanding unreserved callback

@@ -72,17 +72,13 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work and always continue the parent turn. The model issues
-exactly one start per provider round and never batches multiple starts in one
-tool-call response. Accepted start/send results
-set `callback_action: wait` and `must_wait_for_callback: true`. While a child
-runs, the parent may continue already-planned independent work that neither
-duplicates the delegated task nor depends on its result. It must not retry the
-dispatch, redo delegated work, poll, or claim completion before the callback.
-Once independent work is exhausted, the model completes through the
-application's normal response or required trigger tool so callbacks can arrive on
-later turns. Duplicate, already-sent, and callback-pending results use
-`callback_action: wait_existing` because they create no new callback.
+work and always continue the parent turn. Accepted results use
+`callback_action: automatic`, `must_wait_for_callback: true`, and one short
+instruction: `Accepted. The result will arrive automatically later.` This
+acknowledges dispatch without telling the parent to invent more work. The
+parent must not retry, redo delegated work, or poll. Duplicate, already-sent,
+and callback-pending results use `callback_action: automatic_existing` because
+they create no new callback.
 `selection_required` uses `callback_action: none`. The child turn outcome
 arrives through a separate callback containing:
 
@@ -93,39 +89,40 @@ arrives through a separate callback containing:
 - terminal error when the child failed;
 - durable transcript cursor metadata.
 
-Each model-facing start result reports that the parent remains open:
+Each accepted model-facing start result is deliberately compact:
 
 ```json
 {
   "accepted": true,
-  "callback_action": "wait",
+  "callback_action": "automatic",
   "must_wait_for_callback": true,
-  "prohibited_actions": [
-    "duplicate_delegated_work",
-    "work_depending_on_callback_result",
-    "poll",
-    "retry_same_dispatch",
-    "claim_completion_before_callback"
-  ],
-  "turn_behavior": "continue_turn",
-  "next_action": "Continue independent non-duplicative work, then finish the parent turn and wait for the authoritative callback."
+  "next_action": "Accepted. The result will arrive automatically later."
 }
 ```
 
-Send results also report `turn_behavior: "continue_turn"`. A
-`selection_required` start result reports
-`callback_action: "none"` and `turn_behavior: "continue_turn"`.
+The runtime tool behavior still continues. A `selection_required` start result
+reports `callback_action: "none"` because no work was dispatched.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
 turn continues only long enough for the parent to ask which `display_name` the
 user means.
 
-The callback is converted to trusted runtime input for a new parent turn. It is
-not represented as a human message and is not attached as a late result to the
-already completed `start_subagent` tool call.
+The callback is trusted runtime input, not a human message or a late result on
+the completed `start_subagent` call. First try to inject it into a compatible
+active parent. Injection waits for a safe provider boundary and never mutates
+an in-flight provider request or tool handler. When no compatible run remains,
+start a callback continuation:
 
 ```go
 for callback := range agent.SubscribeSubagentCallbacks(ctx) {
+    injected, err := agent.TryInjectSubagentCallback(ctx, callback)
+    if err != nil {
+        log.Printf("callback injection: %v", err)
+        continue
+    }
+    if injected {
+        continue
+    }
     run, events, err := agent.ContinueSubagentCallbackSubscribed(ctx, callback)
     if errors.Is(err, agentcli.ErrTurnInProgress) {
         // Keep the callback queued and retry when the parent session is free.
@@ -212,28 +209,26 @@ expected controlled result rather than a failed tool result:
 {
   "action": "callback_pending",
   "accepted": false,
-  "callback_action": "wait_existing",
+  "callback_action": "automatic_existing",
   "must_wait_for_callback": true,
-  "turn_behavior": "continue_turn",
-  "instruction": "No message was sent; continue only independent non-duplicative work, then finish the parent turn and wait for the pending authoritative callback."
+  "instruction": "Not accepted. The pending result will arrive automatically later."
 }
 ```
 
-The result creates no new callback. It permits already-planned independent work
-that neither duplicates the delegated task nor depends on the callback, but
-never permits retrying the same child or answering on the child's behalf. Tool
-calls already in the same parallel batch still all run before AgentRuntime
-evaluates the batch. Direct Go and HTTP sends continue returning the
-callback-pending lifecycle error, while closed and outcome-less children remain
-rejected.
+The result creates no new callback and does not authorize a retry. Tool calls
+already in the same parallel batch still all run before AgentRuntime evaluates
+the batch. Direct Go and HTTP sends continue returning the callback-pending
+lifecycle error, while closed and outcome-less children remain rejected.
 
 Routine lifecycle cleanup happens at the response-scope boundary. One human
 user message opens one response scope. Accepted child dispatches keep that
-scope open; every callback continuation remains in the same scope, and a
-follow-up accepted from that continuation adds another pending callback. The
-final boundary is available when one last active turn has advanced past its
-initial provider action and no accepted callback obligation remains, or when
-that turn enters completion repair. Earlier
+scope open. A callback first tries to join a compatible active parent at its
+next provider boundary; otherwise its continuation remains in the same scope.
+Inline delivery holds a pending-input barrier until the trusted message is
+durably appended. A follow-up adds another pending callback. The final boundary
+requires one active turn with no callback or pending input. The initial-action
+guard applies only to provider step one of the human root turn; a callback
+continuation can deliver a final tool on its first provider round. Earlier
 `EndResponseScope` calls are successful non-executing skips and are not retained
 for later delivery. If the tool uses `EndTurnOnSuccess`, that skipped call still
 ends the current turn while a pending callback keeps the response scope open,
@@ -257,10 +252,9 @@ accepted human user turn. Callback turns do not consume this reminder, it is
 not persisted as user content, and it tells the model that those children can
 no longer receive follow-up messages.
 
-Context reminders are stable within one parent turn. If a child finishes
-between provider rounds, the active turn continues seeing its original
-snapshot; the queued callback becomes authoritative input in the following
-callback turn.
+Context reminders remain stable, while the explicit trusted callback can be
+inserted between provider rounds. That callback is authoritative input; other
+durable lifecycle changes still appear through the normal reminder snapshot.
 
 Application-owned close operations can stop a running child or discard an
 incomplete child. They are available through `Agent.CloseSubagent`, Terminal

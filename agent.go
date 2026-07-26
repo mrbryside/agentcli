@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -551,6 +552,9 @@ func (a *Agent) PendingSubagentPermissions(ctx context.Context, parentSessionID 
 // child completion callback and advances the child's observation cursor only
 // after the turn was accepted. This keeps callback input distinct from human
 // user messages while giving UIs the same pre-subscribed event stream.
+//
+// Call TryInjectSubagentCallback first when the host wants callbacks to join
+// an already-active parent between provider rounds.
 func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback SubagentCallback) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	if a == nil || a.runtime == nil {
 		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
@@ -563,6 +567,66 @@ func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback
 		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create callback continuation turn: %w", err)
 	}
 	return a.continueSubagentCallbackSubscribed(ctx, callback, continuationTurnID)
+}
+
+// TryInjectSubagentCallback delivers a child callback into the next provider
+// boundary of the currently active parent response scope. It returns false
+// when no compatible parent run is active, allowing the host to start a normal
+// callback continuation turn instead.
+func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback SubagentCallback) (bool, error) {
+	if a == nil || a.runtime == nil {
+		return false, errors.New("agent is nil")
+	}
+	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
+		return false, errors.New("subagent callback identifiers are required")
+	}
+	manager, err := a.subagentManager()
+	if err != nil {
+		return false, err
+	}
+	activeTurnID, active := a.runtime.ActiveTurnID(callback.ParentSessionID)
+	if !active {
+		return false, nil
+	}
+	reservation, err := a.responseScopes.ReserveInlineCallback(
+		callback.ParentSessionID,
+		activeTurnID,
+		callback.SubagentID,
+		callback.TurnID,
+	)
+	if err != nil {
+		if errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) ||
+			strings.Contains(err.Error(), "different response scope") ||
+			strings.Contains(err.Error(), "does not belong to a response scope") {
+			return false, nil
+		}
+		return false, err
+	}
+	injectCtx, cancel := context.WithCancel(context.Background())
+	stop := context.AfterFunc(a.closing, cancel)
+	defer func() {
+		stop()
+		cancel()
+	}()
+	err = a.runtime.InjectRuntimeMessage(
+		injectCtx,
+		callback.ParentSessionID,
+		activeTurnID,
+		callback.RuntimeMessage(),
+		reservation.Commit,
+	)
+	if err != nil {
+		reservation.Rollback(callback.SubagentID, callback.TurnID)
+		if errors.Is(err, agentruntime.ErrRunNotFound) {
+			return false, nil
+		}
+		if a.isClosing() {
+			return false, ErrClosed
+		}
+		return false, err
+	}
+	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
+	return true, nil
 }
 
 func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback SubagentCallback, continuationTurnID string) (*agentruntime.Run, agentruntime.EventSubscription, error) {

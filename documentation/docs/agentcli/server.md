@@ -43,15 +43,14 @@ is the outermost Echo middleware.
 turn is not counted. The default is 64. Other sessions never wait behind this
 session's queue.
 
-`WithServerAutoContinueSubagents` defaults to `true`. A completed child is
-converted into a trusted parent callback turn and published through
-`GET /v1/sessions/{sessionID}/events`, giving every client the same callback
-delivery behavior. If the child came from an agent-dispatched subagent call,
-the callback turn remains in the originating response scope, including its
-final `EndResponseScope` requirements. A child created directly through the
-HTTP API has no originating scope, so the server preserves its callback by
-starting a new root response scope. Disable automatic continuation only when
-the embedding application consumes and continues child callbacks itself.
+`WithServerAutoContinueSubagents` defaults to `true`. A completed child first
+tries to join a compatible active parent at its next provider boundary. If no
+compatible run remains, the server creates a trusted callback turn and
+publishes it through `GET /v1/sessions/{sessionID}/events`. Agent-dispatched
+callbacks remain in their originating response scope in either path. A child
+created directly through the HTTP API has no originating scope, so its
+fallback callback starts a new root scope. Disable automatic continuation only
+when the embedding application owns both injection and fallback continuation.
 
 ## Embed in an existing process
 

@@ -18,6 +18,13 @@ declined result continues so the model can dispatch more work or report the
 error. Shared tool channels must be buffered and are caller-owned; the runtime
 never closes them.
 
+Trusted runtime input such as a subagent callback can be queued on an active
+run. The run never changes an in-flight provider request. It drains and
+durably appends queued input immediately before the next provider round, or at
+`AttemptComplete` and then starts a fresh provider round. If the run closes
+before that boundary, injection is rejected so the host can use a callback
+continuation turn instead.
+
 Provider completion without tools first stages its assistant output in `Run`
 memory and produces an internal `AttemptComplete` effect. Output and completion
 guards receive a defensive inspection snapshot containing that candidate, but
@@ -37,9 +44,11 @@ Prompt-backed input guards are one-shot model checks before the main provider lo
 `Run` owns one turn's event history, subscriber queues, state, controls, and final result. A terminal event is not externally done until its effects—including transcript persistence—finish; only then do `Done`, `Status`, `Result`, and subscriber closure expose completion. This prevents completion callbacks from racing the final stored assistant message. Interruption cancels the provider, sends a turn-scoped tool interrupt, records synthetic interrupted results where needed, and terminates with `ErrRunInterrupted`. Keep session/turn/call correlation intact across every channel.
 
 At the Agent facade, one accepted human root turn opens one in-memory response
-scope. Accepted subagent dispatches increment that scope's callback barrier;
-callback continuations reserve and settle the matching dispatch, remain in the
-originating scope, and may accept follow-up dispatches that reopen the barrier.
+scope. Accepted subagent dispatches increment that scope's callback barrier.
+Callbacks first try to reserve an inline runtime input on a compatible active
+turn; otherwise callback continuations reserve and settle the matching
+dispatch. Both remain in the originating scope and may accept follow-up
+dispatches that reopen the barrier.
 The scope starts ending when its last active turn reaches a completion boundary
 with no pending callbacks. It emits `PreEndScope`, then runs cleanup before
 final `EndResponseScope` handlers:

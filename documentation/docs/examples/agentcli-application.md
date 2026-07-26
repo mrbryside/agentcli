@@ -223,7 +223,8 @@ The frontend needs these state stores:
 
 For a full chat UI, subscribe once to
 `GET /v1/sessions/{sessionID}/events`. Its cursor spans all root turns and also
-discovers parent callback turns created automatically when subagents finish.
+captures provider events after an inline callback joins an active root, plus
+fallback callback turns created when no compatible run remains.
 Use a per-turn `events_url` only when the caller needs to follow one known
 request in isolation.
 

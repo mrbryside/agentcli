@@ -54,7 +54,7 @@ go 1.26.3
 
 require (
     github.com/bwmarrin/discordgo v0.28.1
-    github.com/mrbryside/agentcli v0.0.61
+    github.com/mrbryside/agentcli v0.0.62
 )
 ```
 
@@ -200,9 +200,9 @@ func NewTool(discord messageSender) agentcli.Tool {
 This follows the same delivery contract as the `report_discord` tool in the
 reference Discord agent:
 
-- `EndResponseScope` skips a tool-first initial call and calls made while the
-  scope is busy, then makes the tool executable when the response scope reaches
-  its final boundary.
+- `EndResponseScope` skips a tool-first call only on the initial human root
+  turn, plus calls made while the scope is busy. A callback continuation may
+  deliver on provider step one when it is the final active turn.
 - `EndTurnOnSuccess` stops the model after final delivery, or yields an
   intermediate turn when callbacks still keep the response scope open.
 - `CanonicalAssistantMessageParameter` stores the delivered `message` as the
@@ -217,17 +217,22 @@ the turn and ordinary work remains available. It returns:
   "status": "skipped",
   "executed": false,
   "reason": "response_scope_not_ready_to_end",
-  "instruction": "This call was skipped because an EndResponseScope tool cannot end the turn as the model's first provider action. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent."
+  "instruction": "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent."
 }
 ```
 
 The runtime does not guess whether the message sounds final. It rejects every
-`report_discord` call emitted in the first provider round, so a tool-first
-progress message cannot end the turn. After the model observes that result and
-finishes its work, a later provider-round call executes when this is the last
-active turn and no callback is pending. A normal completion attempt can also
-open a restricted repair round for the executable final call. Early arguments
-are never staged or delivered later.
+`report_discord` call emitted in the human root turn's first provider round, so
+a tool-first progress message cannot end the turn. Callback continuations are
+already past that first-action boundary and can deliver on provider step one.
+A normal completion attempt can also open a restricted repair round. Early
+arguments are never staged or delivered later.
+
+Discord still enforces 2,000 Unicode characters per API message. If the
+application permits a longer final response, split it deterministically at
+paragraph/newline boundaries into Discord-safe chunks inside the delivery
+sink. Do not return a length error to the model merely to ask it to shorten and
+retry an already-final response.
 
 The handler sends through Discord itself. The embedded bot and API client must
 therefore wait for completion and handle errors, but must not send

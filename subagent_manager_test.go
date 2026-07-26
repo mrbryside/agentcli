@@ -335,7 +335,7 @@ func TestSubagentManagerPublishesCompactSuccessAndFailureCallbacks(t *testing.T)
 				t.Fatalf("callback = %#v", callback)
 			}
 			message := callback.RuntimeMessage()
-			for _, expected := range []string{"authoritative outcome", "dispatch acknowledgement", "display_name", "send one focused follow-up", "automatically closes completed and failed children", "controlled by the host application", "Never poll list_subagents or subagent_status", "unfinished children will callback automatically", "Never reveal secret values", "callback to be consumed"} {
+			for _, expected := range []string{"authoritative child result", "final_answer or summary", "one focused follow-up", "Do not poll"} {
 				if !strings.Contains(message.Content, expected) {
 					t.Fatalf("callback instruction missing %q: %s", expected, message.Content)
 				}

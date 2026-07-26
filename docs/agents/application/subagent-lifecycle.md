@@ -23,6 +23,10 @@ response-scope callback obligations, signals state change, and publishes
 increments both `pendingCallbacks` and the scope's per-child touch count.
 `ReserveCallbackTurn` removes the oldest matching dispatch, decrements
 `pendingCallbacks`, and transfers responsibility to an active callback turn.
+`ReserveInlineCallback` instead transfers responsibility to `pendingInputs`
+on an already-active compatible turn. The runtime commits it only after the
+trusted callback is durably appended at a provider boundary. Rollback restores
+the original dispatch if the run closes before acceptance.
 
 `CancelChildDispatches` records a terminal cancellation marker for the
 session/child pair and deletes every queued, unreserved dispatch. Each deleted
@@ -41,8 +45,9 @@ must not consume work from another scope.
 
 Cancellation changes accounting only. It does not start a provider turn.
 `EndResponseScope` handlers still require one active turn, zero pending
-callbacks, and either a later provider round or an explicit completion-repair
-boundary.
+callbacks, and zero pending runtime inputs. Provider step one is blocked only
+for the initial human root turn; a callback continuation may execute there on
+its first provider round.
 
 ## Automatic cleanup
 

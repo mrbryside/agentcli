@@ -130,6 +130,9 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 	if registry.hasEndResponseScopeTools() && config.ResponseScopes == nil {
 		return nil, errors.New("end-response-scope tools require a response scope coordinator")
 	}
+	if registry.hasResponseScopeCallLimits() && config.ResponseScopes == nil {
+		return nil, errors.New("response-scope tool-call limits require a response scope coordinator")
+	}
 	if config.Store == nil {
 		config.Store = inmemory.NewPermissionStorage()
 	}
@@ -385,8 +388,25 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 			}
 			request = cloneRequest(request)
 			admission := e.policy.currentSnapshot()
+			if limit := e.registry.responseScopeCallLimitFor(request.Call.Name); limit > 0 {
+				used, allowed, budgetErr := e.config.ResponseScopes.ReserveToolCall(
+					request.SessionID,
+					request.TurnID,
+					request.Call.Name,
+					limit,
+				)
+				if budgetErr != nil {
+					e.sendResult(ctx, results, failedResult(request, budgetErr))
+					continue
+				}
+				if !allowed {
+					e.sendResult(ctx, results, responseScopeBudgetResult(request, used, limit))
+					continue
+				}
+			}
 			if trigger, _ := e.registry.triggerFor(request.Call.Name); trigger == EndResponseScope &&
-				(!request.CompletionBoundary || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
+				(!e.config.ResponseScopes.EndResponseScopeBoundaryReached(request) ||
+					!e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
 				// Early EndResponseScope calls are runtime-owned successful
 				// no-ops. Do not ask for permission or confirmation for a
 				// handler that will not execute.

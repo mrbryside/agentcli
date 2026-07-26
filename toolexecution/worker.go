@@ -41,6 +41,28 @@ func policyChangedResult(request agentruntime.ToolRequest) agentruntime.ToolResu
 	}
 }
 
+func responseScopeBudgetResult(request agentruntime.ToolRequest, used, limit int) agentruntime.ToolResultEnvelope {
+	output, _ := json.Marshal(map[string]any{
+		"status":   "skipped",
+		"executed": false,
+		"reason":   "response_scope_tool_budget_exhausted",
+		"used":     used,
+		"limit":    limit,
+		"instruction": "The response-scope call budget is exhausted. " +
+			"Use the results already available and continue without retrying this tool.",
+	})
+	return agentruntime.ToolResultEnvelope{
+		SessionID: request.SessionID,
+		TurnID:    request.TurnID,
+		Result: agentruntime.ToolResult{
+			CallID: request.Call.CallID,
+			Name:   request.Call.Name,
+			Status: agentruntime.ToolResultSucceeded,
+			Output: output,
+		},
+	}
+}
+
 func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest) (result agentruntime.ToolResultEnvelope) {
 	result = agentruntime.ToolResultEnvelope{
 		SessionID: request.SessionID,
@@ -75,7 +97,8 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	}
 	trigger, _ := e.registry.triggerFor(request.Call.Name)
 	if trigger == EndResponseScope &&
-		(!endResponseScopeBoundaryReached(request) || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
+		(!e.config.ResponseScopes.EndResponseScopeBoundaryReached(request) ||
+			!e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
 		output, executed, err := e.config.ResponseScopes.ExecuteEndResponseScope(
 			ctx,
 			request,
@@ -166,14 +189,6 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.TurnBehavior = behavior
 	}
 	return result
-}
-
-// endResponseScopeBoundaryReached keeps an EndResponseScope tool from ending a
-// turn when it is the model's first action, while allowing the final tool call
-// after any provider round has had a chance to observe results and do work.
-// Completion repair remains an explicit boundary regardless of provider round.
-func endResponseScopeBoundaryReached(request agentruntime.ToolRequest) bool {
-	return request.CompletionBoundary || request.ProviderStep > 1
 }
 
 func (e *Executor) applySkippedEndResponseScopeTurnBehavior(result *agentruntime.ToolResultEnvelope, request agentruntime.ToolRequest) {

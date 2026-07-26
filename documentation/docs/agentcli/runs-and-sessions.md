@@ -161,12 +161,16 @@ the turn after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append repair reminders as ephemeral user-role
 messages. Rejected assistant drafts never become repeated trailing transcript
 messages.
-Root callback turns participate in the originating response-scope barrier.
-Intermediate turns with pending callbacks may complete without an
+Trusted callbacks first try to join a compatible active run between provider
+rounds. The runtime holds a pending-input barrier until the callback is durably
+appended; it never changes an in-flight provider request. Fallback callback
+turns participate in the originating response-scope barrier. Intermediate turns with pending callbacks may complete without an
 `EndResponseScope` call, and their assistant drafts are discarded. When the
 last turn reaches completion with no pending callback, runtime repair requests
 the final `EndResponseScope` tools, closes unshared completed/failed children,
-and executes those handlers. Incomplete children remain open. The model-facing
+and executes those handlers. The first-action guard applies only to the human
+root turn, so a callback continuation may execute a final handler on provider
+step one. Incomplete children remain open. The model-facing
 catalog has no destructive close tool. When the application closes a child
 through Go, Terminal, or HTTP, the coordinator cancels that child's outstanding
 unreserved callback obligations and releases the scope's callback barrier. A

@@ -671,7 +671,7 @@ func TestExecutorEndResponseScopeDoesNotExecuteMultipleInitialToolCalls(t *testi
 	coordinator.FinishTurn("session", "turn")
 }
 
-func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnSecondProviderRound(t *testing.T) {
+func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnFirstProviderRound(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
@@ -705,22 +705,108 @@ func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnSecondProviderRoun
 	initial := scopeToolRequest("callback-turn", `{"message":"premature"}`)
 	initial.ProviderStep = 1
 	initialResult := executor.execute(context.Background(), initial)
-	if initialResult.Result.TriggerSatisfied == nil || *initialResult.Result.TriggerSatisfied ||
-		initialResult.TurnBehavior != agentruntime.ToolTurnContinue {
-		t.Fatalf("initial callback report = %+v, want skipped continuation", initialResult)
-	}
-
-	final := scopeToolRequest("callback-turn", `{"message":"final"}`)
-	final.ProviderStep = 2
-	finalResult := executor.execute(context.Background(), final)
-	if finalResult.Result.TriggerSatisfied == nil || !*finalResult.Result.TriggerSatisfied ||
-		finalResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
-		t.Fatalf("final callback report = %+v, want executed end-on-success", finalResult)
+	if initialResult.Result.TriggerSatisfied == nil || !*initialResult.Result.TriggerSatisfied ||
+		initialResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
+		t.Fatalf("initial callback report = %+v, want executed end-on-success", initialResult)
 	}
 	if calls != 1 {
 		t.Fatalf("handler calls = %d, want one", calls)
 	}
 	coordinator.FinishTurn("session", "callback-turn")
+}
+
+func TestResponseScopeInlineCallbackStaysPendingUntilRuntimeInputCommit(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	reservation, err := coordinator.ReserveInlineCallback("session", "root-turn", "child", "child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coordinator.ReadyToEnd("session", "root-turn") {
+		t.Fatal("scope became ready before inline runtime input was committed")
+	}
+	reservation.Commit()
+	if !coordinator.ReadyToEnd("session", "root-turn") {
+		t.Fatal("scope did not become ready after inline runtime input commit")
+	}
+	coordinator.FinishTurn("session", "root-turn")
+}
+
+func TestResponseScopeToolBudgetIsSharedWithCallbackTurns(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	used, allowed, err := coordinator.ReserveToolCall("session", "root-turn", "web_search", 2)
+	if err != nil || !allowed || used != 1 {
+		t.Fatalf("root reservation = used %d allowed %v err %v", used, allowed, err)
+	}
+	coordinator.FinishTurn("session", "root-turn")
+	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback.Commit()
+	used, allowed, err = coordinator.ReserveToolCall("session", "callback-turn", "web_search", 2)
+	if err != nil || !allowed || used != 2 {
+		t.Fatalf("callback reservation = used %d allowed %v err %v", used, allowed, err)
+	}
+	used, allowed, err = coordinator.ReserveToolCall("session", "callback-turn", "web_search", 2)
+	if err != nil || allowed || used != 2 {
+		t.Fatalf("over-budget reservation = used %d allowed %v err %v", used, allowed, err)
+	}
+	coordinator.FinishTurn("session", "callback-turn")
+}
+
+func TestExecutorReturnsControlledSuccessAfterResponseScopeToolBudget(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	handlerCalls := 0
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "search", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			handlerCalls++
+			return json.RawMessage(`{"results":[]}`), nil
+		},
+		ResponseScopeCallLimit: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{ResponseScopes: coordinator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan agentruntime.ToolRequest, 3)
+	results := make(chan agentruntime.ToolResultEnvelope, 3)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runExecutor(executor, ctx, requests, results, interrupts)
+	for index := 1; index <= 3; index++ {
+		requests <- toolRequest("session", "turn", fmt.Sprintf("call-%d", index), "search", `{}`)
+	}
+	var exhausted agentruntime.ToolResult
+	for range 3 {
+		result := waitResult(t, results).Result
+		if strings.Contains(string(result.Output), "response_scope_tool_budget_exhausted") {
+			exhausted = result
+		}
+	}
+	if handlerCalls != 2 {
+		t.Fatalf("handler calls = %d, want 2", handlerCalls)
+	}
+	if exhausted.Status != agentruntime.ToolResultSucceeded || exhausted.Error != "" {
+		t.Fatalf("exhausted result = %+v, want controlled success", exhausted)
+	}
+	cancel()
+	waitDone(t, done)
+	coordinator.FinishTurn("session", "turn")
 }
 
 func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *testing.T) {

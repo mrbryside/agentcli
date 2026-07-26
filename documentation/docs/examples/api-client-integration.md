@@ -102,21 +102,23 @@ return agent.RunServer(
 )
 ```
 
-Automatic subagent callback turns are enabled by default. A host that wants to
+Automatic subagent callback delivery is enabled by default. A host that wants to
 manage child completions itself can opt out with
 `agentcli.WithServerAutoContinueSubagents(false)`.
 
-Automatic callback turns remain in the response scope that originally
-dispatched the child. An early `EndResponseScope` call is a successful
+Callbacks first join a compatible active parent at its next provider boundary;
+otherwise an automatic callback turn starts. Both remain in the response scope
+that originally dispatched the child. An early `EndResponseScope` call is a successful
 non-executing skip; no handler invocation is retained for later. A skipped tool
 configured with `EndTurnOnSuccess` ends the current turn only while callbacks
 or other active turns keep the scope open, allowing callbacks to arrive without
 another provider round. A premature call in an otherwise quiescent scope
 continues so ordinary work can finish. Intermediate callback turns may finish
-without that trigger. When the last active continuation has advanced past its
-initial provider action and no accepted callback is pending, it may execute the
-final handler directly; completion repair remains the fallback. This matches
-`ContinueSubagentCallbackSubscribed` in direct Go integrations.
+without that trigger. A callback continuation may execute the final handler on
+provider step one when it is the last active turn and no callback/input is
+pending; completion repair remains the fallback. Direct Go integrations call
+`TryInjectSubagentCallback` before
+`ContinueSubagentCallbackSubscribed`.
 
 ## End-to-end browser flow
 
@@ -335,10 +337,11 @@ Children always run asynchronously.
 When a child turn ends, the server automatically:
 
 1. receives its compact `completed`, `incomplete`, or `failed` callback;
-2. queues a trusted `runtime_event` turn in the parent session;
-3. prioritizes that callback after the currently active turn;
+2. injects trusted `runtime_event` input at the active parent's next provider
+   boundary when compatible;
+3. otherwise prioritizes a callback continuation after the active turn;
 4. asks the parent model to use the result or error;
-5. publishes the new parent turn through the session SSE stream.
+5. publishes provider events on the owning active or callback turn stream.
 
 The activity has `source: "subagent_callback"` and a
 `subagent_callback` reference containing the child and child-turn IDs plus its

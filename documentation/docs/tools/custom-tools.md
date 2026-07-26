@@ -182,16 +182,32 @@ agentcli.Tool{
 }
 ```
 
-If the model calls the tool as its first provider action, or while the response
-scope is busy, the handler is not called and no candidate is retained. The
-model receives:
+For an ordinary tool that must not exceed a cumulative response-scope budget,
+set `ResponseScopeCallLimit`. The root turn, inline callbacks, and callback
+continuations share the counter:
+
+```go
+agentcli.Tool{
+    Definition:            searchDefinition,
+    Handler:               searchHandler,
+    ResponseScopeCallLimit: 2,
+}
+```
+
+An over-budget call returns successful `status=skipped`,
+`reason=response_scope_tool_budget_exhausted`, and never reaches admission,
+the handler, or the network. Admitted attempts count even if they later fail.
+
+If the model calls the tool as the human root turn's first provider action, or
+while the response scope is busy, the handler is not called and no candidate
+is retained. The model receives:
 
 ```json
 {
   "status": "skipped",
   "executed": false,
   "reason": "response_scope_not_ready_to_end",
-  "instruction": "This call was skipped because an EndResponseScope tool cannot end the turn as the model's first provider action. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent; completion repair can also request the final call."
+  "instruction": "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent; completion repair can also request the final call."
 }
 ```
 
@@ -210,18 +226,18 @@ The runtime does not infer intent from message text. It requires both
 independent conditions below before executing an
 `EndResponseScope` handler:
 
-| Condition | Initial provider round | Later provider round | Completion repair |
-| --- | --- | --- | --- |
-| Initial-action guard has passed | No | Yes | Yes |
-| This is the scope's last active turn and no callback is pending | Maybe | Required | Required |
-| Handler executes and trigger is satisfied | No | Yes | Yes |
+| Condition | Human root step 1 | Later root round | Callback turn step 1 | Completion repair |
+| --- | --- | --- | --- | --- |
+| Initial-action guard has passed | No | Yes | Yes | Yes |
+| Last active turn; no callback/input pending | Maybe | Required | Required | Required |
+| Handler executes and trigger is satisfied | No | Yes | Yes | Yes |
 
 Therefore, even if `report_discord` is the first tool the model calls, its
 request receives the successful skipped result above and the model continues.
-After observing at least one provider result, the model can call the tool
-directly with its completed response. A normal assistant completion attempt
-remains an alternative path: the completion guard determines whether the scope
-is ready and its restricted repair round produces the executable final call.
+After observing at least one provider result, the root can call the tool
+directly with its completed response. A callback continuation is already past
+the human first-action boundary, so it may deliver on provider step one. A
+normal assistant completion attempt remains an alternative path.
 
 Intermediate turns with accepted callback obligations may finish without this
 trigger, and their assistant drafts are discarded rather than becoming

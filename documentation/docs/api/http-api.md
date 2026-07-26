@@ -261,10 +261,12 @@ curl -sS -X POST \
 synthetic parent turn identity when omitted. Creation returns `201 Created` and
 starts the child asynchronously.
 
-By default, child completion automatically creates a trusted callback turn in
-the parent session. That turn appears on the parent session event stream with
-`source: subagent_callback`; clients do not need to poll the child or manually
-ask the parent to read it.
+By default, child completion first tries to append trusted callback input at
+the next provider boundary of a compatible active parent. Its subsequent
+provider events stay on that active turn's stream. If no compatible run
+remains, the server creates a callback turn with
+`source: subagent_callback`. Clients do not need to poll or manually ask the
+parent to read the child.
 
 When the child originated from an agent-dispatched subagent call, its automatic
 callback remains in that original response scope. A child created directly

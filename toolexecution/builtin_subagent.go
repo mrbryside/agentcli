@@ -18,6 +18,7 @@ const (
 	ListSubagentsToolName       = "list_subagents"
 	SubagentStatusToolName      = "subagent_status"
 	SendSubagentMessageToolName = "send_subagent_message"
+	subagentAcceptedInstruction = "Accepted. The result will arrive automatically later."
 )
 
 var subagentToolNames = map[string]struct{}{
@@ -130,14 +131,24 @@ func (bridge *SubagentToolBridge) get() (SubagentController, error) {
 // agents never register this bridge.
 func (bridge *SubagentToolBridge) Tools() []Tool {
 	return []Tool{
-		bridge.tool(StartSubagentToolName, "Start substantial delegated work or route it to an existing child of the requested definition. Do not use this tool for simple answers, ordinary conversation, formatting, or work the parent can complete directly. With new_instance=false, exactly one open child of the requested definition is reused and multiple matching open children produce selection_required; ask the user which display_name they mean. Set new_instance=true only for an explicitly new, separate, additional, or parallel child. Execution is always asynchronous: dispatch never proves completion. Inspect accepted in the result: only accepted=true means work was created, started, or queued; duplicate, already_sent, callback_pending, and selection_required return accepted=false and must not be counted as dispatched work. This tool always continues the parent turn. Issue exactly one start_subagent call per provider round. Never emit multiple start_subagent calls in the same tool batch. While the child runs, the parent may continue other already-planned independent work that neither duplicates the delegated task nor depends on its result. A callback cannot arrive until the current parent turn ends. After independent work is exhausted, finish through the application's normal response or required trigger tool and wait for authoritative callbacks. Do not redo delegated work, poll, inspect status, retry the dispatch, or claim completion before the callback.", `{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact definition name from available_subagents. This is a configured agent type, not a child ID or display_name."},"message":{"type":"string","minLength":1,"description":"Self-contained delegated task including relevant context, constraints, and the result expected from the child."},"label":{"type":"string","minLength":1,"maxLength":120,"description":"Optional short UI label for this delegated task. Do not put instructions here."},"new_instance":{"type":"boolean","default":false,"description":"False reuses the only open child of the requested definition when unambiguous. True creates a separate child and is valid only when the user explicitly requests another/new/parallel instance."}},"required":["name","message"],"additionalProperties":false}`, bridge.start),
-		bridge.tool(ListSubagentsToolName, "List lightweight child identities and lifecycle summaries for explicit discovery, selection, or UI-style enumeration. It does not return child findings or wait for progress. Never call it after start_subagent or send_subagent_message to check whether work finished, and never use it as a polling loop; callbacks report outcomes automatically after the current parent turn ends.", `{"type":"object","properties":{"include_closed":{"type":"boolean","default":false,"description":"Include closed historical child sessions. Keep false when selecting an open child for follow-up work."}},"additionalProperties":false}`, bridge.list),
-		bridge.tool(SubagentStatusToolName, "Read one lightweight lifecycle snapshot only when the user explicitly asks for status or a concrete immediate decision requires it. This does not return the child's answer and cannot wait for completion. The runtime permits one fresh snapshot per subagent_id in a parent turn; repeats return action=already_checked with the cached snapshot. Never call it after dispatch merely to see whether the callback arrived.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable child ID resolved from active_subagents. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.status),
+		bridge.tool(StartSubagentToolName, "", `{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact definition name from available_subagents. This is a configured agent type, not a child ID or display_name."},"message":{"type":"string","minLength":1,"description":"Self-contained delegated task including relevant context, constraints, and the result expected from the child."},"label":{"type":"string","minLength":1,"maxLength":120,"description":"Optional short UI label for this delegated task. Do not put instructions here."},"new_instance":{"type":"boolean","default":false,"description":"False reuses the only open child of the requested definition when unambiguous. True creates a separate child and is valid only when the user explicitly requests another/new/parallel instance."}},"required":["name","message"],"additionalProperties":false}`, bridge.start),
+		bridge.tool(ListSubagentsToolName, "", `{"type":"object","properties":{"include_closed":{"type":"boolean","default":false,"description":"Include closed historical child sessions. Keep false when selecting an open child for follow-up work."}},"additionalProperties":false}`, bridge.list),
+		bridge.tool(SubagentStatusToolName, "", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable child ID resolved from active_subagents. Do not pass a definition name or display_name."}},"required":["subagent_id"],"additionalProperties":false}`, bridge.status),
 		bridge.tool(SendSubagentMessageToolName, "Send one focused follow-up to an existing child selected by ID. Running children accept the message into their FIFO queue. Idle incomplete children accept missing information, idle completed children accept a distinct next task, and idle failed children accept recovery instructions—but every idle outcome requires its latest callback to have been consumed first. If that callback is still pending, the tool returns action=callback_pending as a successful controlled result with accepted=false; do not retry, answer the user, or replace the callback's question. Exact same-turn retries return duplicate or already_sent before trigger admission. A successful accepted result means started or queued, not completed. This tool always continues the parent turn. While the child runs, the parent may continue other already-planned independent work that neither duplicates the delegated task nor depends on its result. A callback cannot arrive until the current parent turn ends. After independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the authoritative callback. Do not redo delegated work, poll, call status/list, retry the dispatch, or claim completion before the callback.", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable ID of an existing running child, or an idle completed/incomplete/failed child whose latest callback has been consumed. A pending callback returns a controlled callback_pending result without sending this message."},"message":{"type":"string","minLength":1,"description":"One focused follow-up, recovery instruction, or distinct next task. Do not send a waiting/status request."}},"required":["subagent_id","message"],"additionalProperties":false}`, bridge.send),
 	}
 }
 
 func (bridge *SubagentToolBridge) tool(name, description, schema string, handler Handler) Tool {
+	switch name {
+	case StartSubagentToolName:
+		description = "Start substantial delegated work or route it to an existing child. Use it only for substantial work the parent should delegate. accepted=true means dispatched, never completed. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After acceptance, do not poll, inspect status, retry, or redo the delegated work."
+	case ListSubagentsToolName:
+		description = "List lightweight child identities and lifecycle summaries only for explicit discovery, selection, or UI enumeration. It does not return findings or wait for progress. Never use it to poll after dispatch; callbacks arrive automatically."
+	case SubagentStatusToolName:
+		description = "Read one cached lifecycle snapshot only when the user explicitly asks for status or an immediate decision requires it. It does not return the child's answer and cannot wait for completion. Never use it to poll; callbacks arrive automatically."
+	case SendSubagentMessageToolName:
+		description = "Send one focused follow-up to an existing child. accepted=true means started or queued, never completed. A pending callback returns accepted=false. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After acceptance, do not poll, call status/list, retry, or redo the delegated work."
+	}
 	return Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: mustRawToolSchema(schema)}, Handler: handler}
 }
 
@@ -268,14 +279,14 @@ func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawM
 		}{result.Action, summarizeSubagents(result.Candidates), false, false, false, "none", false, "continue_turn", "No dispatch occurred and no callback will be created. Ask the user which friendly display_name to continue with. Do not choose for them and do not create another child. After they answer, call send_subagent_message with that candidate's id."})
 	}
 	record := result.Subagent
-	callbackAction := "wait"
-	nextAction := "Dispatch was accepted but is not complete. A callback cannot arrive until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates this delegated task nor depends on its result; issue at most one start_subagent call per provider round. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for its authoritative callback. Do not poll, inspect status, retry this dispatch, redo delegated work, or claim completion."
+	callbackAction := "automatic"
+	nextAction := subagentAcceptedInstruction
 	if result.DispatchAction == SubagentSendDuplicate || result.DispatchAction == SubagentSendAlreadySent {
-		callbackAction = "wait_existing"
-		nextAction = "This parent turn already routed a message to the child. Nothing new was queued and no new callback was created. A callback from the existing dispatch cannot arrive until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates the delegated task nor depends on its result. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the existing authoritative callback. Do not retry, poll, inspect status, redo delegated work, or claim completion."
+		callbackAction = "automatic_existing"
+		nextAction = "Not accepted. The existing result will arrive automatically later."
 	} else if result.DispatchAction == SubagentSendCallbackPending {
-		callbackAction = "wait_existing"
-		nextAction = "No message was sent and no new callback was created because this child's authoritative callback is already pending. It cannot be consumed until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates the delegated task nor depends on the callback result. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the pending authoritative callback. Do not retry, answer for the child, replace the callback's question, poll, inspect status, redo delegated work, or claim completion."
+		callbackAction = "automatic_existing"
+		nextAction = "Not accepted. The pending result will arrive automatically later."
 	}
 	return json.Marshal(struct {
 		SubagentID     string                 `json:"subagent_id"`
@@ -291,14 +302,8 @@ func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawM
 		Asynchronous   bool                   `json:"asynchronous"`
 		Callback       string                 `json:"callback_action"`
 		MustWait       bool                   `json:"must_wait_for_callback"`
-		Prohibited     []string               `json:"prohibited_actions"`
-		TurnBehavior   string                 `json:"turn_behavior"`
 		NextAction     string                 `json:"next_action"`
-	}{record.ID, record.DisplayName, record.SessionID, record.CurrentTurnID, record.Status, result.Action, result.DispatchAction, result.Action == SubagentStartReused, result.Accepted, result.Deduplicated, true, callbackAction, true, subagentCallbackProhibitedActions(), "continue_turn", nextAction})
-}
-
-func subagentCallbackProhibitedActions() []string {
-	return []string{"duplicate_delegated_work", "work_depending_on_callback_result", "poll", "list_subagents", "subagent_status", "retry_same_dispatch", "claim_completion_before_callback"}
+	}{record.ID, record.DisplayName, record.SessionID, record.CurrentTurnID, record.Status, result.Action, result.DispatchAction, result.Action == SubagentStartReused, result.Accepted, result.Deduplicated, true, callbackAction, true, nextAction})
 }
 
 func (bridge *SubagentToolBridge) list(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
@@ -378,14 +383,14 @@ func (bridge *SubagentToolBridge) send(ctx context.Context, arguments json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	callbackAction := "wait"
-	instruction := "Message accepted or queued, but the delegated work is not complete. A callback cannot arrive until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates this delegated task nor depends on its result. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for its authoritative callback. Do not retry this dispatch, poll, inspect status, redo delegated work, or claim completion."
+	callbackAction := "automatic"
+	instruction := subagentAcceptedInstruction
 	if !result.Accepted {
-		callbackAction = "wait_existing"
+		callbackAction = "automatic_existing"
 		if result.Action == SubagentSendCallbackPending {
-			instruction = "No message was sent and no new callback was created because this child's authoritative callback is already waiting to be consumed. It cannot be consumed until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates the delegated task nor depends on the callback result. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the pending authoritative callback. Do not retry, answer for the child, replace the callback's question, poll, inspect status, redo delegated work, or claim completion."
+			instruction = "Not accepted. The pending result will arrive automatically later."
 		} else {
-			instruction = "A message was already sent to this child from this parent turn. Nothing new was queued and no new callback was created. A callback from the existing dispatch cannot arrive until this parent turn ends. You may continue other already-planned independent work only when it neither duplicates the delegated task nor depends on its result. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for the existing authoritative callback. Do not retry, poll, inspect status, redo delegated work, or claim completion."
+			instruction = "Not accepted. The existing result will arrive automatically later."
 		}
 	}
 	return json.Marshal(struct {
@@ -395,8 +400,6 @@ func (bridge *SubagentToolBridge) send(ctx context.Context, arguments json.RawMe
 		Subagent     SubagentToolSummary `json:"subagent"`
 		Callback     string              `json:"callback_action"`
 		MustWait     bool                `json:"must_wait_for_callback"`
-		Prohibited   []string            `json:"prohibited_actions"`
-		TurnBehavior string              `json:"turn_behavior"`
 		Instruction  string              `json:"instruction"`
-	}{result.Action, result.Accepted, result.Deduplicated, summarizeSubagent(result.Subagent), callbackAction, true, subagentCallbackProhibitedActions(), "continue_turn", instruction})
+	}{result.Action, result.Accepted, result.Deduplicated, summarizeSubagent(result.Subagent), callbackAction, true, instruction})
 }

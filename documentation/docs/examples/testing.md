@@ -90,7 +90,13 @@ turn with ordinary tools still available. Separately keep a callback pending
 and assert that the same skipped tool honors `EndTurnOnSuccess` to yield that
 turn without another provider round. After ordinary work and a natural
 completion attempt, assert that the restricted completion-repair call executes
-the handler exactly once and satisfies the trigger.
+the handler exactly once and satisfies the trigger. Also prove that provider
+step one of a callback continuation may execute the final handler; only the
+human root's initial action is guarded.
+
+For `ResponseScopeCallLimit`, send calls from both the root and a callback turn.
+Assert that the cumulative limit is shared, over-budget calls return controlled
+success, and the handler/network path runs only for admitted calls.
 
 ## HTTP test
 

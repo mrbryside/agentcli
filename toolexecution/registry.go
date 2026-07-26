@@ -36,6 +36,10 @@ type Tool struct {
 	Handler          Handler
 	Trigger          ToolTrigger
 	EndTurnOnSuccess bool
+	// ResponseScopeCallLimit is a hard cumulative invocation budget shared by
+	// the root turn and every callback turn in one response scope. Zero means
+	// unlimited.
+	ResponseScopeCallLimit int
 	// CanonicalAssistantMessageParameter names a required string argument whose
 	// value becomes the durable assistant message after an EndResponseScope
 	// handler succeeds. Failed or cancelled delivery never records it.
@@ -85,6 +89,7 @@ type registeredTool struct {
 	confirmation                       ConfirmationDescriptor
 	canonicalAssistantMessageParameter string
 	resultTurnBehavior                 func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
+	responseScopeCallLimit             int
 }
 
 // NewRegistry creates an empty tool registry.
@@ -103,6 +108,9 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	if tool.Trigger != "" && tool.Trigger != EndTurn && tool.Trigger != EndResponseScope {
 		return fmt.Errorf("tool %q has unsupported trigger %q", tool.Definition.Name, tool.Trigger)
+	}
+	if tool.ResponseScopeCallLimit < 0 {
+		return fmt.Errorf("tool %q response-scope call limit cannot be negative", tool.Definition.Name)
 	}
 	tool.CanonicalAssistantMessageParameter = strings.TrimSpace(tool.CanonicalAssistantMessageParameter)
 	if tool.CanonicalAssistantMessageParameter != "" {
@@ -162,9 +170,16 @@ func (r *Registry) Register(tool Tool) error {
 		confirmation:                       tool.Confirmation,
 		canonicalAssistantMessageParameter: tool.CanonicalAssistantMessageParameter,
 		resultTurnBehavior:                 tool.resultTurnBehavior,
+		responseScopeCallLimit:             tool.ResponseScopeCallLimit,
 	}
 	r.order = append(r.order, definition.Name)
 	return nil
+}
+
+func (r *Registry) responseScopeCallLimitFor(name string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.tools[name].responseScopeCallLimit
 }
 
 func (r *Registry) triggerFor(name string) (ToolTrigger, bool) {
@@ -179,6 +194,17 @@ func (r *Registry) hasEndResponseScopeTools() bool {
 	defer r.mu.RUnlock()
 	for _, tool := range r.tools {
 		if tool.trigger == EndResponseScope {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Registry) hasResponseScopeCallLimits() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, tool := range r.tools {
+		if tool.responseScopeCallLimit > 0 {
 			return true
 		}
 	}
@@ -371,9 +397,9 @@ func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTu
 			"Runtime trigger (end_response_scope): Call this tool only when the entire response scope is ready to finish, "+
 				"after all work and accepted callbacks or follow-ups are complete. If called earlier, the handler does not run "+
 				"and the successful tool result reports status=skipped, executed=false, "+
-				"reason=response_scope_not_ready_to_end, and trigger_satisfied=false. The model's first provider action can never "+
-				"end the scope; after observing that skip, finish the work and call again only on a later provider round when the "+
-				"scope is quiescent. Completion repair can also request the final call.",
+				"reason=response_scope_not_ready_to_end, and trigger_satisfied=false. The initial human root turn's first provider "+
+				"action cannot end the scope; callback continuation turns may deliver the final call on their first provider round. "+
+				"After a skip, finish the work and call again only when the scope is quiescent. Completion repair can also request it.",
 		)
 	}
 	if endTurnOnSuccess && trigger == EndResponseScope {

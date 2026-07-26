@@ -17,6 +17,13 @@ constraints. `RawInputSchema` is the validated escape hatch.
 `DecodeArguments` strictly decodes one JSON object, rejects unknown fields, and
 rejects trailing values. There is no typed custom-tool inference wrapper.
 
+`ResponseScopeCallLimit` sets a hard cumulative call budget for one tool across
+the root turn and every inline/callback continuation in the same response
+scope. Exhaustion returns successful `status=skipped` with
+`reason=response_scope_tool_budget_exhausted` without running admission, the
+handler, or network I/O. Admitted attempts count even if their handler later
+fails, so retries cannot bypass the limit.
+
 `Executor.Run` applies admission, dispatches through a bounded worker pool,
 emits correlated results, and consumes exact-turn interrupts. Calls are keyed
 by session, turn, and call ID; that `ToolInvocation` metadata is attached to
@@ -40,11 +47,11 @@ Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
 triggers. Framework `start_subagent` and `send_subagent_message` always
-continue. The start contract permits exactly one call per provider round.
-Accepted start/send results require a later
-callback but allow independent, non-duplicative work before the parent finishes
-through its normal response or required trigger tool. Destructive child close
-is application-owned and is not registered in the model tool catalog.
+continue. Their accepted result is intentionally only `Accepted. The result
+will arrive automatically later.` The callback joins a compatible active
+parent at its next provider boundary or falls back to a continuation turn.
+Destructive child close is application-owned and is not registered in the
+model tool catalog.
 
 `EndTurn` executes its handler immediately. Its latest successful result
 anywhere in the turn satisfies the requirement; a later failed attempt makes it
@@ -62,17 +69,19 @@ For user-visible delivery, prefer `Trigger: EndResponseScope`; add
 current turn. Set `CanonicalAssistantMessageParameter` to a required string
 argument such as `message` when successful external delivery should append
 that exact value as the durable assistant response. The canonical record is
-created only after the handler succeeds. A call made as the model's first
-provider action, or while the response scope is still busy, receives successful `status=skipped`,
+created only after the handler succeeds. A call made as the initial human root
+turn's first provider action, or while the response scope is still busy,
+receives successful `status=skipped`,
 `executed=false` and does not satisfy the trigger. The result tells the model
 not to retry in that provider round; admission and the handler are bypassed, and no candidate is
 retained. `EndTurnOnSuccess` is still honored, allowing an early final-delivery
 call to yield the current turn while callbacks are pending without executing
 the handler. If the scope is otherwise quiescent, the premature call continues
 the current turn instead, preserving access to ordinary work tools. This
-includes a call made as the model's first tool. Once the model has observed at
-least one provider round, a later call can execute directly when it is the last
-active scope turn and no callback is pending. A normal completion attempt can
+includes a call made as the human root model's first tool. A callback
+continuation may execute the final tool on provider step one because it is not
+the initial human action. A later root call can execute directly when it is the
+last active scope turn and no callback or pending runtime input remains. A normal completion attempt can
 also make completion repair expose the missing `EndResponseScope` tools with a
 final-call reminder. One user message opens one response scope. Accepted
 subagent work keeps it open, and intermediate parent/callback assistant drafts

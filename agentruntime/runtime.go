@@ -451,6 +451,37 @@ func (r *Runtime) StartSubscribed(ctx context.Context, request Request) (*Run, E
 	return r.start(ctx, request, true)
 }
 
+// ActiveTurnID returns the currently active turn for sessionID.
+func (r *Runtime) ActiveTurnID(sessionID string) (string, bool) {
+	if r == nil || sessionID == "" {
+		return "", false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	run := r.active[sessionID]
+	if run == nil || run.Done() {
+		return "", false
+	}
+	return run.TurnID(), true
+}
+
+// InjectRuntimeMessage queues trusted runtime input for the next provider
+// boundary of an exact active turn. accepted runs only after the message has
+// been durably appended and before the provider starts its next round.
+func (r *Runtime) InjectRuntimeMessage(ctx context.Context, sessionID, turnID string, message Message, accepted func()) error {
+	if r == nil || sessionID == "" || turnID == "" {
+		return ErrInvalidRequest
+	}
+	r.mu.RLock()
+	run := r.active[sessionID]
+	if run == nil || run.TurnID() != turnID || run.Done() {
+		r.mu.RUnlock()
+		return ErrRunNotFound
+	}
+	r.mu.RUnlock()
+	return run.enqueueRuntimeInput(ctx, message, accepted)
+}
+
 func (r *Runtime) start(ctx context.Context, request Request, subscribe bool) (*Run, EventSubscription, error) {
 	if ctx == nil {
 		ctx = context.Background()
