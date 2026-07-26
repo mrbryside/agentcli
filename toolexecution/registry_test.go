@@ -138,6 +138,10 @@ func TestRegistryInjectsTriggerGuidanceIntoToolDescriptions(t *testing.T) {
 			contains: []string{
 				"Runtime trigger (end_response_scope)",
 				"Runtime turn behavior (end_on_success)",
+				"successful final-boundary execution ends the current turn",
+				"waiting for callbacks or other active turns",
+				"scope is otherwise quiescent",
+				"continues the current turn so remaining work can finish",
 			},
 			excludes: []string{"does not end the current turn automatically"},
 		},

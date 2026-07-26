@@ -608,8 +608,8 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 		t.Fatal(err)
 	}
 	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"hello"}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
-		t.Fatalf("result = %+v, want successful skipped call that ends the current turn", result)
+	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnContinue {
+		t.Fatalf("result = %+v, want premature skipped call to continue normal work", result)
 	}
 	assertSkippedScopeResult(t, result.Result.Output)
 	if result.Result.TriggerSatisfied == nil || *result.Result.TriggerSatisfied {
@@ -631,6 +631,43 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 	if calls != 1 {
 		t.Fatalf("handler calls = %d after final call, want one", calls)
 	}
+	coordinator.FinishTurn("session", "turn")
+}
+
+func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	rollback := coordinator.RegisterDispatch("session", "turn", "child", "dispatch")
+	calls := 0
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{ResponseScopes: coordinator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"waiting"}`))
+	if result.Result.Status != agentruntime.ToolResultSucceeded ||
+		result.TurnBehavior != agentruntime.ToolTurnEndOnSuccess ||
+		result.Result.TriggerSatisfied == nil ||
+		*result.Result.TriggerSatisfied {
+		t.Fatalf("result = %+v, want skipped unsatisfied call that ends only the callback-pending turn", result)
+	}
+	if calls != 0 {
+		t.Fatalf("handler calls = %d, want zero while callback is pending", calls)
+	}
+	rollback()
 	coordinator.FinishTurn("session", "turn")
 }
 

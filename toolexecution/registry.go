@@ -375,7 +375,13 @@ func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTu
 				"will request it again at the final boundary.",
 		)
 	}
-	if endTurnOnSuccess {
+	if endTurnOnSuccess && trigger == EndResponseScope {
+		parts = append(parts,
+			"Runtime turn behavior (end_on_success): A successful final-boundary execution ends the current turn. "+
+				"An earlier skipped call ends the turn only while the response scope is waiting for callbacks or other active turns; "+
+				"when the scope is otherwise quiescent, the skipped call continues the current turn so remaining work can finish.",
+		)
+	} else if endTurnOnSuccess {
 		parts = append(parts,
 			"Runtime turn behavior (end_on_success): When this tool's result succeeds and every result in the same tool batch "+
 				"succeeds, the current turn ends.",

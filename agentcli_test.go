@@ -189,6 +189,7 @@ func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing.T) {
 	model := &earlyThenBoundaryReportModel{message: "Hello! How can I help?"}
 	reportCalls := 0
+	workCalls := 0
 	agent, err := New(context.Background(),
 		WithModel(model),
 		WithTool(toolexecution.Tool{
@@ -207,6 +208,16 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			Trigger:                            toolexecution.EndResponseScope,
 			EndTurnOnSuccess:                   true,
 			CanonicalAssistantMessageParameter: "message",
+		}),
+		WithTool(toolexecution.Tool{
+			Definition: agentruntime.ToolDefinition{
+				Name:        "work",
+				InputSchema: agentruntime.ToolSchema{Type: "object"},
+			},
+			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				workCalls++
+				return json.RawMessage(`{"status":"done"}`), nil
+			},
 		}),
 	)
 	if err != nil {
@@ -231,11 +242,13 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			if listErr != nil {
 				t.Fatal(listErr)
 			}
-			if len(messages) != 6 {
-				t.Fatalf("messages = %#v, want user, skipped call/result, final call/result, assistant", messages)
+			if len(messages) != 8 {
+				t.Fatalf("messages = %#v, want user, skipped report, completed work, final report, and assistant", messages)
 			}
 			wantTypes := []agentruntime.MessageType{
 				agentruntime.MessageTypeUser,
+				agentruntime.MessageTypeToolCall,
+				agentruntime.MessageTypeToolResult,
 				agentruntime.MessageTypeToolCall,
 				agentruntime.MessageTypeToolResult,
 				agentruntime.MessageTypeToolCall,
@@ -250,31 +263,44 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			if messages[2].ToolResult.TriggerSatisfied == nil || *messages[2].ToolResult.TriggerSatisfied {
 				t.Fatalf("early result trigger satisfaction = %#v, want false", messages[2].ToolResult)
 			}
-			if messages[4].ToolResult.TriggerSatisfied == nil || !*messages[4].ToolResult.TriggerSatisfied {
-				t.Fatalf("final result trigger satisfaction = %#v, want true", messages[4].ToolResult)
+			if messages[6].ToolResult.TriggerSatisfied == nil || !*messages[6].ToolResult.TriggerSatisfied {
+				t.Fatalf("final result trigger satisfaction = %#v, want true", messages[6].ToolResult)
 			}
-			if messages[5].Content != "Hello! How can I help?" {
-				t.Fatalf("canonical assistant content = %q", messages[5].Content)
+			if messages[7].Content != "Hello! How can I help?" {
+				t.Fatalf("canonical assistant content = %q", messages[7].Content)
 			}
 			if reportCalls != 1 {
 				t.Fatalf("report handler calls = %d, want exactly one final-boundary execution", reportCalls)
 			}
-			requests := model.Requests()
-			if len(requests) != 3 {
-				t.Fatalf("provider requests = %d, want early report then bounded final-trigger repairs", len(requests))
+			if workCalls != 1 {
+				t.Fatalf("work handler calls = %d, want premature report to leave normal work available", workCalls)
 			}
-			if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
-				t.Fatalf("first repair tools = %#v, want only report", requests[1].Tools)
+			requests := model.Requests()
+			if len(requests) != 4 {
+				t.Fatalf("provider requests = %d, want early report, normal work, completion, and final repair", len(requests))
+			}
+			foundWorkTool := false
+			for _, tool := range requests[1].Tools {
+				if tool.Name == "work" {
+					foundWorkTool = true
+					break
+				}
+			}
+			if !foundWorkTool || len(requests[1].ContextReminders) != 0 {
+				t.Fatalf("post-skip request = tools %#v reminders %#v, want unrestricted normal work", requests[1].Tools, requests[1].ContextReminders)
+			}
+			if len(requests[3].Tools) != 1 || requests[3].Tools[0].Name != "report" {
+				t.Fatalf("final repair tools = %#v, want only report", requests[3].Tools)
 			}
 			foundFinalBoundaryReminder := false
-			for _, reminder := range requests[1].ContextReminders {
+			for _, reminder := range requests[3].ContextReminders {
 				if strings.Contains(reminder.Content, "response scope is ready to end") {
 					foundFinalBoundaryReminder = true
 					break
 				}
 			}
 			if !foundFinalBoundaryReminder {
-				t.Fatalf("first repair reminders = %#v, want final response-scope boundary instruction", requests[1].ContextReminders)
+				t.Fatalf("final repair reminders = %#v, want final response-scope boundary instruction", requests[3].ContextReminders)
 			}
 			return
 		case <-deadline:
@@ -941,6 +967,10 @@ func (m *earlyThenBoundaryReportModel) Start(_ context.Context, request agentrun
 			ID: "early-report", Name: "report", Arguments: map[string]any{"message": "progress"},
 		}}, Finished: true}}, nil
 	case 2:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "work", Name: "work", Arguments: map[string]any{},
+		}}, Finished: true}}, nil
+	case 3:
 		return scriptedStream{result: provider.StreamResult{Content: "completed work", Finished: true}}, nil
 	default:
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{

@@ -164,9 +164,11 @@ trigger return successful `status=skipped`, `executed=false`,
 `reason=response_scope_not_ready_to_end`, and `trigger_satisfied=false`, and do
 not invoke admission, the tool-call guard, or the handler. They also do not
 retain a candidate for later execution. The result tells the model not to
-retry. Without `EndTurnOnSuccess` the provider continues; with it, the
-successful skipped result ends the current turn without executing the handler.
-Once the scope has no pending callbacks and its last active turn attempts
+retry. Without `EndTurnOnSuccess` the provider continues. With it, a successful
+skipped result ends the current turn only when callbacks or other active turns
+keep the response scope open; if the scope is otherwise quiescent, a premature
+call continues so the model can finish ordinary work. Once the scope has no
+pending callbacks and its last active turn attempts
 completion, runtime repair exposes the required tool again and only that
 completion-boundary call can execute the handler. If
 `CanonicalAssistantMessageParameter` names a required string schema property,

@@ -68,9 +68,10 @@ final completion boundary receives successful `status=skipped`,
 not to retry; admission and the handler are bypassed, and no candidate is
 retained. `EndTurnOnSuccess` is still honored, allowing an early final-delivery
 call to yield the current turn while callbacks are pending without executing
-the handler. This includes a
-call made as the model's first tool: normal provider rounds do not carry the
-runtime-owned `CompletionBoundary` marker. When the last active scope turn
+the handler. If the scope is otherwise quiescent, the premature call continues
+the current turn instead, preserving access to ordinary work tools. This
+includes a call made as the model's first tool: normal provider rounds do not
+carry the runtime-owned `CompletionBoundary` marker. When the last active scope turn
 attempts completion with no pending callback, completion repair exposes the
 missing `EndResponseScope` tools with a final-call reminder. Only requests from
 that repair boundary execute their handlers and satisfy the trigger. One user

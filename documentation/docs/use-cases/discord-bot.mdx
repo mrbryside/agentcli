@@ -54,7 +54,7 @@ go 1.26.3
 
 require (
     github.com/bwmarrin/discordgo v0.28.1
-    github.com/mrbryside/agentcli v0.0.59
+    github.com/mrbryside/agentcli v0.0.60
 )
 ```
 
@@ -202,12 +202,14 @@ reference Discord agent:
 
 - `EndResponseScope` skips early calls, then makes the tool required when the
   response scope reaches its final completion boundary.
-- `EndTurnOnSuccess` stops the model only after the final handler succeeds.
+- `EndTurnOnSuccess` stops the model after final delivery, or yields an
+  intermediate turn when callbacks still keep the response scope open.
 - `CanonicalAssistantMessageParameter` stores the delivered `message` as the
   assistant response in conversation history.
 
 An early call—including calling `report_discord` as the first tool—does not
-send to Discord and cannot end the turn. It returns:
+send to Discord. With no callback or other active turn pending, it cannot end
+the turn and ordinary work remains available. It returns:
 
 ```json
 {

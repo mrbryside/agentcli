@@ -85,7 +85,10 @@ without another provider request, any failed result continues, and a missing
 required trigger still causes a bounded repair. For `EndResponseScope`,
 explicitly test the first-tool-call case: the early call must return successful
 `status=skipped` with `executed=false`, bypass admission and the handler, ignore
-`EndTurnOnSuccess`, and continue the turn. After ordinary work and a natural
+`EndTurnOnSuccess` while the scope is otherwise quiescent, and continue the
+turn with ordinary tools still available. Separately keep a callback pending
+and assert that the same skipped tool honors `EndTurnOnSuccess` to yield that
+turn without another provider round. After ordinary work and a natural
 completion attempt, assert that the restricted completion-repair call executes
 the handler exactly once and satisfies the trigger.
 
