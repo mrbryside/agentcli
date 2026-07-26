@@ -35,8 +35,8 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 
 func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 	tools := NewSubagentToolBridge().Tools()
-	if len(tools) != 4 {
-		t.Fatalf("subagent tool count = %d, want 4", len(tools))
+	if len(tools) != 2 {
+		t.Fatalf("subagent tool count = %d, want 2", len(tools))
 	}
 	seen := make(map[string]bool, len(tools))
 	for _, tool := range tools {
@@ -45,6 +45,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == StartSubagentToolName && !strings.Contains(tool.Definition.Description, "substantial work") {
 			t.Fatalf("start_subagent does not discourage unnecessary delegation: %q", tool.Definition.Description)
+		}
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "ordinary lookup or research") || !strings.Contains(tool.Definition.Description, "Multiple starts")) {
+			t.Fatalf("start_subagent does not describe sequential default and intentional fanout: %q", tool.Definition.Description)
 		}
 		schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "accepted=true means dispatched") || strings.Contains(schema, `"background"`)) {
@@ -55,17 +58,8 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
 			}
 		}
-		if tool.Definition.Name != StartSubagentToolName && tool.Definition.Name != SendSubagentMessageToolName && (tool.Trigger != "" || tool.EndTurnOnSuccess) {
-			t.Fatalf("subagent management tool %q has terminal behavior, want default continue", tool.Definition.Name)
-		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "existing child") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
-		}
-		if tool.Definition.Name == ListSubagentsToolName && (!strings.Contains(tool.Definition.Description, "explicit discovery") || !strings.Contains(tool.Definition.Description, "Never use it to poll")) {
-			t.Fatalf("list_subagents does not prohibit polling: %q", tool.Definition.Description)
-		}
-		if tool.Definition.Name == SubagentStatusToolName && (!strings.Contains(tool.Definition.Description, "explicitly asks") || !strings.Contains(tool.Definition.Description, "cached lifecycle snapshot")) {
-			t.Fatalf("subagent_status does not advertise lightweight status semantics: %q", tool.Definition.Description)
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "never completed") || !strings.Contains(tool.Definition.Description, "arrives automatically")) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
@@ -83,6 +77,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if !seen[name] {
 			t.Fatalf("reserved subagent tool %q is missing", name)
 		}
+	}
+	if seen[ListSubagentsToolName] || seen[SubagentStatusToolName] {
+		t.Fatalf("inspection tools remain model-facing: %#v", seen)
 	}
 }
 

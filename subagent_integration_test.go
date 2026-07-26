@@ -39,11 +39,11 @@ func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.
 	}
 	waitRun(t, parentRun)
 	for _, request := range parentModel.Requests() {
-		if len(request.Tools) != 4 {
-			t.Fatalf("parent provider tool count = %d, want static four: %#v", len(request.Tools), request.Tools)
+		if len(request.Tools) != 2 {
+			t.Fatalf("parent provider tool count = %d, want two routing tools: %#v", len(request.Tools), request.Tools)
 		}
 		for _, tool := range request.Tools {
-			if tool.Name == "read_subagent" || tool.Name == "wait_subagent" {
+			if tool.Name == "read_subagent" || tool.Name == "wait_subagent" || tool.Name == "list_subagents" || tool.Name == "subagent_status" {
 				t.Fatalf("parent provider received removed model tool %q", tool.Name)
 			}
 		}

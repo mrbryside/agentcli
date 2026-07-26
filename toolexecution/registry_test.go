@@ -115,6 +115,7 @@ func TestRegistryInjectsTriggerGuidanceIntoToolDescriptions(t *testing.T) {
 				"executed=false",
 				"reason=response_scope_not_ready_to_end",
 				"trigger_satisfied=false",
+				"Runtime metadata",
 				"handler does not run",
 				"initial human root turn's first provider",
 				"callback continuation turns may deliver the final call",

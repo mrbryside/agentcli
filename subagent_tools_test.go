@@ -44,55 +44,15 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	if strings.Contains(string(output), "close_subagent") {
 		t.Fatalf("removed destructive tool appears in start acknowledgement: %s", output)
 	}
-	statusCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "turn", CallID: "status", ToolName: SubagentStatusToolName})
-	statusJSON, err := callSubagentTool(bridge, SubagentStatusToolName, statusCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var status toolexecution.SubagentStatusResult
-	if err := json.Unmarshal(statusJSON, &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.Subagent.Status != storage.SubagentStatusRunning || status.ResultReady || !strings.Contains(status.ActivitySummary, "Working on") || strings.Contains(string(statusJSON), `"messages"`) {
-		t.Fatalf("lightweight status result = %s", statusJSON)
-	}
-	if status.Action != "snapshot" || !strings.Contains(status.Instruction, "Do not call subagent_status again") {
-		t.Fatalf("initial status contract = %s", statusJSON)
-	}
-	wrongStatus := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-b", TurnID: "turn", CallID: "status", ToolName: SubagentStatusToolName})
-	if _, err := callSubagentTool(bridge, SubagentStatusToolName, wrongStatus, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`)); !errors.Is(err, storage.ErrSubagentNotFound) {
-		t.Fatalf("cross-parent status error = %v", err)
-	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
-	cachedJSON, err := callSubagentTool(bridge, SubagentStatusToolName, statusCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(cachedJSON, &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.Action != "already_checked" || status.Subagent.Status != storage.SubagentStatusRunning || !strings.Contains(status.Instruction, "cached snapshot") {
-		t.Fatalf("repeated status was not cached = %s", cachedJSON)
-	}
-	completedCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "next-turn", CallID: "status-next", ToolName: SubagentStatusToolName})
-	completedJSON, err := callSubagentTool(bridge, SubagentStatusToolName, completedCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(completedJSON, &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.Subagent.Status != storage.SubagentStatusIdle || status.ResultReady || status.Subagent.LastTurnOutcome != storage.SubagentTurnIncomplete || !strings.Contains(status.ActivitySummary, "Incomplete") {
-		t.Fatalf("incomplete status result = %s", completedJSON)
-	}
 }
 
 func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 	bridge := toolexecution.NewSubagentToolBridge()
 	tools := bridge.Tools()
-	if len(tools) != 4 {
-		t.Fatalf("tool count = %d, want 4", len(tools))
+	if len(tools) != 2 {
+		t.Fatalf("tool count = %d, want 2", len(tools))
 	}
 	seen := make(map[string]bool)
 	for _, tool := range tools {
@@ -109,6 +69,9 @@ func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 		if !seen[name] {
 			t.Fatalf("missing reserved tool %q", name)
 		}
+	}
+	if seen[ListSubagentsToolName] || seen[SubagentStatusToolName] {
+		t.Fatalf("inspection tools remain model-facing: %#v", seen)
 	}
 }
 
@@ -214,6 +177,11 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		if selection.Action != toolexecution.SubagentStartSelectionRequired || selection.Accepted || selection.Deduplicated || selection.Callback != "none" || selection.MustWait || selection.Behavior != "continue_turn" || strings.Contains(string(selectionJSON), `"finish_turn"`) || len(selection.Candidates) != 2 || selection.Candidates[0].DisplayName == "" || selection.Candidates[1].DisplayName == "" || selection.Candidates[0].DisplayName == selection.Candidates[1].DisplayName || !strings.Contains(selection.NextAction, "Ask the user") {
 			t.Fatalf("selection = %s", selectionJSON)
 		}
+		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
+			if strings.Contains(string(selectionJSON), forbidden) {
+				t.Fatalf("selection leaked callback payload field %s: %s", forbidden, selectionJSON)
+			}
+		}
 	})
 }
 
@@ -316,6 +284,11 @@ func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *test
 		}
 		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "automatic_existing" || !result.MustWait || strings.Contains(string(output), `"finish_turn"`) || result.Instruction != "Not accepted. The pending result will arrive automatically later." {
 			t.Fatalf("callback_pending result = %s", output)
+		}
+		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
+			if strings.Contains(string(output), forbidden) {
+				t.Fatalf("callback_pending leaked callback payload field %s: %s", forbidden, output)
+			}
 		}
 	}
 

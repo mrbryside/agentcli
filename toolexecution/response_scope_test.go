@@ -809,6 +809,49 @@ func TestExecutorReturnsControlledSuccessAfterResponseScopeToolBudget(t *testing
 	coordinator.FinishTurn("session", "turn")
 }
 
+func TestExecutorMarksBudgetSkippedEndResponseScopeTriggerUnsatisfied(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Trigger:                EndResponseScope,
+		ResponseScopeCallLimit: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{ResponseScopes: coordinator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan agentruntime.ToolRequest, 2)
+	results := make(chan agentruntime.ToolResultEnvelope, 2)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runExecutor(executor, ctx, requests, results, interrupts)
+	requests <- toolRequest("session", "turn", "first", "report", `{}`)
+	requests <- toolRequest("session", "turn", "budget-skipped", "report", `{}`)
+
+	var exhausted agentruntime.ToolResult
+	for range 2 {
+		result := waitResult(t, results).Result
+		if strings.Contains(string(result.Output), "response_scope_tool_budget_exhausted") {
+			exhausted = result
+		}
+	}
+	if exhausted.Status != agentruntime.ToolResultSucceeded || exhausted.TriggerSatisfied == nil || *exhausted.TriggerSatisfied {
+		t.Fatalf("budget-skipped end-response-scope result = %+v, want successful controlled skip with trigger_satisfied=false", exhausted)
+	}
+	cancel()
+	waitDone(t, done)
+	coordinator.FinishTurn("session", "turn")
+}
+
 func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {

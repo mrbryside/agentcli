@@ -162,30 +162,29 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 			if record.LastTurnID != "" {
 				fmt.Fprintf(&content, "    <last_turn>%s</last_turn>\n", html.EscapeString(record.LastTurnID))
 			}
-			if record.LastTurnError != "" {
-				fmt.Fprintf(&content, "    <last_turn_error>%s</last_turn_error>\n", html.EscapeString(record.LastTurnError))
-			}
-			if record.LastTurnOutcome != "" {
-				fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(record.LastTurnOutcome)))
-			}
-			if record.LastTurnSummary != "" {
-				fmt.Fprintf(&content, "    <last_turn_summary>%s</last_turn_summary>\n", html.EscapeString(record.LastTurnSummary))
-			}
-			if record.LastTurnNextStep != "" {
-				fmt.Fprintf(&content, "    <last_turn_next_step>%s</last_turn_next_step>\n", html.EscapeString(record.LastTurnNextStep))
+			callbackPending := record.Status == storage.SubagentStatusIdle && unread > 0
+			if !callbackPending {
+				if record.LastTurnError != "" {
+					fmt.Fprintf(&content, "    <last_turn_error>%s</last_turn_error>\n", html.EscapeString(record.LastTurnError))
+				}
+				if record.LastTurnOutcome != "" {
+					fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(record.LastTurnOutcome)))
+				}
+				if record.LastTurnSummary != "" {
+					fmt.Fprintf(&content, "    <last_turn_summary>%s</last_turn_summary>\n", html.EscapeString(record.LastTurnSummary))
+				}
+				if record.LastTurnNextStep != "" {
+					fmt.Fprintf(&content, "    <last_turn_next_step>%s</last_turn_next_step>\n", html.EscapeString(record.LastTurnNextStep))
+				}
 			}
 			fmt.Fprintf(&content, "    <unread_messages>%d</unread_messages>\n", unread)
 			fmt.Fprintf(&content, "    <queued_messages>%d</queued_messages>\n", len(record.Pending))
-			if record.Status == storage.SubagentStatusIdle && unread > 0 {
-				callbackStatus := string(record.LastTurnOutcome)
-				if callbackStatus == "" {
-					callbackStatus = "incomplete"
-				}
-				fmt.Fprintf(&content, "    <completion_callback>%s</completion_callback>\n", callbackStatus)
+			if callbackPending {
+				content.WriteString("    <completion_callback>pending</completion_callback>\n")
 			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Destructive closure is controlled by the host application.</callback_policy>\n")
+		content.WriteString("  <callback_policy>Dispatch is not completion. Outcome details are callback-only while completion_callback is pending. Never poll or inspect lifecycle state while waiting. A callback may enter the active parent at a safe provider boundary or arrive in a continuation turn. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Destructive closure is controlled by the host application.</callback_policy>\n")
 		content.WriteString("</active_subagents>")
 		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
 		if request.TurnID != "" {

@@ -348,7 +348,7 @@ The activity has `source: "subagent_callback"` and a
 structured summary and required next step when present. The
 child answer itself is delivered privately to the parent runtime; render the
 parent's resulting assistant response from normal provider events. Do not poll
-`subagent_status` to discover completion.
+application lifecycle endpoints to discover model-visible completion.
 
 To build a child-session view, keep its transcript and streaming state separate
 from the root view. Open the selected child's `/messages`, then resume its

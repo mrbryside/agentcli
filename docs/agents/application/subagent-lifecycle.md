@@ -5,11 +5,16 @@ accounting, automatic child cleanup, or application lifecycle surfaces.
 
 ## Ownership
 
-The root model catalog contains `start_subagent`, `send_subagent_message`,
-`list_subagents`, and `subagent_status`. Children receive
-`report_subagent_outcome`. Destructive close belongs to the host application
-and is available through `Agent.CloseSubagent`, Terminal `/close`, and the HTTP
-`DELETE` child endpoint.
+The root model catalog contains only `start_subagent` and
+`send_subagent_message`. Lifecycle summaries are injected through
+`active_subagents`; list and status remain application-owned surfaces. Children
+receive `report_subagent_outcome`. Destructive close belongs to the host
+application and is available through `Agent.CloseSubagent`, Terminal `/close`,
+and the HTTP `DELETE` child endpoint.
+
+`active_subagents` is lifecycle-only while a callback is pending. It emits
+`completion_callback=pending` but withholds the last-turn outcome payload until
+the callback has been consumed.
 
 All explicit surfaces converge on `subagentManager.CloseSubagent`. The manager
 validates parent ownership, durably closes storage, removes queued input,

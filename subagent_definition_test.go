@@ -79,7 +79,7 @@ Use sources and explain uncertainty.
 	if !strings.Contains(catalog, "default is to answer the user directly") || !strings.Contains(catalog, "Do not delegate simple answers") || !strings.Contains(catalog, "Mere topic overlap") {
 		t.Fatalf("catalog does not prevent unnecessary delegation: %q", catalog)
 	}
-	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "Destructive child closure is application-owned", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "exactly one start_subagent call per provider round", "Never batch multiple start_subagent calls", "requested definition", "accepted=true", "required trigger tool", "wait for authoritative callbacks", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=wait_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder"} {
+	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "Destructive child closure is application-owned", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "Prefer one child at a time", "ordinary lookup or research must start one child", "genuinely independent work", "requested definition", "accepted=true", "required trigger tool", "safe provider boundary", "callback continuation turn", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=automatic_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder"} {
 		if !strings.Contains(catalog, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, catalog)
 		}
@@ -355,15 +355,8 @@ func assertOutcomeRepairRequest(t *testing.T, requests []agentruntime.ModelReque
 		t.Fatalf("provider requests = %d, want initial request and %d repairs: %#v", len(requests), defaultCompletionRepairLimit, requests)
 	}
 	for index, repair := range requests[1:] {
-		foundOutcome := false
-		for _, tool := range repair.Tools {
-			if tool.Name == toolexecution.SubagentOutcomeToolName {
-				foundOutcome = true
-				break
-			}
-		}
-		if !foundOutcome {
-			t.Fatalf("repair %d tools = %#v, want outcome tool available", index+1, repair.Tools)
+		if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentOutcomeToolName {
+			t.Fatalf("repair %d tools = %#v, want only outcome tool", index+1, repair.Tools)
 		}
 		if !hasSubagentOutcomeRepairReminder(repair) {
 			t.Fatalf("repair %d reminders = %#v", index+1, repair.ContextReminders)

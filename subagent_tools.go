@@ -12,7 +12,7 @@ const (
 )
 
 var subagentToolNames = map[string]struct{}{
-	StartSubagentToolName: {}, ListSubagentsToolName: {}, SubagentStatusToolName: {},
+	StartSubagentToolName:       {},
 	SendSubagentMessageToolName: {},
 }
 

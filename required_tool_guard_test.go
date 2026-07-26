@@ -401,6 +401,22 @@ func TestMissingRequiredToolsUsesLatestAttemptInTurn(t *testing.T) {
 	}
 }
 
+func TestMissingRequiredToolsRejectsSuccessfulControlledSkip(t *testing.T) {
+	unsatisfied := false
+	messages := []agentruntime.Message{{
+		TurnID: "turn",
+		Type:   agentruntime.MessageTypeToolResult,
+		ToolResult: &agentruntime.ToolResult{
+			Name:             "report",
+			Status:           agentruntime.ToolResultSucceeded,
+			TriggerSatisfied: &unsatisfied,
+		},
+	}}
+	if got := missingRequiredTools("turn", messages, []string{"report"}); !slices.Equal(got, []string{"report"}) {
+		t.Fatalf("missingRequiredTools() = %v, want controlled skip to remain missing", got)
+	}
+}
+
 func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 	base := func(context.Context, agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
 		return agentruntime.CompletionDecision{

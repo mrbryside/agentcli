@@ -37,14 +37,12 @@ project loading/agent initialization.
 
 ## Root management tools
 
-When definitions exist, the root model receives four fixed framework tools:
+When definitions exist, the root model receives two fixed framework tools:
 
 | Tool | Use |
 | --- | --- |
 | `start_subagent` | Create or reuse a child and asynchronously route work. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
-| `list_subagents` | List lightweight child summaries for explicit discovery or selection. |
-| `subagent_status` | Read one compact snapshot for an explicit status question; repeated checks in one parent turn return the cached snapshot. |
 
 Child agents do not receive these management tools. Every child instead
 receives one framework-owned `report_subagent_outcome` tool. Before its final
@@ -88,6 +86,11 @@ arrives through a separate callback containing:
 - final assistant answer when one exists;
 - terminal error when the child failed;
 - durable transcript cursor metadata.
+
+Routing results and `active_subagents` expose only identity and lifecycle while
+a completion callback is pending. They deliberately omit the child's error,
+outcome, summary, and next step until the callback is consumed, so the callback
+remains the only authoritative result channel.
 
 Each accepted model-facing start result is deliberately compact:
 
@@ -160,20 +163,23 @@ without an error.
 Starting work with no matching open child creates one. When exactly one child
 is open, conversational follow-ups reuse it. When several could match, the tool
 returns `selection_required` and the parent asks the user which friendly name
-to continue with. A new child is forced only when the user explicitly requests
-new, separate, another, or parallel work.
+to continue with. A new child is forced when the user explicitly requests new,
+separate, another, or parallel work, or when an intentional independent
+comparison/parallel plan requires a distinct instance. The default is
+sequential: ordinary lookup or research starts one child, evaluates its
+callback, and starts another only when the result is insufficient. Multiple
+starts in one provider response are reserved for genuinely independent
+comparison or parallel work. A sequential next source may still use a distinct
+instance after the prior callback proves more evidence is needed.
 
 ## Queued follow-ups
 
 `SendSubagentMessage` starts immediately when the child is idle or queues behind
 its current turn. The next callback is produced for each completed queued turn.
-The parent should use callbacks rather than repeated status/read polling.
-
-`subagent_status` permits one fresh snapshot per child and parent turn. A repeat
-returns `action: already_checked` with the original cached snapshot, so it
-cannot be used to discover completion sooner. `list_subagents` remains
-available for explicit discovery and selecting among multiple open children;
-it is not a progress API.
+The parent has no model-facing list or status tools. The runtime supplies active
+instance summaries through `active_subagents`, and the parent receives child
+answers only through callbacks. When a callback is pending, the reminder marks
+`completion_callback: pending` without copying its outcome payload.
 
 The model-facing `send_subagent_message` tool enforces one accepted message per
 `(parent session, parent turn, child)` tuple. Its internal SHA-256 idempotency

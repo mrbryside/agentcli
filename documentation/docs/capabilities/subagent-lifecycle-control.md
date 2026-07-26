@@ -6,16 +6,16 @@ sidebar_position: 3
 # Subagent lifecycle control
 
 AgentCLI separates model-directed delegation from application-directed
-lifecycle control. The model can route and inspect work, while the host
-application owns destructive actions.
+lifecycle control. The model can route work, while the host application owns
+inspection and destructive actions.
 
 ## Ownership contract
 
 | Owner | Operations |
 | --- | --- |
-| Root model | `start_subagent`, `send_subagent_message`, `list_subagents`, and `subagent_status` |
+| Root model | `start_subagent` and `send_subagent_message` |
 | Child model | `report_subagent_outcome` |
-| Host application | Explicit close through Go, Terminal, or HTTP; interrupt; history and event presentation |
+| Host application | List/status inspection; explicit close through Go, Terminal, or HTTP; interrupt; history and event presentation |
 | Runtime | Callback correlation, response-scope accounting, and final-boundary cleanup of eligible completed or failed children |
 
 The root model has no destructive child-management tool. This keeps a

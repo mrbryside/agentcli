@@ -85,15 +85,15 @@ func TestSubagentReminderIsStableWithinOneParentTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 1 || len(after) != 1 || before[0].Content != after[0].Content || strings.Contains(after[0].Content, "completion_callback") {
+	if len(before) != 1 || len(after) != 1 || before[0].Content != after[0].Content || strings.Contains(after[0].Content, "<completion_callback>") {
 		t.Fatalf("same-turn reminder changed after callback: before=%#v after=%#v", before, after)
 	}
 	next, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "next-parent-turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next) != 1 || !strings.Contains(next[0].Content, "<completion_callback>incomplete</completion_callback>") {
-		t.Fatalf("next-turn reminder does not expose durable callback: %#v", next)
+	if len(next) != 1 || !strings.Contains(next[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(next[0].Content, "<last_turn_outcome>") {
+		t.Fatalf("next-turn reminder does not expose callback-pending lifecycle safely: %#v", next)
 	}
 }
 
@@ -156,7 +156,7 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>incomplete</completion_callback>") || !strings.Contains(reminders[0].Content, "<last_turn_outcome>incomplete</last_turn_outcome>") || !strings.Contains(reminders[0].Content, "Never poll list_subagents or subagent_status") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") || strings.Contains(reminders[0].Content, "<last_turn_summary>") || strings.Contains(reminders[0].Content, "<last_turn_next_step>") || !strings.Contains(reminders[0].Content, "Outcome details are callback-only") {
 		t.Fatalf("completion reminder = %#v", reminders)
 	}
 	if _, err := manager.Read(context.Background(), "parent", record.ID, ""); err != nil {
@@ -166,7 +166,7 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || strings.Contains(reminders[0].Content, "completion_callback") {
+	if len(reminders) != 1 || strings.Contains(reminders[0].Content, "<completion_callback>") || !strings.Contains(reminders[0].Content, "<last_turn_outcome>incomplete</last_turn_outcome>") {
 		t.Fatalf("observed completion reminder = %#v", reminders)
 	}
 }
@@ -183,7 +183,7 @@ func TestSubagentReminderMarksFailedUnreadWorkAsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>failed</completion_callback>") || !strings.Contains(reminders[0].Content, "<last_turn_error>") || strings.Contains(reminders[0].Content, "<completion_callback>ready</completion_callback>") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_error>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") {
 		t.Fatalf("failed completion reminder = %#v", reminders)
 	}
 }

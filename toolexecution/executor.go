@@ -400,7 +400,11 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 					continue
 				}
 				if !allowed {
-					e.sendResult(ctx, results, responseScopeBudgetResult(request, used, limit))
+					result := responseScopeBudgetResult(request, used, limit)
+					if trigger, _ := e.registry.triggerFor(request.Call.Name); trigger == EndResponseScope {
+						result.Result.TriggerSatisfied = boolPointer(false)
+					}
+					e.sendResult(ctx, results, result)
 					continue
 				}
 			}

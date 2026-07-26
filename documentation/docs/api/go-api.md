@@ -163,7 +163,9 @@ When `ResponseScopeCallLimit` is positive, admitted calls share one counter
 across the root turn and all inline/callback continuation work. Exhaustion
 returns a successful non-executing
 `reason=response_scope_tool_budget_exhausted` result without admission or
-handler execution.
+handler execution. If the budgeted tool is an `EndResponseScope` trigger, the
+runtime also records `trigger_satisfied=false`, so a controlled skip cannot
+satisfy required-tool completion repair.
 
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
