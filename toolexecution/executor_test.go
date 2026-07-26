@@ -114,6 +114,17 @@ func TestNewExecutorRejectsInvalidConfiguration(t *testing.T) {
 	if _, err := NewExecutor(nil, 1); err == nil {
 		t.Fatal("NewExecutor(nil, 1) error = nil, want rejection")
 	}
+	afterScope := NewRegistry()
+	if err := afterScope.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler:    testHandler,
+		Lifecycle:  AfterResponseScope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewExecutor(afterScope, 1); err == nil {
+		t.Fatal("NewExecutor() error = nil, want missing response scope coordinator")
+	}
 }
 
 func TestExecutorStopsWhenRequestsClose(t *testing.T) {

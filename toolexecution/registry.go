@@ -40,6 +40,7 @@ const (
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
+	Lifecycle            ToolLifecycle
 	TurnBehavior         TurnBehavior
 	RequiredAtTurnEnd    bool
 	ToolCallGuard        agentruntime.ToolCallGuard
@@ -76,6 +77,7 @@ type Registry struct {
 type registeredTool struct {
 	definition            agentruntime.ToolDefinition
 	handler               Handler
+	lifecycle             ToolLifecycle
 	turnBehavior          TurnBehavior
 	toolCallGuard         agentruntime.ToolCallGuard
 	toolCallGuardPrompt   string
@@ -103,6 +105,17 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	if tool.TurnBehavior != ContinueTurn && tool.TurnBehavior != EndTurn {
 		return fmt.Errorf("tool %q has unsupported turn behavior %q", tool.Definition.Name, tool.TurnBehavior)
+	}
+	if tool.Lifecycle != "" && tool.Lifecycle != AfterResponseScope {
+		return fmt.Errorf("tool %q has unsupported lifecycle %q", tool.Definition.Name, tool.Lifecycle)
+	}
+	if tool.Lifecycle == AfterResponseScope {
+		if tool.TurnBehavior != ContinueTurn {
+			return fmt.Errorf("tool %q after-response-scope lifecycle sets turn behavior automatically", tool.Definition.Name)
+		}
+		if tool.RequiredAtTurnEnd {
+			return fmt.Errorf("tool %q after-response-scope lifecycle is required at turn end automatically", tool.Definition.Name)
+		}
 	}
 	if tool.RequiredAtTurnEnd && tool.TurnBehavior != EndTurn {
 		return fmt.Errorf("tool %q required at turn end must use end turn behavior", tool.Definition.Name)
@@ -139,8 +152,12 @@ func (r *Registry) Register(tool Tool) error {
 	if _, exists := r.tools[definition.Name]; exists {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
+	turnBehavior := tool.TurnBehavior
+	if tool.Lifecycle == AfterResponseScope {
+		turnBehavior = EndTurn
+	}
 	r.tools[definition.Name] = registeredTool{
-		definition: definition, handler: tool.Handler, turnBehavior: tool.TurnBehavior,
+		definition: definition, handler: tool.Handler, lifecycle: tool.Lifecycle, turnBehavior: turnBehavior,
 		toolCallGuard: tool.ToolCallGuard, toolCallGuardPrompt: tool.ToolCallGuardPrompt,
 		toolCallGuardProvider: guardProvider, toolCallGuardModel: guardModel,
 		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
@@ -148,6 +165,24 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	r.order = append(r.order, definition.Name)
 	return nil
+}
+
+func (r *Registry) lifecycleFor(name string) (ToolLifecycle, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tool, ok := r.tools[name]
+	return tool.lifecycle, ok
+}
+
+func (r *Registry) hasAfterResponseScopeTools() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, tool := range r.tools {
+		if tool.lifecycle == AfterResponseScope {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) confirmationFor(name string, arguments json.RawMessage) (confirmation.Description, error, bool) {

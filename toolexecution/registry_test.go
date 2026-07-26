@@ -90,6 +90,9 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported turn behavior", tool: Tool{Definition: validDefinition, Handler: testHandler, TurnBehavior: "later"}},
+		{name: "unsupported lifecycle", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: "later"}},
+		{name: "after scope sets end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: AfterResponseScope, TurnBehavior: EndTurn}},
+		{name: "after scope sets required", tool: Tool{Definition: validDefinition, Handler: testHandler, Lifecycle: AfterResponseScope, RequiredAtTurnEnd: true}},
 		{name: "required finalizer must end turn", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredAtTurnEnd: true}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
@@ -120,6 +123,23 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}
 	if err := registry.Register(Tool{Definition: validDefinition, Handler: testHandler}); err == nil {
 		t.Fatal("Register(duplicate) error = nil, want rejection")
+	}
+}
+
+func TestRegistryAfterResponseScopeAppliesLifecyclePreset(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler:    testHandler,
+		Lifecycle:  AfterResponseScope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle, ok := registry.lifecycleFor("report"); !ok || lifecycle != AfterResponseScope {
+		t.Fatalf("lifecycle = (%q, %t)", lifecycle, ok)
+	}
+	if behavior, ok := registry.turnBehaviorFor("report", nil, nil); !ok || behavior != EndTurn {
+		t.Fatalf("turn behavior = (%q, %t), want EndTurn", behavior, ok)
 	}
 }
 

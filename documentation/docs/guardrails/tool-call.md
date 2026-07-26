@@ -136,6 +136,12 @@ retry retains the configured behavior. This also works for
 `RequiredAtTurnEnd` tools: a rejected attempt does not satisfy the finalizer,
 while a successful terminal retry can.
 
+For `AfterResponseScope` tools, guard and admission checks happen before the
+invocation is staged. A rejection therefore never replaces the staged
+candidate and the deferred handler is not called. An allowed invocation
+returns a clear deferred result; its handler runs only after the response scope
+settles.
+
 ## Side-effect boundary
 
 Rejected calls do not execute the handler. An allowed call still relies on

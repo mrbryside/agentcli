@@ -260,6 +260,98 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 }
 
+func TestAfterResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *testing.T) {
+	parentModel := &responseScopeIntegrationParentModel{}
+	childModel := newIntegrationCompletedChildModel("verified finding", "Research completed.")
+	delivered := make(chan string, 2)
+	report := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Deliver the final response.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{
+				Message: StringParameter("Final message").Required(),
+			}),
+		},
+		Handler: func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+			var input struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(raw, &input); err != nil {
+				return nil, err
+			}
+			delivered <- input.Message
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Lifecycle: AfterResponseScope,
+	}
+	definition := SubagentDefinition{
+		Name: "researcher", Description: "research work", Provider: "test",
+		Model: "researcher-model", Instructions: "Return a concise result.",
+	}
+	project := &Project{
+		config: ProjectConfig{PermissionMode: permission.Default, Providers: map[string]ProviderConfig{
+			"test": {Type: ProviderTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
+		}},
+		providerName: "test", modelName: "parent-model",
+		subagents: map[string]SubagentDefinition{"researcher": definition},
+	}
+	agent, err := New(context.Background(), WithProject(project), WithModel(parentModel), WithTool(report), WithMaxSubagents(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = agent.Close() })
+	agent.subagents.childFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), withChildAgent(), WithModel(childModel), WithMessageStorage(agent.messages))
+	}
+	callbacks := agent.SubscribeSubagentCallbacks(context.Background())
+
+	root, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "scope-parent", TurnID: "scope-root",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "research and report"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, root)
+	select {
+	case message := <-delivered:
+		t.Fatalf("report handler ran before callback: %q", message)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	childModel.waitRequests(t, 1)
+	childModel.release()
+	childModel.waitRequests(t, 2)
+	childModel.release()
+	var callback SubagentCallback
+	select {
+	case callback = <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+	}
+	continuation, subscription, err := agent.ContinueSubagentCallbackSubscribed(context.Background(), callback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range subscription.Events {
+	}
+	waitRun(t, continuation)
+
+	select {
+	case message := <-delivered:
+		if message != "final verified response" {
+			t.Fatalf("delivered message = %q, want latest callback report", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for after-scope handler")
+	}
+	select {
+	case duplicate := <-delivered:
+		t.Fatalf("handler ran more than once: %q", duplicate)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
 func TestSubagentIntegrationCloseContinuesWithUserVisibleAnswer(t *testing.T) {
 	parentModel := &continuingCloseCallbackParentModel{}
 	childModel := newIntegrationCompletedChildModel("verified child result", "The delegated work completed.")
@@ -628,6 +720,31 @@ type outcomeRepairIntegrationModel struct {
 type continuingCloseCallbackParentModel struct {
 	mu       sync.Mutex
 	requests []agentruntime.ModelRequest
+}
+
+type responseScopeIntegrationParentModel struct {
+	mu       sync.Mutex
+	requests int
+}
+
+func (m *responseScopeIntegrationParentModel) Start(_ context.Context, _ agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := m.requests
+	m.requests++
+	m.mu.Unlock()
+	var calls []provider.ToolCall
+	switch index {
+	case 0:
+		calls = []provider.ToolCall{
+			{ID: "start", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research"}},
+			{ID: "report-early", Name: "report", Arguments: map[string]any{"message": "early response"}},
+		}
+	case 1:
+		calls = []provider.ToolCall{{ID: "report-waiting", Name: "report", Arguments: map[string]any{"message": "waiting response"}}}
+	default:
+		calls = []provider.ToolCall{{ID: "report-final", Name: "report", Arguments: map[string]any{"message": "final verified response"}}}
+	}
+	return scriptedStream{result: provider.StreamResult{CompletedTools: calls, Finished: true}}, nil
 }
 
 func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {

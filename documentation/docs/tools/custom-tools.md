@@ -122,19 +122,25 @@ failed, denied, declined, or interrupted batch continues.
 
 ## Required end-of-turn tools
 
-Set both fields for a tool that must finalize every turn in which it is
-exposed:
+For a side effect that must happen once after the whole user response,
+including subagent callbacks and follow-ups, set one lifecycle:
 
 ```go
 agentcli.Tool{
-    Definition:        definition,
-    Handler:           handler,
-    TurnBehavior:      agentcli.EndTurn,
-    RequiredAtTurnEnd: true,
+    Definition: definition,
+    Handler:    handler,
+    Lifecycle:  agentcli.AfterResponseScope,
 }
 ```
 
-The registry rejects a required finalizer without static `EndTurn`. Only a
+The model receives a successful `status=deferred` tool result while the scope
+is active; the handler is not called yet. The runtime retains the latest
+candidate and invokes it exactly once when every turn and accepted subagent
+callback in the response scope has settled. The lifecycle automatically
+implies required-at-turn-end and `EndTurn`.
+
+The lower-level `RequiredAtTurnEnd` plus `EndTurn` pair remains available for
+ordinary per-turn finalizers. The registry rejects a required finalizer without static `EndTurn`. Only a
 successful terminal all-`EndTurn` batch satisfies completion; an earlier call
 or a mixed continuing batch does not. If the model attempts to finish while a
 finalizer is missing, the completion guard starts another provider round with a

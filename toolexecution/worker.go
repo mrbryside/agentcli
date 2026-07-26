@@ -103,6 +103,21 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		}
 	}
 
+	if lifecycle, _ := e.registry.lifecycleFor(request.Call.Name); lifecycle == AfterResponseScope {
+		output, err := e.config.ResponseScopes.StageAfterResponseScope(ctx, request, handler)
+		if err != nil {
+			result.Result.Status = agentruntime.ToolResultFailed
+			result.Result.Error = err.Error()
+			return result
+		}
+		result.Result.Status = agentruntime.ToolResultSucceeded
+		result.Result.Output = cloneRawJSON(output)
+		if behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output); registered {
+			result.TurnBehavior = behavior
+		}
+		return result
+	}
+
 	output, err := handler(ctx, cloneRawJSON(request.Call.Arguments))
 	if err != nil {
 		result.Result.Status = agentruntime.ToolResultFailed

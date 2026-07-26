@@ -17,6 +17,13 @@ import (
 // Callers provide an explicit object schema and a raw JSON handler.
 type Tool = toolexecution.Tool
 
+// ToolLifecycle controls when a tool handler performs its side effect.
+type ToolLifecycle = toolexecution.ToolLifecycle
+
+// AfterResponseScope stages the latest tool invocation and runs its handler
+// exactly once after the originating user response has fully settled.
+const AfterResponseScope = toolexecution.AfterResponseScope
+
 // GuardModelConfig selects a configured project provider and model for a
 // prompt-backed tool guard.
 type GuardModelConfig = toolexecution.GuardModelConfig

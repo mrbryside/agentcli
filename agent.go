@@ -38,7 +38,8 @@ type Agent struct {
 	closeOnce sync.Once
 	closeErr  error
 
-	subagents *subagentManager
+	subagents      *subagentManager
+	responseScopes *toolexecution.ResponseScopeCoordinator
 }
 
 // New creates an agent with in-memory storage and no tools by default.
@@ -150,7 +151,11 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	confirmationDecisions := make(chan confirmation.Decision, configuration.channelBuffer)
 
 	closing, closeSignal := context.WithCancel(context.Background())
-	agent := &Agent{model: configuration.model, messages: configuration.messages, project: configuration.project, context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal, executorDone: make(chan struct{})}
+	agent := &Agent{
+		model: configuration.model, messages: configuration.messages, project: configuration.project,
+		context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal,
+		executorDone: make(chan struct{}), responseScopes: toolexecution.NewResponseScopeCoordinator(runContext),
+	}
 	var manager *subagentManager
 	if rootHasSubagents {
 		manager, err = newSubagentManager(agent, configuration)
@@ -168,7 +173,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	for _, tool := range registeredTools {
-		if tool.RequiredAtTurnEnd {
+		if tool.RequiredAtTurnEnd || tool.Lifecycle == toolexecution.AfterResponseScope {
 			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
 		}
 	}
@@ -227,6 +232,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationStore:     configuration.confirmations,
 		ToolCallGuardModel:    configuration.model,
 		ToolCallGuardTimeout:  configuration.toolCallGuardTimeout,
+		ResponseScopes:        agent.responseScopes,
 		ToolCallGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
 			if configuration.project == nil {
 				return nil, errors.New("tool-call guard provider requires a project with provider profiles")
@@ -341,11 +347,19 @@ func (a *Agent) Start(ctx context.Context, request agentruntime.Request) (*agent
 	if a.isClosing() {
 		return nil, ErrClosed
 	}
-	run, err := a.runtime.Start(ctx, request)
-	if err == nil && a.subagents != nil {
-		a.subagents.watchParentRun(run)
+	if err := ensureResponseTurnID(&request); err != nil {
+		return nil, err
 	}
-	return run, err
+	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+		return nil, err
+	}
+	run, err := a.runtime.Start(ctx, request)
+	if err != nil {
+		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		return nil, err
+	}
+	a.watchAcceptedRun(run)
+	return run, nil
 }
 
 // SendMessage starts one user turn in sessionID and returns a live event
@@ -375,11 +389,19 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	if a.isClosing() {
 		return nil, agentruntime.EventSubscription{}, ErrClosed
 	}
-	run, subscription, err := a.runtime.StartSubscribed(ctx, request)
-	if err == nil && a.subagents != nil {
-		a.subagents.watchParentRun(run)
+	if err := ensureResponseTurnID(&request); err != nil {
+		return nil, agentruntime.EventSubscription{}, err
 	}
-	return run, subscription, err
+	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+		return nil, agentruntime.EventSubscription{}, err
+	}
+	run, subscription, err := a.runtime.StartSubscribed(ctx, request)
+	if err != nil {
+		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		return nil, agentruntime.EventSubscription{}, err
+	}
+	a.watchAcceptedRun(run)
+	return run, subscription, nil
 }
 
 // SubscribeSubagentCallbacks returns a live-only stream of compact child-turn
@@ -459,18 +481,69 @@ func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
-	run, subscription, err := a.StartSubscribed(ctx, agentruntime.Request{
-		SessionID: callback.ParentSessionID,
-		Message:   callback.RuntimeMessage(),
-	})
+	continuationTurnID, err := newSubagentID("turn_")
+	if err != nil {
+		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create callback continuation turn: %w", err)
+	}
+	reservation, err := a.responseScopes.ReserveCallbackTurn(
+		callback.ParentSessionID,
+		continuationTurnID,
+		callback.SubagentID,
+		callback.TurnID,
+	)
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
+	run, subscription, err := a.runtime.StartSubscribed(ctx, agentruntime.Request{
+		SessionID: callback.ParentSessionID,
+		TurnID:    continuationTurnID,
+		Message:   callback.RuntimeMessage(),
+	})
+	if err != nil {
+		reservation.Rollback(callback.SubagentID, callback.TurnID)
+		return nil, agentruntime.EventSubscription{}, err
+	}
+	reservation.Commit()
+	a.watchAcceptedRun(run)
 	// The callback itself carries the final answer, so observation failure does
 	// not invalidate an already-running continuation. It only leaves the
 	// durable fallback unread for a future turn.
 	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
 	return run, subscription, nil
+}
+
+func ensureResponseTurnID(request *agentruntime.Request) error {
+	if request == nil {
+		return errors.New("request is required")
+	}
+	if request.TurnID != "" {
+		return nil
+	}
+	if request.Message.TurnID != "" {
+		request.TurnID = request.Message.TurnID
+		return nil
+	}
+	turnID, err := newSubagentID("turn_")
+	if err != nil {
+		return fmt.Errorf("create response turn: %w", err)
+	}
+	request.TurnID = turnID
+	return nil
+}
+
+func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
+	if run == nil {
+		return
+	}
+	if a.subagents != nil {
+		a.subagents.watchParentRun(run)
+	}
+	subscription := run.Subscribe(context.Background())
+	go func() {
+		for range subscription.Events {
+		}
+		a.responseScopes.FinishTurn(run.SessionID(), run.TurnID())
+	}()
 }
 
 // ResolvePermission passes a UI decision to the active run's executor.

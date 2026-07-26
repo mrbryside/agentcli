@@ -1,10 +1,12 @@
 # Tool execution
 
 `toolexecution.Tool` combines a provider-neutral definition, raw JSON handler,
-static turn behavior, optional finalizer marker, optional permission or
+optional lifecycle, static turn behavior, optional finalizer marker, optional permission or
 policy-aware permission descriptor, and optional confirmation descriptor.
 `Registry.Register` requires a unique name, handler, supported behavior, and
 object-shaped schema. `RequiredAtTurnEnd` additionally requires `EndTurn`.
+`Lifecycle: AfterResponseScope` is the single-setting response finalizer:
+it implies both required-at-turn-end and end-turn behavior.
 Application tools may also configure either `ToolCallGuard` or
 `ToolCallGuardPrompt`. Prompt tools optionally select one provider/model with
 `*GuardModelConfig`; see [guardrails.md](guardrails.md) for evaluation and
@@ -47,6 +49,17 @@ completion guard also requests a bounded tool allowlist, its tools are merged
 with the missing finalizers.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
+
+For user-visible delivery, prefer `Lifecycle: AfterResponseScope`. A model call
+stages the latest arguments and receives a successful JSON result with
+`status=deferred`, `delivery=after_response_scope`, active-turn and
+pending-callback counts, and `retry_in_current_turn=false`; the handler is not
+called during that turn. One user message opens one response scope. Accepted
+subagent work keeps it open, callback continuations remain in the same scope,
+and completed, failed, or incomplete callbacks all settle one accepted
+dispatch. Once every continuation turn has fully completed and no accepted
+callback remains, the runtime calls each staged handler exactly once. Callback
+replays cannot settle a newer follow-up dispatch.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by
 `toolexecution`; application tools remain caller-owned. `force_close_subagent`

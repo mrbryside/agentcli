@@ -209,6 +209,13 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 	if err != nil {
 		return storage.Subagent{}, err
 	}
+	rollbackDispatch := m.parent.responseScopes.RegisterDispatch(parentSessionID, parentTurnID, id, turnID)
+	dispatchStarted := false
+	defer func() {
+		if !dispatchStarted {
+			rollbackDispatch()
+		}
+	}()
 
 	child, err := m.createChild(definition)
 	if err != nil {
@@ -239,6 +246,7 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 		_, _ = m.store.Close(context.Background(), id)
 		return storage.Subagent{}, err
 	}
+	dispatchStarted = true
 	m.signalChanged()
 	return m.getOwned(ctx, parentSessionID, id)
 }
@@ -678,8 +686,10 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	if record.Status == storage.SubagentStatusRunning {
 		action = toolexecution.SubagentSendQueued
 	}
+	rollbackDispatch := m.parent.responseScopes.RegisterDispatch(parentSessionID, parentTurnID, id, key)
 	updated, err := m.sendLocked(ctx, instance, record, content)
 	if err != nil {
+		rollbackDispatch()
 		return toolexecution.SubagentSendResult{}, err
 	}
 	instance.lastDispatchParentTurnID = parentTurnID

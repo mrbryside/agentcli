@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/provider"
@@ -63,6 +64,55 @@ func TestRequiredRawToolRepairsOneMissingFinalizerCall(t *testing.T) {
 	}
 	if len(requests[1].ContextReminders) != 1 || !strings.Contains(requests[1].ContextReminders[0].Content, "report") {
 		t.Fatalf("repair reminder = %#v", requests[1].ContextReminders)
+	}
+}
+
+func TestAfterResponseScopeAutomaticallyRequiresAndDefersFinalizer(t *testing.T) {
+	model := &requiredFinalizerModel{}
+	delivered := make(chan struct{}, 1)
+	tool := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Response-scope report.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("Final message").Required()}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			delivered <- struct{}{}
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+		Lifecycle: AfterResponseScope,
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("after-response-scope"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if run.CompletionRepairCount() != 1 {
+		t.Fatalf("completion repairs = %d, want automatic required-tool repair", run.CompletionRepairCount())
+	}
+	select {
+	case <-delivered:
+	case <-time.After(time.Second):
+		t.Fatal("after-response-scope handler did not run")
+	}
+	messages, err := agent.ListMessages(context.Background(), run.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deferred bool
+	for _, message := range messages {
+		if message.ToolResult == nil || message.ToolResult.Name != "report" {
+			continue
+		}
+		deferred = strings.Contains(string(message.ToolResult.Output), `"status":"deferred"`)
+	}
+	if !deferred {
+		t.Fatalf("report tool result did not clearly report deferral: %#v", messages)
 	}
 }
 

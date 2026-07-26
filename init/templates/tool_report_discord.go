@@ -84,8 +84,7 @@ func newReportDiscordTool(root string) agentcli.Tool {
 			}),
 		},
 		Handler:             logger.report,
-		TurnBehavior:        agentcli.EndTurn,
-		RequiredAtTurnEnd:   true,
+		Lifecycle:           agentcli.AfterResponseScope,
 		ToolCallGuardPrompt: reportDiscordToolCallGuardPrompt,
 		ToolCallGuardModel: &agentcli.GuardModelConfig{
 			Provider: reportDiscordGuardProvider,

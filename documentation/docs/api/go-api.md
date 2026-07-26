@@ -118,12 +118,13 @@ permission checks.
 | `DecodeArguments(raw, target)` | Strictly decode one JSON object. |
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
 | `ContinueTurn`, `EndTurn` | Select successful result behavior. |
+| `AfterResponseScope` | Stage a tool and execute its handler once the originating user response settles. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
-`Tool` fields are `Definition`, `Handler`, `TurnBehavior`,
+`Tool` fields are `Definition`, `Handler`, `Lifecycle`, `TurnBehavior`,
 `RequiredAtTurnEnd`, `ToolCallGuard`, `ToolCallGuardPrompt`,
 `ToolCallGuardModel`, `Permission`, `PermissionWithPolicy`, and
 `Confirmation`. `ToolCallGuardModel` optionally holds one
@@ -138,6 +139,12 @@ registry rejects any other combination. Missing finalizers use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those finalizers. A caller-supplied completion guard may add its own
 bounded allowlist entries.
+
+For a response-delivery tool, set only
+`Lifecycle: agentcli.AfterResponseScope`. It automatically becomes required and
+end-turn. Calls made while the response scope is active return a clear
+`status=deferred` tool result; the handler runs exactly once after all turns
+and accepted subagent callbacks in that user-message scope settle.
 
 ## Guardrails
 

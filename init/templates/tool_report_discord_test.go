@@ -18,8 +18,8 @@ func TestReportDiscordToolIsRequiredFinalizer(t *testing.T) {
 	if tool.Definition.Name != "report_discord" || tool.Handler == nil {
 		t.Fatalf("tool = %#v", tool)
 	}
-	if !tool.RequiredAtTurnEnd || tool.TurnBehavior != agentcli.EndTurn {
-		t.Fatalf("finalizer metadata = required:%t behavior:%q", tool.RequiredAtTurnEnd, tool.TurnBehavior)
+	if tool.Lifecycle != agentcli.AfterResponseScope {
+		t.Fatalf("tool lifecycle = %q, want AfterResponseScope", tool.Lifecycle)
 	}
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)
@@ -142,7 +142,9 @@ func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
 	if err := registry.Register(tool); err != nil {
 		t.Fatal(err)
 	}
-	executor, err := toolexecution.NewExecutor(registry, 1)
+	executor, err := toolexecution.NewExecutor(registry, 1, toolexecution.Config{
+		ResponseScopes: toolexecution.NewResponseScopeCoordinator(context.Background()),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
