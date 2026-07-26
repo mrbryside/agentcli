@@ -55,7 +55,10 @@ budget. Exhaustion fails the turn.
 
 For user-visible delivery, prefer `Trigger: EndResponseScope`; add
 `EndTurnOnSuccess: true` when staging the delivery should also finish the
-current turn. A model call stages the latest arguments and receives a successful JSON result with
+current turn. Set `CanonicalAssistantMessageParameter` to a required string
+argument such as `message` when successful external delivery should append
+that exact value as the durable assistant response. The canonical record is
+created only after the deferred handler succeeds. A model call stages the latest arguments and receives a successful JSON result with
 `status=deferred`, `delivery=end_response_scope`, active-turn and
 pending-callback counts, and `retry_in_current_turn=false`; the handler is not
 called during that turn. One user message opens one response scope. Accepted

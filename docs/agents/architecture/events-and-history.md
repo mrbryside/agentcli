@@ -15,6 +15,12 @@ transform this projected generic history only at the provider boundary. See
 [compaction.md](compaction.md) for checkpoint boundary and request-projection
 rules.
 
+Terminal assistant drafts remain in the run's provider events until output and
+completion guards accept them. Rejected repair candidates are not conversation
+history and are never projected into a later model request. For deferred
+user-visible delivery tools, a successful handler may instead append one
+canonical assistant message derived from its declared string argument.
+
 When compaction needs to summarize, the run emits `compaction_started` before
 the separate summarizer begins, then `compaction_completed` after its checkpoint
 is persisted. A preparation, summarizer, or checkpoint-persistence failure

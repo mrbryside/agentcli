@@ -9,8 +9,8 @@ prefix before starting the main model. See
 semantics.
 
 The coordinator then repeatedly starts the configured `Model`, consumes
-provider events, persists assistant/tool-call messages, sends correlated tool
-requests, waits for tool-result envelopes, and persists results. Successful
+provider events, stages assistant candidates, persists tool-call messages,
+sends correlated tool requests, waits for tool-result envelopes, and persists results. Successful
 results normally start another provider round. The run completes without
 another provider step only when the entire ordered batch succeeded and every
 result has end-turn behavior; any continuing, failed, interrupted, denied, or
@@ -18,7 +18,19 @@ declined result continues so the model can dispatch more work or report the
 error. Shared tool channels must be buffered and are caller-owned; the runtime
 never closes them.
 
-Provider completion first produces an internal `AttemptComplete` effect. With no `CompletionGuard`, this immediately commits `RunCompleted`, preserving the default behavior. A configured guard receives a defensive transcript snapshot only after the latest assistant message or terminal tool-result batch has been persisted. It may proceed or request another provider round with ephemeral reminders and an optional tool allowlist. A non-nil empty allowlist is distinct from nil and deliberately exposes zero tools. The runtime has no provider-level tool-choice abstraction; repair behavior is expressed through prompts/reminders and, when explicitly supplied by a completion guard, an allowlist. Invalid guard decisions fail the run instead of silently weakening the boundary.
+Provider completion without tools first stages its assistant output in `Run`
+memory and produces an internal `AttemptComplete` effect. Output and completion
+guards receive a defensive inspection snapshot containing that candidate, but
+the candidate is neither in `MessageStorage` nor in the next provider request.
+A retry discards it; `CompletionProceed` (or the absence of a guard) persists
+it immediately before `RunCompleted`. Terminal tool batches remain durable
+before completion inspection. A configured completion guard may request another
+provider round with ephemeral reminders and an optional tool allowlist. A
+non-nil empty allowlist is distinct from nil and deliberately exposes zero
+tools. The runtime has no provider-level tool-choice abstraction; repair
+behavior is expressed through prompts/reminders and, when explicitly supplied
+by a completion guard, an allowlist. Invalid guard decisions fail the run
+instead of silently weakening the boundary.
 
 Prompt-backed input guards are one-shot model checks before the main provider loop. An allowed verdict enters the ordinary coordinator. A rejected verdict maps to `InputRespond`: the runtime creates a synthetic completed run, persists the original user message and guard-generated assistant response, and emits content/completion events without exposing tools or starting the main model. Callback `InputReject` remains the hard admission path and creates no run or transcript.
 
@@ -35,6 +47,10 @@ completed/failed children touched only by that scope close automatically,
 incomplete or cross-scope children remain open, and successful closes become a
 one-shot trusted reminder reserved for the next human root turn. After all
 staged handlers run and the scope is removed, it emits `EndScope`.
+An `EndResponseScope` tool may declare
+`CanonicalAssistantMessageParameter`; after its deferred handler succeeds, the
+coordinator persists that string argument as the canonical assistant message.
+Failed delivery never creates the assistant record.
 
 Pure transition and folding duties live in `state.go`, `transition.go`, `effect.go`, and `result.go`; orchestration belongs in `runtime.go`, `run.go`, and `router.go`.
 

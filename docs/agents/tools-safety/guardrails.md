@@ -22,9 +22,12 @@ and emits ordinary provider content/completion events without starting the main
 model or tools. Prompt-backed input guards map a rejected verdict to
 `InputRespond`, using the verdict reason as the user-facing response.
 
-`agentruntime.OutputGuard` runs after a terminal assistant message is stored
-and before completion/trigger tool checks. `OutputRetry` adds trusted ephemeral
-feedback to the next model request and consumes another provider step.
+`agentruntime.OutputGuard` runs against a terminal assistant candidate held in
+`Run` memory and before completion/trigger tool checks. Its defensive message
+snapshot includes the candidate for inspection. `OutputRetry` discards the
+candidate, adds trusted ephemeral feedback to the next model request, and
+consumes another provider step. `OutputProceed` allows completion admission to
+persist it.
 
 `agentruntime.ToolCallGuard` runs in the executor after permission and
 confirmation admission but before the application handler. `ToolCallReject`
@@ -94,8 +97,9 @@ an allowed handler remains a failed tool result.
 ## Security limits
 
 Guardrails are policy checks, not containment. Input guards do not replace
-authorization. Assistant-output guards are repair checks because the rejected
-assistant message is already in transcript storage. Tool-call guards run before
+authorization. Assistant-output guards are repair checks; rejected candidates
+remain observable in run events and diagnostics but do not enter transcript
+storage or later model context. Tool-call guards run before
 the handler, so rejected calls have no handler side effects. Allowed calls still
 require appropriate permissions, confirmations, validation, and idempotency.
 

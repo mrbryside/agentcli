@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: dc21b69cab5145f2ab1ff1b272e8745aa2ca214c`
+`Last documented commit: b6c828c5b53c24c4a0dac1fd1e807cdcb21525b1`
 
 ## Project structure
 
@@ -36,7 +36,7 @@ Only open the sections below when they are relevant to the current task.
 | Agent construction, project loading, terminal/server surfaces, skills, or subagents | [docs/agents/application/index.md](docs/agents/application/index.md) |
 | Tool registration/execution, guardrails, permissions, confirmations, or shell safety | [docs/agents/tools-safety/index.md](docs/agents/tools-safety/index.md) |
 | Generic storage domains, in-memory behavior, providers, or OpenAI conversion | [docs/agents/boundaries/index.md](docs/agents/boundaries/index.md) |
-| LLM-call tracing, Langfuse configuration, session correlation, or telemetry lifecycle | [docs/agents/observability/index.md](docs/agents/observability/index.md) |
+| Runtime logging, repair diagnostics, LLM-call tracing, Langfuse configuration, session correlation, or telemetry lifecycle | [docs/agents/observability/index.md](docs/agents/observability/index.md) |
 | Testing, documentation generation, examples, or the Terminal UI playground | [docs/agents/development/index.md](docs/agents/development/index.md) |
 
 ## Maintenance note
