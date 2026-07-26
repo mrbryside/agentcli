@@ -19,7 +19,7 @@ func completionGuardWithRequiredTools(base agentruntime.CompletionGuard, require
 	progress := make(map[string]repairProgress)
 	return func(ctx context.Context, attempt agentruntime.CompletionAttempt) (agentruntime.CompletionDecision, error) {
 		progressKey := attempt.SessionID + "\x00" + attempt.TurnID
-		missing := missingRequiredTools(attempt.TurnID, attempt.Messages, required, attempt.TerminalToolBatch)
+		missing := missingRequiredTools(attempt.TurnID, attempt.Messages, required)
 		baseDecision := agentruntime.CompletionDecision{Action: agentruntime.CompletionProceed}
 		var err error
 		if base != nil {
@@ -85,29 +85,27 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string, terminalToolBatch bool) []string {
-	// Only the terminal result batch can end a turn. A successful required
-	// call from an earlier continuing round is deliberately ignored.
-	if !terminalToolBatch {
-		return append([]string(nil), required...)
+func missingRequiredTools(turnID string, messages []agentruntime.Message, required []string) []string {
+	requiredSet := make(map[string]struct{}, len(required))
+	for _, name := range required {
+		requiredSet[name] = struct{}{}
 	}
-	start := len(messages)
-	for start > 0 {
-		message := messages[start-1]
+	succeeded := make(map[string]bool, len(required))
+	for _, message := range messages {
 		if message.TurnID != turnID || message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil {
-			break
+			continue
 		}
-		start--
-	}
-	succeeded := make(map[string]struct{}, len(required))
-	for _, message := range messages[start:] {
-		if message.ToolResult.Status == agentruntime.ToolResultSucceeded {
-			succeeded[message.ToolResult.Name] = struct{}{}
+		name := message.ToolResult.Name
+		if _, isRequired := requiredSet[name]; !isRequired {
+			continue
 		}
+		// The latest attempt wins. A failed correction after an earlier success
+		// must be repaired instead of silently accepting the stale invocation.
+		succeeded[name] = message.ToolResult.Status == agentruntime.ToolResultSucceeded
 	}
 	missing := make([]string, 0, len(required))
 	for _, name := range required {
-		if _, found := succeeded[name]; !found {
+		if !succeeded[name] {
 			missing = append(missing, name)
 		}
 	}

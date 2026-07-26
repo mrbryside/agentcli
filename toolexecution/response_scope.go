@@ -12,13 +12,13 @@ import (
 )
 
 // ToolTrigger groups a custom tool's required-completion and handler-delivery
-// behavior into one setting. The zero value executes immediately and
-// continues the current turn.
+// behavior into one setting. It does not control whether the current turn
+// ends; configure Tool.EndTurnOnSuccess independently.
 type ToolTrigger string
 
 const (
-	// EndTurn requires the tool before a turn completes, executes its handler
-	// immediately, and ends the turn after a successful result.
+	// EndTurn requires the tool before a turn completes and executes its handler
+	// immediately.
 	EndTurn ToolTrigger = "end_turn"
 	// EndResponseScope requires the tool before a turn completes, stages its
 	// latest invocation, and executes the handler once the originating user

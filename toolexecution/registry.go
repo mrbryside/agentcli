@@ -26,9 +26,9 @@ type GuardModelConfig struct {
 // Tool combines a provider-neutral definition with its implementation.
 // Permission and PermissionWithPolicy control authorization. Confirmation is
 // an independent, optional Yes/No user gate that is unaffected by permission
-// policy or mode. Trigger selects required execution timing.
-// EndTurnOnSuccess is independent: the tool stays optional and executes
-// immediately, but a successful batch containing it ends the current turn.
+// policy or mode. Trigger selects required execution timing and handler
+// delivery. EndTurnOnSuccess independently controls whether a successful batch
+// containing the tool ends the current turn.
 type Tool struct {
 	Definition           agentruntime.ToolDefinition
 	Handler              Handler
@@ -97,9 +97,6 @@ func (r *Registry) Register(tool Tool) error {
 	if tool.Trigger != "" && tool.Trigger != EndTurn && tool.Trigger != EndResponseScope {
 		return fmt.Errorf("tool %q has unsupported trigger %q", tool.Definition.Name, tool.Trigger)
 	}
-	if tool.Trigger != "" && tool.EndTurnOnSuccess {
-		return fmt.Errorf("tool %q cannot configure both Trigger and EndTurnOnSuccess", tool.Definition.Name)
-	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
 	if rawGuardPrompt != "" && tool.ToolCallGuardPrompt == "" {
@@ -133,9 +130,7 @@ func (r *Registry) Register(tool Tool) error {
 		return fmt.Errorf("tool %q is already registered", definition.Name)
 	}
 	turnBehavior := agentruntime.ToolTurnContinue
-	if tool.Trigger == EndTurn || tool.Trigger == EndResponseScope {
-		turnBehavior = agentruntime.ToolTurnEnd
-	} else if tool.EndTurnOnSuccess {
+	if tool.EndTurnOnSuccess {
 		turnBehavior = agentruntime.ToolTurnEndOnSuccess
 	}
 	r.tools[definition.Name] = registeredTool{

@@ -120,7 +120,7 @@ permission checks.
 | `ToolStaticPermission(config)` | Build a static permission descriptor. |
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool and execute its handler once the originating user response settles. |
-| `Tool.EndTurnOnSuccess` | Keep a tool optional but end its turn after the full tool batch succeeds. |
+| `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
@@ -137,17 +137,19 @@ object, and array parameters with individual descriptions and constraints.
 The zero trigger executes immediately and continues normally.
 `Trigger: EndTurn` is a required per-turn trigger tool.
 `Trigger: EndResponseScope` is a required response-scope trigger tool.
-`EndTurnOnSuccess: true` keeps the tool optional and immediate, but ends the
-turn after every call in its batch succeeds. It can share that batch with
-normal tools, cannot bypass missing required triggers, and cannot be combined
-with `Trigger`.
+Neither trigger ends the turn by itself. `EndTurnOnSuccess: true` independently
+ends the turn after every call in its batch succeeds. Without a trigger the
+tool remains optional and immediate; with `EndTurn` it is required and
+immediate; with `EndResponseScope` it is required and deferred. It can share a
+batch with normal tools and cannot bypass missing required triggers.
 Missing trigger tools use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
-For a response-delivery tool, set only
-`Trigger: agentcli.EndResponseScope`. Calls made while the response scope is active return a clear
+For a response-delivery tool whose successful staging should also finish the
+current turn, set `Trigger: agentcli.EndResponseScope` and
+`EndTurnOnSuccess: true`. Calls made while the response scope is active return a clear
 `status=deferred` tool result; the handler runs exactly once after all turns
 and accepted subagent callbacks in that user-message scope settle.
 

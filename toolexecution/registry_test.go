@@ -91,7 +91,6 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported trigger", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: "later"}},
-		{name: "trigger and end turn on success", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: EndTurn, EndTurnOnSuccess: true}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		}, ToolCallGuardPrompt: "check call"}},
@@ -131,8 +130,8 @@ func TestRegistryTriggerModesApplyCompletionPolicy(t *testing.T) {
 		behavior agentruntime.ToolTurnBehavior
 	}{
 		{name: "default continues", behavior: agentruntime.ToolTurnContinue},
-		{name: "end turn", trigger: EndTurn, behavior: agentruntime.ToolTurnEnd},
-		{name: "end response scope", trigger: EndResponseScope, behavior: agentruntime.ToolTurnEnd},
+		{name: "end turn trigger continues", trigger: EndTurn, behavior: agentruntime.ToolTurnContinue},
+		{name: "end response scope trigger continues", trigger: EndResponseScope, behavior: agentruntime.ToolTurnContinue},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			registry := NewRegistry()
@@ -153,20 +152,25 @@ func TestRegistryTriggerModesApplyCompletionPolicy(t *testing.T) {
 	}
 }
 
-func TestRegistryEndTurnOnSuccessAppliesOptionalTurnBehavior(t *testing.T) {
-	registry := NewRegistry()
-	if err := registry.Register(Tool{
-		Definition:       agentruntime.ToolDefinition{Name: "handoff", InputSchema: agentruntime.ToolSchema{Type: "object"}},
-		Handler:          testHandler,
-		EndTurnOnSuccess: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if trigger, ok := registry.triggerFor("handoff"); !ok || trigger != "" {
-		t.Fatalf("trigger = (%q, %t), want optional tool", trigger, ok)
-	}
-	if behavior, ok := registry.turnBehaviorFor("handoff", nil, nil); !ok || behavior != agentruntime.ToolTurnEndOnSuccess {
-		t.Fatalf("turn behavior = (%q, %t), want %q", behavior, ok, agentruntime.ToolTurnEndOnSuccess)
+func TestRegistryEndTurnOnSuccessAppliesIndependentlyFromTrigger(t *testing.T) {
+	for _, trigger := range []ToolTrigger{"", EndTurn, EndResponseScope} {
+		t.Run(string(trigger), func(t *testing.T) {
+			registry := NewRegistry()
+			if err := registry.Register(Tool{
+				Definition:       agentruntime.ToolDefinition{Name: "handoff", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+				Handler:          testHandler,
+				Trigger:          trigger,
+				EndTurnOnSuccess: true,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := registry.triggerFor("handoff"); !ok || got != trigger {
+				t.Fatalf("trigger = (%q, %t), want %q", got, ok, trigger)
+			}
+			if behavior, ok := registry.turnBehaviorFor("handoff", nil, nil); !ok || behavior != agentruntime.ToolTurnEndOnSuccess {
+				t.Fatalf("turn behavior = (%q, %t), want %q", behavior, ok, agentruntime.ToolTurnEndOnSuccess)
+			}
+		})
 	}
 }
 

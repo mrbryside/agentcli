@@ -28,11 +28,12 @@ for the next model round.
 The zero trigger is the normal immediate handler followed by another provider
 round. `Trigger: EndTurn` makes the tool a required turn trigger tool.
 `Trigger: EndResponseScope` makes it a required response-scope trigger tool.
-`EndTurnOnSuccess: true` is separate from `Trigger`: it keeps the tool optional,
-runs its handler immediately, and ends the turn when every result in that tool
-batch succeeds. One such tool can end a mixed batch containing normal immediate
-tools. It cannot bypass missing required triggers and cannot be combined with
-`Trigger`. Framework
+Neither trigger ends the turn by itself. `EndTurnOnSuccess: true` is separate
+from `Trigger` and ends the turn when every result in that tool batch succeeds.
+Without a trigger the tool is optional and immediate; with a trigger it keeps
+that trigger's requirement and delivery timing. One such tool can end a mixed
+batch containing normal immediate tools, but it cannot bypass missing required
+triggers. Framework
 `start_subagent`, `send_subagent_message`, and `close_subagent` always
 continue. The start contract permits exactly one call per provider round.
 Accepted start/send results require a later
@@ -41,19 +42,20 @@ through its normal response or required trigger tool. `close_subagent` is a
 destructive escape hatch for a current explicit human instruction; it is not an
 `EndResponseScope` trigger tool or automatic cleanup mechanism.
 
-`EndTurn` executes its handler immediately. Only a successful terminal batch
-immediately before completion satisfies it; early or continuing calls do not.
-A terminal batch is either all-`EndTurn` or contains a successful
-`EndTurnOnSuccess` tool. If the model attempts to finish while a trigger tool
-is missing, repair rounds expose only the missing
+`EndTurn` executes its handler immediately. Its latest successful result
+anywhere in the turn satisfies the requirement; a later failed attempt makes it
+missing again. `EndTurnOnSuccess` independently decides whether the successful
+batch ends the turn. If the model attempts to finish while a trigger tool is
+missing, repair rounds expose only the missing
 trigger tools and add a reminder naming each one. If a caller-supplied
 completion guard also requests a bounded tool allowlist, its tools are merged
 with the missing trigger tools.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 
-For user-visible delivery, prefer `Trigger: EndResponseScope`. A model call
-stages the latest arguments and receives a successful JSON result with
+For user-visible delivery, prefer `Trigger: EndResponseScope`; add
+`EndTurnOnSuccess: true` when staging the delivery should also finish the
+current turn. A model call stages the latest arguments and receives a successful JSON result with
 `status=deferred`, `delivery=end_response_scope`, active-turn and
 pending-callback counts, and `retry_in_current_turn=false`; the handler is not
 called during that turn. One user message opens one response scope. Accepted

@@ -22,8 +22,9 @@ type Tool = toolexecution.Tool
 type ToolTrigger = toolexecution.ToolTrigger
 
 const (
-	// EndTurn requires the tool at turn completion and ends the turn after its
-	// handler succeeds.
+	// EndTurn requires the tool at turn completion and runs its handler
+	// immediately. Set Tool.EndTurnOnSuccess separately to end the turn after
+	// the tool batch succeeds.
 	EndTurn = toolexecution.EndTurn
 	// EndResponseScope stages the latest invocation and runs its handler
 	// exactly once after the originating user response has fully settled.

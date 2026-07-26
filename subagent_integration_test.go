@@ -282,7 +282,8 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 			delivered <- input.Message
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Trigger: EndResponseScope,
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
 	}
 	definition := SubagentDefinition{
 		Name: "researcher", Description: "research work", Provider: "test",
@@ -729,10 +730,10 @@ func (m *responseScopeIntegrationParentModel) Start(_ context.Context, _ agentru
 	var calls []provider.ToolCall
 	switch index {
 	case 0:
-		calls = []provider.ToolCall{
-			{ID: "start", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research"}},
-			{ID: "report-early", Name: "report", Arguments: map[string]any{"message": "early response"}},
-		}
+		calls = []provider.ToolCall{{
+			ID: "start", Name: StartSubagentToolName,
+			Arguments: map[string]any{"name": "researcher", "message": "research"},
+		}}
 	case 1:
 		calls = []provider.ToolCall{{ID: "report-waiting", Name: "report", Arguments: map[string]any{"message": "waiting response"}}}
 	default:

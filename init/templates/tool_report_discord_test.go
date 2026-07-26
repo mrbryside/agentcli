@@ -21,6 +21,9 @@ func TestReportDiscordToolIsRequiredTriggerTool(t *testing.T) {
 	if tool.Trigger != agentcli.EndResponseScope {
 		t.Fatalf("tool trigger = %q, want EndResponseScope", tool.Trigger)
 	}
+	if !tool.EndTurnOnSuccess {
+		t.Fatal("report_discord must end the current turn after staging succeeds")
+	}
 	if tool.ToolCallGuard != nil || strings.TrimSpace(tool.ToolCallGuardPrompt) == "" {
 		t.Fatalf("tool call guard = function:%v prompt:%q", tool.ToolCallGuard != nil, tool.ToolCallGuardPrompt)
 	}

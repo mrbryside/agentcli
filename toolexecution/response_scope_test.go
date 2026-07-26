@@ -399,8 +399,8 @@ func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing
 		t.Fatal(err)
 	}
 	result := executor.execute(context.Background(), scopeToolRequest("turn", `{"message":"hello"}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnEnd {
-		t.Fatalf("result = %+v, want successful end-turn deferral", result)
+	if result.Result.Status != agentruntime.ToolResultSucceeded || result.TurnBehavior != agentruntime.ToolTurnContinue {
+		t.Fatalf("result = %+v, want successful continuing deferral", result)
 	}
 	assertDeferredScopeResult(t, result.Result.Output, 0, 1, "scheduled")
 	if calls != 0 {

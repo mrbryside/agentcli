@@ -77,7 +77,7 @@ func TestToolCallFunctionGuardAllowExecutesHandlerAndPreservesTurnBehavior(t *te
 		t.Fatal(err)
 	}
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "finalize", `{}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnEnd {
+	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnContinue {
 		t.Fatalf("guarded result = %#v", result)
 	}
 	if handlerCalls != 1 {
@@ -148,7 +148,7 @@ func TestToolCallPromptGuardAllowExecutesHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := executeOneTool(t, executor, toolRequest("session", "turn", "call", "finalize", `{}`))
-	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnEnd {
+	if result.Result.Status != agentruntime.ToolResultSucceeded || string(result.Result.Output) != `{"status":"done"}` || result.TurnBehavior != agentruntime.ToolTurnContinue {
 		t.Fatalf("prompt-guarded result = %#v", result)
 	}
 }

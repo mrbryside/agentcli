@@ -55,8 +55,8 @@ func TestRequiredRawToolRepairsOneMissingTriggerToolCall(t *testing.T) {
 		t.Fatalf("calls = %d, repair count = %d", calls, run.CompletionRepairCount())
 	}
 	requests := model.Requests()
-	if len(requests) != 2 {
-		t.Fatalf("provider requests = %d, want initial plus one repair", len(requests))
+	if len(requests) != 3 {
+		t.Fatalf("provider requests = %d, want initial response, repair tool call, and final response", len(requests))
 	}
 	if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
 		t.Fatalf("repair tools = %#v", requests[1].Tools)
@@ -93,6 +93,9 @@ func TestEndResponseScopeAutomaticallyRequiresAndDefersTriggerTool(t *testing.T)
 	waitRun(t, run)
 	if run.CompletionRepairCount() != 1 {
 		t.Fatalf("completion repairs = %d, want automatic required-tool repair", run.CompletionRepairCount())
+	}
+	if requests := model.Requests(); len(requests) != 3 {
+		t.Fatalf("provider requests = %d, want trigger call followed by final response without implicit turn end", len(requests))
 	}
 	select {
 	case <-delivered:
@@ -146,12 +149,12 @@ func TestRequiredRawToolRepairsUntilBoundedSuccess(t *testing.T) {
 	if calls != 1 || run.CompletionRepairCount() != defaultCompletionRepairLimit {
 		t.Fatalf("calls = %d, repair count = %d", calls, run.CompletionRepairCount())
 	}
-	if requests := model.Requests(); len(requests) != defaultCompletionRepairLimit+1 {
-		t.Fatalf("provider requests = %d, want initial plus bounded repairs", len(requests))
+	if requests := model.Requests(); len(requests) != defaultCompletionRepairLimit+2 {
+		t.Fatalf("provider requests = %d, want bounded repairs, one tool call, and one final response", len(requests))
 	}
 }
 
-func TestRequiredTriggerToolMixedContinuingBatchRequiresItAgain(t *testing.T) {
+func TestRequiredTriggerToolMixedContinuingBatchSatisfiesRequirement(t *testing.T) {
 	model := &requiredMixedBatchModel{}
 	report := Tool{
 		Definition: ToolDefinition{Name: "report", Description: "Required report.", InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("message").Required()})},
@@ -182,6 +185,9 @@ func TestRequiredTriggerToolMixedContinuingBatchRequiresItAgain(t *testing.T) {
 	requests := model.Requests()
 	if len(requests) != 2 {
 		t.Fatalf("requests = %d, want 2", len(requests))
+	}
+	if run.CompletionRepairCount() != 0 {
+		t.Fatalf("completion repairs = %d, want zero after successful trigger call", run.CompletionRepairCount())
 	}
 }
 
@@ -265,8 +271,9 @@ func TestEndTurnOnSuccessCannotBypassRequiredTrigger(t *testing.T) {
 		},
 	}
 	report := Tool{
-		Definition: ToolDefinition{Name: "report", Description: "Required final report.", InputSchema: ObjectSchema(struct{}{})},
-		Trigger:    EndTurn,
+		Definition:       ToolDefinition{Name: "report", Description: "Required final report.", InputSchema: ObjectSchema(struct{}{})},
+		Trigger:          EndTurn,
+		EndTurnOnSuccess: true,
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			reports++
 			return json.RawMessage(`{"ok":true}`), nil
@@ -291,6 +298,46 @@ func TestEndTurnOnSuccessCannotBypassRequiredTrigger(t *testing.T) {
 	}
 	if len(requests[1].Tools) != 1 || requests[1].Tools[0].Name != "report" {
 		t.Fatalf("repair tools = %#v, want only report", requests[1].Tools)
+	}
+}
+
+func TestRequiredTriggerWithEndTurnOnSuccessEndsRepairBatch(t *testing.T) {
+	model := &requiredTriggerToolModel{}
+	tool := Tool{
+		Definition:       ToolDefinition{Name: "report", Description: "Required final report.", InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("Final message").Required()})},
+		Trigger:          EndTurn,
+		EndTurnOnSuccess: true,
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("required-trigger-end-on-success"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if requests := model.Requests(); len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want initial response and terminal repair tool call", len(requests))
+	}
+}
+
+func TestMissingRequiredToolsUsesLatestAttemptInTurn(t *testing.T) {
+	messages := []agentruntime.Message{
+		{TurnID: "turn", Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{Name: "report", Status: agentruntime.ToolResultSucceeded}},
+		{TurnID: "other-turn", Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{Name: "audit", Status: agentruntime.ToolResultSucceeded}},
+		{TurnID: "turn", Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{Name: "report", Status: agentruntime.ToolResultFailed}},
+		{TurnID: "turn", Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{Name: "audit", Status: agentruntime.ToolResultSucceeded}},
+	}
+	if got := missingRequiredTools("turn", messages, []string{"report", "audit"}); !slices.Equal(got, []string{"report"}) {
+		t.Fatalf("missingRequiredTools() = %v, want latest failed report only", got)
 	}
 }
 
@@ -360,7 +407,7 @@ func (m *requiredMixedBatchModel) Start(_ context.Context, request agentruntime.
 	if index == 0 {
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "report-first", Name: "report", Arguments: map[string]any{"message": "early"}}, {ID: "work", Name: "work", Arguments: map[string]any{}}}, Finished: true}}, nil
 	}
-	return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "report-final", Name: "report", Arguments: map[string]any{"message": "final"}}}, Finished: true}}, nil
+	return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil
 }
 
 func (m *requiredMixedBatchModel) Requests() []agentruntime.ModelRequest {
@@ -374,7 +421,7 @@ func (m *requiredTriggerToolModel) Start(_ context.Context, request agentruntime
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, request)
 	m.starts++
-	if m.starts > 1+m.repairMisses {
+	if m.starts == 2+m.repairMisses {
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "report-repair", Name: "report", Arguments: map[string]any{"message": "done"}}}, Finished: true}}, nil
 	}
 	return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil

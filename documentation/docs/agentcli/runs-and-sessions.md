@@ -140,12 +140,11 @@ provider is free to return a normal assistant response instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
 bounded. AgentCLI applies this mechanism automatically to child sessions to
 enforce up to three `report_subagent_outcome` repairs without re-running domain
-tools. Required end-of-turn trigger tools are satisfied only by a terminal,
-all-successful tool batch that includes every required trigger. Ordinarily
-every call in that batch must use `EndTurn`; an optional `EndTurnOnSuccess`
-tool also makes a successful mixed batch terminal. An earlier or continuing
-batch must call the required trigger tools again. If the model attempts to
-finish while a trigger tool
+tools. A required trigger is satisfied by its latest successful result anywhere
+in the current turn, even when that batch continues to another provider round.
+A later failed attempt for the same tool makes it unsatisfied again. Trigger
+timing is independent of `EndTurnOnSuccess`, which controls only whether a
+successful batch becomes terminal. If the model attempts to finish while a trigger tool
 remains unsatisfied, the completion guard starts a repair round with a reminder
 naming every missing trigger tool and exposes only those missing trigger tools.
 If an application completion guard also returns a bounded tool allowlist, its

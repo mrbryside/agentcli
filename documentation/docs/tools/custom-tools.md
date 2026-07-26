@@ -106,21 +106,22 @@ Metadata and policy are not user input or substitutes for authorization.
 The zero trigger is the default: the handler executes immediately and the
 provider continues. Do not set a field for this mode.
 
-`EndTurn` makes the tool a required trigger tool, runs the handler immediately,
-and permits completion without another provider request:
+`EndTurn` makes the tool a required trigger tool and runs the handler
+immediately:
 
 ```go
 Trigger: agentcli.EndTurn,
 ```
 
-The runtime waits for every call in a parallel batch. It ends the turn only
-when all results succeeded and all called tools resolve to `EndTurn`. A mixed,
-failed, denied, declined, or interrupted batch continues.
+`Trigger` does not end the turn. After a successful call, the provider normally
+receives another round. The completion guard remembers the latest result for
+each required trigger tool during the turn; a later failed attempt makes that
+tool unsatisfied again.
 
 ## Optional end after success
 
-Use `EndTurnOnSuccess` when a tool should stay optional, run immediately, and
-end the current turn when it succeeds:
+Use `EndTurnOnSuccess` when a successful tool batch should end the current
+turn:
 
 ```go
 agentcli.Tool{
@@ -130,16 +131,28 @@ agentcli.Tool{
 }
 ```
 
-The runtime waits for the whole parallel batch. If every result succeeds, one
+Without `Trigger`, this tool remains optional and runs immediately. The runtime
+waits for the whole parallel batch. If every result succeeds, one
 `EndTurnOnSuccess` tool ends the turn even when the batch also contains normal
 immediate tools. Any failed, denied, declined, or interrupted result continues
 to another provider round. Required trigger tools are still enforced by the
 completion guard, so this setting cannot bypass a missing `EndTurn` or
 `EndResponseScope` trigger.
 
-`EndTurnOnSuccess` does not make the tool required and does not defer its
-handler. Do not combine it with `Trigger`; registration rejects that ambiguous
-configuration.
+`EndTurnOnSuccess` controls only turn termination. It may be combined with
+either trigger:
+
+```go
+agentcli.Tool{
+    Definition:       definition,
+    Handler:          handler,
+    Trigger:          agentcli.EndResponseScope,
+    EndTurnOnSuccess: true,
+}
+```
+
+Here the invocation is required, its handler remains deferred until scope end,
+and a successful staging result ends the current turn.
 
 ## End-of-scope trigger tools
 
@@ -160,11 +173,10 @@ candidate and invokes it exactly once when every turn and accepted subagent
 callback in the response scope has settled. Before invoking deferred handlers,
 the runtime automatically reconciles children touched by that scope: unshared
 completed/failed children close, while incomplete children remain available
-for follow-up. Only a successful terminal batch satisfies completion. That
-batch must either contain only `EndTurn` tools or include an
-`EndTurnOnSuccess` tool; an earlier or continuing batch does not. If the model
-attempts to finish while a
-trigger tool is missing, the completion guard starts another provider round with a
+for follow-up. A successful invocation satisfies the trigger even though its
+tool result normally continues to another provider round. If a later attempt
+for the same trigger tool fails, it becomes unsatisfied again. If the model
+attempts to finish while a trigger tool is missing, the completion guard starts another provider round with a
 reminder naming every missing trigger tool and exposes only those tools. A
 caller-supplied completion guard may merge additional bounded allowlist entries.
 AgentRuntime does not set provider-specific tool choice. It permits up to three
@@ -172,9 +184,9 @@ consecutive no-progress repairs; progress resets that budget.
 
 Required trigger tools should therefore be described as standalone final actions.
 
-Several trigger tools are supported. The terminal batch must successfully
-include every still-missing trigger tool. A normal continuing tool may share
-that batch only when another tool has `EndTurnOnSuccess: true`.
+Several trigger tools are supported and may succeed in different tool batches
+within the same turn. `EndTurnOnSuccess` is optional for each tool and affects
+only whether its successful batch terminates the turn.
 
 Applications can observe scope shutdown without adding another tool:
 

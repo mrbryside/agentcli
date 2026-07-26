@@ -2,7 +2,7 @@
 
 Go library for provider-neutral, event-sourced agent runs with tool execution, safety gates, Terminal UI, and HTTP integration surfaces.
 
-`Last documented commit: 88b3ee1afb76167c1ec45664aadfcdac1bd1a529`
+`Last documented commit: c432fb040355275949267662bc84fe091bb2acaf`
 
 ## Project structure
 
@@ -11,7 +11,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `.agentcli/` | Example project definitions: `MAIN.md`, provider config template, skills, and subagents. |
 | `.github/workflows/` | GitHub Actions automation, including Docusaurus deployment to GitHub Pages. |
 | `init/` | Curl bootstrap installer and separately downloadable `read`/`glob`/`edit`/`report_discord` Go tool templates for generated starter projects. |
-| Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, raw tools, subagents, Terminal UI, and Echo HTTP/SSE server. |
+| Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, raw tools, scope events, subagents, Terminal UI, and Echo HTTP/SSE server. |
 | `Makefile` | Convenience entry points for the terminal playground and documentation install/build/dev workflows. |
 | `agentruntime/` | Session/turn coordination, context compaction, retained agent events, input/output guardrails, live subscriptions, interruption, and state/effect/result folding. |
 | `agentruntime/modeladapter/openai/` | Provider-boundary conversion from generic messages and tools to OpenAI chat requests. |
@@ -19,7 +19,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | `provider/openai/` | OpenAI-compatible streaming provider and chunk parser. |
 | `storage/` | Provider-neutral message, permission, confirmation, and subagent storage contracts. |
 | `storage/inmemory/` | Concurrency-safe in-memory implementations used by default. |
-| `toolexecution/` | Tool registry, framework tools, tool-call guardrails, permission/confirmation admission, interrupts, and bounded workers. |
+| `toolexecution/` | Tool registry, trigger modes, response-scope coordination/events, framework tools, admission gates, interrupts, and bounded workers. |
 | `toolexecution/bashsecure/` | Optional shell command parsing, path scoping, policy classification, and platform sandbox helpers. |
 | `permission/` | Capability, risk, mode, policy, request, decision, and grant domain. |
 | `confirmation/` | Independent invocation-specific Yes/No confirmation domain. |

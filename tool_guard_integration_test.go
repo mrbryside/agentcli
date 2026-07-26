@@ -25,6 +25,7 @@ func TestPromptToolCallGuardFeedsFailureBackAndAgentRetries(t *testing.T) {
 				return append(json.RawMessage(nil), arguments...), nil
 			},
 			Trigger:             EndTurn,
+			EndTurnOnSuccess:    true,
 			ToolCallGuardPrompt: "Require attempt 2 or later.",
 		}),
 	)
