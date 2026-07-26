@@ -113,11 +113,10 @@ configured with `EndTurnOnSuccess` ends the current turn only while callbacks
 or other active turns keep the scope open, allowing callbacks to arrive without
 another provider round. A premature call in an otherwise quiescent scope
 continues so ordinary work can finish. Intermediate callback turns may finish
-without that trigger. When the last active
-continuation attempts completion and no accepted callback is pending, the
-runtime starts a restricted completion repair and only that repair call
-executes the handler. This matches `ContinueSubagentCallbackSubscribed` in
-direct Go integrations.
+without that trigger. When the last active continuation has advanced past its
+initial provider action and no accepted callback is pending, it may execute the
+final handler directly; completion repair remains the fallback. This matches
+`ContinueSubagentCallbackSubscribed` in direct Go integrations.
 
 ## End-to-end browser flow
 

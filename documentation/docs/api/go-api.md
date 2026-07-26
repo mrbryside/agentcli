@@ -159,8 +159,8 @@ bounded allowlist entries.
 
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
-`EndTurnOnSuccess: true`. Calls made before the runtime requests the final
-trigger return successful `status=skipped`, `executed=false`,
+`EndTurnOnSuccess: true`. Calls made as the model's initial provider action or
+while the scope is busy return successful `status=skipped`, `executed=false`,
 `reason=response_scope_not_ready_to_end`, and `trigger_satisfied=false`, and do
 not invoke admission, the tool-call guard, or the handler. They also do not
 retain a candidate for later execution. The result tells the model not to
@@ -168,9 +168,9 @@ retry. Without `EndTurnOnSuccess` the provider continues. With it, a successful
 skipped result ends the current turn only when callbacks or other active turns
 keep the response scope open; if the scope is otherwise quiescent, a premature
 call continues so the model can finish ordinary work. Once the scope has no
-pending callbacks and its last active turn attempts
-completion, runtime repair exposes the required tool again and only that
-completion-boundary call can execute the handler. If
+pending callbacks, a later provider-round call from its last active turn can
+execute the handler directly. A normal completion attempt can also make
+runtime repair expose the required tool. If
 `CanonicalAssistantMessageParameter` names a required string schema property,
 the coordinator appends that argument as the canonical assistant transcript
 message only after the final handler succeeds.

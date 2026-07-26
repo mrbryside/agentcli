@@ -371,8 +371,9 @@ func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTu
 			"Runtime trigger (end_response_scope): Call this tool only when the entire response scope is ready to finish, "+
 				"after all work and accepted callbacks or follow-ups are complete. If called earlier, the handler does not run "+
 				"and the successful tool result reports status=skipped, executed=false, "+
-				"reason=response_scope_not_ready_to_end, and trigger_satisfied=false; do not retry it then because the runtime "+
-				"will request it again at the final boundary.",
+				"reason=response_scope_not_ready_to_end, and trigger_satisfied=false. The model's first provider action can never "+
+				"end the scope; after observing that skip, finish the work and call again only on a later provider round when the "+
+				"scope is quiescent. Completion repair can also request the final call.",
 		)
 	}
 	if endTurnOnSuccess && trigger == EndResponseScope {

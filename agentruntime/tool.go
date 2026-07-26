@@ -21,9 +21,13 @@ type ToolDefinition struct {
 
 // ToolRequest is sent by a runtime to the shared tool worker channel.
 type ToolRequest struct {
-	SessionID          string
-	TurnID             string
-	Call               ToolCall
+	SessionID string
+	TurnID    string
+	Call      ToolCall
+	// ProviderStep is the one-based provider round that emitted the call.
+	// Runtimes set it before dispatch so execution policies can distinguish an
+	// initial tool-first response from work performed on a later round.
+	ProviderStep       int
 	CompletionBoundary bool
 }
 

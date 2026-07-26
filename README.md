@@ -32,9 +32,10 @@ The generated application also registers double-gated exact-match `edit`, but
 neither generated agent exposes it by default. `read` returns at most 2,000
 lines and a `next_offset` when more content remains. Tool source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
-`tool_report_discord.go`. Early trigger calls are skipped with a successful
-continue result; the handler runs only when the complete response scope is
-ready to end, including accepted subagent callbacks and follow-ups,
+`tool_report_discord.go`. A trigger call made as the model's first provider
+action is skipped with a successful continue result; the handler runs on a
+later provider round only when the complete response scope is ready to end,
+including accepted subagent callbacks and follow-ups,
 but the agent decides whether a report is useful: omitting
 `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without writing a report entry. A rejected

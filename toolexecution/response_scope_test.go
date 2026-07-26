@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -620,7 +621,7 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 	}
 
 	finalRequest := scopeToolRequest("turn", `{"message":"final"}`)
-	finalRequest.CompletionBoundary = true
+	finalRequest.ProviderStep = 2
 	finalResult := executor.execute(context.Background(), finalRequest)
 	if finalResult.Result.Status != agentruntime.ToolResultSucceeded ||
 		finalResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess ||
@@ -632,6 +633,94 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 		t.Fatalf("handler calls = %d after final call, want one", calls)
 	}
 	coordinator.FinishTurn("session", "turn")
+}
+
+func TestExecutorEndResponseScopeDoesNotExecuteMultipleInitialToolCalls(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{ResponseScopes: coordinator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		request := scopeToolRequest("turn", fmt.Sprintf(`{"message":"early-%d"}`, index))
+		request.ProviderStep = 1
+		result := executor.execute(context.Background(), request)
+		if result.Result.TriggerSatisfied == nil || *result.Result.TriggerSatisfied {
+			t.Fatalf("initial call %d trigger satisfaction = %v, want false", index, result.Result.TriggerSatisfied)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("handler calls = %d, want zero for every call in the initial provider round", calls)
+	}
+	coordinator.FinishTurn("session", "turn")
+}
+
+func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnSecondProviderRound(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	coordinator.FinishTurn("session", "root-turn")
+	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback.Commit()
+
+	calls := 0
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{Name: "report", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 1, Config{ResponseScopes: coordinator})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	initial := scopeToolRequest("callback-turn", `{"message":"premature"}`)
+	initial.ProviderStep = 1
+	initialResult := executor.execute(context.Background(), initial)
+	if initialResult.Result.TriggerSatisfied == nil || *initialResult.Result.TriggerSatisfied ||
+		initialResult.TurnBehavior != agentruntime.ToolTurnContinue {
+		t.Fatalf("initial callback report = %+v, want skipped continuation", initialResult)
+	}
+
+	final := scopeToolRequest("callback-turn", `{"message":"final"}`)
+	final.ProviderStep = 2
+	finalResult := executor.execute(context.Background(), final)
+	if finalResult.Result.TriggerSatisfied == nil || !*finalResult.Result.TriggerSatisfied ||
+		finalResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
+		t.Fatalf("final callback report = %+v, want executed end-on-success", finalResult)
+	}
+	if calls != 1 {
+		t.Fatalf("handler calls = %d, want one", calls)
+	}
+	coordinator.FinishTurn("session", "callback-turn")
 }
 
 func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *testing.T) {
@@ -698,8 +787,7 @@ func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 		result.Reason != "response_scope_not_ready_to_end" ||
 		!strings.Contains(result.Instruction, "handler did not run") ||
 		!strings.Contains(result.Instruction, "arguments were not retained") ||
-		!strings.Contains(result.Instruction, "do not retry") ||
-		!strings.Contains(result.Instruction, "runtime will request it again") {
+		!strings.Contains(result.Instruction, "do not retry") {
 		t.Fatalf("skipped result = %+v", result)
 	}
 }

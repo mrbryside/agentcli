@@ -231,13 +231,15 @@ Routine lifecycle cleanup happens at the response-scope boundary. One human
 user message opens one response scope. Accepted child dispatches keep that
 scope open; every callback continuation remains in the same scope, and a
 follow-up accepted from that continuation adds another pending callback. The
-final boundary is available only when one last active turn is attempting
-completion and no accepted callback obligation remains. Earlier
+final boundary is available when one last active turn has advanced past its
+initial provider action and no accepted callback obligation remains, or when
+that turn enters completion repair. Earlier
 `EndResponseScope` calls are successful non-executing skips and are not retained
 for later delivery. If the tool uses `EndTurnOnSuccess`, that skipped call still
 ends the current turn while a pending callback keeps the response scope open,
 without another provider round. If the scope has no pending callback or other
-active turn, the premature call continues so ordinary work remains available.
+active turn, the initial premature call continues so ordinary work remains
+available; a later provider round may deliver the completed response directly.
 
 Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:

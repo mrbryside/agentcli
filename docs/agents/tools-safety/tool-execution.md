@@ -62,22 +62,21 @@ For user-visible delivery, prefer `Trigger: EndResponseScope`; add
 current turn. Set `CanonicalAssistantMessageParameter` to a required string
 argument such as `message` when successful external delivery should append
 that exact value as the durable assistant response. The canonical record is
-created only after the handler succeeds. A model call made before the runtime's
-final completion boundary receives successful `status=skipped`,
+created only after the handler succeeds. A call made as the model's first
+provider action, or while the response scope is still busy, receives successful `status=skipped`,
 `executed=false` and does not satisfy the trigger. The result tells the model
-not to retry; admission and the handler are bypassed, and no candidate is
+not to retry in that provider round; admission and the handler are bypassed, and no candidate is
 retained. `EndTurnOnSuccess` is still honored, allowing an early final-delivery
 call to yield the current turn while callbacks are pending without executing
 the handler. If the scope is otherwise quiescent, the premature call continues
 the current turn instead, preserving access to ordinary work tools. This
-includes a call made as the model's first tool: normal provider rounds do not
-carry the runtime-owned `CompletionBoundary` marker. When the last active scope turn
-attempts completion with no pending callback, completion repair exposes the
-missing `EndResponseScope` tools with a final-call reminder. Only requests from
-that repair boundary execute their handlers and satisfy the trigger. One user
-message opens one response scope. Accepted subagent work keeps it open, and
-intermediate parent/callback assistant drafts are discarded until the final
-scope turn.
+includes a call made as the model's first tool. Once the model has observed at
+least one provider round, a later call can execute directly when it is the last
+active scope turn and no callback is pending. A normal completion attempt can
+also make completion repair expose the missing `EndResponseScope` tools with a
+final-call reminder. One user message opens one response scope. Accepted
+subagent work keeps it open, and intermediate parent/callback assistant drafts
+are discarded until the final scope turn.
 
 The live response-scope event stream emits `PreEndScope` after the scope
 enters its final completion boundary but before child cleanup and final

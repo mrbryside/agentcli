@@ -67,8 +67,8 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
 	}
-	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.60") {
-		t.Fatal("installer fallback version does not track v0.0.60")
+	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.61") {
+		t.Fatal("installer fallback version does not track v0.0.61")
 	}
 }
 

@@ -639,6 +639,7 @@ func (r *Run) interpretEffect(ctx context.Context, runtime *Runtime, effect Effe
 			return r.fail(ctx, runtime, errors.New("dispatch tool effect without a request"))
 		}
 		request := cloneToolRequest(*effect.ToolRequest)
+		request.ProviderStep = r.providerSteps()
 		request.CompletionBoundary = r.CompletionRepairCount() > 0
 		select {
 		case runtime.toolRequests <- request:

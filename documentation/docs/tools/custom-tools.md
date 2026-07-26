@@ -182,15 +182,16 @@ agentcli.Tool{
 }
 ```
 
-If the model calls the tool during an ordinary provider round, the handler is
-not called and no candidate is retained. The model receives:
+If the model calls the tool as its first provider action, or while the response
+scope is busy, the handler is not called and no candidate is retained. The
+model receives:
 
 ```json
 {
   "status": "skipped",
   "executed": false,
   "reason": "response_scope_not_ready_to_end",
-  "instruction": "This call was skipped because the tool only runs when the response scope is ready to end. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry this tool now. The runtime will request it again at the correct time."
+  "instruction": "This call was skipped because an EndResponseScope tool cannot end the turn as the model's first provider action. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent; completion repair can also request the final call."
 }
 ```
 
@@ -205,22 +206,22 @@ not retain the arguments as a candidate for later execution.
 
 ### How the runtime distinguishes an early call
 
-The runtime does not infer intent from the tool's position or message text.
-It requires both independent conditions below before executing an
+The runtime does not infer intent from message text. It requires both
+independent conditions below before executing an
 `EndResponseScope` handler:
 
-| Condition | Early provider round | Final completion repair |
-| --- | --- | --- |
-| The call was requested from a completion-repair boundary | No | Yes |
-| This is the scope's last active turn and no callback is pending | Maybe | Yes |
-| Handler executes and trigger is satisfied | No | Yes |
+| Condition | Initial provider round | Later provider round | Completion repair |
+| --- | --- | --- | --- |
+| Initial-action guard has passed | No | Yes | Yes |
+| This is the scope's last active turn and no callback is pending | Maybe | Required | Required |
+| Handler executes and trigger is satisfied | No | Yes | Yes |
 
 Therefore, even if `report_discord` is the first tool the model calls, its
-request is not marked as a completion-boundary request. It receives the
-successful skipped result above and the model continues. A normal assistant
-completion attempt is what lets the completion guard determine whether the
-scope is ready; only its restricted repair round can produce the executable
-final call.
+request receives the successful skipped result above and the model continues.
+After observing at least one provider result, the model can call the tool
+directly with its completed response. A normal assistant completion attempt
+remains an alternative path: the completion guard determines whether the scope
+is ready and its restricted repair round produces the executable final call.
 
 Intermediate turns with accepted callback obligations may finish without this
 trigger, and their assistant drafts are discarded rather than becoming
@@ -234,11 +235,11 @@ The response scope is ready to end. Call these required
 end-response-scope tools now with the final completed response.
 ```
 
-That repair call passes through admission and tool-call guards, runs cleanup,
-executes the handler, and satisfies the trigger. `EndTurnOnSuccess` applies
-only to this executed result. Handler failure remains unsatisfied and enters
-bounded repair. The runtime allows up to three consecutive no-progress
-repairs.
+That repair call—or a quiescent call from a later provider round—passes through
+admission and tool-call guards, runs cleanup, executes the handler, and
+satisfies the trigger. `EndTurnOnSuccess` applies only to this executed result.
+Handler failure remains unsatisfied and enters bounded repair. The runtime
+allows up to three consecutive no-progress repairs.
 
 Required trigger tools should therefore be described as standalone final actions.
 

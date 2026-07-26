@@ -40,8 +40,9 @@ outlive response-scope deletion because child IDs are stable and late delivery
 must not consume work from another scope.
 
 Cancellation changes accounting only. It does not start a provider turn.
-`EndResponseScope` handlers still require an active turn at a completion
-boundary with zero pending callbacks.
+`EndResponseScope` handlers still require one active turn, zero pending
+callbacks, and either a later provider round or an explicit completion-repair
+boundary.
 
 ## Automatic cleanup
 

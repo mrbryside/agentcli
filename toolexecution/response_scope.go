@@ -521,19 +521,42 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 		c.mu.Unlock()
 		return nil, false, errors.New("response scope does not exist")
 	}
-	ready := request.CompletionBoundary &&
+	ready := (request.CompletionBoundary || request.ProviderStep > 1) &&
 		scope.activeTurns == 1 &&
 		scope.pendingCallbacks == 0
 	if !ready {
+		logger := c.logger
+		activeTurns := scope.activeTurns
+		pendingCallbacks := scope.pendingCallbacks
 		c.mu.Unlock()
-		output, err := json.Marshal(map[string]any{
-			"status":   "skipped",
-			"executed": false,
-			"reason":   "response_scope_not_ready_to_end",
-			"instruction": "This call was skipped because the tool only runs when the response scope is ready to end. " +
+		if logger != nil {
+			logger.DebugContext(c.ctx, "response scope tool skipped",
+				"session_id", request.SessionID,
+				"turn_id", request.TurnID,
+				"tool_name", request.Call.Name,
+				"provider_step", request.ProviderStep,
+				"completion_boundary", request.CompletionBoundary,
+				"active_turns", activeTurns,
+				"pending_callbacks", pendingCallbacks,
+			)
+		}
+		instruction := "This call was skipped because the tool only runs when the response scope is ready to end. " +
+			"The handler did not run and the arguments were not retained. " +
+			"Continue the remaining work and do not retry this tool now. " +
+			"The runtime will request it again at the correct time."
+		if !request.CompletionBoundary && request.ProviderStep <= 1 &&
+			activeTurns == 1 && pendingCallbacks == 0 {
+			instruction = "This call was skipped because an EndResponseScope tool cannot end the turn as the model's first provider action. " +
 				"The handler did not run and the arguments were not retained. " +
-				"Continue the remaining work and do not retry this tool now. " +
-				"The runtime will request it again at the correct time.",
+				"Continue the remaining work and do not retry it in this provider round. " +
+				"On a later provider round, call it again only after the response is complete and the scope is quiescent; " +
+				"completion repair can also request the final call."
+		}
+		output, err := json.Marshal(map[string]any{
+			"status":      "skipped",
+			"executed":    false,
+			"reason":      "response_scope_not_ready_to_end",
+			"instruction": instruction,
 		})
 		return output, false, err
 	}

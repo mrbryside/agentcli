@@ -75,7 +75,7 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	}
 	trigger, _ := e.registry.triggerFor(request.Call.Name)
 	if trigger == EndResponseScope &&
-		(!request.CompletionBoundary || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
+		(!endResponseScopeBoundaryReached(request) || !e.config.ResponseScopes.ReadyToEnd(request.SessionID, request.TurnID)) {
 		output, executed, err := e.config.ResponseScopes.ExecuteEndResponseScope(
 			ctx,
 			request,
@@ -166,6 +166,14 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.TurnBehavior = behavior
 	}
 	return result
+}
+
+// endResponseScopeBoundaryReached keeps an EndResponseScope tool from ending a
+// turn when it is the model's first action, while allowing the final tool call
+// after any provider round has had a chance to observe results and do work.
+// Completion repair remains an explicit boundary regardless of provider round.
+func endResponseScopeBoundaryReached(request agentruntime.ToolRequest) bool {
+	return request.CompletionBoundary || request.ProviderStep > 1
 }
 
 func (e *Executor) applySkippedEndResponseScopeTurnBehavior(result *agentruntime.ToolResultEnvelope, request agentruntime.ToolRequest) {
