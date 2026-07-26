@@ -106,6 +106,11 @@ Automatic subagent callback turns are enabled by default. A host that wants to
 manage child completions itself can opt out with
 `agentcli.WithServerAutoContinueSubagents(false)`.
 
+Automatic callback turns remain in the response scope that originally
+dispatched the child. Deferred `EndResponseScope` handlers therefore run only
+after the callback continuation settles, matching
+`ContinueSubagentCallbackSubscribed` in direct Go integrations.
+
 ## End-to-end browser flow
 
 This example assumes the browser reaches the API through the same origin and
@@ -134,6 +139,9 @@ function connectSession() {
     "permission_cancelled", "permission_expired", "confirmation_requested",
     "confirmation_resolved", "confirmation_cancelled", "confirmation_expired",
     "permission_mode_changed", "run_completed", "run_failed", "agent_interrupted",
+    "compaction_started", "compaction_completed", "compaction_failed",
+    "pre_end_scope", "end_scope", "subagent_confirmation",
+    "subagent_permission", "subagent_closed",
   ];
 
   for (const name of eventNames) {
@@ -206,6 +214,11 @@ function handleActivity(activity) {
     case "provider_event_received":
       if (event.provider_event.type === "content_received") {
         appendAssistantText(event.turn_id, event.provider_event.content);
+      } else if (event.provider_event.type === "stream_completed") {
+        reconcileProviderStep(
+          event.turn_id,
+          event.provider_event.payload?.result,
+        );
       }
       break;
     case "tool_call_requested":
@@ -237,6 +250,12 @@ Provider text fragments are incremental. Append them in sequence; do not
 replace the entire message. Do not execute `provider_event.tool` fragments.
 Only `tool_call_requested` contains the complete validated tool request, and
 the server-owned executor already handles it.
+
+At `stream_completed`, `provider_event.payload.result` contains the
+provider-neutral aggregate for that step. Use its `content` and `reasoning` to
+reconcile the accumulated deltas; this matches the direct Go event consumed by
+messaging integrations. The terminal `run_completed.result` remains the
+authoritative aggregate for the whole turn.
 
 ## Permissions and confirmations
 

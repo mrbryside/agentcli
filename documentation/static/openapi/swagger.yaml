@@ -242,6 +242,25 @@ definitions:
       turn_id:
         type: string
     type: object
+  agentcli.ProviderCompletedToolCallResponse:
+    properties:
+      arguments:
+        additionalProperties: {}
+        type: object
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+    type: object
+  agentcli.ProviderEventPayloadResponse:
+    properties:
+      error:
+        type: string
+      result:
+        $ref: '#/definitions/agentcli.ProviderStreamResultResponse'
+    type: object
   agentcli.ProviderEventResponse:
     properties:
       content:
@@ -250,12 +269,27 @@ definitions:
         type: string
       finish_reason:
         type: string
+      payload:
+        $ref: '#/definitions/agentcli.ProviderEventPayloadResponse'
       reasoning:
         type: string
       tool:
         $ref: '#/definitions/agentcli.ProviderToolEventResponse'
       type:
         $ref: '#/definitions/provider.EventType'
+    type: object
+  agentcli.ProviderStreamResultResponse:
+    properties:
+      completed_tools:
+        items:
+          $ref: '#/definitions/agentcli.ProviderCompletedToolCallResponse'
+        type: array
+      content:
+        type: string
+      finished:
+        type: boolean
+      reasoning:
+        type: string
     type: object
   agentcli.ProviderToolEventResponse:
     properties:
@@ -437,6 +471,10 @@ definitions:
       display_name:
         type: string
       next_step:
+        type: string
+      parent_session_id:
+        type: string
+      parent_turn_id:
         type: string
       status:
         $ref: '#/definitions/agentcli.SubagentCallbackStatus'

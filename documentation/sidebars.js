@@ -22,6 +22,18 @@ module.exports = {
     },
     {
       type: 'category',
+      label: 'Use cases',
+      link: {
+        type: 'generated-index',
+        title: 'Use cases',
+        description: 'Small, end-to-end applications built with agentcli.',
+      },
+      items: [
+        'use-cases/discord-bot',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Terminal UI',
       items: [
         'terminal/overview',

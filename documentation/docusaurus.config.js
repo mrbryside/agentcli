@@ -48,6 +48,12 @@ const config = {
           position: 'left',
           activeBaseRegex: '/terminal/',
         },
+        {
+          to: '/use-cases/discord-bot',
+          label: 'Use cases',
+          position: 'left',
+          activeBaseRegex: '/use-cases/',
+        },
         {to: '/tools/custom-tools', label: 'Custom tools', position: 'left'},
         {
           type: 'dropdown',
@@ -68,6 +74,7 @@ const config = {
           items: [
             {label: 'Installation', to: '/'},
             {label: 'Build an agentcli application', to: '/examples/agentcli-application'},
+            {label: 'Build a Discord bot', to: '/use-cases/discord-bot'},
             {label: 'Use the Terminal UI', to: '/terminal/overview'},
           ],
         },

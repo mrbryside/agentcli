@@ -11,6 +11,11 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
+// ErrResponseScopeDispatchNotFound means a child callback did not originate
+// from work accepted by a live response scope. Direct application-created
+// children can legitimately have no such dispatch.
+var ErrResponseScopeDispatchNotFound = errors.New("subagent callback has no accepted dispatch in its response scope")
+
 // ToolTrigger groups a custom tool's required-completion and handler-delivery
 // behavior into one setting. It does not control whether the current turn
 // ends; configure Tool.EndTurnOnSuccess independently.
@@ -293,7 +298,7 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 
 	queue := c.dispatch[child]
 	if len(queue) == 0 {
-		return nil, errors.New("subagent callback has no accepted dispatch in its response scope")
+		return nil, ErrResponseScopeDispatchNotFound
 	}
 	dispatch := queue[0]
 	c.dispatch[child] = queue[1:]

@@ -253,14 +253,16 @@ func newSessionLifecycleEvent(turn *serverTurn, eventType SessionActivityType, q
 	}
 	if turn.callback != nil {
 		response.SubagentCallback = &SubagentCallbackReference{
-			SubagentID:     turn.callback.SubagentID,
-			DisplayName:    turn.callback.DisplayName,
-			DefinitionName: turn.callback.SubagentName,
-			ChildSessionID: turn.callback.SessionID,
-			ChildTurnID:    turn.callback.TurnID,
-			Status:         turn.callback.Status,
-			Summary:        turn.callback.Summary,
-			NextStep:       turn.callback.NextStep,
+			ParentSessionID: turn.callback.ParentSessionID,
+			ParentTurnID:    turn.callback.ParentTurnID,
+			SubagentID:      turn.callback.SubagentID,
+			DisplayName:     turn.callback.DisplayName,
+			DefinitionName:  turn.callback.SubagentName,
+			ChildSessionID:  turn.callback.SessionID,
+			ChildTurnID:     turn.callback.TurnID,
+			Status:          turn.callback.Status,
+			Summary:         turn.callback.Summary,
+			NextStep:        turn.callback.NextStep,
 		}
 	}
 	return response

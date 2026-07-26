@@ -12,7 +12,7 @@ func (server *Server) forwardScopeEvents(events <-chan ScopeEvent) {
 			if !server.waitForTriggerTurnEvents(event) {
 				return
 			}
-			server.sessionEvents.publish(newSessionScopeEvent(event))
+			server.sessionEvents.publish(server.newSessionScopeEvent(event))
 		}
 	}
 }
@@ -33,20 +33,24 @@ func (server *Server) waitForTriggerTurnEvents(event ScopeEvent) bool {
 	}
 }
 
-func newSessionScopeEvent(event ScopeEvent) SessionEventResponse {
-	return SessionEventResponse{
+func (server *Server) newSessionScopeEvent(event ScopeEvent) SessionEventResponse {
+	response := SessionEventResponse{
 		Type:      SessionActivityScopeEvent,
 		Source:    ServerTurnSourceUser,
 		SessionID: event.SessionID,
 		TurnID:    event.TriggerTurnID,
-		ScopeEvent: &ScopeEventResponse{
-			Type:          event.Type,
-			SessionID:     event.SessionID,
-			ScopeID:       event.ScopeID,
-			TriggerTurnID: event.TriggerTurnID,
-			ChildIDs:      append([]string{}, event.ChildIDs...),
-			ToolNames:     append([]string{}, event.ToolNames...),
-			OccurredAt:    event.OccurredAt,
-		},
 	}
+	if turn, found := server.findTurn(event.SessionID, event.TriggerTurnID); found {
+		response = newSessionLifecycleEvent(turn, SessionActivityScopeEvent, 0, "")
+	}
+	response.ScopeEvent = &ScopeEventResponse{
+		Type:          event.Type,
+		SessionID:     event.SessionID,
+		ScopeID:       event.ScopeID,
+		TriggerTurnID: event.TriggerTurnID,
+		ChildIDs:      append([]string{}, event.ChildIDs...),
+		ToolNames:     append([]string{}, event.ToolNames...),
+		OccurredAt:    event.OccurredAt,
+	}
+	return response
 }

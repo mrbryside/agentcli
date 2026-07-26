@@ -353,6 +353,113 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 	}
 }
 
+func TestServerAutoCallbackContinuesOriginatingResponseScope(t *testing.T) {
+	parentModel := &responseScopeIntegrationParentModel{}
+	childModel := newIntegrationCompletedChildModel("verified finding", "Research completed.")
+	delivered := make(chan string, 2)
+	report := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Deliver the final response.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{
+				Message: StringParameter("Final message").Required(),
+			}),
+		},
+		Handler: func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+			var input struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(raw, &input); err != nil {
+				return nil, err
+			}
+			delivered <- input.Message
+			return json.RawMessage(`{"sent":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}
+	definition := SubagentDefinition{
+		Name: "researcher", Description: "research work", Provider: "test",
+		Model: "researcher-model", Instructions: "Return a concise result.",
+	}
+	project := &Project{
+		config: ProjectConfig{PermissionMode: permission.Default, Providers: map[string]ProviderConfig{
+			"test": {Type: ProviderTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
+		}},
+		providerName: "test", modelName: "parent-model",
+		subagents: map[string]SubagentDefinition{"researcher": definition},
+	}
+	agent, err := New(context.Background(), WithProject(project), WithModel(parentModel), WithTool(report), WithMaxSubagents(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = agent.Close() })
+	agent.subagents.childFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), withChildAgent(), WithModel(childModel), WithMessageStorage(agent.messages))
+	}
+	server, err := NewServer(agent, WithServerHeartbeat(time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(func() {
+		httpServer.Close()
+		_ = server.Shutdown(context.Background())
+	})
+
+	root := startHTTPRun(t, httpServer.URL, "server-scope-parent", `{"message":"research and report","turn_id":"server-scope-root"}`)
+	getSSEEvents(t, httpServer.URL+root.EventsURL, "")
+	select {
+	case message := <-delivered:
+		t.Fatalf("report handler ran before callback: %q", message)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	childModel.waitRequests(t, 1)
+	childModel.release()
+	childModel.waitRequests(t, 2)
+	childModel.release()
+	events := getSessionEventsUntil(t, httpServer.URL+root.SessionEventsURL, "", func(event SessionEventResponse) bool {
+		return event.ScopeEvent != nil &&
+			event.ScopeEvent.Type == EndScope &&
+			event.ScopeEvent.ScopeID == root.TurnID
+	})
+
+	callbackTurnID := ""
+	callbackScopeSeen := false
+	for _, event := range events {
+		if event.Source != ServerTurnSourceSubagentCallback || event.SubagentCallback == nil {
+			continue
+		}
+		callbackTurnID = event.TurnID
+		if event.SubagentCallback.ParentSessionID != root.SessionID ||
+			event.SubagentCallback.ParentTurnID != root.TurnID {
+			t.Fatalf("callback correlation = %#v", event.SubagentCallback)
+		}
+		if event.ScopeEvent != nil &&
+			event.ScopeEvent.ScopeID == root.TurnID &&
+			event.ScopeEvent.TriggerTurnID == callbackTurnID {
+			callbackScopeSeen = true
+		}
+	}
+	if callbackTurnID == "" || !callbackScopeSeen {
+		t.Fatalf("callback was not bound to root response scope: %#v", events)
+	}
+	select {
+	case message := <-delivered:
+		if message != "final verified response" {
+			t.Fatalf("delivered message = %q, want latest callback report", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for server after-scope handler")
+	}
+	select {
+	case duplicate := <-delivered:
+		t.Fatalf("handler ran more than once: %q", duplicate)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
 func TestSubagentIntegrationAutoClosesAfterUserVisibleCallbackAnswer(t *testing.T) {
 	parentModel := &continuingCloseCallbackParentModel{}
 	childModel := newIntegrationCompletedChildModel("verified child result", "The delegated work completed.")

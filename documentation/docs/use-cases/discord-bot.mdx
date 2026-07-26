@@ -1,0 +1,684 @@
+---
+title: Minimal Discord bot
+description: Build a small Discord bot by embedding agentcli or calling its REST and SSE API.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Minimal Discord bot
+
+This use case turns each Discord channel into one agentcli conversation. The
+bot replies to direct messages and to guild messages that mention it.
+
+There are two useful deployment shapes:
+
+| Mode | Choose it when | Turn lifecycle |
+| --- | --- | --- |
+| **CLI / embedded process** | One Go executable can own Discord, tools, and the agent runtime. | Call `Agent.SendMessage`, drain its event subscription, then read `Run.Result`. |
+| **REST API server** | Discord and the agent should deploy, scale, or restart independently. | `POST` a turn, then consume its returned SSE `events_url`. |
+
+The embedded example is a normal command-line executable, not the Terminal UI.
+Agentcli does not require or ship a separate daemon CLI. The API example adds
+an explicit agent-server executable and keeps the Discord process as a small
+HTTP client.
+
+## Shared project
+
+Both modes use the same project files:
+
+```text
+minimal-discord-bot/
+├── go.mod
+├── .agentcli/
+│   ├── config.yaml
+│   └── MAIN.md
+└── cmd/
+    └── ...
+```
+
+Create `go.mod`:
+
+```text title="go.mod"
+module example.com/minimal-discord-bot
+
+go 1.26.3
+
+require (
+    github.com/bwmarrin/discordgo v0.28.1
+    github.com/mrbryside/agentcli v0.0.50
+)
+```
+
+Configure any OpenAI-compatible provider:
+
+```yaml title=".agentcli/config.yaml"
+permission_mode: default
+
+providers:
+  primary:
+    type: openai
+    url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+    request_timeout: 2m
+```
+
+Keep the first example tool-free so there are no permission prompts to route
+through Discord:
+
+```markdown title=".agentcli/MAIN.md"
+---
+provider: primary
+model: gpt-4.1-mini
+---
+
+Answer the Discord user directly and concisely. Never claim that you sent,
+deleted, or changed anything in Discord.
+```
+
+Set the two required secrets before running either mode:
+
+```bash
+export DISCORD_TOKEN='...'
+export OPENAI_API_KEY='...'
+go mod tidy
+```
+
+The Discord application needs the **Message Content** privileged intent in the
+Developer Portal. Invite it with permission to view channels, read message
+history, and send messages.
+
+## Implementation
+
+<Tabs groupId="discord-deployment" queryString="mode">
+<TabItem value="embedded" label="CLI / embedded" default>
+
+This is the smallest shape. Discord and agentcli share one process:
+
+```text
+Discord Gateway → message handler → Agent.SendMessage → provider
+                                      └─ events + final Run.Result
+```
+
+Create `cmd/embedded/main.go`:
+
+```go title="cmd/embedded/main.go"
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "os"
+    "os/signal"
+    "strings"
+    "sync"
+    "syscall"
+
+    "github.com/bwmarrin/discordgo"
+    "github.com/mrbryside/agentcli"
+)
+
+type bot struct {
+    agent *agentcli.Agent
+
+    mu   sync.Mutex
+    busy map[string]bool
+}
+
+func main() {
+    ctx, stop := signal.NotifyContext(
+        context.Background(),
+        os.Interrupt,
+        syscall.SIGTERM,
+    )
+    defer stop()
+
+    project, err := agentcli.LoadProject(".")
+    if err != nil {
+        log.Fatal(err)
+    }
+    agent, err := agentcli.New(ctx,
+        agentcli.WithProject(project),
+        agentcli.WithNonInteractive(true),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer agent.Close()
+
+    discord, err := discordgo.New("Bot " + os.Getenv("DISCORD_TOKEN"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    discord.Identify.Intents =
+        discordgo.IntentGuildMessages |
+        discordgo.IntentDirectMessages |
+        discordgo.IntentMessageContent
+
+    app := &bot{agent: agent, busy: make(map[string]bool)}
+    discord.AddHandler(app.onMessage)
+    if err := discord.Open(); err != nil {
+        log.Fatal(err)
+    }
+    defer discord.Close()
+
+    log.Println("Discord bot is ready")
+    <-ctx.Done()
+}
+
+func (b *bot) onMessage(
+    session *discordgo.Session,
+    event *discordgo.MessageCreate,
+) {
+    if event.Author == nil || event.Author.Bot ||
+        !addressedToBot(session, event) {
+        return
+    }
+
+    prompt := cleanPrompt(session, event.Content)
+    if prompt == "" {
+        return
+    }
+    conversation := conversationID(event)
+    if !b.claim(conversation) {
+        _, _ = session.ChannelMessageSend(
+            event.ChannelID,
+            "A response is already in progress for this channel.",
+        )
+        return
+    }
+    defer b.release(conversation)
+
+    _ = session.ChannelTyping(event.ChannelID)
+    run, subscription, err := b.agent.SendMessage(
+        context.Background(),
+        conversation,
+        prompt,
+    )
+    if err != nil {
+        b.sendError(session, event.ChannelID, err)
+        return
+    }
+
+    // A live subscription must be drained. This is also where a richer bot
+    // can render tool, reasoning, permission, and compaction progress.
+    for range subscription.Events {
+    }
+
+    result, err := run.Result()
+    if err != nil {
+        b.sendError(session, event.ChannelID, err)
+        return
+    }
+    sendChunks(session, event.ChannelID, result.Content)
+}
+
+func (b *bot) claim(id string) bool {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    if b.busy[id] {
+        return false
+    }
+    b.busy[id] = true
+    return true
+}
+
+func (b *bot) release(id string) {
+    b.mu.Lock()
+    delete(b.busy, id)
+    b.mu.Unlock()
+}
+
+func (b *bot) sendError(
+    session *discordgo.Session,
+    channelID string,
+    err error,
+) {
+    if errors.Is(err, agentcli.ErrTurnInProgress) {
+        _, _ = session.ChannelMessageSend(
+            channelID,
+            "A response is already in progress.",
+        )
+        return
+    }
+    log.Printf("agent turn failed: %v", err)
+    _, _ = session.ChannelMessageSend(
+        channelID,
+        "Sorry, I could not complete that request.",
+    )
+}
+
+func conversationID(event *discordgo.MessageCreate) string {
+    if event.GuildID == "" {
+        return "discord:dm:" + event.ChannelID
+    }
+    return "discord:guild:" + event.GuildID + ":" + event.ChannelID
+}
+
+func addressedToBot(
+    session *discordgo.Session,
+    event *discordgo.MessageCreate,
+) bool {
+    if event.GuildID == "" {
+        return true
+    }
+    if session.State == nil || session.State.User == nil {
+        return false
+    }
+    for _, mention := range event.Mentions {
+        if mention != nil && mention.ID == session.State.User.ID {
+            return true
+        }
+    }
+    return false
+}
+
+func cleanPrompt(session *discordgo.Session, content string) string {
+    if session.State == nil || session.State.User == nil {
+        return strings.TrimSpace(content)
+    }
+    id := session.State.User.ID
+    content = strings.ReplaceAll(content, "<@"+id+">", " ")
+    content = strings.ReplaceAll(content, "<@!"+id+">", " ")
+    return strings.Join(strings.Fields(content), " ")
+}
+
+func sendChunks(
+    session *discordgo.Session,
+    channelID string,
+    content string,
+) {
+    runes := []rune(strings.TrimSpace(content))
+    if len(runes) == 0 {
+        runes = []rune("I completed the request without a text response.")
+    }
+    for len(runes) > 0 {
+        size := min(len(runes), 2000)
+        _, _ = session.ChannelMessageSend(channelID, string(runes[:size]))
+        runes = runes[size:]
+    }
+}
+```
+
+Run the combined bot:
+
+```bash
+go run ./cmd/embedded
+```
+
+The `busy` map mirrors agentcli's direct-call rule: one active root turn per
+session. Different Discord channels still run concurrently.
+
+</TabItem>
+<TabItem value="api" label="REST API server">
+
+This shape runs two processes:
+
+```text
+Discord Gateway → discord-api-bot → JSON + SSE → agent-server → provider
+```
+
+The server owns agent state, tools, permissions, subagents, and the per-session
+turn queue. The Discord process only translates messages and renders results.
+
+### Agent server
+
+Create `cmd/agent-server/main.go`:
+
+```go title="cmd/agent-server/main.go"
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/mrbryside/agentcli"
+)
+
+func main() {
+    ctx, stop := signal.NotifyContext(
+        context.Background(),
+        os.Interrupt,
+        syscall.SIGTERM,
+    )
+    defer stop()
+
+    project, err := agentcli.LoadProject(".")
+    if err != nil {
+        log.Fatal(err)
+    }
+    agent, err := agentcli.New(ctx, agentcli.WithProject(project))
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer agent.Close()
+
+    err = agent.RunServer(
+        agentcli.WithServerAddress("127.0.0.1:8080"),
+        agentcli.WithServerTurnQueueLimit(32),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Discord API client
+
+Create `cmd/api-bot/main.go`:
+
+```go title="cmd/api-bot/main.go"
+package main
+
+import (
+    "bufio"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "log"
+    "net/http"
+    "net/url"
+    "os"
+    "os/signal"
+    "strings"
+    "syscall"
+
+    "github.com/bwmarrin/discordgo"
+)
+
+type apiClient struct {
+    baseURL string
+    http    *http.Client
+}
+
+type startTurnResponse struct {
+    SessionID string `json:"session_id"`
+    TurnID    string `json:"turn_id"`
+    Status    string `json:"status"`
+    EventsURL string `json:"events_url"`
+}
+
+type turnEvent struct {
+    Type   string `json:"type"`
+    Error  string `json:"error"`
+    Reason string `json:"reason"`
+    Result *struct {
+        Content string `json:"content"`
+    } `json:"result"`
+}
+
+func main() {
+    ctx, stop := signal.NotifyContext(
+        context.Background(),
+        os.Interrupt,
+        syscall.SIGTERM,
+    )
+    defer stop()
+
+    discord, err := discordgo.New("Bot " + os.Getenv("DISCORD_TOKEN"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    discord.Identify.Intents =
+        discordgo.IntentGuildMessages |
+        discordgo.IntentDirectMessages |
+        discordgo.IntentMessageContent
+
+    client := &apiClient{
+        baseURL: envOr("AGENTCLI_URL", "http://127.0.0.1:8080"),
+        http:    &http.Client{},
+    }
+    discord.AddHandler(func(
+        session *discordgo.Session,
+        event *discordgo.MessageCreate,
+    ) {
+        if event.Author == nil || event.Author.Bot ||
+            !addressedToBot(session, event) {
+            return
+        }
+        prompt := cleanPrompt(session, event.Content)
+        if prompt == "" {
+            return
+        }
+
+        _ = session.ChannelTyping(event.ChannelID)
+        answer, err := client.runTurn(
+            context.Background(),
+            conversationID(event),
+            prompt,
+        )
+        if err != nil {
+            log.Printf("agent API turn failed: %v", err)
+            _, _ = session.ChannelMessageSend(
+                event.ChannelID,
+                "Sorry, I could not complete that request.",
+            )
+            return
+        }
+        sendChunks(session, event.ChannelID, answer)
+    })
+
+    if err := discord.Open(); err != nil {
+        log.Fatal(err)
+    }
+    defer discord.Close()
+    log.Println("Discord API bot is ready")
+    <-ctx.Done()
+}
+
+func (c *apiClient) runTurn(
+    ctx context.Context,
+    sessionID string,
+    message string,
+) (string, error) {
+    body, err := json.Marshal(map[string]string{"message": message})
+    if err != nil {
+        return "", err
+    }
+    endpoint := c.baseURL + "/v1/sessions/" +
+        url.PathEscape(sessionID) + "/turns"
+    request, err := http.NewRequestWithContext(
+        ctx,
+        http.MethodPost,
+        endpoint,
+        bytes.NewReader(body),
+    )
+    if err != nil {
+        return "", err
+    }
+    request.Header.Set("Content-Type", "application/json")
+
+    response, err := c.http.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+    if response.StatusCode != http.StatusCreated &&
+        response.StatusCode != http.StatusAccepted {
+        payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+        return "", fmt.Errorf(
+            "start turn: %s: %s",
+            response.Status,
+            strings.TrimSpace(string(payload)),
+        )
+    }
+
+    var started startTurnResponse
+    if err := json.NewDecoder(response.Body).Decode(&started); err != nil {
+        return "", err
+    }
+    return c.waitForResult(ctx, started.EventsURL)
+}
+
+func (c *apiClient) waitForResult(
+    ctx context.Context,
+    eventsURL string,
+) (string, error) {
+    request, err := http.NewRequestWithContext(
+        ctx,
+        http.MethodGet,
+        c.baseURL+eventsURL,
+        nil,
+    )
+    if err != nil {
+        return "", err
+    }
+    request.Header.Set("Accept", "text/event-stream")
+
+    response, err := c.http.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+    if response.StatusCode != http.StatusOK {
+        payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+        return "", fmt.Errorf(
+            "stream turn: %s: %s",
+            response.Status,
+            strings.TrimSpace(string(payload)),
+        )
+    }
+
+    scanner := bufio.NewScanner(response.Body)
+    scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
+    for scanner.Scan() {
+        line := scanner.Text()
+        if !strings.HasPrefix(line, "data:") {
+            continue
+        }
+        var event turnEvent
+        if err := json.Unmarshal(
+            []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))),
+            &event,
+        ); err != nil {
+            return "", err
+        }
+        switch event.Type {
+        case "run_completed":
+            if event.Result == nil {
+                return "", errors.New("run completed without a result")
+            }
+            return event.Result.Content, nil
+        case "run_failed":
+            return "", errors.New(event.Error)
+        case "agent_interrupted":
+            return "", fmt.Errorf("agent interrupted: %s", event.Reason)
+        }
+    }
+    if err := scanner.Err(); err != nil {
+        return "", err
+    }
+    return "", errors.New("event stream ended before a terminal event")
+}
+
+func envOr(name string, fallback string) string {
+    if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+        return strings.TrimRight(value, "/")
+    }
+    return fallback
+}
+
+func conversationID(event *discordgo.MessageCreate) string {
+    if event.GuildID == "" {
+        return "discord:dm:" + event.ChannelID
+    }
+    return "discord:guild:" + event.GuildID + ":" + event.ChannelID
+}
+
+func addressedToBot(
+    session *discordgo.Session,
+    event *discordgo.MessageCreate,
+) bool {
+    if event.GuildID == "" {
+        return true
+    }
+    if session.State == nil || session.State.User == nil {
+        return false
+    }
+    for _, mention := range event.Mentions {
+        if mention != nil && mention.ID == session.State.User.ID {
+            return true
+        }
+    }
+    return false
+}
+
+func cleanPrompt(session *discordgo.Session, content string) string {
+    if session.State == nil || session.State.User == nil {
+        return strings.TrimSpace(content)
+    }
+    id := session.State.User.ID
+    content = strings.ReplaceAll(content, "<@"+id+">", " ")
+    content = strings.ReplaceAll(content, "<@!"+id+">", " ")
+    return strings.Join(strings.Fields(content), " ")
+}
+
+func sendChunks(
+    session *discordgo.Session,
+    channelID string,
+    content string,
+) {
+    runes := []rune(strings.TrimSpace(content))
+    if len(runes) == 0 {
+        runes = []rune("I completed the request without a text response.")
+    }
+    for len(runes) > 0 {
+        size := min(len(runes), 2000)
+        _, _ = session.ChannelMessageSend(channelID, string(runes[:size]))
+        runes = runes[size:]
+    }
+}
+```
+
+Run both processes from the project root:
+
+```bash
+# Terminal 1
+go run ./cmd/agent-server
+
+# Terminal 2
+export AGENTCLI_URL='http://127.0.0.1:8080'
+go run ./cmd/api-bot
+```
+
+A second message in the same channel can return `202` with `status: "queued"`.
+Its SSE URL waits until the previous turn finishes, so the client code does not
+need a retry loop.
+
+</TabItem>
+</Tabs>
+
+## What this minimal version leaves out
+
+The examples intentionally implement only the direct-response path. Before
+running a public bot, add the pieces required by your product:
+
+- **Session ownership:** channel-scoped history means everyone in a channel
+  shares context. Include the user ID for private per-user history, or use a
+  thread ID for one conversation per thread.
+- **SSE reconnect:** store the last event ID and reconnect with
+  `Last-Event-ID`. Fetch the turn status if a stream ends unexpectedly.
+- **Automatic subagent callbacks:** API clients should follow the
+  [session-wide event stream](../api/sse-events.md#session-stream), not only one
+  turn URL. Embedded clients should consume and continue
+  `SubscribeSubagentCallbacks`.
+- **Permissions and confirmations:** render requests from events and post
+  explicit decisions. Never infer approval from a Discord reaction or timeout.
+- **Progress:** use provider, tool, compaction, `pre_end_scope`, and
+  `end_scope` events to drive typing and progress messages.
+- **Routing and deduplication:** persist the Discord source message associated
+  with each agent turn and make inbound Discord event IDs idempotent.
+- **Security:** authenticate the REST API before binding it beyond loopback,
+  limit request size and rate, and keep both Discord and provider tokens out of
+  logs.
+
+See [Build an application with the API](../examples/api-client-integration.md)
+for the complete JSON/SSE lifecycle and
+[Events](../api/sse-events.md) for every event payload.

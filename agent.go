@@ -540,13 +540,26 @@ func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback
 	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
 		return nil, agentruntime.EventSubscription{}, errors.New("subagent callback identifiers are required")
 	}
-	manager, err := a.subagentManager()
-	if err != nil {
-		return nil, agentruntime.EventSubscription{}, err
-	}
 	continuationTurnID, err := newSubagentID("turn_")
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create callback continuation turn: %w", err)
+	}
+	return a.continueSubagentCallbackSubscribed(ctx, callback, continuationTurnID)
+}
+
+func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback SubagentCallback, continuationTurnID string) (*agentruntime.Run, agentruntime.EventSubscription, error) {
+	if a == nil || a.runtime == nil {
+		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
+	}
+	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
+		return nil, agentruntime.EventSubscription{}, errors.New("subagent callback identifiers are required")
+	}
+	if continuationTurnID == "" {
+		return nil, agentruntime.EventSubscription{}, errors.New("callback continuation turn ID is required")
+	}
+	manager, err := a.subagentManager()
+	if err != nil {
+		return nil, agentruntime.EventSubscription{}, err
 	}
 	reservation, err := a.responseScopes.ReserveCallbackTurn(
 		callback.ParentSessionID,

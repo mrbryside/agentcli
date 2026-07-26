@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 var (
@@ -128,15 +129,36 @@ func (server *Server) submitTurnWithSource(ctx context.Context, request agentrun
 }
 
 func (server *Server) startAcceptedTurn(turn *serverTurn) error {
-	run, err := server.agent.Start(server.context, turn.request)
+	var (
+		run *agentruntime.Run
+		err error
+	)
+	if turn.callback == nil {
+		run, err = server.agent.Start(server.context, turn.request)
+	} else {
+		run, _, err = server.agent.continueSubagentCallbackSubscribed(
+			server.context,
+			*turn.callback,
+			turn.request.TurnID,
+		)
+		if errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) {
+			// A child created directly through the HTTP API has no originating
+			// root response scope. Preserve its useful automatic callback by
+			// treating the continuation as a new root scope.
+			run, err = server.agent.Start(server.context, turn.request)
+			if err == nil && server.agent.subagents != nil {
+				_ = server.agent.subagents.observeCallback(
+					context.WithoutCancel(server.context),
+					*turn.callback,
+				)
+			}
+		}
+	}
 	turn.resolve(run, err)
 	if err != nil {
 		server.sessionEvents.publish(newSessionLifecycleEvent(turn, SessionActivityTurnRejected, 0, err.Error()))
 		server.advanceSession(turn)
 		return err
-	}
-	if turn.callback != nil && server.agent.subagents != nil {
-		_ = server.agent.subagents.observeCallback(context.WithoutCancel(server.context), *turn.callback)
 	}
 	go server.watchAcceptedTurn(turn, run)
 	return nil

@@ -170,7 +170,11 @@ func TestServerAutomaticallyContinuesSubagentCallbackAndPublishesItToSessionEven
 			continue
 		}
 		callbackTurnID = event.TurnID
-		if event.SubagentCallback == nil || event.SubagentCallback.SubagentID != created.ID || event.SubagentCallback.ChildTurnID != created.CurrentTurnID {
+		if event.SubagentCallback == nil ||
+			event.SubagentCallback.ParentSessionID != "parent-callback" ||
+			event.SubagentCallback.ParentTurnID != created.ParentTurnID ||
+			event.SubagentCallback.SubagentID != created.ID ||
+			event.SubagentCallback.ChildTurnID != created.CurrentTurnID {
 			t.Fatalf("callback activity = %#v", event)
 		}
 	}

@@ -1643,6 +1643,35 @@
                 }
             }
         },
+        "agentcli.ProviderCompletedToolCallResponse": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.ProviderEventPayloadResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/definitions/agentcli.ProviderStreamResultResponse"
+                }
+            }
+        },
         "agentcli.ProviderEventResponse": {
             "type": "object",
             "properties": {
@@ -1655,6 +1684,9 @@
                 "finish_reason": {
                     "type": "string"
                 },
+                "payload": {
+                    "$ref": "#/definitions/agentcli.ProviderEventPayloadResponse"
+                },
                 "reasoning": {
                     "type": "string"
                 },
@@ -1663,6 +1695,26 @@
                 },
                 "type": {
                     "$ref": "#/definitions/provider.EventType"
+                }
+            }
+        },
+        "agentcli.ProviderStreamResultResponse": {
+            "type": "object",
+            "properties": {
+                "completed_tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agentcli.ProviderCompletedToolCallResponse"
+                    }
+                },
+                "content": {
+                    "type": "string"
+                },
+                "finished": {
+                    "type": "boolean"
+                },
+                "reasoning": {
+                    "type": "string"
                 }
             }
         },
@@ -1926,6 +1978,12 @@
                     "type": "string"
                 },
                 "next_step": {
+                    "type": "string"
+                },
+                "parent_session_id": {
+                    "type": "string"
+                },
+                "parent_turn_id": {
                     "type": "string"
                 },
                 "status": {

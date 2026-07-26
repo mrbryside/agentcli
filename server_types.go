@@ -72,14 +72,16 @@ type TurnResponse struct {
 // SubagentCallbackReference identifies the child completion that caused an
 // automatic parent continuation without duplicating its answer.
 type SubagentCallbackReference struct {
-	SubagentID     string                 `json:"subagent_id"`
-	DisplayName    string                 `json:"display_name,omitempty"`
-	DefinitionName string                 `json:"definition_name"`
-	ChildSessionID string                 `json:"child_session_id"`
-	ChildTurnID    string                 `json:"child_turn_id"`
-	Status         SubagentCallbackStatus `json:"status"`
-	Summary        string                 `json:"summary,omitempty"`
-	NextStep       string                 `json:"next_step,omitempty"`
+	ParentSessionID string                 `json:"parent_session_id"`
+	ParentTurnID    string                 `json:"parent_turn_id"`
+	SubagentID      string                 `json:"subagent_id"`
+	DisplayName     string                 `json:"display_name,omitempty"`
+	DefinitionName  string                 `json:"definition_name"`
+	ChildSessionID  string                 `json:"child_session_id"`
+	ChildTurnID     string                 `json:"child_turn_id"`
+	Status          SubagentCallbackStatus `json:"status"`
+	Summary         string                 `json:"summary,omitempty"`
+	NextStep        string                 `json:"next_step,omitempty"`
 }
 
 type SubagentConfirmationReference struct {
@@ -334,12 +336,13 @@ type ToolResultEnvelopeResponse struct {
 }
 
 type ProviderEventResponse struct {
-	Type         provider.EventType         `json:"type"`
-	Content      string                     `json:"content,omitempty"`
-	Reasoning    string                     `json:"reasoning,omitempty"`
-	Tool         *ProviderToolEventResponse `json:"tool,omitempty"`
-	Error        string                     `json:"error,omitempty"`
-	FinishReason string                     `json:"finish_reason,omitempty"`
+	Type         provider.EventType            `json:"type"`
+	Content      string                        `json:"content,omitempty"`
+	Reasoning    string                        `json:"reasoning,omitempty"`
+	Tool         *ProviderToolEventResponse    `json:"tool,omitempty"`
+	Error        string                        `json:"error,omitempty"`
+	FinishReason string                        `json:"finish_reason,omitempty"`
+	Payload      *ProviderEventPayloadResponse `json:"payload,omitempty"`
 }
 
 type ProviderToolEventResponse struct {
@@ -348,6 +351,27 @@ type ProviderToolEventResponse struct {
 	Type      string `json:"type,omitempty"`
 	Name      string `json:"name,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
+}
+
+// ProviderEventPayloadResponse is the stable HTTP representation of the
+// provider package's documented terminal payloads.
+type ProviderEventPayloadResponse struct {
+	Result *ProviderStreamResultResponse `json:"result,omitempty"`
+	Error  string                        `json:"error,omitempty"`
+}
+
+type ProviderStreamResultResponse struct {
+	Content        string                              `json:"content,omitempty"`
+	Reasoning      string                              `json:"reasoning,omitempty"`
+	CompletedTools []ProviderCompletedToolCallResponse `json:"completed_tools,omitempty"`
+	Finished       bool                                `json:"finished"`
+}
+
+type ProviderCompletedToolCallResponse struct {
+	ID        string         `json:"id"`
+	Type      string         `json:"type,omitempty"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 type RunResultResponse struct {
@@ -429,6 +453,7 @@ func newEventResponse(event agentruntime.AgentEvent) EventResponse {
 			Content:      event.ProviderEvent.Content,
 			Reasoning:    event.ProviderEvent.Reasoning,
 			FinishReason: event.ProviderEvent.FinishReason,
+			Payload:      newProviderEventPayloadResponse(event.ProviderEvent.Payload),
 		}
 		if event.ProviderEvent.Tool != nil {
 			value.Tool = &ProviderToolEventResponse{
@@ -474,6 +499,49 @@ func newEventResponse(event agentruntime.AgentEvent) EventResponse {
 		response.ConfirmationDecision = &value
 	}
 	return response
+}
+
+func newProviderEventPayloadResponse(payload any) *ProviderEventPayloadResponse {
+	var result provider.StreamResult
+	switch value := payload.(type) {
+	case provider.StreamCompletedPayload:
+		result = value.Result
+	case *provider.StreamCompletedPayload:
+		if value == nil {
+			return nil
+		}
+		result = value.Result
+	case provider.StreamFailedPayload:
+		if value.Error == nil {
+			return nil
+		}
+		return &ProviderEventPayloadResponse{Error: value.Error.Error()}
+	case *provider.StreamFailedPayload:
+		if value == nil || value.Error == nil {
+			return nil
+		}
+		return &ProviderEventPayloadResponse{Error: value.Error.Error()}
+	default:
+		return nil
+	}
+
+	response := ProviderStreamResultResponse{
+		Content:   result.Content,
+		Reasoning: result.Reasoning,
+		Finished:  result.Finished,
+	}
+	if result.CompletedTools != nil {
+		response.CompletedTools = make([]ProviderCompletedToolCallResponse, len(result.CompletedTools))
+		for index, tool := range result.CompletedTools {
+			response.CompletedTools[index] = ProviderCompletedToolCallResponse{
+				ID:        tool.ID,
+				Type:      tool.Type,
+				Name:      tool.Name,
+				Arguments: tool.Arguments,
+			}
+		}
+	}
+	return &ProviderEventPayloadResponse{Result: &response}
 }
 
 func newMessageResponse(message agentruntime.Message) MessageResponse {

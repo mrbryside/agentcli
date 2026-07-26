@@ -35,7 +35,7 @@ automatically when subagents complete, and response-scope boundaries.
 ```text
 id: 19
 event: provider_event_received
-data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id":"demo","turn_id":"turn_callback","turn_url":"/v1/sessions/demo/turns/turn_callback","events_url":"/v1/sessions/demo/turns/turn_callback/events","subagent_callback":{"subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","child_session_id":"subagent-session","child_turn_id":"turn_child","status":"incomplete","summary":"A required choice remains.","next_step":"Ask the user which option to use."},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_callback","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
+data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id":"demo","turn_id":"turn_callback","turn_url":"/v1/sessions/demo/turns/turn_callback","events_url":"/v1/sessions/demo/turns/turn_callback/events","subagent_callback":{"parent_session_id":"demo","parent_turn_id":"turn_original","subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","child_session_id":"subagent-session","child_turn_id":"turn_child","status":"incomplete","summary":"A required choice remains.","next_step":"Ask the user which option to use."},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_callback","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
 ```
 
 Session lifecycle types are `turn_queued`, `turn_admitted`, `turn_cancelled`,
@@ -51,6 +51,12 @@ callback, before child cleanup and staged `EndResponseScope` tool handlers.
 `end_scope` is published after cleanup, handler invocation, and scope removal.
 The nested payload includes `scope_id`, `trigger_turn_id`, `child_ids`,
 `tool_names`, and `occurred_at`.
+
+Callback-created activities include `subagent_callback.parent_session_id` and
+`parent_turn_id`. The latter identifies the originating parent turn, while the
+outer activity `turn_id` identifies the new automatic continuation turn. This
+distinction lets messaging clients route the continuation to the original
+request.
 
 ## Wire format
 
@@ -218,6 +224,13 @@ validated call and emits `tool_call_requested`.
 | `tool_call_completed` | `tool.index` and completed tool metadata | Signals that the provider finished the streamed call. Wait for `tool_call_requested` before execution. |
 | `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools. It skips the next provider step only when every result in the completed batch succeeded and uses `end_turn`. |
 | `stream_failed` | `error` | The provider stream failed. A terminal `run_failed` follows unless the runtime has already terminated. |
+
+`stream_completed` also includes the provider-neutral aggregate under
+`payload.result`: `content`, `reasoning`, `completed_tools`, and `finished`.
+Treat this aggregate as the authoritative final value for that provider step;
+incremental content and reasoning events remain useful for live rendering.
+`stream_failed` includes the terminal payload error under `payload.error` in
+addition to the normal `provider_event.error`.
 
 ## Permission event
 
