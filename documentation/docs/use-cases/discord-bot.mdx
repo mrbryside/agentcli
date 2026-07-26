@@ -33,8 +33,16 @@ minimal-discord-bot/
 ├── .agentcli/
 │   ├── config.yaml
 │   └── MAIN.md
+├── internal/
+│   └── discordreply/
+│       └── report_discord.go
 └── cmd/
-    └── ...
+    ├── embedded/
+    │   └── main.go
+    ├── agent-server/
+    │   └── main.go
+    └── api-bot/
+        └── main.go
 ```
 
 Create `go.mod`:
@@ -46,7 +54,7 @@ go 1.26.3
 
 require (
     github.com/bwmarrin/discordgo v0.28.1
-    github.com/mrbryside/agentcli v0.0.50
+    github.com/mrbryside/agentcli v0.0.51
 )
 ```
 
@@ -63,18 +71,149 @@ providers:
     request_timeout: 2m
 ```
 
-Keep the first example tool-free so there are no permission prompts to route
-through Discord:
+Allow the main agent to use only the Discord delivery tool:
 
 ```markdown title=".agentcli/MAIN.md"
 ---
 provider: primary
 model: gpt-4.1-mini
+tools:
+  - report_discord
 ---
 
-Answer the Discord user directly and concisely. Never claim that you sent,
-deleted, or changed anything in Discord.
+`report_discord` is the only user-visible response channel. Never emit a
+normal assistant response. Finish the work first, then make exactly one
+standalone `report_discord` call whose `message` contains the complete,
+natural response to the Discord user. The message must be non-empty and no
+longer than 2000 Unicode characters. Do not skip the report.
 ```
+
+The `tools` allowlist makes the tool visible to the model; it does not install
+the handler. Both deployment modes must also register the implementation with
+`agentcli.WithTool(...)`.
+
+Create the custom delivery tool:
+
+```go title="internal/discordreply/report_discord.go"
+package discordreply
+
+import (
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "strings"
+    "unicode/utf8"
+
+    "github.com/bwmarrin/discordgo"
+    "github.com/mrbryside/agentcli"
+)
+
+const (
+    sessionPrefix = "discord:channel:"
+    maxRunes      = 2000
+)
+
+type messageSender interface {
+    ChannelMessageSend(
+        channelID string,
+        content string,
+        options ...discordgo.RequestOption,
+    ) (*discordgo.Message, error)
+}
+
+type arguments struct {
+    Message *string `json:"message"`
+}
+
+// SessionID keeps the Discord destination in the agent session identity.
+// Reusing it preserves one conversation per Discord channel.
+func SessionID(channelID string) string {
+    return sessionPrefix + channelID
+}
+
+func NewTool(discord messageSender) agentcli.Tool {
+    return agentcli.Tool{
+        Definition: agentcli.ToolDefinition{
+            Name: "report_discord",
+            Description: "Deliver the complete final response to the Discord " +
+                "channel. message is required and must contain at most 2000 " +
+                "Unicode characters. This tool cannot be skipped.",
+            InputSchema: agentcli.ObjectSchema(struct {
+                Message agentcli.ToolParameter
+            }{
+                Message: agentcli.StringParameter(
+                    "Complete user-facing Discord response.",
+                ).Required().MinLength(1).MaxLength(maxRunes),
+            }),
+        },
+        Handler: func(
+            ctx context.Context,
+            raw json.RawMessage,
+        ) (json.RawMessage, error) {
+            invocation, ok := agentcli.ToolInvocationFromContext(ctx)
+            if !ok {
+                return nil, errors.New("tool invocation context is required")
+            }
+            channelID, ok := strings.CutPrefix(
+                invocation.SessionID,
+                sessionPrefix,
+            )
+            if !ok || channelID == "" {
+                return nil, fmt.Errorf(
+                    "session %q is not a Discord channel session",
+                    invocation.SessionID,
+                )
+            }
+
+            var input arguments
+            if err := agentcli.DecodeArguments(raw, &input); err != nil {
+                return nil, err
+            }
+            if input.Message == nil ||
+                strings.TrimSpace(*input.Message) == "" {
+                return nil, errors.New("message is required")
+            }
+            if utf8.RuneCountInString(*input.Message) > maxRunes {
+                return nil, errors.New(
+                    "message exceeds Discord's 2000-character limit",
+                )
+            }
+            if err := ctx.Err(); err != nil {
+                return nil, err
+            }
+            if _, err := discord.ChannelMessageSend(
+                channelID,
+                *input.Message,
+            ); err != nil {
+                return nil, fmt.Errorf("send Discord response: %w", err)
+            }
+            return json.RawMessage(`{"status":"reported"}`), nil
+        },
+        Trigger:                            agentcli.EndResponseScope,
+        EndTurnOnSuccess:                   true,
+        CanonicalAssistantMessageParameter: "message",
+    }
+}
+```
+
+This follows the same delivery contract as the `report_discord` tool in the
+reference Discord agent:
+
+- `EndResponseScope` makes the tool required at completion and runs its handler
+  once, after the response scope settles.
+- `EndTurnOnSuccess` stops the model after it successfully stages the report.
+- `CanonicalAssistantMessageParameter` stores the delivered `message` as the
+  assistant response in conversation history.
+
+The handler sends through Discord itself. The embedded bot and API client must
+therefore wait for completion and handle errors, but must not send
+`Run.Result.Content` to Discord a second time.
+
+Both clients must create the agent session with
+`discordreply.SessionID(event.ChannelID)`. The delivery handler deliberately
+rejects any other session format because it would not have a trusted Discord
+channel destination.
 
 Set the two required secrets before running either mode:
 
@@ -83,6 +222,10 @@ export DISCORD_TOKEN='...'
 export OPENAI_API_KEY='...'
 go mod tidy
 ```
+
+In API mode, provide `DISCORD_TOKEN` to both processes: `api-bot` uses it for
+the Gateway connection, while `agent-server` uses it for the outbound
+`report_discord` REST call.
 
 The Discord application needs the **Message Content** privileged intent in the
 Developer Portal. Invite it with permission to view channels, read message
@@ -97,7 +240,8 @@ This is the smallest shape. Discord and agentcli share one process:
 
 ```text
 Discord Gateway → message handler → Agent.SendMessage → provider
-                                      └─ events + final Run.Result
+                                            ↓
+                                   report_discord → Discord REST
 ```
 
 Create `cmd/embedded/main.go`:
@@ -115,6 +259,7 @@ import (
     "sync"
     "syscall"
 
+    "example.com/minimal-discord-bot/internal/discordreply"
     "github.com/bwmarrin/discordgo"
     "github.com/mrbryside/agentcli"
 )
@@ -138,15 +283,6 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    agent, err := agentcli.New(ctx,
-        agentcli.WithProject(project),
-        agentcli.WithNonInteractive(true),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer agent.Close()
-
     discord, err := discordgo.New("Bot " + os.Getenv("DISCORD_TOKEN"))
     if err != nil {
         log.Fatal(err)
@@ -155,6 +291,16 @@ func main() {
         discordgo.IntentGuildMessages |
         discordgo.IntentDirectMessages |
         discordgo.IntentMessageContent
+
+    agent, err := agentcli.New(ctx,
+        agentcli.WithProject(project),
+        agentcli.WithNonInteractive(true),
+        agentcli.WithTool(discordreply.NewTool(discord)),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer agent.Close()
 
     app := &bot{agent: agent, busy: make(map[string]bool)}
     discord.AddHandler(app.onMessage)
@@ -206,12 +352,11 @@ func (b *bot) onMessage(
     for range subscription.Events {
     }
 
-    result, err := run.Result()
-    if err != nil {
+    // report_discord has already delivered the canonical response. Reading the
+    // result only confirms that the turn and Discord delivery both succeeded.
+    if _, err := run.Result(); err != nil {
         b.sendError(session, event.ChannelID, err)
-        return
     }
-    sendChunks(session, event.ChannelID, result.Content)
 }
 
 func (b *bot) claim(id string) bool {
@@ -250,10 +395,7 @@ func (b *bot) sendError(
 }
 
 func conversationID(event *discordgo.MessageCreate) string {
-    if event.GuildID == "" {
-        return "discord:dm:" + event.ChannelID
-    }
-    return "discord:guild:" + event.GuildID + ":" + event.ChannelID
+    return discordreply.SessionID(event.ChannelID)
 }
 
 func addressedToBot(
@@ -284,21 +426,6 @@ func cleanPrompt(session *discordgo.Session, content string) string {
     return strings.Join(strings.Fields(content), " ")
 }
 
-func sendChunks(
-    session *discordgo.Session,
-    channelID string,
-    content string,
-) {
-    runes := []rune(strings.TrimSpace(content))
-    if len(runes) == 0 {
-        runes = []rune("I completed the request without a text response.")
-    }
-    for len(runes) > 0 {
-        size := min(len(runes), 2000)
-        _, _ = session.ChannelMessageSend(channelID, string(runes[:size]))
-        runes = runes[size:]
-    }
-}
 ```
 
 Run the combined bot:
@@ -317,10 +444,14 @@ This shape runs two processes:
 
 ```text
 Discord Gateway → discord-api-bot → JSON + SSE → agent-server → provider
+                                                       ↓
+                                              report_discord → Discord REST
 ```
 
 The server owns agent state, tools, permissions, subagents, and the per-session
-turn queue. The Discord process only translates messages and renders results.
+turn queue. The Discord client translates inbound messages and watches SSE for
+completion or failure; the registered `report_discord` tool sends successful
+responses from the server process.
 
 ### Agent server
 
@@ -336,6 +467,8 @@ import (
     "os/signal"
     "syscall"
 
+    "example.com/minimal-discord-bot/internal/discordreply"
+    "github.com/bwmarrin/discordgo"
     "github.com/mrbryside/agentcli"
 )
 
@@ -351,7 +484,16 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    agent, err := agentcli.New(ctx, agentcli.WithProject(project))
+    discord, err := discordgo.New("Bot " + os.Getenv("DISCORD_TOKEN"))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    agent, err := agentcli.New(ctx,
+        agentcli.WithProject(project),
+        agentcli.WithNonInteractive(true),
+        agentcli.WithTool(discordreply.NewTool(discord)),
+    )
     if err != nil {
         log.Fatal(err)
     }
@@ -390,6 +532,7 @@ import (
     "strings"
     "syscall"
 
+    "example.com/minimal-discord-bot/internal/discordreply"
     "github.com/bwmarrin/discordgo"
 )
 
@@ -449,7 +592,7 @@ func main() {
         }
 
         _ = session.ChannelTyping(event.ChannelID)
-        answer, err := client.runTurn(
+        _, err := client.runTurn(
             context.Background(),
             conversationID(event),
             prompt,
@@ -462,7 +605,8 @@ func main() {
             )
             return
         }
-        sendChunks(session, event.ChannelID, answer)
+        // report_discord runs inside agent-server and has already sent the
+        // response. Do not send Result.Content again from this API client.
     })
 
     if err := discord.Open(); err != nil {
@@ -586,10 +730,7 @@ func envOr(name string, fallback string) string {
 }
 
 func conversationID(event *discordgo.MessageCreate) string {
-    if event.GuildID == "" {
-        return "discord:dm:" + event.ChannelID
-    }
-    return "discord:guild:" + event.GuildID + ":" + event.ChannelID
+    return discordreply.SessionID(event.ChannelID)
 }
 
 func addressedToBot(
@@ -620,21 +761,6 @@ func cleanPrompt(session *discordgo.Session, content string) string {
     return strings.Join(strings.Fields(content), " ")
 }
 
-func sendChunks(
-    session *discordgo.Session,
-    channelID string,
-    content string,
-) {
-    runes := []rune(strings.TrimSpace(content))
-    if len(runes) == 0 {
-        runes = []rune("I completed the request without a text response.")
-    }
-    for len(runes) > 0 {
-        size := min(len(runes), 2000)
-        _, _ = session.ChannelMessageSend(channelID, string(runes[:size]))
-        runes = runes[size:]
-    }
-}
 ```
 
 Run both processes from the project root:
