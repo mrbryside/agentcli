@@ -77,24 +77,16 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 
 	runningClose := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
 	defer runningClose.Body.Close()
-	if runningClose.StatusCode != http.StatusConflict {
+	if runningClose.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(runningClose.Body)
 		t.Fatalf("running close status = %d body = %s", runningClose.StatusCode, body)
 	}
-	childModel.releases <- struct{}{}
-	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
-	incompleteClose := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
-	defer incompleteClose.Body.Close()
-	if incompleteClose.StatusCode != http.StatusConflict {
-		body, _ := io.ReadAll(incompleteClose.Body)
-		t.Fatalf("incomplete close status = %d body = %s", incompleteClose.StatusCode, body)
+	var closed storage.Subagent
+	if err := json.NewDecoder(runningClose.Body).Decode(&closed); err != nil {
+		t.Fatal(err)
 	}
-	observeTestSubagentCallback(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
-	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("parent-a", created.ID), "", "")
-	defer closed.Body.Close()
-	if closed.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(closed.Body)
-		t.Fatalf("close status = %d body = %s", closed.StatusCode, body)
+	if closed.Status != storage.SubagentStatusClosed {
+		t.Fatalf("closed child = %#v", closed)
 	}
 }
 

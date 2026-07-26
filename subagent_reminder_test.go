@@ -97,6 +97,43 @@ func TestSubagentReminderIsStableWithinOneParentTurn(t *testing.T) {
 	}
 }
 
+func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) {
+	manager := newTestSubagentManager(t, &scriptedModel{}, 1)
+	defer manager.Close()
+	manager.recordAutoClosedSubagent(storage.Subagent{
+		ID: "subagent-closed", DisplayName: "ember-fox", ParentSessionID: "parent",
+		LastTurnOutcome: storage.SubagentTurnCompleted,
+	})
+	provider := subagentReminderProvider(manager)
+	callbackTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "callback-turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callbackTurn) != 0 {
+		t.Fatalf("callback turn consumed human-only close reminder: %#v", callbackTurn)
+	}
+
+	rejectedReservation := manager.reserveAutoClosedSubagentReminder("parent", "rejected-human-turn")
+	rejectedReservation(false)
+	finishReservation := manager.reserveAutoClosedSubagentReminder("parent", "human-turn")
+	finishReservation(true)
+	humanTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "human-turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(humanTurn) != 1 || !strings.Contains(humanTurn[0].Content, "<subagents_automatically_closed>") || !strings.Contains(humanTurn[0].Content, "ember-fox") || !strings.Contains(humanTurn[0].Content, "Never call close_subagent for routine cleanup") {
+		t.Fatalf("human close reminder = %#v", humanTurn)
+	}
+	manager.finishAutoClosedSubagentReminder("parent", "human-turn")
+	later, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "later-human-turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(later) != 0 {
+		t.Fatalf("auto-close reminder replayed: %#v", later)
+	}
+}
+
 func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)

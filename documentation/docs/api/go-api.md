@@ -227,6 +227,13 @@ agent.ReadSubagent(ctx, parentSessionID, subagentID, afterMessageID)
 agent.WaitSubagent(ctx, parentSessionID, subagentIDs, afterVersions)
 ```
 
+`CloseSubagent` is an explicit destructive command: it may interrupt active
+work, drops queued child input, retains transcript/run history, and rejects
+future sends. Bind it to a direct user action. Routine cleanup does not require
+an application call: after a response scope fully settles, AgentCLI
+automatically closes completed and failed children that are not referenced by
+another live scope, while retaining incomplete children for follow-up.
+
 Child decision methods require parent and child ownership in addition to the
 normal correlated decision:
 

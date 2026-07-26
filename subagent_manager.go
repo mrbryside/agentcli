@@ -40,6 +40,10 @@ type subagentManager struct {
 	callbackSubscribers    map[uint64]*subagentCallbackSubscriber
 	callbacksClosed        bool
 
+	reminderMu        sync.Mutex
+	pendingAutoClosed map[string][]autoClosedSubagentNotice
+	turnAutoClosed    map[subagentReminderKey][]autoClosedSubagentNotice
+
 	confirmationMu             sync.Mutex
 	nextConfirmationSubscriber uint64
 	confirmationSubscribers    map[uint64]*subagentConfirmationSubscriber
@@ -78,6 +82,8 @@ func newSubagentManager(parent *Agent, configuration config) (*subagentManager, 
 		parent: parent, store: configuration.subagents, project: configuration.project,
 		config: configuration, ctx: parent.context, instances: make(map[string]*managedSubagent),
 		changed: make(chan struct{}), callbackSubscribers: make(map[uint64]*subagentCallbackSubscriber),
+		pendingAutoClosed:       make(map[string][]autoClosedSubagentNotice),
+		turnAutoClosed:          make(map[subagentReminderKey][]autoClosedSubagentNotice),
 		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
 		permissionSubscribers:   make(map[uint64]*subagentPermissionSubscriber),
 	}, nil
@@ -842,47 +848,65 @@ func (m *subagentManager) interruptParentTurn(parentSessionID, parentTurnID stri
 	}
 }
 
-// Close prevents new work, drops queued work, and retains transcript history.
-// A running child must first finish or be interrupted; closing is lifecycle
-// cleanup and never doubles as cancellation.
-func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (storage.Subagent, error) {
+// autoCloseScopeSubagents releases completed and failed children touched by a
+// quiescent response scope. Incomplete children stay open for future follow-up.
+func (m *subagentManager) autoCloseScopeSubagents(ctx context.Context, parentSessionID, scopeID string, ids []string) {
+	ids = append([]string(nil), ids...)
+	sort.Strings(ids)
+	for _, id := range ids {
+		closed, ok := m.autoCloseScopeSubagent(nonNilContext(ctx), parentSessionID, scopeID, id)
+		if ok {
+			m.recordAutoClosedSubagent(closed)
+		}
+	}
+}
+
+func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSessionID, scopeID, id string) (storage.Subagent, bool) {
 	ctx = nonNilContext(ctx)
 	record, err := m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
-		return storage.Subagent{}, err
+		return storage.Subagent{}, false
 	}
 	instance, instanceErr := m.instance(id)
 	if instanceErr != nil {
-		if record.Status == storage.SubagentStatusRunning {
-			return storage.Subagent{}, storage.ErrSubagentRunning
+		if record.Status != storage.SubagentStatusIdle || len(record.Pending) != 0 {
+			return storage.Subagent{}, false
 		}
 		if err := m.validateSubagentClose(ctx, record); err != nil {
-			return storage.Subagent{}, err
+			return storage.Subagent{}, false
+		}
+		if !m.parent.responseScopes.ChildExclusiveToScope(parentSessionID, scopeID, id) {
+			return storage.Subagent{}, false
 		}
 		closed, closeErr := m.store.Close(ctx, id)
 		if closeErr == nil {
 			m.signalChanged()
+			return closed, true
 		}
-		return closed, closeErr
+		return storage.Subagent{}, false
 	}
 	instance.mu.Lock()
 	record, err = m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
 		instance.mu.Unlock()
-		return storage.Subagent{}, err
+		return storage.Subagent{}, false
 	}
-	if record.Status == storage.SubagentStatusRunning {
+	if record.Status != storage.SubagentStatusIdle || len(record.Pending) != 0 {
 		instance.mu.Unlock()
-		return storage.Subagent{}, storage.ErrSubagentRunning
+		return storage.Subagent{}, false
 	}
 	if err := m.validateSubagentClose(ctx, record); err != nil {
 		instance.mu.Unlock()
-		return storage.Subagent{}, err
+		return storage.Subagent{}, false
+	}
+	if !m.parent.responseScopes.ChildExclusiveToScope(parentSessionID, scopeID, id) {
+		instance.mu.Unlock()
+		return storage.Subagent{}, false
 	}
 	closed, err := m.store.Close(ctx, id)
 	if err != nil {
 		instance.mu.Unlock()
-		return storage.Subagent{}, err
+		return storage.Subagent{}, false
 	}
 	child := instance.agent
 	instance.agent = nil
@@ -891,33 +915,31 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		_ = child.Close()
 	}
 	m.signalChanged()
-	return closed, nil
+	return closed, true
 }
 
-// ForceCloseSubagent bypasses normal outcome and callback-consumption guards
-// for an explicit user-directed destructive close. It atomically marks the
-// child closed before interrupting its run so completion cannot dequeue more
-// mailbox work or publish a fresh callback after the force close begins.
-func (m *subagentManager) ForceCloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentForceCloseResult, error) {
+// CloseSubagent destructively closes one owned child for an explicit caller
+// request. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
+func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentCloseResult, error) {
 	ctx = nonNilContext(ctx)
 	record, err := m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
-		return toolexecution.SubagentForceCloseResult{}, err
+		return toolexecution.SubagentCloseResult{}, err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return toolexecution.SubagentForceCloseResult{}, storage.ErrSubagentClosed
+		return toolexecution.SubagentCloseResult{}, storage.ErrSubagentClosed
 	}
 	instance, instanceErr := m.instance(id)
 	if instanceErr != nil {
 		if record.Status == storage.SubagentStatusRunning {
-			return toolexecution.SubagentForceCloseResult{}, fmt.Errorf("force close running subagent: runtime instance unavailable: %w", instanceErr)
+			return toolexecution.SubagentCloseResult{}, fmt.Errorf("close running subagent: runtime instance unavailable: %w", instanceErr)
 		}
 		closed, closeErr := m.store.Close(ctx, id)
 		if closeErr != nil {
-			return toolexecution.SubagentForceCloseResult{}, closeErr
+			return toolexecution.SubagentCloseResult{}, closeErr
 		}
 		m.signalChanged()
-		return toolexecution.SubagentForceCloseResult{
+		return toolexecution.SubagentCloseResult{
 			Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 			DroppedMessages: len(record.Pending),
 		}, nil
@@ -927,34 +949,64 @@ func (m *subagentManager) ForceCloseSubagent(ctx context.Context, parentSessionI
 	record, err = m.getOwned(ctx, parentSessionID, id)
 	if err != nil {
 		instance.mu.Unlock()
-		return toolexecution.SubagentForceCloseResult{}, err
+		return toolexecution.SubagentCloseResult{}, err
 	}
 	if record.Status == storage.SubagentStatusClosed {
 		instance.mu.Unlock()
-		return toolexecution.SubagentForceCloseResult{}, storage.ErrSubagentClosed
+		return toolexecution.SubagentCloseResult{}, storage.ErrSubagentClosed
 	}
 	run := instance.run
 	child := instance.agent
 	closed, err := m.store.Close(ctx, id)
 	if err != nil {
 		instance.mu.Unlock()
-		return toolexecution.SubagentForceCloseResult{}, err
+		return toolexecution.SubagentCloseResult{}, err
 	}
 	instance.agent = nil
 	instance.mu.Unlock()
 
 	interrupted := record.Status == storage.SubagentStatusRunning && run != nil && !run.Done()
 	if interrupted {
-		_ = run.Interrupt(context.Background(), "subagent force closed by explicit user request")
+		_ = run.Interrupt(context.Background(), "subagent closed by explicit user request")
 	}
 	if child != nil {
 		_ = child.Close()
 	}
 	m.signalChanged()
-	return toolexecution.SubagentForceCloseResult{
+	return toolexecution.SubagentCloseResult{
 		Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
 		DroppedMessages: len(record.Pending), Interrupted: interrupted,
 	}, nil
+}
+
+// CloseSubagentFromParentTurn requires same-turn human-message evidence before
+// the model-facing destructive close can reach the lifecycle operation.
+func (m *subagentManager) CloseSubagentFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id, userInstruction string) (toolexecution.SubagentCloseResult, error) {
+	if err := m.validateUserDirectedClose(nonNilContext(ctx), parentSessionID, parentTurnID, userInstruction); err != nil {
+		return toolexecution.SubagentCloseResult{}, err
+	}
+	return m.CloseSubagent(ctx, parentSessionID, id)
+}
+
+func (m *subagentManager) validateUserDirectedClose(ctx context.Context, parentSessionID, parentTurnID, userInstruction string) error {
+	userInstruction = strings.TrimSpace(userInstruction)
+	if userInstruction == "" {
+		return errors.New("close_subagent requires an exact instruction from the latest human user message")
+	}
+	messages, err := m.parent.ListMessages(ctx, parentSessionID)
+	if err != nil {
+		return fmt.Errorf("read parent close authorization: %w", err)
+	}
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.TurnID != parentTurnID {
+			continue
+		}
+		if message.Type == agentruntime.MessageTypeUser && strings.TrimSpace(message.Content) == userInstruction {
+			return nil
+		}
+	}
+	return errors.New("close_subagent is allowed only when user_instruction exactly matches the current human user message")
 }
 
 // validateSubagentClose makes close a cleanup-only operation. An idle state

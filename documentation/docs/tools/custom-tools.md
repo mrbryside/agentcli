@@ -133,7 +133,10 @@ agentcli.Tool{
 The model receives a successful `status=deferred` tool result while the scope
 is active; the handler is not called yet. The runtime retains the latest
 candidate and invokes it exactly once when every turn and accepted subagent
-callback in the response scope has settled. Only a successful terminal
+callback in the response scope has settled. Before invoking deferred handlers,
+the runtime automatically reconciles children touched by that scope: unshared
+completed/failed children close, while incomplete children remain available
+for follow-up. Only a successful terminal
 all-end batch satisfies completion; an earlier call
 or a mixed continuing batch does not. If the model attempts to finish while a
 finalizer is missing, the completion guard starts another provider round with a

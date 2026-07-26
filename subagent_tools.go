@@ -10,12 +10,11 @@ const (
 	SubagentStatusToolName      = toolexecution.SubagentStatusToolName
 	SendSubagentMessageToolName = toolexecution.SendSubagentMessageToolName
 	CloseSubagentToolName       = toolexecution.CloseSubagentToolName
-	ForceCloseSubagentToolName  = toolexecution.ForceCloseSubagentToolName
 )
 
 var subagentToolNames = map[string]struct{}{
 	StartSubagentToolName: {}, ListSubagentsToolName: {}, SubagentStatusToolName: {},
-	SendSubagentMessageToolName: {}, CloseSubagentToolName: {}, ForceCloseSubagentToolName: {},
+	SendSubagentMessageToolName: {}, CloseSubagentToolName: {},
 }
 
 func isSubagentToolName(name string) bool { return toolexecution.IsSubagentToolName(name) }

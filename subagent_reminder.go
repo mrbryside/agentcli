@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"sort"
 	"strings"
 	"sync"
 
@@ -11,24 +12,109 @@ import (
 	"github.com/mrbryside/agentcli/storage"
 )
 
+type subagentReminderKey struct {
+	sessionID string
+	turnID    string
+}
+
+type autoClosedSubagentNotice struct {
+	ID          string
+	DisplayName string
+	Outcome     storage.SubagentTurnOutcome
+}
+
+func (m *subagentManager) recordAutoClosedSubagent(record storage.Subagent) {
+	if m == nil || record.ParentSessionID == "" || record.ID == "" {
+		return
+	}
+	notice := autoClosedSubagentNotice{ID: record.ID, DisplayName: record.DisplayName, Outcome: record.LastTurnOutcome}
+	m.reminderMu.Lock()
+	m.pendingAutoClosed[record.ParentSessionID] = append(m.pendingAutoClosed[record.ParentSessionID], notice)
+	m.reminderMu.Unlock()
+}
+
+// reserveAutoClosedSubagentReminder assigns pending notices only to a new
+// human root turn. The rollback function restores them if turn admission fails.
+func (m *subagentManager) reserveAutoClosedSubagentReminder(sessionID, turnID string) func(bool) {
+	if m == nil || sessionID == "" || turnID == "" {
+		return func(bool) {}
+	}
+	key := subagentReminderKey{sessionID: sessionID, turnID: turnID}
+	m.reminderMu.Lock()
+	notices := append([]autoClosedSubagentNotice(nil), m.pendingAutoClosed[sessionID]...)
+	if len(notices) != 0 {
+		delete(m.pendingAutoClosed, sessionID)
+		m.turnAutoClosed[key] = notices
+	}
+	m.reminderMu.Unlock()
+
+	var once sync.Once
+	return func(accepted bool) {
+		once.Do(func() {
+			if accepted || len(notices) == 0 {
+				return
+			}
+			m.reminderMu.Lock()
+			delete(m.turnAutoClosed, key)
+			m.pendingAutoClosed[sessionID] = append(notices, m.pendingAutoClosed[sessionID]...)
+			m.reminderMu.Unlock()
+		})
+	}
+}
+
+func (m *subagentManager) finishAutoClosedSubagentReminder(sessionID, turnID string) {
+	if m == nil {
+		return
+	}
+	m.reminderMu.Lock()
+	delete(m.turnAutoClosed, subagentReminderKey{sessionID: sessionID, turnID: turnID})
+	m.reminderMu.Unlock()
+}
+
+func (m *subagentManager) autoClosedSubagentReminders(sessionID, turnID string) []agentruntime.ContextReminder {
+	if m == nil || sessionID == "" || turnID == "" {
+		return nil
+	}
+	m.reminderMu.Lock()
+	notices := append([]autoClosedSubagentNotice(nil), m.turnAutoClosed[subagentReminderKey{sessionID: sessionID, turnID: turnID}]...)
+	m.reminderMu.Unlock()
+	if len(notices) == 0 {
+		return nil
+	}
+	sort.Slice(notices, func(i, j int) bool {
+		if notices[i].DisplayName == notices[j].DisplayName {
+			return notices[i].ID < notices[j].ID
+		}
+		return notices[i].DisplayName < notices[j].DisplayName
+	})
+	var content strings.Builder
+	content.WriteString("<subagents_automatically_closed>\n")
+	for _, notice := range notices {
+		content.WriteString("  <subagent>\n")
+		fmt.Fprintf(&content, "    <id>%s</id>\n", html.EscapeString(notice.ID))
+		fmt.Fprintf(&content, "    <display_name>%s</display_name>\n", html.EscapeString(notice.DisplayName))
+		fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(notice.Outcome)))
+		content.WriteString("  </subagent>\n")
+	}
+	content.WriteString("  <instruction>These completed or failed children were automatically closed after the previous response scope. They cannot receive follow-up messages. Start a new subagent if more work is required. Never call close_subagent for routine cleanup; it is reserved for an explicit instruction in the current human user message.</instruction>\n")
+	content.WriteString("</subagents_automatically_closed>")
+	return []agentruntime.ContextReminder{{Content: content.String()}}
+}
+
 // subagentReminderProvider derives only session-scoped lifecycle metadata.
 // Child results arrive through callbacks; the reminder is the authoritative
 // current snapshot for deciding whether to work or wait without polling.
 func subagentReminderProvider(manager *subagentManager) agentruntime.ContextReminderProvider {
-	type reminderKey struct {
-		sessionID string
-		turnID    string
-	}
 	const maximumSnapshots = 256
 	var snapshotsMu sync.Mutex
-	snapshots := make(map[reminderKey][]agentruntime.ContextReminder)
-	order := make([]reminderKey, 0, maximumSnapshots)
+	snapshots := make(map[subagentReminderKey][]agentruntime.ContextReminder)
+	order := make([]subagentReminderKey, 0, maximumSnapshots)
 
 	return func(ctx context.Context, request agentruntime.ContextReminderRequest) ([]agentruntime.ContextReminder, error) {
 		if manager == nil || strings.TrimSpace(request.SessionID) == "" {
 			return nil, nil
 		}
-		key := reminderKey{sessionID: request.SessionID, turnID: request.TurnID}
+		key := subagentReminderKey{sessionID: request.SessionID, turnID: request.TurnID}
 		if request.TurnID != "" {
 			snapshotsMu.Lock()
 			cached, found := snapshots[key]
@@ -41,11 +127,12 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 		if err != nil {
 			return nil, err
 		}
+		resolved := manager.autoClosedSubagentReminders(request.SessionID, request.TurnID)
 		if len(records) == 0 {
 			if request.TurnID != "" {
 				snapshotsMu.Lock()
 				if _, found := snapshots[key]; !found {
-					snapshots[key] = nil
+					snapshots[key] = cloneSubagentReminders(resolved)
 					order = append(order, key)
 					if len(order) > maximumSnapshots {
 						delete(snapshots, order[0])
@@ -54,7 +141,7 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 				}
 				snapshotsMu.Unlock()
 			}
-			return nil, nil
+			return resolved, nil
 		}
 
 		var content strings.Builder
@@ -98,9 +185,9 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting, and never close a running child. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback.</callback_policy>\n")
+		content.WriteString("  <callback_policy>Dispatch is not completion. Never poll list_subagents or subagent_status while waiting. Use a delivered callback, do independent work, send one focused follow-up for an incomplete outcome, or end the turn and wait passively for the next callback. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Never call close_subagent for routine cleanup.</callback_policy>\n")
 		content.WriteString("</active_subagents>")
-		resolved := []agentruntime.ContextReminder{{Content: content.String()}}
+		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
 		if request.TurnID != "" {
 			snapshotsMu.Lock()
 			if _, found := snapshots[key]; !found {

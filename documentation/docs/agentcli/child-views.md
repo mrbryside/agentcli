@@ -282,10 +282,14 @@ DELETE /v1/sessions/{parentSessionID}/subagents/{subagentID}
 An idle incomplete, completed, or failed child can receive another message only
 after its latest callback was consumed. A running child accepts queued input.
 
-Closing is cleanup for a completed or failed child whose latest callback was
-consumed, and rejects future messages. It does not delete the transcript or
-completed event history. Running, incomplete, and callback-pending children
-return `409 conflict`. Mark a successfully closed view read-only and keep it
+The response-scope runtime automatically closes settled `completed` and
+`failed` children after their callback continuation ends. It retains
+`incomplete` children and any child referenced by another live response scope.
+
+HTTP `DELETE` is an explicit destructive command, not routine cleanup. It can
+interrupt a running child, removes queued messages, and closes incomplete work.
+Expose it only from a direct user action. It does not delete the transcript or
+completed event history. Mark a successfully closed view read-only and keep it
 available when `include_closed=true` is requested.
 
 ### Restore views after application reload
@@ -462,7 +466,7 @@ err := agent.InterruptSubagent(
 )
 ```
 
-Close the child after its completed or failed callback has been consumed:
+For an explicit user-directed destructive close:
 
 ```go
 closed, err := agent.CloseSubagent(ctx, parentSessionID, child.ID)
@@ -472,21 +476,11 @@ if err != nil {
 childStore.Replace(closed.ID, closed)
 ```
 
-When the latest user action explicitly requests destructive shutdown, force
-close can bypass the normal outcome and callback guards:
-
-```go
-closed, err := agent.ForceCloseSubagent(ctx, parentSessionID, child.ID)
-if err != nil {
-    return err
-}
-childStore.Replace(closed.ID, closed)
-```
-
-Force close interrupts active work, removes queued child messages, rejects
-future sends, and does not ask for confirmation. It still retains the child
-transcript and completed event history for a read-only view. Do not expose it
-as an automatic cleanup path; bind it to an explicit user action.
+`CloseSubagent` interrupts active work when necessary, removes queued child
+messages, and rejects future sends. It still retains the child transcript and
+completed event history for a read-only view. Do not expose it as an automatic
+cleanup path; bind it to an explicit user action. Routine completed/failed
+cleanup is owned by the response-scope runtime.
 
 Closing retains the transcript. Keep the view available as read-only when the
 application lists children with `includeClosed` set to `true`.

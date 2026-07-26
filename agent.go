@@ -165,6 +165,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			return nil, fmt.Errorf("create subagent manager: %w", err)
 		}
 		subagentTools.Bind(manager)
+		agent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
 	}
 	reminderProvider := configuration.contextReminderProvider
 	var completionGuard agentruntime.CompletionGuard
@@ -350,14 +351,18 @@ func (a *Agent) Start(ctx context.Context, request agentruntime.Request) (*agent
 	if err := ensureResponseTurnID(&request); err != nil {
 		return nil, err
 	}
+	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
 	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+		finishReminderReservation(false)
 		return nil, err
 	}
 	run, err := a.runtime.Start(ctx, request)
 	if err != nil {
 		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		finishReminderReservation(false)
 		return nil, err
 	}
+	finishReminderReservation(true)
 	a.watchAcceptedRun(run)
 	return run, nil
 }
@@ -392,14 +397,18 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	if err := ensureResponseTurnID(&request); err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
+	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
 	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	run, subscription, err := a.runtime.StartSubscribed(ctx, request)
 	if err != nil {
 		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
+	finishReminderReservation(true)
 	a.watchAcceptedRun(run)
 	return run, subscription, nil
 }
@@ -504,11 +513,13 @@ func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	reservation.Commit()
-	a.watchAcceptedRun(run)
 	// The callback itself carries the final answer, so observation failure does
 	// not invalidate an already-running continuation. It only leaves the
 	// durable fallback unread for a future turn.
 	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
+	// Install the response-scope completion watcher only after observation so
+	// a very fast callback continuation cannot finalize its scope first.
+	a.watchAcceptedRun(run)
 	return run, subscription, nil
 }
 
@@ -531,6 +542,13 @@ func ensureResponseTurnID(request *agentruntime.Request) error {
 	return nil
 }
 
+func (a *Agent) reserveAutoClosedSubagentReminder(request agentruntime.Request) func(bool) {
+	if a == nil || a.subagents == nil || request.Message.Type != agentruntime.MessageTypeUser {
+		return func(bool) {}
+	}
+	return a.subagents.reserveAutoClosedSubagentReminder(request.SessionID, request.TurnID)
+}
+
 func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
 	if run == nil {
 		return
@@ -543,6 +561,9 @@ func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
 		for range subscription.Events {
 		}
 		a.responseScopes.FinishTurn(run.SessionID(), run.TurnID())
+		if a.subagents != nil {
+			a.subagents.finishAutoClosedSubagentReminder(run.SessionID(), run.TurnID())
+		}
 	}()
 }
 
@@ -695,25 +716,15 @@ func (a *Agent) SendSubagentMessage(ctx context.Context, parentSessionID, subage
 	return manager.Send(ctx, parentSessionID, subagentID, message)
 }
 
-// CloseSubagent closes one owned, completed or failed child after its latest
-// callback has been consumed, and retains its transcript history.
+// CloseSubagent destructively closes one owned child, interrupts active work,
+// drops queued input, and retains transcript history. Applications should call
+// it only for an explicit user-directed close.
 func (a *Agent) CloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return manager.CloseSubagent(ctx, parentSessionID, subagentID)
-}
-
-// ForceCloseSubagent interrupts and closes one owned child regardless of its
-// current outcome or callback state. Callers should expose this only for an
-// explicit user-directed destructive action.
-func (a *Agent) ForceCloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
-	manager, err := a.subagentManager()
-	if err != nil {
-		return storage.Subagent{}, err
-	}
-	result, err := manager.ForceCloseSubagent(ctx, parentSessionID, subagentID)
+	result, err := manager.CloseSubagent(ctx, parentSessionID, subagentID)
 	return result.Subagent, err
 }
 

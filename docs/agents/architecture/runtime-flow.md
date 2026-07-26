@@ -24,6 +24,16 @@ Prompt-backed input guards are one-shot model checks before the main provider lo
 
 `Run` owns one turn's event history, subscriber queues, state, controls, and final result. A terminal event is not externally done until its effects—including transcript persistence—finish; only then do `Done`, `Status`, `Result`, and subscriber closure expose completion. This prevents completion callbacks from racing the final stored assistant message. Interruption cancels the provider, sends a turn-scoped tool interrupt, records synthetic interrupted results where needed, and terminates with `ErrRunInterrupted`. Keep session/turn/call correlation intact across every channel.
 
+At the Agent facade, one accepted human root turn opens one in-memory response
+scope. Accepted subagent dispatches increment that scope's callback barrier;
+callback continuations reserve and settle the matching dispatch, remain in the
+originating scope, and may accept follow-up dispatches that reopen the barrier.
+The scope finalizes only when active turns and pending callbacks both reach
+zero. Its cleanup phase runs before deferred `EndResponseScope` handlers:
+completed/failed children touched only by that scope close automatically,
+incomplete or cross-scope children remain open, and successful closes become a
+one-shot trusted reminder reserved for the next human root turn.
+
 Pure transition and folding duties live in `state.go`, `transition.go`, `effect.go`, and `result.go`; orchestration belongs in `runtime.go`, `run.go`, and `router.go`.
 
 Back to [architecture/index.md](index.md).

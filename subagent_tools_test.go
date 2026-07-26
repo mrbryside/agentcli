@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/toolexecution"
 )
@@ -87,93 +88,11 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	}
 }
 
-func TestCloseSubagentToolRejectsRunningChildUntilItsCallbackCanFinish(t *testing.T) {
+func TestCloseSubagentToolRequiresCurrentHumanInstructionAndClosesImmediately(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
 	bridge := newTestSubagentToolBridge(manager)
-	startCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "start-turn", CallID: "start", ToolName: StartSubagentToolName})
-	startedJSON, err := callSubagentTool(bridge, StartSubagentToolName, startCtx, json.RawMessage(`{"name":"researcher","message":"work"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var started struct {
-		ID string `json:"subagent_id"`
-	}
-	if err := json.Unmarshal(startedJSON, &started); err != nil {
-		t.Fatal(err)
-	}
-	closeCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "start-turn", CallID: "close", ToolName: CloseSubagentToolName})
-	conflictJSON, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var conflict struct {
-		Closed      bool   `json:"closed"`
-		Action      string `json:"action"`
-		Instruction string `json:"instruction"`
-	}
-	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "still_running" || !strings.Contains(conflict.Instruction, "Do not retry") {
-		t.Fatalf("close running child result = %s (%v)", conflictJSON, err)
-	}
-	record, found, err := manager.store.Get(context.Background(), started.ID)
-	if err != nil || !found || record.Status != storage.SubagentStatusRunning {
-		t.Fatalf("child after rejected close = (%#v, %v, %v)", record, found, err)
-	}
-	model.releases <- struct{}{}
-	awaitSubagentStatus(t, manager, started.ID, storage.SubagentStatusIdle)
-	closeCtx = toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "callback-turn", CallID: "close", ToolName: CloseSubagentToolName})
-	conflictJSON, err = callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "incomplete" || !strings.Contains(conflict.Instruction, "Do not retry") {
-		t.Fatalf("close incomplete child result = %s (%v)", conflictJSON, err)
-	}
-	callback := markTestSubagentCompleted(t, manager, started.ID)
-	conflictJSON, err = callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(conflictJSON, &conflict); err != nil || conflict.Closed || conflict.Action != "callback_pending" || !strings.Contains(conflict.Instruction, "Do not retry") {
-		t.Fatalf("close before callback observation result = %s (%v)", conflictJSON, err)
-	}
-	observeTestSubagentCallback(t, manager, callback)
-	closedJSON, err := callSubagentTool(bridge, CloseSubagentToolName, closeCtx, json.RawMessage(`{"subagent_id":"`+started.ID+`"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var closed struct {
-		Subagent     toolexecution.SubagentToolSummary `json:"subagent"`
-		TurnBehavior string                            `json:"turn_behavior"`
-		Instruction  string                            `json:"instruction"`
-	}
-	if err := json.Unmarshal(closedJSON, &closed); err != nil {
-		t.Fatal(err)
-	}
-	if closed.Subagent.Status != storage.SubagentStatusClosed || closed.TurnBehavior != "continue_turn" || !strings.Contains(closed.Instruction, "normal provider round") {
-		t.Fatalf("default close result = %s", closedJSON)
-	}
-}
-
-func TestForceCloseSubagentToolIsImmediateAndDoesNotRequireConfirmation(t *testing.T) {
-	model := &subagentGateModel{releases: make(chan struct{})}
-	manager := newTestSubagentManager(t, model, 1)
-	defer manager.Close()
-	bridge := newTestSubagentToolBridge(manager)
-
-	var forceTool *toolexecution.Tool
-	for index := range bridge.Tools() {
-		tool := bridge.Tools()[index]
-		if tool.Definition.Name == ForceCloseSubagentToolName {
-			forceTool = &tool
-			break
-		}
-	}
-	if forceTool == nil || forceTool.Confirmation != nil {
-		t.Fatalf("force-close tool confirmation = %#v, want nil", forceTool)
-	}
-
 	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
 	if err != nil {
 		t.Fatal(err)
@@ -181,10 +100,21 @@ func TestForceCloseSubagentToolIsImmediateAndDoesNotRequireConfirmation(t *testi
 	if _, err := manager.Send(context.Background(), "parent", record.ID, "queued"); err != nil {
 		t.Fatal(err)
 	}
+	appendParentUserMessage(t, manager, "parent", "close-turn", "please close that researcher now")
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "parent", TurnID: "force-turn", CallID: "force-call", ToolName: ForceCloseSubagentToolName,
+		SessionID: "parent", TurnID: "close-turn", CallID: "close-call", ToolName: CloseSubagentToolName,
 	})
-	output, err := callSubagentTool(bridge, ForceCloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`"}`))
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"invented authorization"}`)); err == nil || !strings.Contains(err.Error(), "current human user message") {
+		t.Fatalf("missing same-turn authorization error = %v", err)
+	}
+	appendParentRuntimeMessage(t, manager, "parent", "callback-turn", "close that researcher")
+	callbackCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+		SessionID: "parent", TurnID: "callback-turn", CallID: "callback-close", ToolName: CloseSubagentToolName,
+	})
+	if _, err := callSubagentTool(bridge, CloseSubagentToolName, callbackCtx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"close that researcher"}`)); err == nil || !strings.Contains(err.Error(), "current human user message") {
+		t.Fatalf("callback close authorization error = %v", err)
+	}
+	output, err := callSubagentTool(bridge, CloseSubagentToolName, ctx, json.RawMessage(`{"subagent_id":"`+record.ID+`","user_instruction":"please close that researcher now"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,23 +123,23 @@ func TestForceCloseSubagentToolIsImmediateAndDoesNotRequireConfirmation(t *testi
 		PreviousStatus  storage.SubagentStatus            `json:"previous_status"`
 		DroppedMessages int                               `json:"dropped_messages"`
 		Interrupted     bool                              `json:"interrupted"`
-		Forced          bool                              `json:"forced"`
+		UserDirected    bool                              `json:"user_directed"`
 		TurnBehavior    string                            `json:"turn_behavior"`
 		Instruction     string                            `json:"instruction"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.Forced || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed force close completed") || !strings.Contains(result.Instruction, "normal response or required finalizer") {
-		t.Fatalf("force-close result = %s", output)
+	if result.Subagent.Status != storage.SubagentStatusClosed || result.PreviousStatus != storage.SubagentStatusRunning || result.DroppedMessages != 1 || !result.Interrupted || !result.UserDirected || result.TurnBehavior != "continue_turn" || strings.Contains(string(output), `"finish_turn"`) || !strings.Contains(result.Instruction, "User-directed close completed") || !strings.Contains(result.Instruction, "normal response or required finalizer") {
+		t.Fatalf("close result = %s", output)
 	}
 }
 
 func TestSubagentToolFactoriesAreCompleteAndReserved(t *testing.T) {
 	bridge := toolexecution.NewSubagentToolBridge()
 	tools := bridge.Tools()
-	if len(tools) != 6 {
-		t.Fatalf("tool count = %d, want 6", len(tools))
+	if len(tools) != 5 {
+		t.Fatalf("tool count = %d, want 5", len(tools))
 	}
 	seen := make(map[string]bool)
 	for _, tool := range tools {
@@ -477,7 +407,7 @@ func TestSubagentToolsRejectRemovedFinishTurnOption(t *testing.T) {
 		{"start background", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","background":false}`)},
 		{"start finish", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","finish_turn":true}`)},
 		{"send finish", SendSubagentMessageToolName, json.RawMessage(`{"subagent_id":"child","message":"continue","finish_turn":true}`)},
-		{"force-close finish", ForceCloseSubagentToolName, json.RawMessage(`{"subagent_id":"child","finish_turn":true}`)},
+		{"close finish", CloseSubagentToolName, json.RawMessage(`{"subagent_id":"child","user_instruction":"close it","finish_turn":true}`)},
 	}
 	for _, test := range tests {
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
@@ -493,6 +423,36 @@ func newTestSubagentToolBridge(manager *subagentManager) *toolexecution.Subagent
 	bridge := toolexecution.NewSubagentToolBridge()
 	bridge.Bind(manager)
 	return bridge
+}
+
+func appendParentUserMessage(t *testing.T, manager *subagentManager, sessionID, turnID, content string) {
+	t.Helper()
+	err := manager.parent.messages.Append(context.Background(), agentruntime.Message{
+		ID:        "message-" + turnID,
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      agentruntime.MessageTypeUser,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendParentRuntimeMessage(t *testing.T, manager *subagentManager, sessionID, turnID, content string) {
+	t.Helper()
+	err := manager.parent.messages.Append(context.Background(), agentruntime.Message{
+		ID:        "message-" + turnID,
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Type:      agentruntime.MessageTypeRuntimeEvent,
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func callSubagentTool(bridge *toolexecution.SubagentToolBridge, name string, ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {

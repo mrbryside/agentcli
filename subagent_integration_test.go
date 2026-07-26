@@ -39,8 +39,8 @@ func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.
 	}
 	waitRun(t, parentRun)
 	for _, request := range parentModel.Requests() {
-		if len(request.Tools) != 6 {
-			t.Fatalf("parent provider tool count = %d, want static six: %#v", len(request.Tools), request.Tools)
+		if len(request.Tools) != 5 {
+			t.Fatalf("parent provider tool count = %d, want static five: %#v", len(request.Tools), request.Tools)
 		}
 		for _, tool := range request.Tools {
 			if tool.Name == "read_subagent" || tool.Name == "wait_subagent" {
@@ -352,7 +352,7 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 	}
 }
 
-func TestSubagentIntegrationCloseContinuesWithUserVisibleAnswer(t *testing.T) {
+func TestSubagentIntegrationAutoClosesAfterUserVisibleCallbackAnswer(t *testing.T) {
 	parentModel := &continuingCloseCallbackParentModel{}
 	childModel := newIntegrationCompletedChildModel("verified child result", "The delegated work completed.")
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
@@ -394,18 +394,12 @@ func TestSubagentIntegrationCloseContinuesWithUserVisibleAnswer(t *testing.T) {
 	if continuation.CompletionRepairCount() != 0 {
 		t.Fatalf("callback delivery repairs = %d, want 0", continuation.CompletionRepairCount())
 	}
-	record, err := agent.subagents.getOwned(context.Background(), "parent", callback.SubagentID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Status != storage.SubagentStatusClosed {
-		t.Fatalf("child status = %q, want closed", record.Status)
-	}
+	awaitSubagentStatus(t, agent.subagents, callback.SubagentID, storage.SubagentStatusClosed)
 	requests := parentModel.Requests()
-	if len(requests) != 4 {
-		t.Fatalf("parent provider requests = %d, want start, post-start completion, close, normal continuation", len(requests))
+	if len(requests) != 3 {
+		t.Fatalf("parent provider requests = %d, want start, post-start completion, callback delivery", len(requests))
 	}
-	continuationRequest := requests[3]
+	continuationRequest := requests[2]
 	if len(continuationRequest.Tools) == 0 || strings.Contains(integrationReminderContents(continuationRequest.ContextReminders), "no user-visible assistant response") {
 		t.Fatalf("normal continuation request = %#v", continuationRequest)
 	}
@@ -761,12 +755,6 @@ func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request ag
 		}}, Finished: true}
 	case 1:
 		result = provider.StreamResult{Content: "Delegation is running asynchronously.", Finished: true}
-	case 2:
-		callbackID := integrationCallbackSubagentID(request.Messages)
-		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
-			ID: "close-child", Name: CloseSubagentToolName,
-			Arguments: map[string]any{"subagent_id": callbackID},
-		}}, Finished: true}
 	default:
 		result = provider.StreamResult{Content: "The delegated work completed. Verified child result.", Finished: true}
 	}
@@ -777,28 +765,6 @@ func (m *continuingCloseCallbackParentModel) Requests() []agentruntime.ModelRequ
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]agentruntime.ModelRequest(nil), m.requests...)
-}
-
-func integrationCallbackSubagentID(messages []agentruntime.Message) string {
-	for _, message := range messages {
-		if message.Type != agentruntime.MessageTypeRuntimeEvent {
-			continue
-		}
-		const opening = "<subagent_callback>"
-		const closing = "</subagent_callback>"
-		start := strings.Index(message.Content, opening)
-		end := strings.LastIndex(message.Content, closing)
-		if start < 0 || end <= start {
-			continue
-		}
-		var callback struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal([]byte(strings.TrimSpace(message.Content[start+len(opening):end])), &callback) == nil {
-			return callback.ID
-		}
-	}
-	return ""
 }
 
 func integrationReminderContents(reminders []agentruntime.ContextReminder) string {

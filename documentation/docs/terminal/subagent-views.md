@@ -85,24 +85,26 @@ child output into the selected child view.
 
 The Terminal and its repository playground use the framework-owned subagent
 tool contract directly; they do not maintain a separate schema. Model-facing
-`start_subagent`, `send_subagent_message`, and `force_close_subagent` calls
-return control to the parent. Accepted start/send results require the parent to
+`start_subagent`, `send_subagent_message`, and explicitly user-directed
+`close_subagent` calls return control to the parent. Accepted start/send results require the parent to
 finish its current turn before the authoritative callback can resume the root
 session. Independent work may continue meanwhile only when it neither
 duplicates the delegated task nor depends on its result.
 
 ## Close a child
 
-Close an instance when its task and follow-ups are finished:
+The runtime automatically closes completed and failed children at the end of
+their settled response scope. Incomplete children remain available for
+follow-up. Use `/close` only when the user explicitly wants to stop, discard,
+or close a child immediately:
 
 ```text
 /close Sol
 ```
 
-Only a child with a `completed` or `failed` outcome and consumed latest callback
-can be closed. Running, incomplete, and callback-pending children are rejected.
+The command can interrupt a running child and drops queued child messages.
 Closing preserves the stored transcript but changes its lifecycle state to
-closed.
+closed, so the view remains available as read-only history.
 
 ## View isolation
 

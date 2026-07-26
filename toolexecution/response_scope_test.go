@@ -3,6 +3,7 @@ package toolexecution
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
@@ -151,6 +152,103 @@ func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *test
 		t.Fatalf("ReserveCallbackTurn() after rollback error = %v", err)
 	}
 	retry.Commit()
+}
+
+func TestResponseScopeCleanupRunsBeforeDeferredHandlersAndSeesTouchedChildren(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	var events []string
+	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, children []string) {
+		events = append(events, "cleanup:"+sessionID+":"+scopeID+":"+strings.Join(children, ","))
+	})
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback.Commit()
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("root-turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		events = append(events, "handler")
+		return json.RawMessage(`{}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.FinishTurn("session", "root-turn")
+	coordinator.FinishTurn("session", "callback-turn")
+	if got, want := strings.Join(events, "|"), "cleanup:session:root-turn:child|handler"; got != want {
+		t.Fatalf("scope finalization order = %q, want %q", got, want)
+	}
+}
+
+func TestResponseScopeChildExclusiveRejectsAnotherLiveScopeReference(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	var exclusive bool
+	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, children []string) {
+		exclusive = coordinator.ChildExclusiveToScope(sessionID, scopeID, children[0])
+	})
+	if err := coordinator.BeginRootTurn("session", "first"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "first", "child", "first-dispatch")
+	if err := coordinator.BeginRootTurn("session", "second"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatch("session", "second", "child", "second-dispatch")
+	firstCallback, err := coordinator.ReserveCallbackTurn("session", "first-callback", "child", "first-child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCallback.Commit()
+	secondCallback, err := coordinator.ReserveCallbackTurn("session", "second-callback", "child", "second-child-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCallback.Commit()
+	coordinator.FinishTurn("session", "first")
+	coordinator.FinishTurn("session", "first-callback")
+	if exclusive {
+		t.Fatal("child referenced by another live scope was reported exclusive")
+	}
+}
+
+func TestResponseScopeCleanupFailureDoesNotSuppressDeferredHandler(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	coordinator.SetCleanup(func(context.Context, string, string, []string) {
+		panic("cleanup failed")
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	if _, err := coordinator.StageEndResponseScope(context.Background(), scopeToolRequest("turn", `{}`), func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.FinishTurn("session", "turn")
+	if calls != 1 {
+		t.Fatalf("deferred handler calls = %d, want one after cleanup failure", calls)
+	}
+}
+
+func TestResponseScopeRolledBackDispatchIsNotCleanupCandidate(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	var children []string
+	coordinator.SetCleanup(func(_ context.Context, _, _ string, ids []string) {
+		children = append(children, ids...)
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	rollback := coordinator.RegisterDispatch("session", "turn", "child", "dispatch")
+	rollback()
+	coordinator.FinishTurn("session", "turn")
+	if len(children) != 0 {
+		t.Fatalf("rolled-back dispatch cleanup candidates = %v", children)
+	}
 }
 
 func TestExecutorEndResponseScopeReturnsDeferredWithoutCallingHandler(t *testing.T) {

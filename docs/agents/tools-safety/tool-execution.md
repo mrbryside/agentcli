@@ -29,14 +29,13 @@ The zero lifecycle is the normal immediate handler followed by another provider
 round. `Lifecycle: EndTurn` makes the tool a required turn finalizer.
 `Lifecycle: EndResponseScope` makes it a required response-scope finalizer.
 Application tools configure completion policy only through `Tool.Lifecycle`. Framework
-`start_subagent`, `send_subagent_message`, and `force_close_subagent` always
+`start_subagent`, `send_subagent_message`, and `close_subagent` always
 continue. The start contract permits exactly one call per provider round.
 Accepted start/send results require a later
 callback but allow independent, non-duplicative work before the parent finishes
-through its normal response or application finalizer. For `close_subagent`,
-success and the first controlled lifecycle conflict continue,
-while repeating the same child conflict in one parent turn ends the turn to
-stop a retry loop.
+through its normal response or application finalizer. `close_subagent` is a
+destructive escape hatch for a current explicit human instruction; it is not a
+scope lifecycle finalizer or automatic cleanup tool.
 
 `EndTurn` executes its handler immediately. Only the successful all-end batch
 immediately before completion satisfies it; early or mixed calls do not. If the model attempts
@@ -55,12 +54,15 @@ called during that turn. One user message opens one response scope. Accepted
 subagent work keeps it open, callback continuations remain in the same scope,
 and completed, failed, or incomplete callbacks all settle one accepted
 dispatch. Once every continuation turn has fully completed and no accepted
-callback remains, the runtime calls each staged handler exactly once. Callback
-replays cannot settle a newer follow-up dispatch.
+callback remains, the runtime first reconciles children touched by the scope:
+unshared completed/failed children close, while incomplete children remain
+open. It then calls each staged handler exactly once. Callback replays cannot
+settle a newer follow-up dispatch.
 
 Framework tools (`load_skill` and root-only subagent tools) are owned by
-`toolexecution`; application tools remain caller-owned. `force_close_subagent`
-is not a confirmation tool and is reserved for a specific latest-user
-instruction.
+`toolexecution`; application tools remain caller-owned. Model-facing
+`close_subagent` requires `user_instruction`, the exact full text of the
+current human turn. The manager rejects callback turns and shortened,
+fabricated, or absent same-turn evidence.
 
 Back to [tools-safety/index.md](index.md).

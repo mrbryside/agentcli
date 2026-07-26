@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -51,6 +52,7 @@ type responseScope struct {
 	state            responseScopeState
 	activeTurns      int
 	pendingCallbacks int
+	children         map[string]int
 	finalizers       map[string]deferredToolCall
 	finalizerOrder   []string
 }
@@ -69,6 +71,11 @@ type responseDispatch struct {
 type callbackRecord struct {
 	scope responseScopeKey
 }
+
+// ResponseScopeCleanup runs after a response scope becomes quiescent and
+// before its deferred EndResponseScope handlers execute. childIDs contains
+// every child that accepted work in the scope.
+type ResponseScopeCleanup func(context.Context, string, string, []string)
 
 // ResponseScopeReservation reserves one callback continuation before the
 // runtime accepts its turn. Rollback restores the pending callback when turn
@@ -93,6 +100,7 @@ type ResponseScopeCoordinator struct {
 	turns     map[responseTurnKey]responseScopeKey
 	dispatch  map[responseChildKey][]*responseDispatch
 	callbacks map[responseChildKey]map[string]callbackRecord
+	cleanup   ResponseScopeCleanup
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -107,6 +115,16 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 		dispatch:  make(map[responseChildKey][]*responseDispatch),
 		callbacks: make(map[responseChildKey]map[string]callbackRecord),
 	}
+}
+
+// SetCleanup installs the runtime-owned response-scope cleanup hook.
+func (c *ResponseScopeCoordinator) SetCleanup(cleanup ResponseScopeCleanup) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.cleanup = cleanup
+	c.mu.Unlock()
 }
 
 // BeginRootTurn opens a new response scope whose identity is the root turn.
@@ -134,6 +152,7 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 	c.scopes[scopeKey] = &responseScope{
 		state:       responseScopeOpen,
 		activeTurns: 1,
+		children:    make(map[string]int),
 		finalizers:  make(map[string]deferredToolCall),
 	}
 	c.turns[turn] = scopeKey
@@ -179,6 +198,7 @@ func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, chi
 	}
 	dispatch := &responseDispatch{id: dispatchID, scope: scopeKey}
 	c.dispatch[child] = append(c.dispatch[child], dispatch)
+	scope.children[childID]++
 	scope.pendingCallbacks++
 	c.mu.Unlock()
 
@@ -198,11 +218,40 @@ func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, chi
 				}
 				if registered := c.scopes[scopeKey]; registered != nil && registered.pendingCallbacks > 0 {
 					registered.pendingCallbacks--
+					registered.children[childID]--
+					if registered.children[childID] == 0 {
+						delete(registered.children, childID)
+					}
 				}
 				return
 			}
 		})
 	}
+}
+
+// ChildExclusiveToScope reports whether no other live response scope has
+// accepted work for childID. Cleanup callers use it while holding the child's
+// own lifecycle lock so a concurrent follow-up cannot race an automatic close.
+func (c *ResponseScopeCoordinator) ChildExclusiveToScope(sessionID, scopeID, childID string) bool {
+	if c == nil || sessionID == "" || scopeID == "" || childID == "" {
+		return false
+	}
+	scopeKey := responseScopeKey{sessionID: sessionID, scopeID: scopeID}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	scope := c.scopes[scopeKey]
+	if scope == nil || scope.state != responseScopeFinalizing {
+		return false
+	}
+	for candidateKey, candidate := range c.scopes {
+		if candidateKey == scopeKey || candidateKey.sessionID != sessionID || candidate == nil {
+			continue
+		}
+		if candidate.children[childID] > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // ReserveCallbackTurn binds a callback continuation to the response scope
@@ -391,18 +440,22 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		c.mu.Unlock()
 		return
 	}
-	if len(scope.finalizers) == 0 {
-		c.deleteScopeLocked(scopeKey)
-		c.mu.Unlock()
-		return
-	}
 	scope.state = responseScopeFinalizing
+	children := make([]string, 0, len(scope.children))
+	for childID := range scope.children {
+		children = append(children, childID)
+	}
+	sort.Strings(children)
+	cleanup := c.cleanup
 	calls := make([]deferredToolCall, 0, len(scope.finalizerOrder))
 	for _, name := range scope.finalizerOrder {
 		calls = append(calls, scope.finalizers[name])
 	}
 	c.mu.Unlock()
 
+	if cleanup != nil {
+		c.executeCleanup(cleanup, scopeKey, children)
+	}
 	for _, call := range calls {
 		c.executeDeferred(call)
 	}
@@ -438,6 +491,23 @@ func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) 
 	// Callback tombstones deliberately outlive their response scope. Without
 	// them, a late replay from an older scope could consume the first pending
 	// dispatch of a newer scope that happens to reuse the same child.
+}
+
+func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, scope responseScopeKey, children []string) {
+	if cleanup == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(c.ctx)
+	stop := context.AfterFunc(c.ctx, cancel)
+	defer func() {
+		stop()
+		cancel()
+		_ = recover()
+	}()
+	if c.ctx.Err() != nil {
+		return
+	}
+	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
 }
 
 func (c *ResponseScopeCoordinator) executeDeferred(call deferredToolCall) {

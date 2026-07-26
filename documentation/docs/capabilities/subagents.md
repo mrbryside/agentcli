@@ -37,14 +37,13 @@ project loading/agent initialization.
 
 ## Root management tools
 
-When definitions exist, the root model receives six fixed framework tools:
+When definitions exist, the root model receives five fixed framework tools:
 
 | Tool | Use |
 | --- | --- |
 | `start_subagent` | Create or reuse a child and asynchronously route work. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
-| `close_subagent` | Release an idle child only after its callback has been consumed. It is not cancellation. Supports controlled turn completion for sequential cleanup. |
-| `force_close_subagent` | Immediately interrupt and close a specific child only when the latest user message explicitly requests it. Drops queued child messages, retains history, and does not open a confirmation prompt. |
+| `close_subagent` | Destructively interrupt and close a specific child only when the current human user message explicitly requests it. Drops queued child messages and retains history. Routine cleanup is automatic. |
 | `list_subagents` | List lightweight child summaries for explicit discovery or selection. |
 | `subagent_status` | Read one compact snapshot for an explicit status question; repeated checks in one parent turn return the cached snapshot. |
 
@@ -70,8 +69,8 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. `start_subagent`, `send_subagent_message`, and
-`force_close_subagent` always continue the parent turn. The model issues
+work. `start_subagent`, `send_subagent_message`, and a user-directed
+`close_subagent` always continue the parent turn. The model issues
 exactly one start per provider round and never batches multiple starts in one
 tool-call response. Accepted start/send results
 set `callback_action: wait` and `must_wait_for_callback: true`. While a child
@@ -82,11 +81,8 @@ Once independent work is exhausted, the model completes through the
 application's normal response or required finalizer so callbacks can arrive on
 later turns. Duplicate, already-sent, and callback-pending results use
 `callback_action: wait_existing` because they create no new callback.
-`selection_required` uses `callback_action: none`. A successful
-`close_subagent`, or the first controlled lifecycle conflict, continues;
-repeating the same conflict for that child in the same parent turn ends the
-turn to prevent a retry loop. The child turn outcome arrives through a separate
-callback containing:
+`selection_required` uses `callback_action: none`. The child turn outcome
+arrives through a separate callback containing:
 
 - parent and child identity;
 - `completed`, `incomplete`, or `failed` status;
@@ -114,10 +110,9 @@ Each model-facing start result reports that the parent remains open:
 }
 ```
 
-Send and force-close results also report `turn_behavior: "continue_turn"`. A
-`selection_required` start result reports `callback_action: "none"` and
-`turn_behavior: "continue_turn"`. A normal close returns
-`turn_behavior: "continue_turn"` plus an instruction to deliver the callback.
+Send and user-directed close results also report
+`turn_behavior: "continue_turn"`. A `selection_required` start result reports
+`callback_action: "none"` and `turn_behavior: "continue_turn"`.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
 turn continues only long enough for the parent to ask which `display_name` the
@@ -205,10 +200,6 @@ intermediate message. `ListMessages` remains available for a full child UI.
 `ReadSubagent` is a recovery API that consumes the latest unobserved final
 answer; it is not exposed as a model tool.
 
-After delivering a bounded one-shot `completed` result, the parent should close
-the child unless it has a concrete follow-up or explicit ongoing collaboration.
-The possibility of a later question alone is not a reason to keep it open.
-
 Sending follows lifecycle admission. A running child accepts FIFO mailbox
 input. An idle `incomplete`, `completed`, or `failed` child accepts a focused
 follow-up, distinct next task, or recovery instruction only after its latest
@@ -234,43 +225,43 @@ evaluates the batch. Direct Go and HTTP sends continue returning the
 callback-pending lifecycle error, while closed and outcome-less children remain
 rejected.
 
-Closing is lifecycle cleanup, not cancellation. `CloseSubagent`, the model
-tool, Terminal UI, and HTTP `DELETE` require a `completed` or `failed` outcome
-whose latest callback cursor has been consumed. They reject running,
-incomplete, and callback-pending children with a storage lifecycle error /
-HTTP `409 conflict`. The model-facing tool converts these expected lifecycle
-conflicts into a successful controlled result with `closed: false` and an
-instruction not to retry; direct Go and HTTP callers retain the lifecycle
-error. The first conflict continues, while repeating the same child conflict in
-that parent turn resolves to `end_turn`. This prevents a fast child from being
-closed in the same parent turn that started it and prevents cleanup from
-suppressing an unread callback.
+Routine lifecycle cleanup happens at the response-scope boundary. One human
+user message opens one response scope. Accepted child dispatches keep that
+scope open; every callback continuation remains in the same scope, and a
+follow-up accepted from that continuation adds another pending callback. The
+scope becomes quiescent only when all of its turns, tool results, callback
+continuations, and accepted callback obligations have settled.
 
-When a parent successfully closes completed work during its callback turn,
-`close_subagent` keeps the turn open:
+Immediately before deferred `EndResponseScope` handlers execute, the runtime
+reconciles every child that accepted work in that scope:
 
-```text
-close → normal provider continuation → deliver callback → finish
-```
+- idle `completed` and `failed` children are automatically closed;
+- `incomplete` children remain open for a later focused follow-up;
+- running, queued, callback-pending, or otherwise unsettled children prevent
+  the scope from becoming quiescent;
+- a child referenced by another live response scope is retained so one scope
+  cannot close work owned by another.
 
-This is the ordinary tool-result continuation path, not a completion repair or
-retry. If content was already streamed alongside the close call, the parent
-must not repeat it.
+Automatic close retains the transcript and run-event history. Successful
+closures are grouped into a trusted one-shot context reminder on the next
+accepted human user turn. Callback turns do not consume this reminder, it is
+not persisted as user content, and it tells the model that those children can
+no longer receive follow-up messages.
 
 Context reminders are stable within one parent turn. If a child finishes
 between provider rounds, the active turn continues seeing its original
 snapshot; the queued callback becomes authoritative input in the following
 callback turn.
 
-`force_close_subagent` is the destructive escape hatch. Unlike normal close,
-it can stop a running child or discard an incomplete child without waiting for
-callback consumption. The tool is intentionally not protected by the generic
-Yes/No confirmation mechanism. Its description and root orchestration prompt
-restrict it to a specific child named by the latest explicit user request; the
-model must never select it autonomously or use an older instruction as ongoing
-authorization. Existing transcript messages and retained run events remain
-available, while pending mailbox messages are removed and future sends are
-rejected.
+`close_subagent` is the destructive, user-directed escape hatch. It can stop a
+running child or discard an incomplete child. The model must never select it
+for automatic cleanup or infer authorization from a callback or older user
+message. Its required `user_instruction` argument must reproduce the exact
+full text of the current human message; the runtime rejects callback turns and
+shortened, fabricated, or older evidence. Existing transcript messages and retained
+run events remain available, while pending mailbox messages are removed and
+future sends are rejected. Direct Go, Terminal, and HTTP close operations are
+also destructive commands and should be exposed only as explicit user actions.
 
 ## Capacity
 
