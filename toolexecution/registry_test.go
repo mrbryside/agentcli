@@ -91,6 +91,33 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported trigger", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: "later"}},
+		{name: "canonical assistant without end response scope", tool: Tool{
+			Definition: agentruntime.ToolDefinition{Name: "canonical-trigger", InputSchema: agentruntime.ToolSchema{
+				Type:       "object",
+				Properties: map[string]agentruntime.ToolSchema{"message": {Type: "string"}},
+				Required:   []string{"message"},
+			}},
+			Handler: testHandler, CanonicalAssistantMessageParameter: "message",
+		}},
+		{name: "canonical assistant missing property", tool: Tool{
+			Definition: agentruntime.ToolDefinition{Name: "canonical-missing", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+			Handler:    testHandler, Trigger: EndResponseScope, CanonicalAssistantMessageParameter: "message",
+		}},
+		{name: "canonical assistant optional property", tool: Tool{
+			Definition: agentruntime.ToolDefinition{Name: "canonical-optional", InputSchema: agentruntime.ToolSchema{
+				Type:       "object",
+				Properties: map[string]agentruntime.ToolSchema{"message": {Type: "string"}},
+			}},
+			Handler: testHandler, Trigger: EndResponseScope, CanonicalAssistantMessageParameter: "message",
+		}},
+		{name: "canonical assistant non-string property", tool: Tool{
+			Definition: agentruntime.ToolDefinition{Name: "canonical-non-string", InputSchema: agentruntime.ToolSchema{
+				Type:       "object",
+				Properties: map[string]agentruntime.ToolSchema{"message": {Type: "number"}},
+				Required:   []string{"message"},
+			}},
+			Handler: testHandler, Trigger: EndResponseScope, CanonicalAssistantMessageParameter: "message",
+		}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		}, ToolCallGuardPrompt: "check call"}},
@@ -120,6 +147,28 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	}
 	if err := registry.Register(Tool{Definition: validDefinition, Handler: testHandler}); err == nil {
 		t.Fatal("Register(duplicate) error = nil, want rejection")
+	}
+}
+
+func TestRegistryCanonicalAssistantMessageParameter(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Definition: agentruntime.ToolDefinition{
+			Name: "report",
+			InputSchema: agentruntime.ToolSchema{
+				Type:       "object",
+				Properties: map[string]agentruntime.ToolSchema{"message": {Type: "string"}},
+				Required:   []string{"message"},
+			},
+		},
+		Handler:                            testHandler,
+		Trigger:                            EndResponseScope,
+		CanonicalAssistantMessageParameter: " message ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.canonicalAssistantMessageParameterFor("report"); got != "message" {
+		t.Fatalf("canonical assistant message parameter = %q, want message", got)
 	}
 }
 

@@ -1,8 +1,11 @@
 package toolexecution
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +13,31 @@ import (
 
 	"github.com/mrbryside/agentcli/agentruntime"
 )
+
+func TestResponseScopeLoggerRecordsLifecycleAndDetails(t *testing.T) {
+	var logs bytes.Buffer
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	coordinator.SetLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.FinishTurn("session", "turn")
+
+	output := logs.String()
+	for _, required := range []string{
+		`msg="response scope started"`,
+		`msg="response scope ending"`,
+		`msg="response scope ending details"`,
+		`msg="response scope ended"`,
+		`msg="response scope ended details"`,
+		`session_id=session`,
+		`scope_id=turn`,
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("scope logs do not contain %q:\n%s", required, output)
+		}
+	}
+}
 
 func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
@@ -77,6 +105,73 @@ func TestResponseScopeDefersLatestCandidateUntilAllCallbacksFinish(t *testing.T)
 		t.Fatalf("new callback after late replay error = %v", err)
 	}
 	newCallback.Commit()
+}
+
+func TestResponseScopeRecordsCanonicalAssistantOnlyAfterSuccessfulDelivery(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	var recorded []agentruntime.Message
+	coordinator.SetCanonicalAssistantRecorder(func(_ context.Context, message agentruntime.Message) error {
+		recorded = append(recorded, message)
+		return nil
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	handler := func(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		if len(recorded) != 0 {
+			t.Fatal("canonical assistant message recorded before delivery completed")
+		}
+		return json.RawMessage(`{"status":"reported"}`), nil
+	}
+	if _, err := coordinator.StageEndResponseScope(
+		context.Background(),
+		scopeToolRequest("turn", `{"message":"Hello from Discord"}`),
+		handler,
+		"message",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorded) != 0 {
+		t.Fatalf("canonical messages before scope end = %#v", recorded)
+	}
+
+	coordinator.FinishTurn("session", "turn")
+	if len(recorded) != 1 {
+		t.Fatalf("canonical messages = %#v, want one", recorded)
+	}
+	if got := recorded[0]; got.SessionID != "session" ||
+		got.TurnID != "turn" ||
+		got.Type != agentruntime.MessageTypeAssistant ||
+		got.Content != "Hello from Discord" {
+		t.Fatalf("canonical assistant message = %#v", got)
+	}
+}
+
+func TestResponseScopeDoesNotRecordCanonicalAssistantWhenDeliveryFails(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	recorded := 0
+	coordinator.SetCanonicalAssistantRecorder(func(context.Context, agentruntime.Message) error {
+		recorded++
+		return nil
+	})
+	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.StageEndResponseScope(
+		context.Background(),
+		scopeToolRequest("turn", `{"message":"not delivered"}`),
+		func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return nil, errors.New("discord unavailable")
+		},
+		"message",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	coordinator.FinishTurn("session", "turn")
+	if recorded != 0 {
+		t.Fatalf("canonical messages = %d, want none after failed delivery", recorded)
+	}
 }
 
 func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *testing.T) {

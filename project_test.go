@@ -294,6 +294,63 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadProjectLoggingConfigDefaultsAndValidation(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `logging:
+  level: debug
+providers:
+  local:
+    type: openai
+    api_key: key
+`)
+	writeMainAgentDefinition(t, root, "local", "model", "")
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.config.Logging == nil || !project.config.Logging.Enabled || project.config.Logging.Level != "debug" {
+		t.Fatalf("logging config = %#v", project.config.Logging)
+	}
+	configuration := defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.logger == nil {
+		t.Fatal("enabled project logging did not configure a logger")
+	}
+
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `logging:
+  enabled: false
+  level: info
+providers:
+  local:
+    type: openai
+    api_key: key
+`)
+	project, err = LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration = defaultConfig(root)
+	if err := WithProject(project)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.logger != nil {
+		t.Fatal("disabled project logging configured a logger")
+	}
+
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `logging:
+  level: trace
+providers:
+  local:
+    type: openai
+    api_key: key
+`)
+	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "logging level") {
+		t.Fatalf("LoadProject invalid logging error = %v", err)
+	}
+}
+
 func TestLoadProjectExpandsAndValidatesLangfuseObservability(t *testing.T) {
 	t.Setenv("TEST_LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
 	t.Setenv("TEST_LANGFUSE_PUBLIC_KEY", "pk-test")

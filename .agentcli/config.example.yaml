@@ -5,6 +5,12 @@ max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 
+# Optional structured runtime, tool, response-scope, repair, and canonical
+# transcript lifecycle logs. Omit this mapping to disable console logging.
+# logging:
+#   enabled: true
+#   level: debug # debug, info, warn, or error
+
 # Optional LLM-call observability. Credentials are used to construct Langfuse
 # Basic Auth and are never sent to the configured model provider. Prompt,
 # response, and reasoning capture are opt-in because they may be sensitive.

@@ -58,7 +58,19 @@ settings from the repository root `.agentcli/config.yaml`; there is no separate
 playground config. For a clean setup, copy `.agentcli/config.example.yaml` and
 replace both its main-agent and compaction model placeholders. That template
 also includes commented examples for Langfuse and OpenRouter; observability
-stays disabled unless the Langfuse block is uncommented. The repository
+stays disabled unless the Langfuse block is uncommented. Runtime logging is
+also disabled by default; uncomment `logging` to send structured framework
+records to stderr while the TUI remains on stdout:
+
+```yaml
+logging:
+  enabled: true
+  level: debug
+```
+
+Debug mode is useful for watching provider rounds, tool execution,
+response-scope delivery, repair attempts, and canonical assistant persistence.
+The repository
 playground compaction mapping declares an exact 122,880-token context window
 and 66,560-token output limit for its custom model. When the Terminal UI opens,
 the binary-formatted context window appears beside the model name in the

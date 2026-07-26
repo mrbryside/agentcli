@@ -84,7 +84,7 @@ func providerEffects(event AgentEvent) []Effect {
 				Reasoning: result.Reasoning,
 			}
 			return []Effect{
-				{Type: AppendMessages, Messages: []Message{message}},
+				{Type: StageAssistant, Messages: []Message{message}},
 				{Type: AttemptComplete},
 			}
 		}

@@ -147,14 +147,14 @@ model.
 - Callback `InputRespond` and rejected input-prompt verdicts create a completed
   `Run`, store the user and assistant messages, and stream the response without
   calling the main model or tools.
-- Output guards receive the transcript snapshot, latest assistant message,
-  provider-step count, and output-guard retry count.
+- Output guards receive a defensive inspection snapshot containing the pending
+  assistant candidate, plus provider-step and output-guard retry counts.
 - Retry feedback is an ephemeral `ContextReminder`; it is sent to the next
   provider request but is not stored as a user message.
 - Every retry counts toward the runtime's `MaxSteps` provider-round limit.
 - Output guards run before the existing completion guard for required
   trigger tools and subagent outcomes.
 
-The rejected assistant attempt remains in transcript storage so the model can
-inspect and repair it. See [Guardrails overview](overview.md#guardrails-are-not-a-sandbox)
-for the confidentiality implication.
+The rejected assistant attempt remains visible in retained run/provider events
+for diagnostics, but it is discarded from transcript storage and is not sent
+back to the model during repair.

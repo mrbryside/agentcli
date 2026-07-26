@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -64,9 +66,11 @@ type responseScope struct {
 }
 
 type endScopeToolCall struct {
-	ctx       context.Context
-	handler   Handler
-	arguments json.RawMessage
+	ctx                                context.Context
+	handler                            Handler
+	request                            agentruntime.ToolRequest
+	arguments                          json.RawMessage
+	canonicalAssistantMessageParameter string
 }
 
 type responseDispatch struct {
@@ -82,6 +86,10 @@ type callbackRecord struct {
 // before its deferred EndResponseScope handlers execute. childIDs contains
 // every child that accepted work in the scope.
 type ResponseScopeCleanup func(context.Context, string, string, []string)
+
+// CanonicalAssistantRecorder persists the user-visible assistant response
+// represented by a successfully delivered EndResponseScope tool.
+type CanonicalAssistantRecorder func(context.Context, agentruntime.Message) error
 
 // ResponseScopeReservation reserves one callback continuation before the
 // runtime accepts its turn. Rollback restores the pending callback when turn
@@ -101,13 +109,15 @@ type ResponseScopeReservation struct {
 type ResponseScopeCoordinator struct {
 	ctx context.Context
 
-	mu        sync.Mutex
-	scopes    map[responseScopeKey]*responseScope
-	turns     map[responseTurnKey]responseScopeKey
-	dispatch  map[responseChildKey][]*responseDispatch
-	callbacks map[responseChildKey]map[string]callbackRecord
-	cleanup   ResponseScopeCleanup
-	events    *scopeEventHub
+	mu                         sync.Mutex
+	scopes                     map[responseScopeKey]*responseScope
+	turns                      map[responseTurnKey]responseScopeKey
+	dispatch                   map[responseChildKey][]*responseDispatch
+	callbacks                  map[responseChildKey]map[string]callbackRecord
+	cleanup                    ResponseScopeCleanup
+	canonicalAssistantRecorder CanonicalAssistantRecorder
+	events                     *scopeEventHub
+	logger                     *slog.Logger
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -125,6 +135,17 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 	}
 }
 
+// SetLogger enables structured response-scope lifecycle logging. Passing nil
+// disables it. Configure this before accepting turns.
+func (c *ResponseScopeCoordinator) SetLogger(logger *slog.Logger) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.logger = logger
+	c.mu.Unlock()
+}
+
 // SetCleanup installs the runtime-owned response-scope cleanup hook.
 func (c *ResponseScopeCoordinator) SetCleanup(cleanup ResponseScopeCleanup) {
 	if c == nil {
@@ -132,6 +153,17 @@ func (c *ResponseScopeCoordinator) SetCleanup(cleanup ResponseScopeCleanup) {
 	}
 	c.mu.Lock()
 	c.cleanup = cleanup
+	c.mu.Unlock()
+}
+
+// SetCanonicalAssistantRecorder installs the durable transcript hook used by
+// EndResponseScope tools that declare a canonical assistant message parameter.
+func (c *ResponseScopeCoordinator) SetCanonicalAssistantRecorder(recorder CanonicalAssistantRecorder) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.canonicalAssistantRecorder = recorder
 	c.mu.Unlock()
 }
 
@@ -150,11 +182,12 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 	scopeKey := responseScopeKey{sessionID: sessionID, scopeID: turnID}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if _, exists := c.turns[turn]; exists {
+		c.mu.Unlock()
 		return fmt.Errorf("response turn %q already belongs to a scope", turnID)
 	}
 	if _, exists := c.scopes[scopeKey]; exists {
+		c.mu.Unlock()
 		return fmt.Errorf("response scope %q already exists", turnID)
 	}
 	c.scopes[scopeKey] = &responseScope{
@@ -164,6 +197,15 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		endScopeCalls: make(map[string]endScopeToolCall),
 	}
 	c.turns[turn] = scopeKey
+	logger := c.logger
+	c.mu.Unlock()
+	if logger != nil {
+		logger.InfoContext(c.ctx, "response scope started",
+			"session_id", sessionID,
+			"scope_id", turnID,
+			"trigger_turn_id", turnID,
+		)
+	}
 	return nil
 }
 
@@ -373,7 +415,7 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 
 // StageEndResponseScope replaces the candidate for this tool and returns a
 // clear successful result for the model. The handler is never called here.
-func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, request agentruntime.ToolRequest, handler Handler) (json.RawMessage, error) {
+func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, request agentruntime.ToolRequest, handler Handler, canonicalAssistantMessageParameter ...string) (json.RawMessage, error) {
 	if c == nil {
 		return nil, errors.New("response scope coordinator is not configured")
 	}
@@ -408,10 +450,16 @@ func (c *ResponseScopeCoordinator) StageEndResponseScope(ctx context.Context, re
 	if !replacing {
 		scope.endScopeOrder = append(scope.endScopeOrder, request.Call.Name)
 	}
+	canonicalParameter := ""
+	if len(canonicalAssistantMessageParameter) > 0 {
+		canonicalParameter = strings.TrimSpace(canonicalAssistantMessageParameter[0])
+	}
 	scope.endScopeCalls[request.Call.Name] = endScopeToolCall{
-		ctx:       context.WithoutCancel(ctx),
-		handler:   handler,
-		arguments: cloneRawJSON(request.Call.Arguments),
+		ctx:                                context.WithoutCancel(ctx),
+		handler:                            handler,
+		request:                            cloneRequest(request),
+		arguments:                          cloneRawJSON(request.Call.Arguments),
+		canonicalAssistantMessageParameter: canonicalParameter,
 	}
 	return json.Marshal(map[string]any{
 		"status":                "deferred",
@@ -455,6 +503,8 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	}
 	sort.Strings(children)
 	cleanup := c.cleanup
+	canonicalAssistantRecorder := c.canonicalAssistantRecorder
+	logger := c.logger
 	toolNames := append([]string(nil), scope.endScopeOrder...)
 	calls := make([]endScopeToolCall, 0, len(toolNames))
 	for _, name := range toolNames {
@@ -462,6 +512,20 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	}
 	c.mu.Unlock()
 
+	if logger != nil {
+		logger.InfoContext(c.ctx, "response scope ending",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+		)
+		logger.DebugContext(c.ctx, "response scope ending details",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+			"child_ids", children,
+			"tool_names", toolNames,
+		)
+	}
 	c.publishEvent(ScopeEvent{
 		Type: PreEndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
 		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
@@ -470,7 +534,7 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		c.executeCleanup(cleanup, scopeKey, children)
 	}
 	for _, call := range calls {
-		c.executeDeferred(call)
+		c.executeDeferred(call, canonicalAssistantRecorder, logger)
 	}
 
 	c.mu.Lock()
@@ -479,6 +543,20 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	}
 	c.deleteScopeLocked(scopeKey)
 	c.mu.Unlock()
+	if logger != nil {
+		logger.InfoContext(c.ctx, "response scope ended",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+		)
+		logger.DebugContext(c.ctx, "response scope ended details",
+			"session_id", scopeKey.sessionID,
+			"scope_id", scopeKey.scopeID,
+			"trigger_turn_id", turnID,
+			"child_ids", children,
+			"tool_names", toolNames,
+		)
+	}
 	c.publishEvent(ScopeEvent{
 		Type: EndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
 		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
@@ -527,7 +605,7 @@ func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, 
 	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
 }
 
-func (c *ResponseScopeCoordinator) executeDeferred(call endScopeToolCall) {
+func (c *ResponseScopeCoordinator) executeDeferred(call endScopeToolCall, recorder CanonicalAssistantRecorder, logger *slog.Logger) {
 	if call.handler == nil {
 		return
 	}
@@ -536,10 +614,86 @@ func (c *ResponseScopeCoordinator) executeDeferred(call endScopeToolCall) {
 	defer func() {
 		stop()
 		cancel()
-		_ = recover()
+		if recovered := recover(); recovered != nil && logger != nil {
+			logger.ErrorContext(c.ctx, "response scope tool failed",
+				"session_id", call.request.SessionID,
+				"turn_id", call.request.TurnID,
+				"tool_name", call.request.Call.Name,
+				"error", fmt.Sprint(recovered),
+			)
+		}
 	}()
 	if c.ctx.Err() != nil {
 		return
 	}
-	_, _ = call.handler(ctx, cloneRawJSON(call.arguments))
+	_, err := call.handler(ctx, cloneRawJSON(call.arguments))
+	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(c.ctx, "response scope tool failed",
+				"session_id", call.request.SessionID,
+				"turn_id", call.request.TurnID,
+				"tool_name", call.request.Call.Name,
+				"error", err,
+			)
+		}
+		return
+	}
+	if call.canonicalAssistantMessageParameter == "" || recorder == nil {
+		return
+	}
+	content, err := canonicalAssistantContent(call.arguments, call.canonicalAssistantMessageParameter)
+	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(c.ctx, "canonical assistant message extraction failed",
+				"session_id", call.request.SessionID,
+				"turn_id", call.request.TurnID,
+				"tool_name", call.request.Call.Name,
+				"error", err,
+			)
+		}
+		return
+	}
+	message := agentruntime.Message{
+		SessionID: call.request.SessionID,
+		TurnID:    call.request.TurnID,
+		Type:      agentruntime.MessageTypeAssistant,
+		Content:   content,
+	}
+	if err := recorder(ctx, message); err != nil {
+		if logger != nil {
+			logger.ErrorContext(c.ctx, "canonical assistant message persistence failed",
+				"session_id", call.request.SessionID,
+				"turn_id", call.request.TurnID,
+				"tool_name", call.request.Call.Name,
+				"error", err,
+			)
+		}
+		return
+	}
+	if logger != nil {
+		logger.DebugContext(c.ctx, "canonical assistant message persisted",
+			"session_id", call.request.SessionID,
+			"turn_id", call.request.TurnID,
+			"tool_name", call.request.Call.Name,
+		)
+	}
+}
+
+func canonicalAssistantContent(arguments json.RawMessage, parameter string) (string, error) {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(arguments, &values); err != nil {
+		return "", fmt.Errorf("decode tool arguments: %w", err)
+	}
+	raw, exists := values[parameter]
+	if !exists {
+		return "", fmt.Errorf("tool arguments do not contain %q", parameter)
+	}
+	var content string
+	if err := json.Unmarshal(raw, &content); err != nil {
+		return "", fmt.Errorf("decode tool argument %q: %w", parameter, err)
+	}
+	if strings.TrimSpace(content) == "" {
+		return "", fmt.Errorf("tool argument %q is empty", parameter)
+	}
+	return content, nil
 }

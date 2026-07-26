@@ -30,17 +30,21 @@ type GuardModelConfig struct {
 // delivery. EndTurnOnSuccess independently controls whether a successful batch
 // containing the tool ends the current turn.
 type Tool struct {
-	Definition           agentruntime.ToolDefinition
-	Handler              Handler
-	Trigger              ToolTrigger
-	EndTurnOnSuccess     bool
-	ToolCallGuard        agentruntime.ToolCallGuard
-	ToolCallGuardPrompt  string
-	ToolCallGuardModel   *GuardModelConfig
-	Permission           PermissionDescriptor
-	PermissionWithPolicy PermissionPolicyDescriptor
-	Confirmation         ConfirmationDescriptor
-	resultTurnBehavior   func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
+	Definition       agentruntime.ToolDefinition
+	Handler          Handler
+	Trigger          ToolTrigger
+	EndTurnOnSuccess bool
+	// CanonicalAssistantMessageParameter names a required string argument whose
+	// value becomes the durable assistant message after an EndResponseScope
+	// handler succeeds. Failed or cancelled delivery never records it.
+	CanonicalAssistantMessageParameter string
+	ToolCallGuard                      agentruntime.ToolCallGuard
+	ToolCallGuardPrompt                string
+	ToolCallGuardModel                 *GuardModelConfig
+	Permission                         PermissionDescriptor
+	PermissionWithPolicy               PermissionPolicyDescriptor
+	Confirmation                       ConfirmationDescriptor
+	resultTurnBehavior                 func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -66,18 +70,19 @@ type Registry struct {
 }
 
 type registeredTool struct {
-	definition            agentruntime.ToolDefinition
-	handler               Handler
-	trigger               ToolTrigger
-	turnBehavior          agentruntime.ToolTurnBehavior
-	toolCallGuard         agentruntime.ToolCallGuard
-	toolCallGuardPrompt   string
-	toolCallGuardProvider string
-	toolCallGuardModel    string
-	permission            PermissionDescriptor
-	permissionWithPolicy  PermissionPolicyDescriptor
-	confirmation          ConfirmationDescriptor
-	resultTurnBehavior    func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
+	definition                         agentruntime.ToolDefinition
+	handler                            Handler
+	trigger                            ToolTrigger
+	turnBehavior                       agentruntime.ToolTurnBehavior
+	toolCallGuard                      agentruntime.ToolCallGuard
+	toolCallGuardPrompt                string
+	toolCallGuardProvider              string
+	toolCallGuardModel                 string
+	permission                         PermissionDescriptor
+	permissionWithPolicy               PermissionPolicyDescriptor
+	confirmation                       ConfirmationDescriptor
+	canonicalAssistantMessageParameter string
+	resultTurnBehavior                 func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 }
 
 // NewRegistry creates an empty tool registry.
@@ -96,6 +101,15 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	if tool.Trigger != "" && tool.Trigger != EndTurn && tool.Trigger != EndResponseScope {
 		return fmt.Errorf("tool %q has unsupported trigger %q", tool.Definition.Name, tool.Trigger)
+	}
+	tool.CanonicalAssistantMessageParameter = strings.TrimSpace(tool.CanonicalAssistantMessageParameter)
+	if tool.CanonicalAssistantMessageParameter != "" {
+		if tool.Trigger != EndResponseScope {
+			return fmt.Errorf("tool %q canonical assistant message requires the end-response-scope trigger", tool.Definition.Name)
+		}
+		if err := validateCanonicalAssistantParameter(tool.Definition.InputSchema, tool.CanonicalAssistantMessageParameter); err != nil {
+			return fmt.Errorf("tool %q canonical assistant message parameter: %w", tool.Definition.Name, err)
+		}
 	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
@@ -138,7 +152,9 @@ func (r *Registry) Register(tool Tool) error {
 		toolCallGuard: tool.ToolCallGuard, toolCallGuardPrompt: tool.ToolCallGuardPrompt,
 		toolCallGuardProvider: guardProvider, toolCallGuardModel: guardModel,
 		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
-		confirmation: tool.Confirmation, resultTurnBehavior: tool.resultTurnBehavior,
+		confirmation:                       tool.Confirmation,
+		canonicalAssistantMessageParameter: tool.CanonicalAssistantMessageParameter,
+		resultTurnBehavior:                 tool.resultTurnBehavior,
 	}
 	r.order = append(r.order, definition.Name)
 	return nil
@@ -242,6 +258,12 @@ func (r *Registry) turnBehaviorFor(name string, arguments, output json.RawMessag
 	return tool.turnBehavior, true
 }
 
+func (r *Registry) canonicalAssistantMessageParameterFor(name string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.tools[name].canonicalAssistantMessageParameter
+}
+
 func (r *Registry) permissionFor(name string, arguments json.RawMessage, policy permission.Policy) (permission.Description, error, bool) {
 	r.mu.RLock()
 	tool, ok := r.tools[name]
@@ -282,6 +304,35 @@ func validateInputSchema(schema agentruntime.ToolSchema) error {
 		return fmt.Errorf("type must be object")
 	}
 	return nil
+}
+
+func validateCanonicalAssistantParameter(schema agentruntime.ToolSchema, name string) error {
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return err
+	}
+	var object struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return err
+	}
+	property, exists := object.Properties[name]
+	if !exists {
+		return fmt.Errorf("%q is not declared in the input schema", name)
+	}
+	if property.Type != "string" {
+		return fmt.Errorf("%q must be a string property", name)
+	}
+	for _, required := range object.Required {
+		if required == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("%q must be required", name)
 }
 
 func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDefinition {

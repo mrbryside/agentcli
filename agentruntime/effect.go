@@ -8,6 +8,7 @@ type EffectType string
 const (
 	EmitEvent       EffectType = "emit_event"
 	AppendMessages  EffectType = "append_messages"
+	StageAssistant  EffectType = "stage_assistant"
 	StartProvider   EffectType = "start_provider"
 	DispatchTool    EffectType = "dispatch_tool"
 	InterruptTools  EffectType = "interrupt_tools"

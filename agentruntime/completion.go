@@ -17,8 +17,9 @@ const (
 	CompletionRetry   CompletionAction = "retry"
 )
 
-// CompletionAttempt is a defensive snapshot taken after the provider's
-// latest assistant message or terminal tool batch has been persisted.
+// CompletionAttempt is a defensive snapshot taken after a provider terminal
+// result. A pending assistant candidate is included for inspection but is not
+// persisted unless completion proceeds; terminal tool batches are durable.
 type CompletionAttempt struct {
 	SessionID string
 	TurnID    string
@@ -42,8 +43,8 @@ type CompletionDecision struct {
 	ToolAllowlist    []string
 }
 
-// CompletionGuard can defer terminal completion after persisted output has
-// become available for inspection. It is called serially by the run owner.
+// CompletionGuard can defer terminal completion after output becomes available
+// for inspection. It is called serially by the run owner.
 type CompletionGuard func(context.Context, CompletionAttempt) (CompletionDecision, error)
 
 func validateCompletionDecision(decision CompletionDecision, available []ToolDefinition) error {

@@ -35,12 +35,17 @@ This makes configuration mistakes visible before the first model request.
 ## Provider configuration
 
 `.agentcli/config.yaml` owns connections, the initial permission mode, the
-optional per-parent open-subagent quota, LLM observability, and optional
-transcript compaction:
+optional per-parent open-subagent quota, runtime logging, LLM observability,
+and optional transcript compaction:
 
 ```yaml
 permission_mode: default
 max_subagents: 4
+
+# Omit this mapping to disable runtime console logs.
+logging:
+  enabled: true
+  level: info
 
 # Omit this mapping to disable new compactions. When present, auto defaults to true.
 compaction:
@@ -125,6 +130,33 @@ project value when constructing an Agent.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.
+
+## Runtime logging
+
+The optional `logging` mapping emits structured runtime lifecycle records to
+stderr. Omitting it or setting `enabled: false` disables the records. When the
+mapping is present, `enabled` defaults to `true` and `level` defaults to
+`info`; supported levels are `debug`, `info`, `warn`, and `error`.
+
+Info logging covers turn and response-scope start/end, repair requests, and
+terminal failures. Repair records identify output-guard versus
+completion-guard retries, their attempt number, provider-step count, and any
+restricted tool allowlist. Debug logging additionally includes provider
+content, tool arguments/results, compaction details, and successful canonical
+assistant persistence after deferred delivery. Delivery, extraction, and
+canonical transcript persistence failures are error records. Tool JSON fields that look like tokens,
+secrets, passwords, authorization values, or API keys are redacted and large
+values are truncated. Model reasoning, guard feedback, and completion
+reminders are never logged. Rejected repair drafts remain in retained run
+events for diagnostics but never enter conversation storage or the next model
+request.
+
+Programmatic agents can use `WithLogger` to supply their own `*slog.Logger`.
+When applied after `WithProject`, it overrides project logging. Child agents
+reuse the selected root logger automatically.
+
+See [Runtime logging](../observability/runtime-logging.md) for the event and
+privacy reference.
 
 ## Langfuse LLM observability
 

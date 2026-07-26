@@ -14,7 +14,7 @@ tools can attach a prompt directly to their declaration.
 | --- | --- | --- |
 | Input callback | After request normalization, before transcript persistence | `InputReject` returns `ErrInputGuardRejected`; no input message or run is created. `InputRespond` creates a completed streamed turn containing the supplied response. |
 | Input prompt | After request normalization, before the main model | A rejected verdict becomes a completed streamed turn; the user input and guard response are stored, but the main model and tools are not called. |
-| Assistant output | After the assistant message is persisted, before turn completion | Feedback is added as an ephemeral context reminder and the provider receives another round. |
+| Assistant output | While the terminal assistant candidate is pending in run memory, before transcript persistence | The candidate is discarded, feedback is added as an ephemeral context reminder, and the provider receives another round. |
 | Custom-tool call | After permission/confirmation admission, before handler execution | The handler is not called; the runtime stores a failed tool result with feedback and starts another provider round. |
 
 Prompt guards use a one-shot model request with no tools and require one strict
@@ -44,10 +44,11 @@ prevents handler execution, but an allowed call still needs ordinary
 authorization, validation, and idempotency.
 
 Assistant-output guards are repair guards, not secret-suppression filters. The
-rejected assistant attempt is already in transcript storage and retained
-provider events before evaluation. Use provider-side streaming controls or a
-separate buffered presentation layer when unapproved tokens must never be
-stored or shown.
+rejected assistant attempt is retained in run/provider events and may already
+have been streamed to live subscribers before evaluation, even though it never
+enters conversation storage or future model context. Use provider-side
+streaming controls or a separate buffered presentation layer when unapproved
+tokens must never be retained or shown.
 
 Continue with [Agent input and output](agent-input-output.md),
 [Tool-call guards](tool-call.md), and the

@@ -184,6 +184,75 @@ func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing.T) {
+	model := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "report-call", Name: "report", Arguments: map[string]any{"message": "Hello! How can I help?"},
+	}}}
+	agent, err := New(context.Background(),
+		WithModel(model),
+		WithTool(toolexecution.Tool{
+			Definition: agentruntime.ToolDefinition{
+				Name: "report",
+				InputSchema: agentruntime.ToolSchema{
+					Type:       "object",
+					Properties: map[string]agentruntime.ToolSchema{"message": {Type: "string"}},
+					Required:   []string{"message"},
+				},
+			},
+			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				return json.RawMessage(`{"status":"reported"}`), nil
+			},
+			Trigger:                            toolexecution.EndResponseScope,
+			EndTurnOnSuccess:                   true,
+			CanonicalAssistantMessageParameter: "message",
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	scopeEvents := agent.SubscribeScopeEvents(context.Background())
+
+	run, err := agent.Start(context.Background(), userRequest("canonical-report"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-scopeEvents:
+			if event.Type != EndScope {
+				continue
+			}
+			messages, listErr := agent.ListMessages(context.Background(), "canonical-report")
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(messages) != 4 {
+				t.Fatalf("messages = %#v, want user, tool call, tool result, assistant", messages)
+			}
+			wantTypes := []agentruntime.MessageType{
+				agentruntime.MessageTypeUser,
+				agentruntime.MessageTypeToolCall,
+				agentruntime.MessageTypeToolResult,
+				agentruntime.MessageTypeAssistant,
+			}
+			for index, want := range wantTypes {
+				if messages[index].Type != want {
+					t.Fatalf("message %d type = %q, want %q", index, messages[index].Type, want)
+				}
+			}
+			if messages[3].Content != "Hello! How can I help?" {
+				t.Fatalf("canonical assistant content = %q", messages[3].Content)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for response scope completion")
+		}
+	}
+}
+
 func TestCriticalOnlyAutoAllowsMediumRiskCustomTool(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "guarded", Arguments: map[string]any{}}}}
 	agent, err := New(context.Background(),

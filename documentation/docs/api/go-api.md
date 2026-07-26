@@ -121,12 +121,14 @@ permission checks.
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool and execute its handler once the originating user response settles. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
+| `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after deferred delivery succeeds. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
 `Tool` fields are `Definition`, `Handler`, `Trigger`, `EndTurnOnSuccess`,
+`CanonicalAssistantMessageParameter`,
 `ToolCallGuard`, `ToolCallGuardPrompt`, `ToolCallGuardModel`, `Permission`,
 `PermissionWithPolicy`, and
 `Confirmation`. `ToolCallGuardModel` optionally holds one
@@ -155,7 +157,10 @@ and accepted subagent callbacks in that user-message scope settle. The
 coordinator keeps one in-memory candidate per tool name rather than a FIFO
 queue, so a later allowed invocation replaces the earlier candidate.
 `status=deferred` acknowledges staging, not completion of the handler's side
-effect; callers must honor `retry_in_current_turn=false`.
+effect; callers must honor `retry_in_current_turn=false`. If
+`CanonicalAssistantMessageParameter` names a required string schema property,
+the coordinator appends that argument as the canonical assistant transcript
+message only after the deferred handler succeeds.
 
 Use `agent.SubscribeScopeEvents(ctx)` for live-only scope boundaries.
 `agentcli.PreEndScope` is emitted after the callback/turn barrier reaches zero

@@ -3,14 +3,19 @@ title: LLM observability
 sidebar_position: 1
 ---
 
-# LLM observability
+# Observability
 
-Agentcli can observe model calls without coupling the runtime to a model
-provider or tracing vendor. Instrumentation wraps the provider-neutral
-`agentruntime.Model` boundary and keeps each observation open until its
-stream completes or fails.
+Agentcli provides two independent observability surfaces:
 
-The current scope is deliberately narrow:
+- [Runtime logging](runtime-logging.md) writes structured agent, tool,
+  response-scope, repair, and delivery lifecycle records to stderr.
+- [Langfuse](langfuse.md) exports model-call traces through OpenTelemetry.
+
+Runtime logging belongs to the execution framework. Langfuse instrumentation
+wraps the provider-neutral `agentruntime.Model` boundary and keeps each
+observation open until its stream completes or fails.
+
+The current Langfuse scope is deliberately narrow:
 
 - one generation observation per LLM call;
 - main-agent, subagent, prompt-guard, tool-call guard, and compaction calls;

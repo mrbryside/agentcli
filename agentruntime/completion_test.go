@@ -11,6 +11,7 @@ import (
 
 func TestCompletionGuardRetriesWithPersistedMessagesAndRestrictedTools(t *testing.T) {
 	model := &completionGuardModel{contents: []string{"unstructured child answer", "repaired child answer"}}
+	messages := inmemory.NewMessageStorage()
 	requests := make(chan ToolRequest, 4)
 	results := make(chan ToolResultEnvelope, 4)
 	interrupts := make(chan ToolInterrupt, 4)
@@ -27,7 +28,7 @@ func TestCompletionGuardRetriesWithPersistedMessagesAndRestrictedTools(t *testin
 		return CompletionDecision{Action: CompletionProceed}, nil
 	}
 	runtime, err := New(context.Background(), Config{
-		Model: model, Messages: inmemory.NewMessageStorage(),
+		Model: model, Messages: messages,
 		Tools: []ToolDefinition{
 			{Name: "domain_action", InputSchema: ToolSchema{Type: "object"}},
 			{Name: "report_outcome", InputSchema: ToolSchema{Type: "object"}},
@@ -70,14 +71,27 @@ func TestCompletionGuardRetriesWithPersistedMessagesAndRestrictedTools(t *testin
 	if len(repair.ContextReminders) != 1 || repair.ContextReminders[0].Content != "report the semantic outcome only" {
 		t.Fatalf("repair reminders = %#v", repair.ContextReminders)
 	}
-	if len(repair.Messages) != 2 || repair.Messages[1].Type != MessageTypeAssistant || repair.Messages[1].Content != "unstructured child answer" {
-		t.Fatalf("repair transcript = %#v", repair.Messages)
+	if len(repair.Messages) != 1 || repair.Messages[0].Type != MessageTypeUser {
+		t.Fatalf("repair transcript = %#v, want rejected draft excluded", repair.Messages)
 	}
 	if len(attempts) != 2 || attempts[0].RepairCount != 0 || attempts[1].RepairCount != 1 {
 		t.Fatalf("completion attempts = %#v", attempts)
 	}
 	if len(attempts[0].Messages) != 2 || attempts[0].Messages[1].Content != "unstructured child answer" {
 		t.Fatalf("first completion snapshot = %#v", attempts[0].Messages)
+	}
+	if attempts[0].Messages[1].ID == "" || attempts[0].Messages[1].CreatedAt.IsZero() {
+		t.Fatalf("pending completion candidate lacks normalized identity: %#v", attempts[0].Messages[1])
+	}
+	stored, err := messages.List(context.Background(), "completion-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 ||
+		stored[0].Type != MessageTypeUser ||
+		stored[1].Type != MessageTypeAssistant ||
+		stored[1].Content != "repaired child answer" {
+		t.Fatalf("stored transcript = %#v, want only user and accepted assistant output", stored)
 	}
 }
 

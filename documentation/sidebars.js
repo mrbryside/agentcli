@@ -77,6 +77,7 @@ module.exports = {
       label: 'Observability',
       items: [
         'observability/overview',
+        'observability/runtime-logging',
         'observability/langfuse',
       ],
     },

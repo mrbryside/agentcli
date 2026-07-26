@@ -3,6 +3,7 @@ package agentcli
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"time"
@@ -62,6 +63,7 @@ type config struct {
 	contextEstimator     agentruntime.ContextEstimator
 	toolCallGuardTimeout time.Duration
 	langfuse             *langfuseobs.Client
+	logger               *slog.Logger
 }
 
 func defaultConfig(projectRoot string) config {
@@ -291,6 +293,19 @@ func WithToolCallGuardTimeout(timeout time.Duration) Option {
 func WithChannelBuffer(size int) Option {
 	return func(configuration *config) error {
 		configuration.channelBuffer = size
+		return nil
+	}
+}
+
+// WithLogger enables structured runtime lifecycle logging with a
+// caller-supplied logger. It overrides project logging when applied after
+// WithProject. Pass a logger whose handler owns the desired level and output.
+func WithLogger(logger *slog.Logger) Option {
+	return func(configuration *config) error {
+		if logger == nil {
+			return errors.New("logger is required")
+		}
+		configuration.logger = logger
 		return nil
 	}
 }

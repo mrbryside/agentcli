@@ -180,6 +180,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		executorDone: make(chan struct{}), responseScopes: toolexecution.NewResponseScopeCoordinator(runContext),
 		langfuse: langfuseClient, ownsLangfuse: ownsLangfuse,
 	}
+	agent.responseScopes.SetLogger(configuration.logger)
 	var manager *subagentManager
 	if rootHasSubagents {
 		manager, err = newSubagentManager(agent, configuration)
@@ -234,6 +235,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationDecisions:   confirmationDecisions,
 		PermissionMode:          configuration.permissionMode,
 		Compactor:               compactor,
+		Logger:                  configuration.logger,
 		PermissionModeChanged: func(_, current permission.Mode) error {
 			return policyController.SetMode(current)
 		},
@@ -244,6 +246,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 		return nil, fmt.Errorf("create runtime: %w", err)
 	}
+	agent.responseScopes.SetCanonicalAssistantRecorder(runtime.AppendCanonicalAssistant)
 	executor, err := toolexecution.NewExecutor(registry, configuration.toolWorkers, toolexecution.Config{
 		PermissionEnabled:     true,
 		NonInteractive:        configuration.nonInteractive,

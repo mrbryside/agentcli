@@ -2,7 +2,9 @@ package agentruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -45,6 +47,9 @@ type Config struct {
 	// Compactor enables provider-neutral transcript compaction before each
 	// main-model round. Its zero value is disabled.
 	Compactor *Compactor
+	// Logger receives structured runtime lifecycle records. Nil disables
+	// logging without affecting event publication.
+	Logger *slog.Logger
 }
 
 // Runtime coordinates active turns for independent sessions. Per-turn event
@@ -74,6 +79,7 @@ type Runtime struct {
 	permissionModeChanged   func(previous, current permission.Mode) error
 	compactor               *Compactor
 	mainModelMetadata       ModelMetadata
+	logger                  *slog.Logger
 
 	mu                        sync.RWMutex
 	active                    map[string]*Run
@@ -232,6 +238,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		permissionMode:            config.PermissionMode,
 		permissionModeChanged:     config.PermissionModeChanged,
 		compactor:                 config.Compactor,
+		logger:                    config.Logger,
 		active:                    make(map[string]*Run),
 		pendingPermissions:        make(map[permission.ID]*pendingPermission),
 		permissionDecisionsSeen:   make(map[permission.ID]permission.Decision),
@@ -259,6 +266,46 @@ func (r *Runtime) PermissionMode() permission.Mode {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.permissionMode
+}
+
+// AppendCanonicalAssistant persists one assistant message after an external
+// end-of-scope delivery has actually succeeded. It is intentionally separate
+// from provider draft handling so failed delivery cannot enter the transcript.
+func (r *Runtime) AppendCanonicalAssistant(ctx context.Context, message Message) error {
+	if r == nil {
+		return ErrInvalidRequest
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if message.SessionID == "" || message.TurnID == "" {
+		return invalidRequest("canonical assistant message requires session and turn IDs")
+	}
+	if message.Type != MessageTypeAssistant {
+		return invalidRequest("canonical assistant message must have assistant type")
+	}
+	if strings.TrimSpace(message.Content) == "" {
+		return invalidRequest("canonical assistant message requires content")
+	}
+	if message.ID == "" {
+		id, err := r.idGenerator.NewID("msg_")
+		if err != nil {
+			return fmt.Errorf("generate canonical assistant message ID: %w", err)
+		}
+		if id == "" {
+			return errors.New("generate canonical assistant message ID: generated ID is empty")
+		}
+		message.ID = id
+	}
+	if message.CreatedAt.IsZero() {
+		message.CreatedAt = time.Now().UTC()
+	} else {
+		message.CreatedAt = message.CreatedAt.UTC()
+	}
+	if err := r.messages.Append(ctx, storage.CloneMessage(message)); err != nil {
+		return fmt.Errorf("append canonical assistant message: %w", err)
+	}
+	return nil
 }
 
 // SetPermissionMode changes this agent-global mode. The transition is

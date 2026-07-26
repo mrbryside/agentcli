@@ -74,6 +74,12 @@ Create `.agentcli/config.yaml`:
 permission_mode: default
 max_subagents: 4
 
+# Optional structured runtime, tool, scope, and repair lifecycle logs.
+# Omit this mapping to disable console logging.
+# logging:
+#   enabled: true
+#   level: info # debug, info, warn, or error
+
 # Optional LLM-call observability. The whole example remains commented, so
 # model calls are not observed unless it is explicitly enabled.
 # observability:
@@ -188,9 +194,11 @@ err := agent.RunTerminal(
 ```
 
 The included playground registers example `glob`, `read`, and confirmation
-tools. Its `.agentcli/config.example.yaml` also shows the current compaction,
-model metadata, OpenRouter-compatible provider, and disabled Langfuse
-observability settings:
+tools. Its `.agentcli/config.example.yaml` also shows the current runtime
+logging, compaction, model metadata, OpenRouter-compatible provider, and
+disabled Langfuse observability settings. Uncomment `logging` and select
+`debug`, `info`, `warn`, or `error` to inspect framework lifecycle records on
+stderr:
 
 ```sh
 make terminal

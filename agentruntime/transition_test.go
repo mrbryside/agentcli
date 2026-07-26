@@ -38,7 +38,7 @@ func TestEffectsLifecycleOrder(t *testing.T) {
 		{
 			name:  "final provider completion",
 			event: AgentEvent{SessionID: "session", TurnID: "turn", Type: ProviderEventReceived, ProviderEvent: completed},
-			want:  []EffectType{AppendMessages, AttemptComplete},
+			want:  []EffectType{StageAssistant, AttemptComplete},
 		},
 		{
 			name:  "provider tool completion",

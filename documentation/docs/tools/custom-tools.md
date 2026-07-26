@@ -144,15 +144,19 @@ either trigger:
 
 ```go
 agentcli.Tool{
-    Definition:       definition,
-    Handler:          handler,
-    Trigger:          agentcli.EndResponseScope,
-    EndTurnOnSuccess: true,
+    Definition:                         definition,
+    Handler:                            handler,
+    Trigger:                            agentcli.EndResponseScope,
+    EndTurnOnSuccess:                   true,
+    CanonicalAssistantMessageParameter: "message",
 }
 ```
 
 Here the invocation is required, its handler remains deferred until scope end,
-and a successful staging result ends the current turn.
+and a successful staging result ends the current turn. The optional canonical
+parameter must name a required string property in the tool schema. After the
+deferred handler succeeds, its exact argument value is appended as the durable
+assistant message. Handler failure or cancellation appends nothing.
 
 ## End-of-scope trigger tools
 
@@ -262,9 +266,10 @@ agentcli.Tool{
         Description: "Stage the final Discord response for delivery at scope end.",
         InputSchema: reportSchema,
     },
-    Handler:          sendDiscordMessage,
-    Trigger:          agentcli.EndResponseScope,
-    EndTurnOnSuccess: true,
+    Handler:                            sendDiscordMessage,
+    Trigger:                            agentcli.EndResponseScope,
+    EndTurnOnSuccess:                   true,
+    CanonicalAssistantMessageParameter: "message",
 }
 ```
 
@@ -289,7 +294,9 @@ is quiescent. The runtime calls `sendDiscordMessage` once with
 `"Investigation complete: the service is healthy."`; it never invokes the
 handler with `"Still investigating."`. In this configuration,
 `EndTurnOnSuccess` reacts to successful staging, not to eventual Discord
-delivery.
+delivery. Only after that delivery succeeds does the transcript append one
+assistant message containing `"Investigation complete: the service is
+healthy."`.
 
 ## Permissions and confirmations
 

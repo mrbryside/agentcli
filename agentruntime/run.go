@@ -47,6 +47,7 @@ type Run struct {
 	completionReminder        []ContextReminder
 	outputGuardRetries        int
 	outputGuardReminder       []ContextReminder
+	pendingAssistant          *Message
 	completionToolsRestricted bool
 	completionToolAllowlist   []string
 	terminalNotify            chan struct{}
@@ -447,7 +448,11 @@ func (r *Run) runLoop(ctx context.Context, runtime *Runtime, initial Message, in
 	event := AgentEvent{Type: RunStarted, Message: &initial, PermissionMode: &PermissionModeChange{Current: initialMode}}
 	previous, accepted := r.transition(event)
 	signalStarted()
-	if !accepted || !r.processCommittedEvent(ctx, runtime, event, previous) {
+	if !accepted {
+		return
+	}
+	runtime.logEvent(ctx, r, r.committedEvent(previous, event))
+	if !r.processCommittedEvent(ctx, runtime, event, previous) {
 		return
 	}
 
@@ -499,17 +504,19 @@ func (r *Run) runInputGuardResponseLoop(ctx context.Context, runtime *Runtime, i
 	startedOnce := sync.Once{}
 	signalStarted := func() { startedOnce.Do(func() { close(started) }) }
 
-	_, accepted := r.transition(AgentEvent{
+	startEvent := AgentEvent{
 		Type:           RunStarted,
 		Message:        &initial,
 		Reason:         "input handled by guard",
 		PermissionMode: &PermissionModeChange{Current: initialMode},
-	})
+	}
+	previous, accepted := r.transition(startEvent)
 	signalStarted()
 	if !accepted {
 		r.finish(runtime)
 		return
 	}
+	runtime.logEvent(ctx, r, r.committedEvent(previous, startEvent))
 	if err := ctx.Err(); err != nil {
 		r.processEvent(context.WithoutCancel(ctx), runtime, AgentEvent{Type: AgentInterrupted, Reason: contextReason(ctx)})
 		return
@@ -521,14 +528,18 @@ func (r *Run) runInputGuardResponseLoop(ctx context.Context, runtime *Runtime, i
 		return
 	}
 
-	r.transition(AgentEvent{
+	contentEvent := AgentEvent{
 		Type: ProviderEventReceived,
 		ProviderEvent: provider.StreamEvent{
 			Type:    provider.ContentReceived,
 			Content: response,
 		},
-	})
-	r.transition(AgentEvent{
+	}
+	previous, accepted = r.transition(contentEvent)
+	if accepted {
+		runtime.logEvent(ctx, r, r.committedEvent(previous, contentEvent))
+	}
+	completedEvent := AgentEvent{
 		Type: ProviderEventReceived,
 		ProviderEvent: provider.StreamEvent{
 			Type: provider.StreamCompleted,
@@ -536,8 +547,16 @@ func (r *Run) runInputGuardResponseLoop(ctx context.Context, runtime *Runtime, i
 				Result: provider.StreamResult{Content: response, Finished: true},
 			},
 		},
-	})
-	r.transition(AgentEvent{Type: RunCompleted})
+	}
+	previous, accepted = r.transition(completedEvent)
+	if accepted {
+		runtime.logEvent(ctx, r, r.committedEvent(previous, completedEvent))
+	}
+	runCompleted := AgentEvent{Type: RunCompleted}
+	previous, accepted = r.transition(runCompleted)
+	if accepted {
+		runtime.logEvent(ctx, r, r.committedEvent(previous, runCompleted))
+	}
 	r.finish(runtime)
 }
 
@@ -554,7 +573,16 @@ func (r *Run) processEvent(ctx context.Context, runtime *Runtime, event AgentEve
 	if !accepted {
 		return false
 	}
+	runtime.logEvent(ctx, r, r.committedEvent(previous, event))
 	return r.processCommittedEvent(ctx, runtime, event, previous)
+}
+
+func (r *Run) committedEvent(previous AgentState, event AgentEvent) AgentEvent {
+	committed := cloneEvent(event)
+	committed.Sequence = uint64(len(previous.events) + 1)
+	committed.SessionID = r.sessionID
+	committed.TurnID = r.turnID
+	return committed
 }
 
 func (r *Run) processCommittedEvent(ctx context.Context, runtime *Runtime, event AgentEvent, previous AgentState) bool {
@@ -593,6 +621,15 @@ func (r *Run) interpretEffect(ctx context.Context, runtime *Runtime, effect Effe
 		if err := r.appendMessages(ctx, runtime, effect.Messages); err != nil {
 			return r.fail(ctx, runtime, err)
 		}
+	case StageAssistant:
+		if len(effect.Messages) != 1 || effect.Messages[0].Type != MessageTypeAssistant {
+			return r.fail(ctx, runtime, errors.New("stage assistant effect requires exactly one assistant message"))
+		}
+		prepared, err := r.prepareMessages(runtime, effect.Messages)
+		if err != nil {
+			return r.fail(ctx, runtime, err)
+		}
+		r.setPendingAssistant(prepared[0])
 	case StartProvider:
 		if err := r.startProvider(ctx, runtime); err != nil {
 			return r.fail(ctx, runtime, err)
@@ -635,6 +672,17 @@ func (r *Run) interpretEffect(ctx context.Context, runtime *Runtime, effect Effe
 }
 
 func (r *Run) appendMessages(ctx context.Context, runtime *Runtime, messages []Message) error {
+	prepared, err := r.prepareMessages(runtime, messages)
+	if err != nil {
+		return err
+	}
+	if err := runtime.messages.Append(ctx, prepared...); err != nil {
+		return fmt.Errorf("append messages: %w", err)
+	}
+	return nil
+}
+
+func (r *Run) prepareMessages(runtime *Runtime, messages []Message) ([]Message, error) {
 	prepared := storage.CloneMessages(messages)
 	for index := range prepared {
 		message := &prepared[index]
@@ -645,15 +693,15 @@ func (r *Run) appendMessages(ctx context.Context, runtime *Runtime, messages []M
 			message.TurnID = r.turnID
 		}
 		if message.SessionID != r.sessionID || message.TurnID != r.turnID {
-			return fmt.Errorf("append message %d has identifiers outside the run", index)
+			return nil, fmt.Errorf("append message %d has identifiers outside the run", index)
 		}
 		if message.ID == "" {
 			id, err := runtime.idGenerator.NewID("msg_")
 			if err != nil {
-				return fmt.Errorf("generate message ID: %w", err)
+				return nil, fmt.Errorf("generate message ID: %w", err)
 			}
 			if id == "" {
-				return errors.New("generate message ID: generated ID is empty")
+				return nil, errors.New("generate message ID: generated ID is empty")
 			}
 			message.ID = id
 		}
@@ -663,10 +711,7 @@ func (r *Run) appendMessages(ctx context.Context, runtime *Runtime, messages []M
 			message.CreatedAt = message.CreatedAt.UTC()
 		}
 	}
-	if err := runtime.messages.Append(ctx, prepared...); err != nil {
-		return fmt.Errorf("append messages: %w", err)
-	}
-	return nil
+	return prepared, nil
 }
 
 func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
@@ -756,24 +801,42 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 	if err != nil {
 		return r.fail(ctx, runtime, fmt.Errorf("inspect output messages: %w", err))
 	}
+	candidate, hasCandidate := r.pendingAssistantCandidate()
+	inspectionMessages := storage.CloneMessages(messages)
+	if hasCandidate {
+		inspectionMessages = append(inspectionMessages, storage.CloneMessage(candidate))
+	}
 	if runtime.outputGuard != nil {
-		if output, ok := latestRunOutput(messages, r.turnID); ok {
+		if hasCandidate {
 			decision, guardErr := invokeOutputGuard(ctx, runtime.outputGuard, OutputGuardAttempt{
 				SessionID:     r.sessionID,
 				TurnID:        r.turnID,
-				Messages:      storage.CloneMessages(messages),
-				Output:        storage.CloneMessage(output),
+				Messages:      storage.CloneMessages(inspectionMessages),
+				Output:        storage.CloneMessage(candidate),
 				ProviderSteps: r.providerSteps(),
 				RetryCount:    r.OutputGuardRetryCount(),
 			})
 			if guardErr != nil {
-				return r.fail(ctx, runtime, fmt.Errorf("evaluate output guard: %w", guardErr))
+				err := fmt.Errorf("evaluate output guard: %w", guardErr)
+				runtime.logRepairFailed(ctx, r, "output_guard", err)
+				return r.fail(ctx, runtime, err)
 			}
 			if err := validateOutputGuardDecision(decision); err != nil {
-				return r.fail(ctx, runtime, fmt.Errorf("evaluate output guard: %w", err))
+				err = fmt.Errorf("evaluate output guard: %w", err)
+				runtime.logRepairFailed(ctx, r, "output_guard", err)
+				return r.fail(ctx, runtime, err)
 			}
 			if decision.Action == OutputRetry {
+				r.clearPendingAssistant()
 				r.setOutputGuardRetry(decision.Feedback)
+				runtime.logRepairRequested(
+					ctx,
+					r,
+					"output_guard",
+					r.OutputGuardRetryCount(),
+					r.providerSteps(),
+					nil,
+				)
 				if err := r.startProvider(ctx, runtime); err != nil {
 					return r.fail(ctx, runtime, err)
 				}
@@ -782,40 +845,82 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 		}
 	}
 	if runtime.completionGuard == nil {
+		if !r.commitPendingAssistant(ctx, runtime) {
+			return false
+		}
 		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
 	}
 	attempt := CompletionAttempt{
-		SessionID: r.sessionID, TurnID: r.turnID, Messages: storage.CloneMessages(messages),
+		SessionID: r.sessionID, TurnID: r.turnID, Messages: storage.CloneMessages(inspectionMessages),
 		TerminalToolBatch: r.hasTerminalToolBatch(messages),
 		ProviderSteps:     r.providerSteps(), RepairCount: r.CompletionRepairCount(),
 	}
 	decision, err := runtime.completionGuard(ctx, cloneCompletionAttempt(attempt))
 	if err != nil {
-		return r.fail(ctx, runtime, fmt.Errorf("evaluate completion guard: %w", err))
+		err = fmt.Errorf("evaluate completion guard: %w", err)
+		runtime.logRepairFailed(ctx, r, "completion_guard", err)
+		return r.fail(ctx, runtime, err)
 	}
 	decision = cloneCompletionDecision(decision)
 	if err := validateCompletionDecision(decision, runtime.tools); err != nil {
-		return r.fail(ctx, runtime, fmt.Errorf("evaluate completion guard: %w", err))
+		err = fmt.Errorf("evaluate completion guard: %w", err)
+		runtime.logRepairFailed(ctx, r, "completion_guard", err)
+		return r.fail(ctx, runtime, err)
 	}
 	if decision.Action == CompletionProceed {
+		if !r.commitPendingAssistant(ctx, runtime) {
+			return false
+		}
 		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
 	}
+	r.clearPendingAssistant()
 	r.setCompletionRepair(decision)
+	runtime.logRepairRequested(
+		ctx,
+		r,
+		"completion_guard",
+		r.CompletionRepairCount(),
+		r.providerSteps(),
+		decision.ToolAllowlist,
+	)
 	if err := r.startProvider(ctx, runtime); err != nil {
 		return r.fail(ctx, runtime, err)
 	}
 	return true
 }
 
-func latestRunOutput(messages []Message, turnID string) (Message, bool) {
-	if len(messages) == 0 {
+func (r *Run) setPendingAssistant(message Message) {
+	candidate := storage.CloneMessage(message)
+	r.mu.Lock()
+	r.pendingAssistant = &candidate
+	r.mu.Unlock()
+}
+
+func (r *Run) pendingAssistantCandidate() (Message, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.pendingAssistant == nil {
 		return Message{}, false
 	}
-	last := messages[len(messages)-1]
-	if last.TurnID != turnID || last.Type != MessageTypeAssistant {
-		return Message{}, false
+	return storage.CloneMessage(*r.pendingAssistant), true
+}
+
+func (r *Run) clearPendingAssistant() {
+	r.mu.Lock()
+	r.pendingAssistant = nil
+	r.mu.Unlock()
+}
+
+func (r *Run) commitPendingAssistant(ctx context.Context, runtime *Runtime) bool {
+	candidate, ok := r.pendingAssistantCandidate()
+	if !ok {
+		return true
 	}
-	return last, true
+	if err := r.appendMessages(ctx, runtime, []Message{candidate}); err != nil {
+		return r.fail(ctx, runtime, err)
+	}
+	r.clearPendingAssistant()
+	return true
 }
 
 // OutputGuardRetryCount reports how many retries the output guard requested.

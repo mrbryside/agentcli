@@ -101,6 +101,50 @@ func (m *subagentManager) deliverSystemEvents(ctx context.Context, id uint64, su
 }
 
 func (m *subagentManager) publishSystemEvent(event SystemEvent) {
+	if m != nil && m.config.logger != nil {
+		switch event.Type {
+		case SystemSubagentClosed:
+			if event.SubagentClosed == nil {
+				m.config.logger.Warn("agent system event missing payload",
+					"event_type", event.Type,
+					"session_id", event.SessionID,
+					"turn_id", event.TurnID,
+				)
+				break
+			}
+			closed := event.SubagentClosed
+			subagent := closed.Subagent
+			m.config.logger.Info("subagent closed",
+				"event_type", event.Type,
+				"session_id", event.SessionID,
+				"turn_id", event.TurnID,
+				"subagent_id", subagent.ID,
+				"automatic", closed.Automatic,
+			)
+			m.config.logger.Debug("subagent closed details",
+				"event_type", event.Type,
+				"session_id", event.SessionID,
+				"turn_id", event.TurnID,
+				"subagent_id", subagent.ID,
+				"subagent_session_id", subagent.SessionID,
+				"subagent_name", subagent.DisplayName,
+				"subagent_definition", subagent.DefinitionName,
+				"previous_status", closed.PreviousStatus,
+				"previous_outcome", closed.PreviousOutcome,
+				"final_status", subagent.Status,
+				"final_outcome", subagent.LastTurnOutcome,
+				"dropped_messages", closed.DroppedMessages,
+				"interrupted", closed.Interrupted,
+				"automatic", closed.Automatic,
+			)
+		default:
+			m.config.logger.Debug("agent system event",
+				"event_type", event.Type,
+				"session_id", event.SessionID,
+				"turn_id", event.TurnID,
+			)
+		}
+	}
 	m.systemEventMu.Lock()
 	defer m.systemEventMu.Unlock()
 	if m.systemEventsClosed {

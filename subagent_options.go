@@ -1,6 +1,10 @@
 package agentcli
 
-import langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
+import (
+	"log/slog"
+
+	langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
+)
 
 // withChildAgent marks an internally constructed child. It is deliberately
 // private: only the manager may make a child that inherits project skills and
@@ -17,6 +21,14 @@ func withChildAgent() Option {
 func withSharedLangfuse(client *langfuseobs.Client) Option {
 	return func(configuration *config) error {
 		configuration.langfuse = client
+		return nil
+	}
+}
+
+// withSharedLogger keeps root and child lifecycle records on the same handler.
+func withSharedLogger(logger *slog.Logger) Option {
+	return func(configuration *config) error {
+		configuration.logger = logger
 		return nil
 	}
 }

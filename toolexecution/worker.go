@@ -104,7 +104,12 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	}
 
 	if trigger, _ := e.registry.triggerFor(request.Call.Name); trigger == EndResponseScope {
-		output, err := e.config.ResponseScopes.StageEndResponseScope(ctx, request, handler)
+		output, err := e.config.ResponseScopes.StageEndResponseScope(
+			ctx,
+			request,
+			handler,
+			e.registry.canonicalAssistantMessageParameterFor(request.Call.Name),
+		)
 		if err != nil {
 			result.Result.Status = agentruntime.ToolResultFailed
 			result.Result.Error = err.Error()

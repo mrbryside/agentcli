@@ -111,8 +111,8 @@ provider order before it makes the next model request.
 ## Completion admission
 
 Low-level AgentRuntime integrations may configure `Config.CompletionGuard` to
-inspect a defensive transcript snapshot after the provider's final output has
-been persisted but before `RunCompleted` is committed:
+inspect a defensive snapshot containing the provider's pending final output
+before `RunCompleted` is committed:
 
 ```go
 guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
@@ -133,6 +133,11 @@ guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
 }
 ```
 
+The pending assistant candidate is not yet in `MessageStorage`. A retry
+discards it, so it is absent from the next provider request and future session
+history; it remains available through retained run/provider events for
+diagnostics. Proceeding persists it immediately before `RunCompleted`.
+
 The retry reminder is ephemeral and applies only to the next provider request.
 An optional non-nil allowlist restricts that request and all of its follow-up
 rounds. A reminder can ask a child to call `report_subagent_outcome`, but the
@@ -151,9 +156,9 @@ If an application completion guard also returns a bounded tool allowlist, its
 tools are merged with the missing trigger tools. AgentRuntime does not send
 provider-specific tool-choice directives. The bounded completion guard fails
 the turn after three consecutive repair attempts without progress.
-OpenAI-compatible adapters append a repair reminder as an ephemeral
-user-role message when assistant output already ends the transcript, avoiding
-provider rejection of multiple trailing assistant messages.
+OpenAI-compatible adapters append repair reminders as ephemeral user-role
+messages. Rejected assistant drafts never become repeated trailing transcript
+messages.
 Root callback turns do not use a completion repair. Their accepted follow-ups
 and callback obligations instead participate in the originating response-scope
 barrier. When that scope becomes quiescent, the runtime automatically closes

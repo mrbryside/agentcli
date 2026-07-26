@@ -100,6 +100,7 @@ func TestOutputGuardRetriesWithFeedback(t *testing.T) {
 		}}},
 	}}
 	var attempts []OutputGuardAttempt
+	messages := inmemory.NewMessageStorage()
 	guard := func(_ context.Context, attempt OutputGuardAttempt) (OutputGuardDecision, error) {
 		attempts = append(attempts, cloneOutputGuardAttempt(attempt))
 		if len(attempts) == 1 {
@@ -108,7 +109,7 @@ func TestOutputGuardRetriesWithFeedback(t *testing.T) {
 		return OutputGuardDecision{Action: OutputProceed}, nil
 	}
 	runtime, err := New(context.Background(), Config{
-		Model: model, Messages: inmemory.NewMessageStorage(),
+		Model: model, Messages: messages,
 		ToolRequests: make(chan ToolRequest, 2), ToolResults: make(chan ToolResultEnvelope, 2), ToolInterrupts: make(chan ToolInterrupt, 2),
 		OutputGuard: guard, MaxSteps: 3,
 	})
@@ -136,6 +137,22 @@ func TestOutputGuardRetriesWithFeedback(t *testing.T) {
 	}
 	if len(attempts) != 2 || attempts[0].Output.Content != "unsafe answer" || attempts[1].Output.Content != "safe answer" {
 		t.Fatalf("guard attempts = %#v", attempts)
+	}
+	if attempts[0].Output.ID == "" || attempts[0].Output.CreatedAt.IsZero() {
+		t.Fatalf("pending output candidate lacks normalized identity: %#v", attempts[0].Output)
+	}
+	if len(requests[1].Messages) != 1 || requests[1].Messages[0].Type != MessageTypeUser {
+		t.Fatalf("repair transcript = %#v, want rejected output excluded", requests[1].Messages)
+	}
+	stored, err := messages.List(context.Background(), "guard-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 ||
+		stored[0].Type != MessageTypeUser ||
+		stored[1].Type != MessageTypeAssistant ||
+		stored[1].Content != "safe answer" {
+		t.Fatalf("stored transcript = %#v, want only accepted output", stored)
 	}
 }
 

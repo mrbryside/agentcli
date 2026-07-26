@@ -41,7 +41,37 @@ type ProjectConfig struct {
 	MaxSubagents   int                       `yaml:"max_subagents"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	Compaction     *CompactionConfig         `yaml:"compaction"`
+	Logging        *LoggingConfig            `yaml:"logging"`
 	Observability  *ObservabilityConfig      `yaml:"observability"`
+}
+
+// LoggingConfig controls structured runtime lifecycle logs written to stderr.
+// Omitting the section disables runtime logging. When the section is present,
+// enabled defaults to true and level defaults to info.
+type LoggingConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
+}
+
+// UnmarshalYAML applies useful opt-in defaults while keeping the section
+// strict even though custom YAML unmarshalling bypasses Decoder.KnownFields.
+func (config *LoggingConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return errors.New("logging must be a mapping")
+	}
+	for index := 0; index < len(value.Content); index += 2 {
+		key := value.Content[index].Value
+		if key != "enabled" && key != "level" {
+			return fmt.Errorf("field %s not found in type agentcli.LoggingConfig", key)
+		}
+	}
+	type rawLoggingConfig LoggingConfig
+	decoded := rawLoggingConfig{Enabled: true, Level: "info"}
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*config = LoggingConfig(decoded)
+	return nil
 }
 
 // ObservabilityConfig contains optional project-wide telemetry backends.
@@ -272,6 +302,7 @@ func WithProject(project *Project) Option {
 		configuration.project = project
 		configuration.permissionMode = project.PermissionMode()
 		configuration.permissionPolicy.Mode = project.PermissionMode()
+		configuration.logger = projectLogger(project.config.Logging)
 		if project.compaction != nil && project.compaction.Auto {
 			compactionModel, err := project.CompactionModel()
 			if err != nil {
@@ -522,6 +553,9 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 	if config.MaxSubagents < 0 {
 		return "", "", ProviderConfig{}, 0, errors.New("max_subagents cannot be negative")
 	}
+	if err := validateLoggingConfig(config.Logging); err != nil {
+		return "", "", ProviderConfig{}, 0, err
+	}
 	if err := validateObservabilityConfig(config.Observability); err != nil {
 		return "", "", ProviderConfig{}, 0, err
 	}
@@ -707,6 +741,18 @@ func validateObservabilityConfig(config *ObservabilityConfig) error {
 		}
 	}
 	return nil
+}
+
+func validateLoggingConfig(config *LoggingConfig) error {
+	if config == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(config.Level)) {
+	case "debug", "info", "warn", "error":
+		return nil
+	default:
+		return fmt.Errorf("logging level must be one of debug, info, warn, or error: %q", config.Level)
+	}
 }
 
 func unsupportedProviderType(providerName string, providerType ProviderType) error {

@@ -67,8 +67,8 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read installer: %v", err)
 	}
-	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.49") {
-		t.Fatal("installer fallback version does not track v0.0.49")
+	if !strings.Contains(string(content), "agentcli_fallback_version=v0.0.51") {
+		t.Fatal("installer fallback version does not track v0.0.51")
 	}
 }
 
@@ -116,6 +116,25 @@ func TestInstallerIncludesDisabledLangfuseExample(t *testing.T) {
 	}
 	if strings.Contains(installer, "\nobservability:\n") {
 		t.Fatal("installer enables observability instead of leaving the example commented")
+	}
+}
+
+func TestInstallerIncludesDisabledRuntimeLoggingExample(t *testing.T) {
+	content, err := os.ReadFile("init/install.sh")
+	if err != nil {
+		t.Fatalf("read installer: %v", err)
+	}
+	const required = `# transcript lifecycle logs.
+# Omit this mapping to disable console logging.
+# logging:
+#   enabled: true
+#   level: info # debug, info, warn, or error`
+	installer := string(content)
+	if !strings.Contains(installer, required) {
+		t.Fatalf("installer does not contain the disabled logging example:\n%s", required)
+	}
+	if strings.Contains(installer, "\nlogging:\n") {
+		t.Fatal("installer enables runtime logging instead of leaving the example commented")
 	}
 }
 
