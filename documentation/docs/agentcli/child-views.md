@@ -294,6 +294,11 @@ available when `include_closed=true` is requested.
 
 ### Restore views after application reload
 
+Messages alone are not a complete child-state snapshot. In particular,
+`subagent_closed` is a system event and is not appended to the conversation
+transcript. A page that reloads only messages can therefore lose the visible
+close notification even though the durable child record remains closed.
+
 1. Restore the parent session ID.
 2. List children with `include_closed=true`.
 3. Recreate one view record per child ID.
@@ -302,6 +307,12 @@ available when `include_closed=true` is requested.
 5. For every `running` child, attach to `current_turn_id` with its saved cursor.
 6. Reconnect the parent session stream for automatic callback turns.
 7. When a callback references a child, refresh that child record and transcript.
+
+Treat the result of `include_closed=true` as the authoritative initial state.
+Use `subagent_closed` only to update an already-hydrated page in real time.
+This also makes reloads safe after a server restart, because child records come
+from `SubagentStorage` while the server's session-event replay history is
+process-local memory.
 
 If cursors are not durable, fetch the transcript first and replay a child's
 active turn from sequence zero. Merge messages and event-derived state by

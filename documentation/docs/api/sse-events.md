@@ -128,6 +128,24 @@ A successful explicit or automatic child close emits `subagent_closed`. Its
 reconnects even though the in-process `SubscribeSystemEvents` stream is
 live-only.
 
+## Page refresh and durable state
+
+System events are not conversation messages. Fetching only
+`GET /v1/sessions/{sessionID}/messages` after a page refresh does not restore a
+previous `subagent_closed` notification. Hydrate the page with both messages
+and the durable child snapshot:
+
+```text
+GET /v1/sessions/{sessionID}/messages
+GET /v1/sessions/{sessionID}/subagents?include_closed=true
+```
+
+The child list is authoritative for initial `running`, `idle`, and `closed`
+state. Session SSE events incrementally update that state after hydration.
+Session-event replay is retained in server memory and supports reconnects while
+that server process remains alive; it does not survive a server restart.
+`SubagentStorage` remains the durable recovery source.
+
 ## Runtime event catalog
 
 `run_started` is the first admitted-turn event. Exactly one of

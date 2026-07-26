@@ -24,6 +24,12 @@ through the generic `SubscribeSystemEvents` stream with type
 snapshot, previous lifecycle/outcome, dropped-message count, and whether the
 close interrupted active work.
 
+System events are not persisted as transcript messages. A refreshed client
+must hydrate child state with `ListSubagents(..., includeClosed=true)` or the
+matching HTTP endpoint in addition to loading messages. The server's session
+event hub is process-local replay state; durable recovery after restart comes
+from `SubagentStorage`.
+
 Child views have two equivalent integration paths. Remote applications use the Echo child-record/message endpoints and retained per-turn SSE streams. In-process Go applications use `ListSubagents`, `ListMessages`, `SubagentRun`, and the run subscribe-then-replay fence directly. UI transcript reads must use `ListMessages`; `ReadSubagent` advances the parent model's observation cursor and is not a rendering API. Switching views changes visible state only and must not cancel background child streams.
 
 Back to [application/index.md](index.md).
