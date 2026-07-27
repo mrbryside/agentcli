@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	SkillLoaderToolName               = "load_skill"
-	defaultSkillMaxTurnDistance       = 10
-	defaultSkillMaxTokenDistance      = 12_000
-	skillInstructionsInContextMessage = "The skill loaded successfully. Its full instructions are already available in the conversation context."
+	SkillLoaderToolName          = "load_skill"
+	defaultSkillMaxTurnDistance  = 10
+	defaultSkillMaxTokenDistance = 12_000
 )
 
 // Skill contains the provider-neutral content consumed by load_skill.
@@ -95,7 +94,7 @@ func (loader *SkillLoader) Tool() Tool {
 	return Tool{
 		Definition: agentruntime.ToolDefinition{
 			Name:        SkillLoaderToolName,
-			Description: "Load a skill's full instructions after a valid load trigger. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. A successful load from an earlier turn does not satisfy a new load trigger. When a valid trigger applies in a new turn, call this tool instead of inferring freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result. Every successful result uses status=loaded and means the load request succeeded. When instructions_in_context=true, the full skill instructions are already available in the conversation context even though the result does not repeat them. This tool only makes skill instructions available and does not decide whether the turn should continue, wait, or end.",
+			Description: "Load one skill's full instructions after a valid load trigger for that specific skill. Each call loads only the exact skill named in the request; it never loads skills collectively. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. A successful load from an earlier turn does not satisfy a new load trigger. When a valid trigger applies in a new turn, call this tool instead of inferring freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result. Every successful result uses status=loaded and means the load request succeeded for that exact named skill. The result's name identifies the one exact skill that loaded successfully and satisfies only the current load trigger for that named skill. It does not load or satisfy a trigger for any other skill; load another skill only when that other skill has a separate valid trigger. When instructions_in_context=true, the named skill's full instructions are already available in the conversation context even though the result does not repeat them. This tool only makes the named skill's instructions available and does not decide whether the turn should continue, wait, or end.",
 			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact skill name selected from available_skills after a valid description-match, explicit-requirement, or explicit-inspection trigger."}},"required":["name"],"additionalProperties":false}`),
 		},
 		Handler: loader.handle,
@@ -163,6 +162,7 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name, Description: skill.Description,
 		Instructions: skill.Instructions, ContentHash: hash, Reason: reason,
+		Message: skillLoadedMessage(skill.Name, false),
 	})
 }
 
@@ -170,8 +170,15 @@ func marshalSkillFromContext(skill Skill, hash, reason string) (json.RawMessage,
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name, ContentHash: hash, Reason: reason,
 		InstructionsInContext: true,
-		Message:               skillInstructionsInContextMessage,
+		Message:               skillLoadedMessage(skill.Name, true),
 	})
+}
+
+func skillLoadedMessage(name string, instructionsInContext bool) string {
+	if instructionsInContext {
+		return fmt.Sprintf("The requested skill %q loaded successfully. Its full instructions are already available in the conversation context.", name)
+	}
+	return fmt.Sprintf("The requested skill %q loaded successfully. Its full instructions are included in this result.", name)
 }
 
 func hashSkill(skill Skill) string {

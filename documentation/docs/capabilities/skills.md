@@ -57,8 +57,11 @@ successful result uses `loaded`.
 ## Repeat and refresh behavior
 
 An unchanged, recently loaded skill call returns a small `loaded` result with
-`instructions_in_context=true` instead of repeating its body. This means the
-load succeeded and the full instructions are already available in the
+`instructions_in_context=true` instead of repeating its body. Each call and
+successful result applies only to the exact skill in `name`, never to the skill
+catalog collectively; a different skill requires its own valid trigger and
+load. This means the named skill's load succeeded and the full instructions
+are already available in the
 conversation context. A successful load from an earlier turn does not satisfy
 a new load trigger. The loader only makes instructions available; it does not
 decide the turn's next behavior. The default refresh policy returns the full

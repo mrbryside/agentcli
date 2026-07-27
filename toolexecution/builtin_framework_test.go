@@ -28,6 +28,10 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"load request succeeded",
 		"A successful load from an earlier turn does not satisfy a new load trigger",
 		"Every successful result uses status=loaded",
+		"loads only the exact skill named",
+		"satisfies only the current load trigger for that named skill",
+		"does not load or satisfy a trigger for any other skill",
+		"separate valid trigger",
 		"instructions_in_context=true",
 		"already available in the conversation context",
 		"does not decide whether the turn should continue, wait, or end",
@@ -55,10 +59,12 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	if err := json.Unmarshal(output, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "loaded" || result.Instructions != "Run the Go tests." {
+	if result.Status != "loaded" || result.Name != "testing-go" ||
+		result.Instructions != "Run the Go tests." ||
+		result.Message != skillLoadedMessage("testing-go", false) {
 		t.Fatalf("skill result = %s", output)
 	}
-	if result.InstructionsInContext || result.Message != "" {
+	if result.InstructionsInContext {
 		t.Fatalf("fresh skill result incorrectly points to prior context: %#v", result)
 	}
 	reusedOutput, err := tool.Handler(ctx, json.RawMessage(`{"name":"testing-go"}`))
@@ -70,7 +76,7 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reused.Status != "loaded" || reused.Instructions != "" || !reused.InstructionsInContext ||
-		reused.Message != skillInstructionsInContextMessage {
+		reused.Name != "testing-go" || reused.Message != skillLoadedMessage("testing-go", true) {
 		t.Fatalf("reused skill result does not identify instructions in context: %#v", reused)
 	}
 }

@@ -13,7 +13,10 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-const expectedSkillInstructionsInContextMessage = "The skill loaded successfully. Its full instructions are already available in the conversation context."
+const (
+	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. Its full instructions are included in this result.`
+	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. Its full instructions are already available in the conversation context.`
+)
 
 type skillLoader struct {
 	loader *toolexecution.SkillLoader
@@ -40,7 +43,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 
 	loaded := callSkillLoader(t, loader, "session", "turn-1", "call-1")
 	if loaded.Status != "loaded" || loaded.Instructions == "" || loaded.InstructionsInContext ||
-		loaded.Message != "" {
+		loaded.Name != "testing-go" || loaded.Message != expectedFreshSkillMessage {
 		t.Fatalf("first result = %#v", loaded)
 	}
 	appendSkillResult(t, messages, "session", "turn-1", "result-1", "call-1", loaded)
@@ -120,7 +123,10 @@ func TestSkillLoaderDeduplicatesParallelSameTurnCalls(t *testing.T) {
 		if result.Status != "loaded" {
 			t.Fatalf("same-turn result status = %q, want loaded", result.Status)
 		}
-		if result.Instructions != "" {
+		if result.Name != "testing-go" {
+			t.Fatalf("same-turn result name = %q, want testing-go", result.Name)
+		}
+		if result.Instructions != "" && result.Message == expectedFreshSkillMessage {
 			fullBodies++
 		}
 		if result.InstructionsInContext && result.Message == expectedSkillInstructionsInContextMessage {
