@@ -624,9 +624,9 @@ Questions that only ask which skills are available, what they do, or which skill
 
 Inspect the complete load_skill result. Do not claim to have loaded a skill unless the result confirms it. A status of loaded or already_loaded means the load request succeeded. loaded returns the full instructions; already_loaded means the instructions are already available and is not a failure or a reason to retry.
 
-Before either success status has been returned for a skill in the current turn, a valid load trigger requires one load_skill call. Do not infer freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed.
+A successful load from an earlier turn does not satisfy a new load trigger. When a valid trigger applies in a new turn, call load_skill once instead of inferring freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed.
 
-After loaded or already_loaded is returned, do not call load_skill again for that skill in the same turn, even if the same trigger remains visible. load_skill only makes skill instructions available; it does not decide whether the turn should continue, wait, or end. Subsequent behavior comes from the loaded instructions and current context.
+Within the current turn, loaded or already_loaded satisfies the trigger and the same skill must not be loaded again, even if the same trigger remains visible. load_skill only makes skill instructions available; it does not decide whether the turn should continue, wait, or end. Subsequent behavior comes from the loaded instructions and current context.
 </skill_rules>
 
 <available_skills>

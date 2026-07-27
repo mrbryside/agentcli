@@ -105,9 +105,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"## Non-triggers",
 		"## Result handling",
 		"A status of loaded or already_loaded means the load request succeeded",
-		"a valid load trigger requires one load_skill call",
+		"A successful load from an earlier turn does not satisfy a new load trigger",
+		"When a valid trigger applies in a new turn, call load_skill once",
 		"Skill caching and freshness are runtime-managed",
-		"do not call load_skill again for that skill in the same turn",
+		"Within the current turn, loaded or already_loaded satisfies the trigger",
+		"the same skill must not be loaded again",
 		"does not decide whether the turn should continue, wait, or end",
 		"</skill_rules>",
 	} {
@@ -148,10 +150,12 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"Discovery-only questions",
 		"do not trigger this tool",
 		"Inspect the complete result",
-		"a valid trigger requires one call",
+		"A successful load from an earlier turn does not satisfy a new load trigger",
+		"When a valid trigger applies in a new turn, call this tool once",
 		"Skill caching and freshness are runtime-managed",
 		"loaded and already_loaded both mean the load request succeeded",
-		"do not call this tool again for the same skill in the same turn",
+		"Within the current turn, either status satisfies the trigger",
+		"the same skill must not be loaded again",
 		"does not decide whether the turn should continue, wait, or end",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {

@@ -27,7 +27,9 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"runtime-managed",
 		"already_loaded",
 		"load request succeeded",
-		"do not call this tool again for the same skill in the same turn",
+		"A successful load from an earlier turn does not satisfy a new load trigger",
+		"Within the current turn, either status satisfies the trigger",
+		"the same skill must not be loaded again",
 		"does not decide whether the turn should continue, wait, or end",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
