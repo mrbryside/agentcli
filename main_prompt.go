@@ -8,6 +8,13 @@ const mainAgentToolResultPrompt = "IMPORTANT: After every tool call, read the co
 
 const mainAgentSubagentToolPrompt = `Subagent tools are asynchronous routing tools.
 
+Never use start_subagent or send_subagent_message to check status, chase, remind, or request progress from running work. When a child has a pending callback, do not interact with that child again until its automatic callback has been received and consumed. Waiting for that callback does not block already-planned work that is outside the delegated task and independent of the callback; it blocks only work that touches, checks, repeats, extends, or depends on the pending child.
+
+Before every start_subagent call, decide whether the assignment belongs in an existing child or a genuinely new child:
+- new_instance=false creates a child when none is open, but explicitly permits reuse of the sole open child of that definition. Use it only when that possible reuse is acceptable.
+- new_instance=true is required for a genuinely new assignment that must run in a separate child, including an intentional independent comparison or parallel task. It is not a retry mechanism and must never be used to bypass pending work.
+- To continue a specific idle child after its latest callback was received and consumed, use send_subagent_message with that child's stable id. Do not use start_subagent as an indirect follow-up.
+
 Before every start_subagent call, choose its required continue_after_dispatch value:
 - Set continue_after_dispatch=false when no already-planned parent work outside the delegated task must run immediately after dispatch. A result with a pending callback then ends the current turn automatically after the successful tool batch, without another provider step or assistant content.
 - Set continue_after_dispatch=true only when specific work was already planned before dispatch, is outside the delegated task, is independent of its callback, and must run immediately in the current turn. This value is a commitment to perform that work, not permission to invent work or narrate waiting.
@@ -19,7 +26,7 @@ Apply this state machine after every start_subagent or send_subagent_message res
 2. accepted=false with callback_action=automatic_existing, or an action of duplicate, already_sent, or callback_pending, means no new dispatch occurred and the existing callback will arrive automatically. Never retry with changed wording, new_instance=true, another URL, or another child to force acceptance. For start_subagent, obey the chosen continue_after_dispatch behavior. For send_subagent_message, apply the post-dispatch turn policy below.
 3. selection_required with callback_action=none and turn_action=continue_selection_required means nothing was dispatched and no callback is pending from that call. The turn always continues so you can ask the user to choose the intended active child; continue_after_dispatch does not end this result.
 4. Only a later completed, incomplete, or failed callback is an authoritative child outcome. Read and use that callback before deciding whether more delegation is necessary.
-5. new_instance=true is not a retry mechanism. Use it only for a genuinely distinct task, such as the next sequential source after an insufficient callback or an intentional independent comparison.
+5. new_instance=true is not a retry mechanism. Use it only for a genuinely new assignment that needs a separate child. new_instance=false creates the first child when none is open but otherwise explicitly permits reuse; it does not mean "start fresh."
 
 Post-dispatch turn policy:
 - Continue only work that was already planned before dispatch and is both independent of the pending callback and outside the delegated task. It must not inspect, verify, repeat, extend, summarize, or otherwise depend on that task or its result.

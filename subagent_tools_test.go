@@ -142,7 +142,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		if first.ID == "" || first.DisplayName == "" || first.Action != toolexecution.SubagentStartCreated || !first.Accepted || first.Deduplicated ||
 			duplicate.Action != toolexecution.SubagentStartReused || duplicate.DispatchAction != toolexecution.SubagentSendDuplicate || duplicate.Accepted || !duplicate.Deduplicated ||
 			second.ID != first.ID || second.Action != toolexecution.SubagentStartReused || second.DispatchAction != toolexecution.SubagentSendAlreadySent || !second.Reused || second.Accepted || second.Deduplicated ||
-			accepted.ID != first.ID || accepted.Action != toolexecution.SubagentStartReused || accepted.DispatchAction != toolexecution.SubagentSendQueued || !accepted.Accepted || accepted.Deduplicated {
+			accepted.ID != first.ID || accepted.Action != toolexecution.SubagentStartReused || accepted.DispatchAction != toolexecution.SubagentSendCallbackPending || accepted.Accepted || accepted.Deduplicated {
 			t.Fatalf("first = %s, duplicate = %s, second = %s, accepted = %s", firstJSON, duplicateJSON, secondJSON, acceptedJSON)
 		}
 	})
@@ -187,7 +187,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 	})
 }
 
-func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
+func TestSendSubagentMessageToolOnlyTargetsIdleChildAfterCallback(t *testing.T) {
 	manager := newTestSubagentManager(t, &subagentGateModel{releases: make(chan struct{})}, 2)
 	defer manager.Close()
 	bridge := newTestSubagentToolBridge(manager)
@@ -237,8 +237,8 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || !isPassiveCallbackInstruction(changed.Instruction) {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || queued.Callback != "automatic" || !queued.MustWait || !isPassiveCallbackInstruction(queued.Instruction) {
-		t.Fatalf("next turn = %#v", queued)
+	if pending := send("turn-2", "pending", "next task"); pending.Action != toolexecution.SubagentSendCallbackPending || pending.Accepted || pending.Deduplicated || pending.Subagent.QueuedMessages != 0 || pending.Callback != "automatic_existing" || !pending.MustWait || !isPassiveCallbackInstruction(pending.Instruction) {
+		t.Fatalf("next turn = %#v", pending)
 	}
 }
 

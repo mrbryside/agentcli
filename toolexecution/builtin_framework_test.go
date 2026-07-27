@@ -91,6 +91,13 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == StartSubagentToolName {
 			for _, expected := range []string{
+				"not a status, reminder, or follow-up tool for running work",
+				"wait for its automatic callback",
+				"genuinely new assignment",
+				"new_instance=true",
+				"new_instance=false",
+				"creates a child when none is open",
+				"reuses the sole open child",
 				"explicitly choose continue_after_dispatch",
 				"Set it to false",
 				"successful result with a pending callback",
@@ -111,6 +118,10 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				}
 			}
 			for _, expected := range []string{
+				"True is required for a genuinely new assignment",
+				"False creates a child when none is open",
+				"explicitly permits reuse",
+				"Never use new_instance=true to bypass pending work",
 				`"continue_after_dispatch"`,
 				`"required":["name","message","continue_after_dispatch"]`,
 				"Required turn choice made before dispatch",
@@ -126,13 +137,26 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "after a valid continuation trigger") ||
-			!strings.Contains(tool.Definition.Description, "running child needs new focused queued input") ||
+			!strings.Contains(tool.Definition.Description, "idle child only") ||
 			!strings.Contains(tool.Definition.Description, "latest callback has been consumed") ||
 			!strings.Contains(tool.Definition.Description, "applicable instruction or the user explicitly requires") ||
-			!strings.Contains(tool.Definition.Description, "not for waiting, status checks, polling, duplicate instructions") ||
+			!strings.Contains(tool.Definition.Description, "Never call while the child is running") ||
+			!strings.Contains(tool.Definition.Description, "not for waiting, status checks, polling") ||
+			!strings.Contains(tool.Definition.Description, "duplicate instructions") ||
 			!strings.Contains(tool.Definition.Description, "accepted=false with duplicate, already_sent, or callback_pending") ||
 			!strings.Contains(tool.Definition.Description, "inspect accepted, action, callback_action, must_wait_for_callback, and instruction")) {
 			t.Fatalf("send_subagent_message does not align continuation triggers and result handling: %q", tool.Definition.Description)
+		}
+		if tool.Definition.Name == SendSubagentMessageToolName {
+			for _, expected := range []string{
+				"ID of an idle child from a callback already received and consumed",
+				"Never use an active or running child",
+				"Do not send status checks, reminders",
+			} {
+				if !strings.Contains(schema, expected) {
+					t.Fatalf("send_subagent_message schema does not contain idle-only rule %q: %s", expected, schema)
+				}
+			}
 		}
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "provider boundary") || !strings.Contains(tool.Definition.Description, "callback continuation turn")) {
 			t.Fatalf("asynchronous dispatch tool %q does not describe automatic callback delivery: %q", tool.Definition.Name, tool.Definition.Description)

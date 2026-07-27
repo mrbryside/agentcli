@@ -91,29 +91,18 @@ func TestSubagentManagerDeduplicatesParentTurnMessages(t *testing.T) {
 	if changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || len(changed.Subagent.Pending) != 0 {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	queued, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-2", record.ID, "second")
+	pending, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-2", record.ID, "second")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || len(queued.Subagent.Pending) != 1 {
-		t.Fatalf("next parent turn = %#v", queued)
-	}
-	retry, err := manager.SendFromParentTurn(context.Background(), "parent", "turn-2", record.ID, " second ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retry.Action != toolexecution.SubagentSendDuplicate || retry.Accepted || !retry.Deduplicated || len(retry.Subagent.Pending) != 1 || retry.IdempotencyKey != queued.IdempotencyKey {
-		t.Fatalf("queued retry = %#v", retry)
+	if pending.Action != toolexecution.SubagentSendCallbackPending || pending.Accepted || len(pending.Subagent.Pending) != 0 {
+		t.Fatalf("next parent turn = %#v", pending)
 	}
 
 	model.releases <- struct{}{}
-	if err := model.waitStarts(2); err != nil {
-		t.Fatal(err)
-	}
-	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	if got := model.Requests(); len(got) != 2 {
-		t.Fatalf("provider requests = %d, want 2", len(got))
+	if got := model.Requests(); len(got) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(got))
 	}
 }
 
@@ -177,7 +166,7 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartReused || routed.DispatchAction != toolexecution.SubagentSendQueued || routed.Subagent.ID != first.ID || len(routed.Subagent.Pending) != 1 || routed.Subagent.Pending[0].Content != "talk more" {
+		if routed.Action != toolexecution.SubagentStartReused || routed.DispatchAction != toolexecution.SubagentSendCallbackPending || routed.Accepted || routed.Subagent.ID != first.ID || len(routed.Subagent.Pending) != 0 {
 			t.Fatalf("routed result = %#v", routed)
 		}
 		children, err := manager.List(context.Background(), "parent", false)
