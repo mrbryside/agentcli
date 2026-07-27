@@ -63,32 +63,54 @@ Use sources and explain uncertainty.
 	}
 
 	prompts := project.SystemPrompts()
-	if len(prompts) != 2 {
+	if len(prompts) != 4 {
 		t.Fatalf("system prompts = %#v", prompts)
 	}
-	catalog := prompts[0]
-	if !strings.Contains(catalog, "<available_skills>") || !strings.Contains(catalog, "<name>testing-go</name>") {
-		t.Fatalf("main prompt does not contain skill catalog: %q", catalog)
+	framework := prompts[0]
+	skills := prompts[1]
+	subagents := prompts[2]
+	mainInstructions := prompts[3]
+	if strings.Contains(framework, "# Subagents") ||
+		strings.Contains(framework, "<subagent_orchestration_rules>") ||
+		strings.Contains(framework, "<available_subagents>") ||
+		strings.Contains(framework, "# Skills") ||
+		strings.Contains(framework, "<available_skills>") {
+		t.Fatalf("framework prompt still contains capability discovery material: %q", framework)
 	}
-	if !strings.Contains(catalog, "<available_subagents>") || !strings.Contains(catalog, "<name>researcher</name>") || !strings.Contains(catalog, "<model>gpt-review</model>") || !strings.Contains(catalog, "<skill>testing-go</skill>") || !strings.Contains(catalog, "<tool>search</tool>") {
-		t.Fatalf("subagent catalog = %q", catalog)
+	if !strings.Contains(subagents, "# Subagents") ||
+		!strings.Contains(subagents, "## IMPORTANT: Tool-result protocol") ||
+		!strings.Contains(subagents, "accepted=true means exactly one dispatch") ||
+		!strings.Contains(subagents, "accepted=false with callback_action=automatic_existing") ||
+		!strings.Contains(subagents, "Never retry with changed wording") ||
+		!strings.Contains(subagents, "Only a later completed, incomplete, or failed callback") ||
+		!strings.Contains(subagents, "new_instance=true is not a retry mechanism") {
+		t.Fatalf("subagent tool-result protocol = %q", subagents)
 	}
-	if !strings.Contains(catalog, "discovery-only") || !strings.Contains(catalog, "do not start a child") {
-		t.Fatalf("catalog does not protect discovery-only requests: %q", catalog)
+	if mainInstructions != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
+		t.Fatalf("MAIN.md system prompt = %q", mainInstructions)
 	}
-	if !strings.Contains(catalog, "default is to answer the user directly") || !strings.Contains(catalog, "Do not delegate simple answers") || !strings.Contains(catalog, "Mere topic overlap") {
-		t.Fatalf("catalog does not prevent unnecessary delegation: %q", catalog)
+	if !strings.Contains(skills, "# Skills") || !strings.Contains(skills, "<available_skills>") || !strings.Contains(skills, "<name>testing-go</name>") {
+		t.Fatalf("skill prompt does not contain skill catalog: %q", skills)
+	}
+	if !strings.Contains(subagents, "<available_subagents>") || !strings.Contains(subagents, "<name>researcher</name>") || !strings.Contains(subagents, "<model>gpt-review</model>") || !strings.Contains(subagents, "<skill>testing-go</skill>") || !strings.Contains(subagents, "<tool>search</tool>") {
+		t.Fatalf("subagent catalog = %q", subagents)
+	}
+	if !strings.Contains(subagents, "discovery-only") || !strings.Contains(subagents, "do not start a child") {
+		t.Fatalf("catalog does not protect discovery-only requests: %q", subagents)
+	}
+	if !strings.Contains(subagents, "default is to answer the user directly") || !strings.Contains(subagents, "Do not delegate simple answers") || !strings.Contains(subagents, "Mere topic overlap") {
+		t.Fatalf("catalog does not prevent unnecessary delegation: %q", subagents)
 	}
 	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "Destructive child closure is application-owned", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "Prefer one child at a time", "ordinary lookup or research must start one child", "genuinely independent work", "requested definition", "accepted=true", "required trigger tool", "safe provider boundary", "callback continuation turn", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=automatic_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder"} {
-		if !strings.Contains(catalog, expected) {
-			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, catalog)
+		if !strings.Contains(subagents, expected) {
+			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, subagents)
 		}
 	}
-	if strings.Contains(catalog, "close_subagent") {
-		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", catalog)
+	if strings.Contains(subagents, "close_subagent") {
+		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", subagents)
 	}
-	if strings.Contains(catalog, "Use sources and explain uncertainty.") {
-		t.Fatalf("definition instructions were eagerly exposed: %q", catalog)
+	if strings.Contains(subagents, "Use sources and explain uncertainty.") {
+		t.Fatalf("definition instructions were eagerly exposed: %q", subagents)
 	}
 	if strings.Contains(strings.Join(prompts, "\n"), "Always explain failures clearly.") {
 		t.Fatalf("AGENTS.md was included in main system prompts: %#v", prompts)
@@ -181,7 +203,8 @@ func TestSubagentProjectContainsOnlyAllowedSkills(t *testing.T) {
 		t.Fatalf("child skills = %#v", skills)
 	}
 	prompts := child.SystemPrompts()
-	if len(prompts) == 0 || !strings.Contains(prompts[0], "testing-go") || strings.Contains(prompts[0], "reviewing-go") {
+	joinedPrompts := strings.Join(prompts, "\n")
+	if len(prompts) == 0 || !strings.Contains(joinedPrompts, "testing-go") || strings.Contains(joinedPrompts, "reviewing-go") {
 		t.Fatalf("child skill prompt = %#v", prompts)
 	}
 	withoutSkills := project.withSkills(nil)

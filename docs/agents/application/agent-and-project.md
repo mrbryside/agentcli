@@ -10,9 +10,14 @@ tools, and verification flow are documented in
 `LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_provider_steps` to bound provider rounds per main or child turn and `max_subagents` to bound non-closed child instances per parent session; omitted values use defaults of 20 and 4 respectively. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative limits, unknown profiles or skills, and registered-tool allowlist mismatches.
 
 Provider requests keep the framework prompt and the `MAIN.md` body (or child
-definition body) in separate ordered system messages. Root `AGENTS.md` is not
-loaded. Prompt material is rebuilt from the project snapshot rather than
-persisted in conversation history.
+definition body) in separate ordered system messages. Root projects insert a
+harness-owned skill-discovery system message when skills are configured, then
+a subagent system message when subagents are configured, before `MAIN.md`. The
+subagent message owns the focused tool-result protocol, the complete
+orchestration rules, and the available-subagent catalog. Capability
+instructions are therefore contiguous and not duplicated in the general
+framework prompt. Root `AGENTS.md` is not loaded. Prompt material is rebuilt
+from the project snapshot rather than persisted in conversation history.
 
 Provider profiles may contain optional exact-name entries under `models`.
 These entries are overrides, not an allowlist: `MAIN.md` and subagents may

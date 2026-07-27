@@ -491,16 +491,27 @@ func (project *Project) Subagents() []SubagentDefinition {
 	return sortedSubagentDefinitions(project.subagents)
 }
 
-// SystemPrompts returns the framework prompt and MAIN.md instructions as
-// separate system messages. Full skill bodies are loaded only through
-// load_skill after the model selects a skill by description.
+// SystemPrompts returns the framework prompt, optional focused skill and
+// subagent prompts, and MAIN.md instructions as separate ordered system
+// messages. Full skill bodies are loaded only through load_skill after the
+// model selects a skill by description.
 func (project *Project) SystemPrompts() []string {
 	if project == nil {
 		return nil
 	}
-	prompts := make([]string, 0, 2)
+	prompts := make([]string, 0, 4)
 	if frameworkPrompt := project.mainAgentSystemPrompt(); frameworkPrompt != "" {
 		prompts = append(prompts, frameworkPrompt)
+	}
+	if len(project.skills) != 0 {
+		prompts = append(prompts, "# Skills\n\n"+project.skillDiscoveryPrompt())
+	}
+	if len(project.subagents) != 0 {
+		prompts = append(prompts,
+			"# Subagents\n\n"+
+				"## IMPORTANT: Tool-result protocol\n\n"+mainAgentSubagentToolPrompt+
+				"\n\n## Orchestration rules and available subagents\n\n"+project.subagentDiscoveryPrompt(),
+		)
 	}
 	if instructions := strings.TrimSpace(project.main.Instructions); instructions != "" {
 		prompts = append(prompts, "# Main agent instructions\n\n"+instructions)

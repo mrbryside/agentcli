@@ -41,29 +41,42 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatalf("skill names = %v", names)
 	}
 	prompts := project.SystemPrompts()
-	if len(prompts) != 2 {
+	if len(prompts) != 3 {
 		t.Fatalf("system prompts = %#v", prompts)
 	}
 	if !strings.Contains(prompts[0], "# Runtime context") || !strings.Contains(prompts[0], `agent: "main"`) || !strings.Contains(prompts[0], `provider: "openai"`) || !strings.Contains(prompts[0], `model: "gpt-test"`) || !strings.Contains(prompts[0], `working_directory: "`+root+`"`) {
 		t.Fatalf("main runtime context = %q", prompts[0])
 	}
-	if strings.Contains(prompts[0], "# Main agent instructions") || strings.Contains(prompts[0], "Coordinate work and communicate the outcome clearly.") {
+	if strings.Contains(prompts[0], "# Main agent instructions") ||
+		strings.Contains(prompts[0], "# Skills") ||
+		strings.Contains(prompts[0], "<available_skills>") ||
+		strings.Contains(prompts[0], "Coordinate work and communicate the outcome clearly.") {
 		t.Fatalf("framework prompt contains MAIN.md instructions: %q", prompts[0])
 	}
-	if prompts[1] != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
-		t.Fatalf("MAIN.md system prompt = %q", prompts[1])
+	if !strings.Contains(prompts[1], "# Skills") ||
+		!strings.Contains(prompts[1], "<available_skills>") ||
+		!strings.Contains(prompts[1], "<name>testing-go</name>") ||
+		!strings.Contains(prompts[1], "when Go tests are requested") {
+		t.Fatalf("skill discovery prompt = %q", prompts[1])
+	}
+	if prompts[2] != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
+		t.Fatalf("MAIN.md system prompt = %q", prompts[2])
 	}
 	if !strings.Contains(prompts[0], "# Sensitive information") || !strings.Contains(prompts[0], modelSecretSafetyPrompt) {
 		t.Fatalf("main secret-safety prompt = %q", prompts[0])
 	}
-	if !strings.Contains(prompts[0], "<name>testing-go</name>") || !strings.Contains(prompts[0], "when Go tests are requested") {
-		t.Fatalf("skill discovery prompt = %q", prompts[0])
+	if !strings.Contains(prompts[0], "# Tool-result discipline") ||
+		!strings.Contains(prompts[0], "read the complete tool result") ||
+		!strings.Contains(prompts[0], "status=succeeded means the invocation was handled") ||
+		!strings.Contains(prompts[0], "accepted=false") ||
+		!strings.Contains(prompts[0], "never claim an outcome") {
+		t.Fatalf("main tool-result discipline prompt = %q", prompts[0])
 	}
-	if !strings.Contains(prompts[0], "discovery-only") || !strings.Contains(prompts[0], "MUST NOT call load_skill") {
-		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[0])
+	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
+		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}
-	if strings.Contains(prompts[0], "Run go test ./...") {
-		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[0])
+	if strings.Contains(prompts[1], "Run go test ./...") {
+		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[1])
 	}
 	if strings.Contains(strings.Join(prompts, "\n"), "Always explain failures clearly.") {
 		t.Fatalf("AGENTS.md was included in system prompts: %#v", prompts)
@@ -73,7 +86,7 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	if err := WithProject(project)(&configuration); err != nil {
 		t.Fatal(err)
 	}
-	if len(configuration.systemPrompts) != 2 || len(configuration.tools) != 0 || configuration.project != project {
+	if len(configuration.systemPrompts) != 3 || len(configuration.tools) != 0 || configuration.project != project {
 		t.Fatalf("applied project = prompts %d tools %#v project %p", len(configuration.systemPrompts), configuration.tools, configuration.project)
 	}
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
@@ -109,8 +122,8 @@ func TestLoadProjectDoesNotReadRootAgentsMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProject read AGENTS.md: %v", err)
 	}
-	if got := len(project.SystemPrompts()); got != 2 {
-		t.Fatalf("system prompts = %d, want framework and MAIN.md instructions", got)
+	if got := len(project.SystemPrompts()); got != 3 {
+		t.Fatalf("system prompts = %d, want framework, skills, and MAIN.md instructions", got)
 	}
 }
 
@@ -134,7 +147,7 @@ func TestProjectSkillIsSelectedByModelAndRetainedAsToolResult(t *testing.T) {
 	}
 	waitRun(t, run)
 	requests := model.Requests()
-	if len(requests) != 2 || len(requests[0].SystemPrompts) != 2 {
+	if len(requests) != 2 || len(requests[0].SystemPrompts) != 3 {
 		t.Fatalf("model requests = %#v", requests)
 	}
 	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != SkillLoaderToolName {
