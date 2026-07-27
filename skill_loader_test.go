@@ -13,6 +13,8 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
+const expectedSkillLoadSucceededNextAction = "The load request succeeded. Do not call load_skill again for this skill in the current turn; its instructions are already available."
+
 type skillLoader struct {
 	loader *toolexecution.SkillLoader
 }
@@ -37,14 +39,16 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 	loader := newSkillLoader(project, messages, DefaultSkillReloadPolicy())
 
 	loaded := callSkillLoader(t, loader, "session", "turn-1", "call-1")
-	if loaded.Status != "loaded" || loaded.Instructions == "" {
+	if loaded.Status != "loaded" || loaded.Instructions == "" || !loaded.DoNotCallAgainThisTurn ||
+		loaded.NextAction != expectedSkillLoadSucceededNextAction {
 		t.Fatalf("first result = %#v", loaded)
 	}
 	appendSkillResult(t, messages, "session", "turn-1", "result-1", "call-1", loaded)
 	appendUserMessage(t, messages, "session", "turn-2", "user-2", "please test this")
 
 	recent := callSkillLoader(t, loader, "session", "turn-2", "call-2")
-	if recent.Status != "already_loaded" || recent.Instructions != "" || !recent.DoNotCallAgainThisTurn || !strings.Contains(recent.NextAction, "unavailable") {
+	if recent.Status != "already_loaded" || recent.Instructions != "" || !recent.DoNotCallAgainThisTurn ||
+		recent.NextAction != expectedSkillLoadSucceededNextAction {
 		t.Fatalf("recent result = %#v", recent)
 	}
 }
@@ -112,6 +116,9 @@ func TestSkillLoaderDeduplicatesParallelSameTurnCalls(t *testing.T) {
 
 	statuses := map[string]int{}
 	for result := range results {
+		if !result.DoNotCallAgainThisTurn || result.NextAction != expectedSkillLoadSucceededNextAction {
+			t.Fatalf("same-turn result does not prevent another load: %#v", result)
+		}
 		statuses[result.Status]++
 	}
 	if statuses["loaded"] != 1 || statuses["already_loaded"] != 1 {

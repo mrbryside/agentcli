@@ -57,9 +57,11 @@ either `loaded` or `already_loaded`.
 ## Repeat and refresh behavior
 
 An unchanged, recently loaded skill call returns a small `already_loaded`
-result instead of repeating its body. Both result statuses satisfy the current
-load requirement. The default refresh policy returns the full body again when
-any condition applies:
+result instead of repeating its body. Both result statuses mean the load
+request succeeded, and the same skill must not be loaded again in that turn.
+The loader only makes instructions available; it does not decide the turn's
+next behavior. The default refresh policy returns the full body again when any
+condition applies:
 
 - at least 10 turns have passed;
 - approximately 12,000 transcript tokens have passed; or

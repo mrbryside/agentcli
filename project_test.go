@@ -104,14 +104,19 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"never authorize bypassing a required skill load",
 		"## Non-triggers",
 		"## Result handling",
-		"always call load_skill",
+		"A status of loaded or already_loaded means the load request succeeded",
+		"a valid load trigger requires one load_skill call",
 		"Skill caching and freshness are runtime-managed",
-		"loaded or already_loaded",
+		"do not call load_skill again for that skill in the same turn",
+		"does not decide whether the turn should continue, wait, or end",
 		"</skill_rules>",
 	} {
 		if !strings.Contains(prompts[1], expected) {
 			t.Fatalf("skill discovery prompt does not contain structured rule %q: %q", expected, prompts[1])
 		}
+	}
+	if strings.Contains(prompts[1], "Continue the task") {
+		t.Fatalf("skill discovery prompt must not force post-load behavior: %q", prompts[1])
 	}
 	explicitRequirement := strings.Index(prompts[1], "1. Explicit requirement:")
 	descriptionMatch := strings.Index(prompts[1], "2. Description match:")
@@ -143,13 +148,18 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"Discovery-only questions",
 		"do not trigger this tool",
 		"Inspect the complete result",
-		"always call this tool",
+		"a valid trigger requires one call",
 		"Skill caching and freshness are runtime-managed",
-		"loaded and already_loaded both satisfy",
+		"loaded and already_loaded both mean the load request succeeded",
+		"do not call this tool again for the same skill in the same turn",
+		"does not decide whether the turn should continue, wait, or end",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain trigger/result rule %q: %q", expected, tool.Definition.Description)
 		}
+	}
+	if strings.Contains(tool.Definition.Description, "Continue the task") {
+		t.Fatalf("load_skill description must not force post-load behavior: %q", tool.Definition.Description)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: SkillLoaderToolName,

@@ -17,6 +17,7 @@ const (
 	SkillLoaderToolName          = "load_skill"
 	defaultSkillMaxTurnDistance  = 10
 	defaultSkillMaxTokenDistance = 12_000
+	skillLoadSucceededNextAction = "The load request succeeded. Do not call load_skill again for this skill in the current turn; its instructions are already available."
 )
 
 // Skill contains the provider-neutral content consumed by load_skill.
@@ -94,7 +95,7 @@ func (loader *SkillLoader) Tool() Tool {
 	return Tool{
 		Definition: agentruntime.ToolDefinition{
 			Name:        SkillLoaderToolName,
-			Description: "Load a skill's full instructions after a valid load trigger. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. Whenever a trigger applies, always call this tool; do not skip the call because the skill appears to have been loaded earlier or its instructions are visible in conversation history. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result before continuing: loaded and already_loaded both satisfy the load requirement. Continue the task and do not call this tool repeatedly for the same trigger in the same turn.",
+			Description: "Load a skill's full instructions after a valid load trigger. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. Before this skill has returned loaded or already_loaded in the current turn, a valid trigger requires one call; do not infer freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result: loaded and already_loaded both mean the load request succeeded. After either status, do not call this tool again for the same skill in the same turn. This tool only makes skill instructions available and does not decide whether the turn should continue, wait, or end.",
 			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact skill name selected from available_skills after a valid description-match, explicit-requirement, or explicit-inspection trigger."}},"required":["name"],"additionalProperties":false}`),
 		},
 		Handler: loader.handle,
@@ -162,6 +163,8 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name, Description: skill.Description,
 		Instructions: skill.Instructions, ContentHash: hash, Reason: reason,
+		DoNotCallAgainThisTurn: true,
+		NextAction:             skillLoadSucceededNextAction,
 	})
 }
 
@@ -169,7 +172,7 @@ func marshalSkillAlreadyLoaded(skill Skill, hash, reason string) (json.RawMessag
 	return json.Marshal(SkillToolResult{
 		Status: "already_loaded", Name: skill.Name, ContentHash: hash, Reason: reason,
 		DoNotCallAgainThisTurn: true,
-		NextAction:             "Continue the task using the instructions already present in conversation history. If a required capability or tool is unavailable, report that limitation instead of calling load_skill again.",
+		NextAction:             skillLoadSucceededNextAction,
 	})
 }
 

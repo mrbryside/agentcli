@@ -24,13 +24,18 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"user asks to inspect",
 		"Discovery-only questions",
 		"Inspect the complete result",
-		"always call this tool",
 		"runtime-managed",
 		"already_loaded",
+		"load request succeeded",
+		"do not call this tool again for the same skill in the same turn",
+		"does not decide whether the turn should continue, wait, or end",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain %q: %q", expected, tool.Definition.Description)
 		}
+	}
+	if strings.Contains(tool.Definition.Description, "Continue the task") {
+		t.Fatalf("load_skill description must not force post-load behavior: %q", tool.Definition.Description)
 	}
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
 	if !strings.Contains(schema, `"minLength":1`) ||
@@ -50,6 +55,9 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 	if result.Status != "loaded" || result.Instructions != "Run the Go tests." {
 		t.Fatalf("skill result = %s", output)
+	}
+	if !result.DoNotCallAgainThisTurn || result.NextAction != skillLoadSucceededNextAction {
+		t.Fatalf("skill result does not prevent a same-turn reload: %#v", result)
 	}
 }
 

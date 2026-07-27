@@ -622,11 +622,11 @@ Questions that only ask which skills are available, what they do, or which skill
 
 ## Result handling
 
-Inspect the complete load_skill result before continuing. Do not claim to have loaded or applied a skill unless the result confirms it. After a successful load, follow the returned instructions for the governed work.
+Inspect the complete load_skill result. Do not claim to have loaded a skill unless the result confirms it. A status of loaded or already_loaded means the load request succeeded. loaded returns the full instructions; already_loaded means the instructions are already available and is not a failure or a reason to retry.
 
-Whenever a load trigger applies, always call load_skill before the action or answer it governs. Do not skip the call because the skill appears to have been loaded earlier or its instructions are visible in conversation history. Skill caching and freshness are runtime-managed.
+Before either success status has been returned for a skill in the current turn, a valid load trigger requires one load_skill call. Do not infer freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed.
 
-If load_skill returns loaded or already_loaded, the load requirement is satisfied. Continue the task and do not call it repeatedly for the same trigger in the same turn.
+After loaded or already_loaded is returned, do not call load_skill again for that skill in the same turn, even if the same trigger remains visible. load_skill only makes skill instructions available; it does not decide whether the turn should continue, wait, or end. Subsequent behavior comes from the loaded instructions and current context.
 </skill_rules>
 
 <available_skills>
