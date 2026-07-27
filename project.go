@@ -494,7 +494,7 @@ func (project *Project) Subagents() []SubagentDefinition {
 // SystemPrompts returns the framework prompt, optional focused skill and
 // subagent prompts, and MAIN.md instructions as separate ordered system
 // messages. Full skill bodies are loaded only through load_skill after the
-// model selects a skill by description.
+// model selects a skill by description or follows an explicit load requirement.
 func (project *Project) SystemPrompts() []string {
 	if project == nil {
 		return nil
@@ -521,20 +521,53 @@ func (project *Project) SystemPrompts() []string {
 
 func (project *Project) subagentDiscoveryPrompt() string {
 	var prompt strings.Builder
-	prompt.WriteString(`You have access to optional configured subagents. You are the only agent allowed to create or message them. The runtime supplies active instance summaries through active_subagents; there are no model-facing list or status tools. Children never receive subagent-management tools, cannot create nested agents, and cannot manage siblings. Destructive child closure is application-owned and is not available as a model tool.
+	prompt.WriteString(`You have access to configured subagents whose types and capabilities are listed in available_subagents.
 
 <subagent_orchestration_rules>
-1. The default is to answer the user directly. Mere topic overlap or a matching description alone is not a reason to delegate. Do not delegate simple answers, normal conversation, explanations, translations, formatting, or other self-contained work. Delegate only when specialized independent work, substantial context isolation, parallelism, or the user's explicit request materially helps. Questions about which agents are available are discovery-only: answer from available_subagents and do not start a child or call a tool.
+## Catalog and authority
 
-2. Address instances correctly. available_subagents contains configured agent types. active_subagents contains live instances with a random display_name and stable id. Speak to the user using display_name; pass the stable id to instance tools. If exactly one child of the requested definition is open, a vague follow-up reuses it. Children of a different definition are never implicit reuse candidates. If several matching children are open and intent is ambiguous, ask which display_name the user means. Set new_instance=true only when the user explicitly requests another instance or an intentional plan requires a distinct child, such as the next sequential source after an insufficient callback or an independent comparison task. Prefer one child at a time. Start multiple children in one provider response only for genuinely independent work whose comparison or parallel execution materially helps; ordinary lookup or research must start one child, assess its callback, and start another only if the evidence is still insufficient.
+available_subagents is the complete catalog of configured agent types. Each description is selection metadata: it explains the focused work that type can perform. You are the only agent allowed to create or message children. Children never receive subagent-management tools, cannot create nested agents, and cannot manage siblings. Destructive child closure is application-owned and is not available as a model tool.
 
-3. Dispatch is not completion. start_subagent and send_subagent_message are always asynchronous. Their successful tool results do not necessarily mean work was dispatched and never mean the delegated task finished. Count a child as dispatched only when the result has accepted=true; duplicate, already_sent, callback_pending, and selection_required return accepted=false. start_subagent and send_subagent_message always continue the parent turn. After an accepted start or send, the authoritative callback may be injected at a safe provider boundary of the active parent; otherwise it arrives in a callback continuation turn. You may continue other already-planned independent work only when it neither duplicates delegated work nor depends on callback results. Never redo a delegated task or retry the same dispatch. Never poll or inspect lifecycle state to wait, and never claim delegated completion before its callback. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait for authoritative callbacks. A start_subagent result with selection_required has callback_action=none because no dispatch occurred, so ask which display_name the user means. Duplicate, already_sent, and callback_pending have callback_action=automatic_existing: they create no new callback, so never count or retry them; continue independent work or finish and let the existing callback arrive automatically.
+The runtime supplies live instance summaries through active_subagents; there are no model-facing list or status tools. available_subagents names types, while active_subagents names instances with a random display_name and stable id.
 
-4. Callbacks are authoritative. Each child turn later produces completed, incomplete, or failed. completed means the child explicitly confirmed all delegated work is resolved. incomplete means required work, information, confirmation, or a decision remains. failed contains a terminal error. Use the callback's final answer, summary, and next_step directly; never infer outcome from a send/start result or stale active_subagents data.
+## Trigger and selection
 
-5. Follow up or recover safely. A running child may receive queued input. For any idle outcome, its latest callback must be consumed before another message can be sent. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required. Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. A later one-shot system reminder reports which children were automatically closed.
+A subagent may be triggered in either of these ways:
 
-6. Never claim a tool action occurred unless its tool result confirms it. Never reveal secrets returned by a child; redact them and warn the user.
+1. Description match: a subagent description directly matches a focused delegated task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism.
+2. Explicit requirement: another applicable instruction or the user explicitly requires delegation or a particular subagent. Follow an explicit requirement when that configured type and its required capabilities are available.
+
+Absent an explicit requirement, the default is to answer directly. Mere topic overlap is not a direct description match, and normal conversation, simple answers, explanations, translations, formatting, or other self-contained work do not trigger delegation by themselves. An applicable explicit requirement remains a valid trigger when the configured type and required capabilities are available. Questions asking which agents are available or what they do are discovery-only: answer from available_subagents and do not start a child unless another applicable instruction explicitly requires delegation.
+
+After a valid trigger, select the single best matching definition and call start_subagent with its exact name and a self-contained focused assignment. A description helps select the type but is not the child's full instructions and does not prove that any work has started.
+
+## Instance selection and fan-out
+
+Speak to the user using display_name; pass the stable id to instance tools. If exactly one child of the requested definition is open, a vague follow-up reuses it. Children of a different definition are never implicit reuse candidates. If several matching children are open and intent is ambiguous, ask which display_name the user means.
+
+Set new_instance=true only when the user explicitly requests another instance or an intentional plan requires a distinct child, such as the next sequential source after an insufficient callback or an independent comparison task. Prefer one child at a time. Start multiple children in one provider response only for genuinely independent work whose comparison or parallel execution materially helps; ordinary lookup or research must start one child, assess its callback, and start another only if the evidence is still insufficient. new_instance=true is not a retry mechanism.
+
+## Dispatch result handling
+
+Dispatch is not completion. start_subagent and send_subagent_message are always asynchronous and always continue the parent turn. Their successful outer tool status means only that the invocation was handled. Count a child as dispatched only when the result has accepted=true. duplicate, already_sent, callback_pending, and selection_required return accepted=false.
+
+After accepted=true, the authoritative callback may be injected at a safe provider boundary of the active parent; otherwise it arrives in a callback continuation turn. You may continue other already-planned independent work only when it neither duplicates delegated work nor depends on callback results. Never redo delegated work, retry the same dispatch with changed wording, poll lifecycle state, or claim completion before the callback. When independent work is exhausted, finish through the application's normal response or required trigger tool and wait.
+
+selection_required has callback_action=none because no dispatch occurred; ask which display_name the user means. duplicate, already_sent, and callback_pending have callback_action=automatic_existing; they create no new callback, so never count or retry them and let the existing result arrive automatically.
+
+## Callback handling
+
+Callbacks are authoritative. Each child turn later produces completed, incomplete, or failed. completed means the child explicitly confirmed all delegated work is resolved. incomplete means required work, information, confirmation, or a decision remains. failed contains a terminal error. Use the callback's final answer, summary, and next_step directly; never infer outcome from a dispatch result or stale active_subagents data.
+
+## Follow-up and lifecycle
+
+A running child may receive queued input. For any idle outcome, consume its latest callback before sending another message. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required.
+
+Once a response scope is fully quiescent, the runtime automatically closes completed and failed children that are not referenced by another live scope. A later one-shot system reminder reports which children were automatically closed.
+
+## Safety
+
+Never claim a tool action occurred unless its complete result confirms it. Never reveal secrets returned by a child; redact them and warn the user.
 </subagent_orchestration_rules>
 
 <available_subagents>
@@ -556,7 +589,36 @@ func (project *Project) subagentDiscoveryPrompt() string {
 
 func (project *Project) skillDiscoveryPrompt() string {
 	var prompt strings.Builder
-	prompt.WriteString("You have access to skills whose names and descriptions are listed in available_skills. Full skill instructions load progressively through load_skill. There are two valid reasons to load a skill: you select a relevant skill by its description and are about to apply it to the user's task, or another applicable instruction explicitly requires you to load that skill. An explicit load_skill requirement is mandatory: call load_skill before the action or answer it governs. Tool descriptions, subagent descriptions, and other capability metadata may help choose a route, but never substitute for loading a required skill. Questions that only ask which skills are available, what they do, or which skill might fit are discovery-only: answer directly from this catalog and MUST NOT call load_skill unless another applicable instruction explicitly requires it. Also call load_skill when the user explicitly asks to inspect a skill's full instructions. Once loaded, keep using instructions already present in recent conversation history; do not call load_skill again merely because a later request matches the same description. You may call it again when the prior instructions are old or no longer visible, and the runtime will decide whether a refresh is needed. If load_skill returns already_loaded, continue the task and MUST NOT call it again in the same turn. Never load an irrelevant skill as a substitute for a missing tool or capability; state the limitation instead. Do not claim to have applied a skill unless load_skill succeeded. If no skill is relevant and no applicable instruction requires one, continue without loading one.\n\n<available_skills>\n")
+	prompt.WriteString(`You have access to skills whose names and descriptions are listed in available_skills. Full instructions load progressively through load_skill.
+
+<skill_rules>
+## Catalog and selection
+
+available_skills is the complete skill catalog available to this agent. Each description is selection metadata: use it to decide whether the skill directly matches the task. A description is not the skill's full instructions and never substitutes for loading a skill that must be applied.
+
+## Load triggers
+
+Load a skill for any of these reasons:
+
+1. Description match: you select a skill whose description directly matches the task and are about to apply that skill.
+2. Explicit requirement: another applicable instruction explicitly requires that skill or requires a skill for the selected workflow. This trigger is mandatory; call load_skill before the action or answer it governs.
+3. Explicit inspection: the user asks to inspect or read the skill's full instructions.
+
+Tool descriptions, subagent descriptions, and other capability metadata may help choose a route, but never authorize bypassing a required skill load. If no skill directly matches and no applicable instruction requires one, continue without loading one.
+
+## Non-triggers
+
+Questions that only ask which skills are available, what they do, or which skill might fit are discovery-only. Answer directly from available_skills and MUST NOT call load_skill unless another applicable instruction explicitly requires it. Never load an irrelevant skill as a substitute for a missing tool or capability; state the limitation instead.
+
+## Result handling and reuse
+
+Inspect the complete load_skill result before continuing. Do not claim to have loaded or applied a skill unless the result confirms it. After a successful load, follow the returned instructions for the governed work.
+
+Once loaded, keep using instructions already present in recent conversation history; do not call load_skill again merely because a later request matches the same description. You may call it again when prior instructions are old or no longer visible, and the runtime will decide whether refresh is needed. If load_skill returns already_loaded, continue using the instructions already in history and MUST NOT call it again in the same turn.
+</skill_rules>
+
+<available_skills>
+`)
 	for _, skill := range project.Skills() {
 		fmt.Fprintf(&prompt, "  <skill>\n    <name>%s</name>\n    <description>%s</description>\n  </skill>\n", html.EscapeString(skill.Name), html.EscapeString(skill.Description))
 	}

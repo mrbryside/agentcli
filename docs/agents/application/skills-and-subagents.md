@@ -11,6 +11,13 @@ instructions after age, token, or content-change thresholds.
 
 Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, description, provider, model, optional skills/tools, and Markdown instructions. Only the root Agent receives framework subagent tools; children cannot recursively spawn children.
 
+The root subagent prompt separates catalog metadata, trigger selection,
+instance addressing, dispatch-result handling, callbacks, lifecycle, and
+safety. A direct description match may trigger delegation when the focused
+work materially benefits from a configured child; an applicable instruction
+or explicit user request may require delegation independently. Topic overlap
+alone and discovery-only questions do not trigger a child.
+
 Child permission and Yes/No confirmation questions bubble up to the parent
 session. The manager converts retained child admission lifecycle facts into
 parent-addressed events with parent, child, session, turn, call, and decision

@@ -75,11 +75,22 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}
-	if !strings.Contains(prompts[1], "two valid reasons to load a skill") ||
-		!strings.Contains(prompts[1], "another applicable instruction explicitly requires you to load that skill") ||
-		!strings.Contains(prompts[1], "An explicit load_skill requirement is mandatory") ||
-		!strings.Contains(prompts[1], "never substitute for loading a required skill") {
-		t.Fatalf("skill discovery prompt does not enforce explicit load requirements: %q", prompts[1])
+	for _, expected := range []string{
+		"<skill_rules>",
+		"## Catalog and selection",
+		"## Load triggers",
+		"1. Description match:",
+		"2. Explicit requirement:",
+		"This trigger is mandatory",
+		"3. Explicit inspection:",
+		"never authorize bypassing a required skill load",
+		"## Non-triggers",
+		"## Result handling and reuse",
+		"</skill_rules>",
+	} {
+		if !strings.Contains(prompts[1], expected) {
+			t.Fatalf("skill discovery prompt does not contain structured rule %q: %q", expected, prompts[1])
+		}
 	}
 	if strings.Contains(prompts[1], "Run go test ./...") {
 		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[1])
@@ -96,11 +107,21 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatalf("applied project = prompts %d tools %#v project %p", len(configuration.systemPrompts), configuration.tools, configuration.project)
 	}
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
-	if !strings.Contains(tool.Definition.Description, "another applicable instruction explicitly requires loading it") ||
-		!strings.Contains(tool.Definition.Description, "explicit load_skill requirement is mandatory") ||
-		!strings.Contains(tool.Definition.Description, "do not substitute for it") ||
-		!strings.Contains(tool.Definition.Description, "Do not call this tool only to list or discover available skills") {
-		t.Fatalf("load_skill description does not cover selection, explicit requirements, and discovery-only requests: %q", tool.Definition.Description)
+	for _, expected := range []string{
+		"after a valid load trigger",
+		"skill description in available_skills directly matches",
+		"another applicable instruction explicitly requires",
+		"user asks to inspect",
+		"explicit requirement is mandatory",
+		"never authorize bypassing a required skill load",
+		"Discovery-only questions",
+		"do not trigger this tool",
+		"Inspect the complete result",
+		"already_loaded means continue",
+	} {
+		if !strings.Contains(tool.Definition.Description, expected) {
+			t.Fatalf("load_skill description does not contain trigger/result rule %q: %q", expected, tool.Definition.Description)
+		}
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: SkillLoaderToolName,

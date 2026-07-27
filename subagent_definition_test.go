@@ -98,10 +98,48 @@ Use sources and explain uncertainty.
 	if !strings.Contains(subagents, "discovery-only") || !strings.Contains(subagents, "do not start a child") {
 		t.Fatalf("catalog does not protect discovery-only requests: %q", subagents)
 	}
-	if !strings.Contains(subagents, "default is to answer the user directly") || !strings.Contains(subagents, "Do not delegate simple answers") || !strings.Contains(subagents, "Mere topic overlap") {
+	if !strings.Contains(subagents, "default is to answer directly") || !strings.Contains(subagents, "do not trigger delegation by themselves") || !strings.Contains(subagents, "explicit requirement remains a valid trigger") || !strings.Contains(subagents, "Mere topic overlap") {
 		t.Fatalf("catalog does not prevent unnecessary delegation: %q", subagents)
 	}
-	for _, expected := range []string{"only agent allowed", "Children never receive subagent-management tools", "Destructive child closure is application-owned", "<subagent_orchestration_rules>", "Dispatch is not completion", "start_subagent and send_subagent_message always continue", "Prefer one child at a time", "ordinary lookup or research must start one child", "genuinely independent work", "requested definition", "accepted=true", "required trigger tool", "safe provider boundary", "callback continuation turn", "already-planned independent work", "neither duplicates delegated work nor depends on callback results", "callback_action=automatic_existing", "callback_action=none", "Never redo a delegated task", "Never poll", "Callbacks are authoritative", "new_instance=true", "incomplete children remain open", "automatically closes completed and failed children", "one-shot system reminder"} {
+	for _, expected := range []string{
+		"<subagent_orchestration_rules>",
+		"## Catalog and authority",
+		"selection metadata",
+		"only agent allowed",
+		"Children never receive subagent-management tools",
+		"Destructive child closure is application-owned",
+		"## Trigger and selection",
+		"A subagent may be triggered in either of these ways",
+		"1. Description match:",
+		"2. Explicit requirement:",
+		"select the single best matching definition",
+		"## Instance selection and fan-out",
+		"Prefer one child at a time",
+		"ordinary lookup or research must start one child",
+		"genuinely independent work",
+		"new_instance=true is not a retry mechanism",
+		"## Dispatch result handling",
+		"Dispatch is not completion",
+		"start_subagent and send_subagent_message are always asynchronous and always continue",
+		"accepted=true",
+		"required trigger tool",
+		"safe provider boundary",
+		"callback continuation turn",
+		"already-planned independent work",
+		"neither duplicates delegated work nor depends on callback results",
+		"callback_action=automatic_existing",
+		"callback_action=none",
+		"retry the same dispatch with changed wording",
+		"poll lifecycle state",
+		"## Callback handling",
+		"Callbacks are authoritative",
+		"## Follow-up and lifecycle",
+		"incomplete children remain open",
+		"automatically closes completed and failed children",
+		"one-shot system reminder",
+		"## Safety",
+		"</subagent_orchestration_rules>",
+	} {
 		if !strings.Contains(subagents, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, subagents)
 		}
