@@ -1,6 +1,13 @@
 # Skills and subagents
 
-Skills live at `.agentcli/skill/{name}/SKILL.md`. Their name and description are discovery metadata; full instructions load progressively through the framework-owned `load_skill` tool. The reload policy prevents needless recent duplication while refreshing instructions after age, token, or content-change thresholds.
+Skills live at `.agentcli/skill/{name}/SKILL.md`. Their name and description are
+discovery metadata; full instructions load progressively through the
+framework-owned `load_skill` tool. A model may load a skill after selecting it
+by description, and any applicable instruction may explicitly require loading
+one before the governed action or answer. Tool, subagent, and other capability
+descriptions help selection but do not replace a required skill load. The
+reload policy prevents needless recent duplication while refreshing
+instructions after age, token, or content-change thresholds.
 
 Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, description, provider, model, optional skills/tools, and Markdown instructions. Only the root Agent receives framework subagent tools; children cannot recursively spawn children.
 

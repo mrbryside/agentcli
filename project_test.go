@@ -75,6 +75,12 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}
+	if !strings.Contains(prompts[1], "two valid reasons to load a skill") ||
+		!strings.Contains(prompts[1], "another applicable instruction explicitly requires you to load that skill") ||
+		!strings.Contains(prompts[1], "An explicit load_skill requirement is mandatory") ||
+		!strings.Contains(prompts[1], "never substitute for loading a required skill") {
+		t.Fatalf("skill discovery prompt does not enforce explicit load requirements: %q", prompts[1])
+	}
 	if strings.Contains(prompts[1], "Run go test ./...") {
 		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[1])
 	}
@@ -90,8 +96,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatalf("applied project = prompts %d tools %#v project %p", len(configuration.systemPrompts), configuration.tools, configuration.project)
 	}
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
-	if !strings.Contains(tool.Definition.Description, "Do not call this tool to list available skills") {
-		t.Fatalf("load_skill description does not protect discovery-only requests: %q", tool.Definition.Description)
+	if !strings.Contains(tool.Definition.Description, "another applicable instruction explicitly requires loading it") ||
+		!strings.Contains(tool.Definition.Description, "explicit load_skill requirement is mandatory") ||
+		!strings.Contains(tool.Definition.Description, "do not substitute for it") ||
+		!strings.Contains(tool.Definition.Description, "Do not call this tool only to list or discover available skills") {
+		t.Fatalf("load_skill description does not cover selection, explicit requirements, and discovery-only requests: %q", tool.Definition.Description)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: SkillLoaderToolName,
