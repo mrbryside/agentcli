@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. Its full instructions are included in this result.`
-	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. Its full instructions are already available in the conversation context.`
+	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Its full instructions are included in this result.`
+	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Its full instructions are already available in the conversation context.`
 )
 
 type skillLoader struct {
@@ -43,7 +43,8 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 
 	loaded := callSkillLoader(t, loader, "session", "turn-1", "call-1")
 	if loaded.Status != "loaded" || loaded.Instructions == "" || loaded.InstructionsInContext ||
-		loaded.Name != "testing-go" || loaded.Message != expectedFreshSkillMessage {
+		loaded.Name != "testing-go" || loaded.LoadTriggerSatisfiedFor != "testing-go" ||
+		loaded.Message != expectedFreshSkillMessage {
 		t.Fatalf("first result = %#v", loaded)
 	}
 	appendSkillResult(t, messages, "session", "turn-1", "result-1", "call-1", loaded)
@@ -51,6 +52,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 
 	recent := callSkillLoader(t, loader, "session", "turn-2", "call-2")
 	if recent.Status != "loaded" || recent.Instructions != "" || !recent.InstructionsInContext ||
+		recent.LoadTriggerSatisfiedFor != "testing-go" ||
 		recent.Message != expectedSkillInstructionsInContextMessage {
 		t.Fatalf("recent result = %#v", recent)
 	}
@@ -125,6 +127,9 @@ func TestSkillLoaderDeduplicatesParallelSameTurnCalls(t *testing.T) {
 		}
 		if result.Name != "testing-go" {
 			t.Fatalf("same-turn result name = %q, want testing-go", result.Name)
+		}
+		if result.LoadTriggerSatisfiedFor != "testing-go" {
+			t.Fatalf("same-turn trigger satisfied for = %q, want testing-go", result.LoadTriggerSatisfiedFor)
 		}
 		if result.Instructions != "" && result.Message == expectedFreshSkillMessage {
 			fullBodies++

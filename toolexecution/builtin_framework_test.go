@@ -29,6 +29,10 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"A successful load from an earlier turn does not satisfy a new load trigger",
 		"Every successful result uses status=loaded",
 		"loads only the exact skill named",
+		"load_trigger_satisfied_for",
+		"Do not call load_skill again for that same trigger",
+		"tool returned or another provider step began",
+		"later user-message or callback turn",
 		"satisfies only the current load trigger for that named skill",
 		"does not load or satisfy a trigger for any other skill",
 		"separate valid trigger",
@@ -60,6 +64,7 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Status != "loaded" || result.Name != "testing-go" ||
+		result.LoadTriggerSatisfiedFor != "testing-go" ||
 		result.Instructions != "Run the Go tests." ||
 		result.Message != skillLoadedMessage("testing-go", false) {
 		t.Fatalf("skill result = %s", output)
@@ -76,7 +81,8 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reused.Status != "loaded" || reused.Instructions != "" || !reused.InstructionsInContext ||
-		reused.Name != "testing-go" || reused.Message != skillLoadedMessage("testing-go", true) {
+		reused.Name != "testing-go" || reused.LoadTriggerSatisfiedFor != "testing-go" ||
+		reused.Message != skillLoadedMessage("testing-go", true) {
 		t.Fatalf("reused skill result does not identify instructions in context: %#v", reused)
 	}
 }

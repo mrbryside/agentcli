@@ -59,9 +59,13 @@ successful result uses `loaded`.
 An unchanged, recently loaded skill call returns a small `loaded` result with
 `instructions_in_context=true` instead of repeating its body. Each call and
 successful result applies only to the exact skill in `name`, never to the skill
-catalog collectively; a different skill requires its own valid trigger and
-load. This means the named skill's load succeeded and the full instructions
-are already available in the
+catalog collectively. `load_trigger_satisfied_for` confirms that the current
+trigger for that named skill is satisfied. Tool results and subsequent
+provider steps do not create another trigger by themselves; a separately
+delivered later user message or callback may create a new valid trigger for
+the same skill. A different skill requires its own valid trigger and load.
+This means the named skill's load succeeded and the full instructions are
+already available in the
 conversation context. A successful load from an earlier turn does not satisfy
 a new load trigger. The loader only makes instructions available; it does not
 decide the turn's next behavior. The default refresh policy returns the full

@@ -11,7 +11,12 @@ inferring that a visible historical body is still current. A successful load
 from an earlier turn does not satisfy a new load trigger. Each call loads only
 the exact skill named in the request; skills are never loaded collectively.
 Every successful result uses `loaded`, and its `name` satisfies only the
-current trigger for that named skill. Another skill still requires its own
+current trigger for that named skill. The matching
+`load_trigger_satisfied_for` field makes this scope explicit. A tool result and
+later provider steps continue the current turn and do not create another load
+trigger by themselves, so the model does not load the same skill again for the
+same trigger. A separately delivered later user message or callback may create
+a new valid trigger for the same skill. Another skill still requires its own
 separate valid trigger and load. A lightweight result with
 `instructions_in_context=true` means the named skill's full body is already
 available in the conversation context and was not repeated. The loader only
