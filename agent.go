@@ -201,23 +201,18 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	requiredAtResponseScopeEnd := make([]string, 0)
-	canonicalAtResponseScopeEnd := make([]string, 0)
 	for _, tool := range registeredTools {
 		switch tool.Trigger {
 		case toolexecution.EndTurn:
 			requiredAtTurnEnd = append(requiredAtTurnEnd, tool.Definition.Name)
 		case toolexecution.EndResponseScope:
 			requiredAtResponseScopeEnd = append(requiredAtResponseScopeEnd, tool.Definition.Name)
-			if tool.CanonicalAssistantMessageParameter != "" {
-				canonicalAtResponseScopeEnd = append(canonicalAtResponseScopeEnd, tool.Definition.Name)
-			}
 		}
 	}
 	completionGuard = completionGuardWithRequiredTools(
 		completionGuard,
 		requiredAtTurnEnd,
 		requiredAtResponseScopeEnd,
-		canonicalAtResponseScopeEnd,
 		agent.responseScopes.ReadyToEnd,
 	)
 	if manager != nil {
@@ -262,7 +257,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 		return nil, fmt.Errorf("create runtime: %w", err)
 	}
-	agent.responseScopes.SetCanonicalAssistantRecorder(runtime.AppendCanonicalAssistant)
 	executor, err := toolexecution.NewExecutor(registry, configuration.toolWorkers, toolexecution.Config{
 		PermissionEnabled:     true,
 		NonInteractive:        configuration.nonInteractive,

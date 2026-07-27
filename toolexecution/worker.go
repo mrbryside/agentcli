@@ -103,7 +103,6 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 			ctx,
 			request,
 			handler,
-			e.registry.canonicalAssistantMessageParameterFor(request.Call.Name),
 		)
 		if err != nil {
 			result.Result.Status = agentruntime.ToolResultFailed
@@ -151,7 +150,6 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 			ctx,
 			request,
 			handler,
-			e.registry.canonicalAssistantMessageParameterFor(request.Call.Name),
 		)
 		if err != nil {
 			result.Result.Status = agentruntime.ToolResultFailed

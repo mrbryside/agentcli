@@ -69,7 +69,7 @@ logging:
 ```
 
 Debug mode is useful for watching provider rounds, tool execution,
-response-scope delivery, repair attempts, and canonical assistant persistence.
+response-scope delivery, and repair attempts.
 The repository
 playground compaction mapping declares an exact 122,880-token context window
 and 66,560-token output limit for its custom model. When the Terminal UI opens,

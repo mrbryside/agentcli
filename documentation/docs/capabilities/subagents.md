@@ -240,7 +240,9 @@ for later delivery. If the tool uses `EndTurnOnSuccess`, that skipped call still
 ends the current turn while a pending callback keeps the response scope open,
 without another provider round. If the scope has no pending callback or other
 active turn, the initial premature call continues so ordinary work remains
-available; a later provider round may deliver the completed response directly.
+available. The model-facing contract tells the model not to retry that call;
+normal completion repair requests the final delivery. The coordinator still
+accepts a quiescent later provider-round delivery for compatibility.
 
 Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:

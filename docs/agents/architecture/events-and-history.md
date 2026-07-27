@@ -17,9 +17,9 @@ rules.
 
 Terminal assistant drafts remain in the run's provider events until output and
 completion guards accept them. Rejected repair candidates are not conversation
-history and are never projected into a later model request. For final
-user-visible delivery tools, a successful `EndResponseScope` handler may append one
-canonical assistant message derived from its declared string argument.
+history and are never projected into a later model request. Final user-visible
+delivery tools remain represented by their durable tool-call and tool-result
+records.
 
 When compaction needs to summarize, the run emits `compaction_started` before
 the separate summarizer begins, then `compaction_completed` after its checkpoint

@@ -40,17 +40,13 @@ type Tool struct {
 	// the root turn and every callback turn in one response scope. Zero means
 	// unlimited.
 	ResponseScopeCallLimit int
-	// CanonicalAssistantMessageParameter names a required string argument whose
-	// value becomes the durable assistant message after an EndResponseScope
-	// handler succeeds. Failed or cancelled delivery never records it.
-	CanonicalAssistantMessageParameter string
-	ToolCallGuard                      agentruntime.ToolCallGuard
-	ToolCallGuardPrompt                string
-	ToolCallGuardModel                 *GuardModelConfig
-	Permission                         PermissionDescriptor
-	PermissionWithPolicy               PermissionPolicyDescriptor
-	Confirmation                       ConfirmationDescriptor
-	resultTurnBehavior                 func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
+	ToolCallGuard          agentruntime.ToolCallGuard
+	ToolCallGuardPrompt    string
+	ToolCallGuardModel     *GuardModelConfig
+	Permission             PermissionDescriptor
+	PermissionWithPolicy   PermissionPolicyDescriptor
+	Confirmation           ConfirmationDescriptor
+	resultTurnBehavior     func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 }
 
 // PermissionDescriptor describes the capabilities required by one invocation.
@@ -76,20 +72,19 @@ type Registry struct {
 }
 
 type registeredTool struct {
-	definition                         agentruntime.ToolDefinition
-	handler                            Handler
-	trigger                            ToolTrigger
-	turnBehavior                       agentruntime.ToolTurnBehavior
-	toolCallGuard                      agentruntime.ToolCallGuard
-	toolCallGuardPrompt                string
-	toolCallGuardProvider              string
-	toolCallGuardModel                 string
-	permission                         PermissionDescriptor
-	permissionWithPolicy               PermissionPolicyDescriptor
-	confirmation                       ConfirmationDescriptor
-	canonicalAssistantMessageParameter string
-	resultTurnBehavior                 func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
-	responseScopeCallLimit             int
+	definition             agentruntime.ToolDefinition
+	handler                Handler
+	trigger                ToolTrigger
+	turnBehavior           agentruntime.ToolTurnBehavior
+	toolCallGuard          agentruntime.ToolCallGuard
+	toolCallGuardPrompt    string
+	toolCallGuardProvider  string
+	toolCallGuardModel     string
+	permission             PermissionDescriptor
+	permissionWithPolicy   PermissionPolicyDescriptor
+	confirmation           ConfirmationDescriptor
+	resultTurnBehavior     func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
+	responseScopeCallLimit int
 }
 
 // NewRegistry creates an empty tool registry.
@@ -111,15 +106,6 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	if tool.ResponseScopeCallLimit < 0 {
 		return fmt.Errorf("tool %q response-scope call limit cannot be negative", tool.Definition.Name)
-	}
-	tool.CanonicalAssistantMessageParameter = strings.TrimSpace(tool.CanonicalAssistantMessageParameter)
-	if tool.CanonicalAssistantMessageParameter != "" {
-		if tool.Trigger != EndResponseScope {
-			return fmt.Errorf("tool %q canonical assistant message requires the end-response-scope trigger", tool.Definition.Name)
-		}
-		if err := validateCanonicalAssistantParameter(tool.Definition.InputSchema, tool.CanonicalAssistantMessageParameter); err != nil {
-			return fmt.Errorf("tool %q canonical assistant message parameter: %w", tool.Definition.Name, err)
-		}
 	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
@@ -167,10 +153,9 @@ func (r *Registry) Register(tool Tool) error {
 		toolCallGuard: tool.ToolCallGuard, toolCallGuardPrompt: tool.ToolCallGuardPrompt,
 		toolCallGuardProvider: guardProvider, toolCallGuardModel: guardModel,
 		permission: tool.Permission, permissionWithPolicy: tool.PermissionWithPolicy,
-		confirmation:                       tool.Confirmation,
-		canonicalAssistantMessageParameter: tool.CanonicalAssistantMessageParameter,
-		resultTurnBehavior:                 tool.resultTurnBehavior,
-		responseScopeCallLimit:             tool.ResponseScopeCallLimit,
+		confirmation:           tool.Confirmation,
+		resultTurnBehavior:     tool.resultTurnBehavior,
+		responseScopeCallLimit: tool.ResponseScopeCallLimit,
 	}
 	r.order = append(r.order, definition.Name)
 	return nil
@@ -298,12 +283,6 @@ func (r *Registry) skippedTurnBehaviorFor(name string) (agentruntime.ToolTurnBeh
 	return tool.turnBehavior, ok
 }
 
-func (r *Registry) canonicalAssistantMessageParameterFor(name string) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.tools[name].canonicalAssistantMessageParameter
-}
-
 func (r *Registry) permissionFor(name string, arguments json.RawMessage, policy permission.Policy) (permission.Description, error, bool) {
 	r.mu.RLock()
 	tool, ok := r.tools[name]
@@ -346,35 +325,6 @@ func validateInputSchema(schema agentruntime.ToolSchema) error {
 	return nil
 }
 
-func validateCanonicalAssistantParameter(schema agentruntime.ToolSchema, name string) error {
-	encoded, err := json.Marshal(schema)
-	if err != nil {
-		return err
-	}
-	var object struct {
-		Properties map[string]struct {
-			Type string `json:"type"`
-		} `json:"properties"`
-		Required []string `json:"required"`
-	}
-	if err := json.Unmarshal(encoded, &object); err != nil {
-		return err
-	}
-	property, exists := object.Properties[name]
-	if !exists {
-		return fmt.Errorf("%q is not declared in the input schema", name)
-	}
-	if property.Type != "string" {
-		return fmt.Errorf("%q must be a string property", name)
-	}
-	for _, required := range object.Required {
-		if required == name {
-			return nil
-		}
-	}
-	return fmt.Errorf("%q must be required", name)
-}
-
 func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDefinition {
 	clone := definition
 	clone.InputSchema = definition.InputSchema.Clone()
@@ -394,12 +344,10 @@ func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTu
 		)
 	case EndResponseScope:
 		parts = append(parts,
-			"Runtime trigger (end_response_scope): Call this tool only when the entire response scope is ready to finish, "+
-				"after all work and accepted callbacks or follow-ups are complete. If called earlier, the handler does not run "+
-				"and the successful tool result reports status=skipped, executed=false, "+
-				"and reason=response_scope_not_ready_to_end. Runtime metadata records trigger_satisfied=false. The initial human root turn's first provider "+
-				"action cannot end the scope; callback continuation turns may deliver the final call on their first provider round. "+
-				"After a skip, finish the work and call again only when the scope is quiescent. Completion repair can also request it.",
+			"Runtime behavior (end_response_scope): This is a final-response tool. "+
+				"Call it only after all other work is complete and you are ready to finish the response. "+
+				"If called earlier, the tool action is skipped and the result is still treated as success. "+
+				"Do not retry it yourself; continue the remaining work until the runtime requests the final call.",
 		)
 	}
 	if endTurnOnSuccess && trigger == EndResponseScope {

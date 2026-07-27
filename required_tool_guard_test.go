@@ -425,7 +425,7 @@ func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 			ToolAllowlist:    []string{"revise", "report"},
 		}, nil
 	}
-	guard := completionGuardWithRequiredTools(base, []string{"report"}, nil, nil, nil)
+	guard := completionGuardWithRequiredTools(base, []string{"report"}, nil, nil)
 	decision, err := guard(context.Background(), agentruntime.CompletionAttempt{
 		SessionID: "session",
 		TurnID:    "turn",
@@ -438,36 +438,6 @@ func TestRequiredTriggerToolRepairMergesBaseBoundedToolAllowlist(t *testing.T) {
 	}
 	if len(decision.ContextReminders) != 2 {
 		t.Fatalf("reminders = %#v", decision.ContextReminders)
-	}
-}
-
-func TestCanonicalEndResponseScopeDiscardsTrailingAssistantAfterExecution(t *testing.T) {
-	satisfied := true
-	guard := completionGuardWithRequiredTools(
-		nil,
-		nil,
-		[]string{"report"},
-		[]string{"report"},
-		func(string, string) bool { return true },
-	)
-	decision, err := guard(context.Background(), agentruntime.CompletionAttempt{
-		SessionID: "session",
-		TurnID:    "turn",
-		Messages: []agentruntime.Message{{
-			TurnID: "turn",
-			Type:   agentruntime.MessageTypeToolResult,
-			ToolResult: &agentruntime.ToolResult{
-				Name: "report", Status: agentruntime.ToolResultSucceeded,
-				Output:           json.RawMessage(`{"status":"reported"}`),
-				TriggerSatisfied: &satisfied,
-			},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.Action != agentruntime.CompletionProceed || !decision.DiscardAssistant {
-		t.Fatalf("decision = %#v, want proceed with discarded assistant", decision)
 	}
 }
 

@@ -56,10 +56,9 @@ completed/failed children touched only by that scope close automatically,
 incomplete or cross-scope children remain open, and successful closes become a
 one-shot trusted reminder reserved for the next human root turn. After all
 final handlers run and the scope is removed, it emits `EndScope`.
-An `EndResponseScope` tool may declare
-`CanonicalAssistantMessageParameter`; after its final handler succeeds, the
-coordinator persists that string argument as the canonical assistant message.
-Failed delivery never creates the assistant record.
+Successful `EndResponseScope` delivery remains represented by its tool-call and
+tool-result records; the coordinator does not synthesize an assistant message
+from tool arguments.
 
 Pure transition and folding duties live in `state.go`, `transition.go`, `effect.go`, and `result.go`; orchestration belongs in `runtime.go`, `run.go`, and `router.go`.
 

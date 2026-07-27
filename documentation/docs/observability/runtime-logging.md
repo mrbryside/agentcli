@@ -27,10 +27,10 @@ Omitting `logging` disables console records. When the mapping is present,
 
 | Level | Records |
 | --- | --- |
-| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, callback-obligation cancellation after application-owned child close, and canonical assistant persistence. |
+| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, and callback-obligation cancellation after application-owned child close. |
 | `info` | Turn start/completion, response-scope start/end, subagent close lifecycle, and repair requests. |
 | `warn` | Recoverable framework warnings. |
-| `error` | Failed/interrupted turns, failed repairs, final delivery failures, and canonical transcript persistence failures. |
+| `error` | Failed/interrupted turns, failed repairs, and final delivery failures. |
 
 Selecting a level includes records at that severity and above.
 
@@ -57,18 +57,16 @@ An `EndResponseScope` delivery tool can set:
 
 ```go
 agentcli.Tool{
-    Definition:                         definition,
-    Handler:                            deliver,
-    Trigger:                            agentcli.EndResponseScope,
-    EndTurnOnSuccess:                   true,
-    CanonicalAssistantMessageParameter: "message",
+    Definition:       definition,
+    Handler:          deliver,
+    Trigger:          agentcli.EndResponseScope,
+    EndTurnOnSuccess: true,
 }
 ```
 
-After `deliver` succeeds, the framework appends the declared string argument
-as the canonical assistant transcript message. Debug logging records the
-persistence without logging message content. Failed delivery or persistence is
-an error record and does not create a false assistant response.
+After `deliver` succeeds, the durable tool call and tool result record the
+delivery. The framework does not append a synthetic assistant message from the
+tool arguments.
 
 ## Payload safety
 
@@ -78,8 +76,7 @@ Formatted payloads are size-bounded. Runtime logs never include:
 
 - provider reasoning;
 - output/completion guard feedback;
-- repair context reminders;
-- canonical assistant message content.
+- repair context reminders.
 
 Application handlers remain responsible for avoiding sensitive values in
 ordinary error strings and non-framework logs.

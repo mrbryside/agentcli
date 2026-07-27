@@ -203,80 +203,6 @@ func TestResponseScopeCancelChildDispatchesPreventsReservationRollbackFromRestor
 	}
 }
 
-func TestResponseScopeRecordsCanonicalAssistantAfterSuccessfulFinalExecution(t *testing.T) {
-	coordinator := NewResponseScopeCoordinator(context.Background())
-	var recorded []agentruntime.Message
-	coordinator.SetCanonicalAssistantRecorder(func(_ context.Context, message agentruntime.Message) error {
-		recorded = append(recorded, message)
-		return nil
-	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
-		t.Fatal(err)
-	}
-	handler := func(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
-		if len(recorded) != 0 {
-			t.Fatal("canonical assistant message recorded before delivery completed")
-		}
-		return json.RawMessage(`{"status":"reported"}`), nil
-	}
-	request := scopeToolRequest("turn", `{"message":"Hello from Discord"}`)
-	request.CompletionBoundary = true
-	if _, executed, err := coordinator.ExecuteEndResponseScope(
-		context.Background(),
-		request,
-		handler,
-		"message",
-	); err != nil {
-		t.Fatal(err)
-	} else if !executed {
-		t.Fatal("final EndResponseScope call was skipped")
-	}
-	if len(recorded) != 0 {
-		t.Fatalf("canonical messages before turn transcript completed = %#v", recorded)
-	}
-	coordinator.FinishTurn("session", "turn")
-	if len(recorded) != 1 {
-		t.Fatalf("canonical messages = %#v, want one", recorded)
-	}
-	if got := recorded[0]; got.SessionID != "session" ||
-		got.TurnID != "turn" ||
-		got.Type != agentruntime.MessageTypeAssistant ||
-		got.Content != "Hello from Discord" {
-		t.Fatalf("canonical assistant message = %#v", got)
-	}
-}
-
-func TestResponseScopeDoesNotRecordCanonicalAssistantWhenDeliveryFails(t *testing.T) {
-	coordinator := NewResponseScopeCoordinator(context.Background())
-	recorded := 0
-	coordinator.SetCanonicalAssistantRecorder(func(context.Context, agentruntime.Message) error {
-		recorded++
-		return nil
-	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
-		t.Fatal(err)
-	}
-	request := scopeToolRequest("turn", `{"message":"not delivered"}`)
-	request.CompletionBoundary = true
-	if _, executed, err := coordinator.ExecuteEndResponseScope(
-		context.Background(),
-		request,
-		func(context.Context, json.RawMessage) (json.RawMessage, error) {
-			return nil, errors.New("discord unavailable")
-		},
-		"message",
-	); err == nil {
-		t.Fatal("failed final delivery returned nil error")
-	} else if !executed {
-		t.Fatal("failed final delivery was not attempted")
-	}
-
-	coordinator.FinishTurn("session", "turn")
-	if recorded != 0 {
-		t.Fatalf("canonical messages = %d, want none after failed delivery", recorded)
-	}
-}
-
 func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
@@ -905,6 +831,7 @@ func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 	t.Helper()
 	var result struct {
 		Status      string `json:"status"`
+		Action      string `json:"action"`
 		Executed    bool   `json:"executed"`
 		Reason      string `json:"reason"`
 		Instruction string `json:"instruction"`
@@ -912,11 +839,13 @@ func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode result %s: %v", raw, err)
 	}
-	if result.Status != "skipped" || result.Executed ||
-		result.Reason != "response_scope_not_ready_to_end" ||
-		!strings.Contains(result.Instruction, "handler did not run") ||
-		!strings.Contains(result.Instruction, "arguments were not retained") ||
-		!strings.Contains(result.Instruction, "do not retry") {
+	const instruction = "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. " +
+		"Treat this result as success and do not retry the tool yourself."
+	if result.Status != "succeeded" ||
+		result.Action != "skipped" ||
+		result.Executed ||
+		result.Reason != "tool_called_at_wrong_time" ||
+		result.Instruction != instruction {
 		t.Fatalf("skipped result = %+v", result)
 	}
 }

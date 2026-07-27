@@ -148,11 +148,9 @@ Info logging covers turn and response-scope start/end, repair requests, and
 terminal failures. Repair records identify output-guard versus
 completion-guard retries, their attempt number, provider-step count, and any
 restricted tool allowlist. Debug logging additionally includes provider
-content, tool arguments/results, compaction details, and successful canonical
-assistant persistence after final delivery. It also records callback-obligation
+content, tool arguments/results, and compaction details. It also records callback-obligation
 cancellation when an application-owned child close releases a response-scope
-barrier. Delivery, extraction, and canonical transcript persistence failures
-are error records. Tool JSON fields that look like tokens,
+barrier. Delivery failures are error records. Tool JSON fields that look like tokens,
 secrets, passwords, authorization values, or API keys are redacted and large
 values are truncated. Model reasoning, guard feedback, and completion
 reminders are never logged. Rejected repair drafts remain in retained run

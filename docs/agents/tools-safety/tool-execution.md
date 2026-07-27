@@ -66,24 +66,28 @@ budget. Exhaustion fails the turn.
 
 For user-visible delivery, prefer `Trigger: EndResponseScope`; add
 `EndTurnOnSuccess: true` when successful final delivery should finish the
-current turn. Set `CanonicalAssistantMessageParameter` to a required string
-argument such as `message` when successful external delivery should append
-that exact value as the durable assistant response. The canonical record is
-created only after the handler succeeds. A call made as the initial human root
-turn's first provider action, or while the response scope is still busy,
-receives successful `status=skipped`,
-`executed=false` and does not satisfy the trigger. The result tells the model
-not to retry in that provider round; admission and the handler are bypassed, and no candidate is
-retained. `EndTurnOnSuccess` is still honored, allowing an early final-delivery
+current turn. Successful delivery remains represented by its durable tool call
+and tool result; the runtime does not synthesize an assistant message from tool
+arguments. A call made as the initial human root turn's first provider action,
+or while the response scope is still busy,
+receives `status=succeeded`, `action=skipped`, `executed=false`, and
+`reason=tool_called_at_wrong_time`. It does not satisfy the trigger. The result
+explicitly tells the model to treat the call as success and not retry it. The
+injected tool description directs the model to continue the remaining work
+until completion repair requests the final call. Admission and the handler are
+bypassed, and no candidate is retained. `EndTurnOnSuccess` is still honored,
+allowing an early final-delivery
 call to yield the current turn while callbacks are pending without executing
 the handler. If the scope is otherwise quiescent, the premature call continues
 the current turn instead, preserving access to ordinary work tools. This
 includes a call made as the human root model's first tool. A callback
 continuation may execute the final tool on provider step one because it is not
-the initial human action. A later root call can execute directly when it is the
-last active scope turn and no callback or pending runtime input remains. A normal completion attempt can
-also make completion repair expose the missing `EndResponseScope` tools with a
-final-call reminder. One user message opens one response scope. Accepted
+the initial human action. For compatibility, the coordinator can execute a
+later direct root call when it is the last active scope turn and no callback or
+pending runtime input remains, but the model-facing contract does not instruct
+the model to retry that way. A normal completion attempt makes completion
+repair expose the missing `EndResponseScope` tools with a final-call reminder.
+One user message opens one response scope. Accepted
 subagent work keeps it open, and intermediate parent/callback assistant drafts
 are discarded until the final scope turn.
 

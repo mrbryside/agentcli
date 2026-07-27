@@ -185,7 +185,7 @@ func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing.T) {
+func TestEndResponseScopeDoesNotPersistDeliveredMessageAsAssistant(t *testing.T) {
 	model := &earlyThenBoundaryReportModel{message: "Hello! How can I help?"}
 	reportCalls := 0
 	workCalls := 0
@@ -204,9 +204,8 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 				reportCalls++
 				return json.RawMessage(`{"status":"reported"}`), nil
 			},
-			Trigger:                            toolexecution.EndResponseScope,
-			EndTurnOnSuccess:                   true,
-			CanonicalAssistantMessageParameter: "message",
+			Trigger:          toolexecution.EndResponseScope,
+			EndTurnOnSuccess: true,
 		}),
 		WithTool(toolexecution.Tool{
 			Definition: agentruntime.ToolDefinition{
@@ -241,8 +240,8 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			if listErr != nil {
 				t.Fatal(listErr)
 			}
-			if len(messages) != 8 {
-				t.Fatalf("messages = %#v, want user, skipped report, completed work, direct final report, and assistant", messages)
+			if len(messages) != 7 {
+				t.Fatalf("messages = %#v, want user, skipped report, completed work, and direct final report", messages)
 			}
 			wantTypes := []agentruntime.MessageType{
 				agentruntime.MessageTypeUser,
@@ -252,7 +251,6 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 				agentruntime.MessageTypeToolResult,
 				agentruntime.MessageTypeToolCall,
 				agentruntime.MessageTypeToolResult,
-				agentruntime.MessageTypeAssistant,
 			}
 			for index, want := range wantTypes {
 				if messages[index].Type != want {
@@ -264,9 +262,6 @@ func TestEndResponseScopePersistsDeliveredMessageAsCanonicalAssistant(t *testing
 			}
 			if messages[6].ToolResult.TriggerSatisfied == nil || !*messages[6].ToolResult.TriggerSatisfied {
 				t.Fatalf("final result trigger satisfaction = %#v, want true", messages[6].ToolResult)
-			}
-			if messages[7].Content != "Hello! How can I help?" {
-				t.Fatalf("canonical assistant content = %q", messages[7].Content)
 			}
 			if reportCalls != 1 {
 				t.Fatalf("report handler calls = %d, want exactly one final-boundary execution", reportCalls)

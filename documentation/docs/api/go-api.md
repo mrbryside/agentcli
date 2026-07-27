@@ -122,7 +122,6 @@ permission checks.
 | `EndResponseScope` | Require a tool at the final response-scope completion repair; earlier calls are successful non-executing skips. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
 | `Tool.ResponseScopeCallLimit` | Set a hard cumulative call budget shared by all turns in one response scope. |
-| `Tool.CanonicalAssistantMessageParameter` | Persist one required string argument as the assistant response after final delivery succeeds. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
@@ -130,7 +129,6 @@ permission checks.
 
 `Tool` fields are `Definition`, `Handler`, `Trigger`, `EndTurnOnSuccess`,
 `ResponseScopeCallLimit`,
-`CanonicalAssistantMessageParameter`,
 `ToolCallGuard`, `ToolCallGuardPrompt`, `ToolCallGuardModel`, `Permission`,
 `PermissionWithPolicy`, and
 `Confirmation`. `ToolCallGuardModel` optionally holds one
@@ -170,20 +168,25 @@ satisfy required-tool completion repair.
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
 `EndTurnOnSuccess: true`. Calls made as the human root turn's initial provider action or
-while the scope is busy return successful `status=skipped`, `executed=false`,
-`reason=response_scope_not_ready_to_end`, and `trigger_satisfied=false`, and do
-not invoke admission, the tool-call guard, or the handler. They also do not
-retain a candidate for later execution. The result tells the model not to
-retry. Without `EndTurnOnSuccess` the provider continues. With it, a successful
+while the scope is busy return `status=succeeded`, `action=skipped`,
+`executed=false`, `reason=tool_called_at_wrong_time`, and
+`trigger_satisfied=false`.
+They do not invoke admission, the tool-call guard, or the handler, and do not
+retain a candidate for later execution. The result tells the model to treat
+the call as success and not retry it. The injected tool description tells the
+model to continue the remaining work until runtime completion repair requests
+the final call. Without
+`EndTurnOnSuccess` the provider continues. With it, a successful
 skipped result ends the current turn only when callbacks or other active turns
 keep the response scope open; if the scope is otherwise quiescent, a premature
-call continues so the model can finish ordinary work. Once the scope has no
-pending callbacks, a later provider-round root call can execute the handler
-directly. Callback continuation turns may execute it on provider step one. A normal completion attempt can also make
-runtime repair expose the required tool. If
-`CanonicalAssistantMessageParameter` names a required string schema property,
-the coordinator appends that argument as the canonical assistant transcript
-message only after the final handler succeeds.
+call continues so the model can finish ordinary work. For compatibility, the
+coordinator still accepts a later provider-round root call once the scope has
+no pending callbacks, but this is not the model-facing retry path. Callback
+continuation turns may execute the tool on provider step one. A normal
+completion attempt makes runtime repair expose the required tool. Successful
+delivery remains in the
+durable transcript as its tool-call and tool-result records; the runtime does
+not create an additional assistant message from the tool arguments.
 
 Use `agent.SubscribeScopeEvents(ctx)` for live-only scope boundaries.
 `agentcli.PreEndScope` is emitted when the last turn reaches the final boundary

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -66,7 +65,6 @@ type responseScope struct {
 	toolCalls         map[string]int
 	endScopeCompleted map[string]struct{}
 	endScopeExecuting map[string]struct{}
-	canonicalMessages map[string]agentruntime.Message
 	endScopeOrder     []string
 }
 
@@ -83,10 +81,6 @@ type callbackRecord struct {
 // boundary, before its EndResponseScope handlers execute. childIDs contains
 // every child that accepted work in the scope.
 type ResponseScopeCleanup func(context.Context, string, string, []string)
-
-// CanonicalAssistantRecorder persists the user-visible assistant response
-// represented by a successfully delivered EndResponseScope tool.
-type CanonicalAssistantRecorder func(context.Context, agentruntime.Message) error
 
 // ResponseScopeReservation reserves one callback continuation before the
 // runtime accepts its turn. Rollback restores the pending callback when turn
@@ -107,17 +101,16 @@ type ResponseScopeReservation struct {
 type ResponseScopeCoordinator struct {
 	ctx context.Context
 
-	mu                         sync.Mutex
-	scopes                     map[responseScopeKey]*responseScope
-	turns                      map[responseTurnKey]responseScopeKey
-	callbackTurns              map[responseTurnKey]struct{}
-	dispatch                   map[responseChildKey][]*responseDispatch
-	callbacks                  map[responseChildKey]map[string]callbackRecord
-	cancelledChildren          map[responseChildKey]struct{}
-	cleanup                    ResponseScopeCleanup
-	canonicalAssistantRecorder CanonicalAssistantRecorder
-	events                     *scopeEventHub
-	logger                     *slog.Logger
+	mu                sync.Mutex
+	scopes            map[responseScopeKey]*responseScope
+	turns             map[responseTurnKey]responseScopeKey
+	callbackTurns     map[responseTurnKey]struct{}
+	dispatch          map[responseChildKey][]*responseDispatch
+	callbacks         map[responseChildKey]map[string]callbackRecord
+	cancelledChildren map[responseChildKey]struct{}
+	cleanup           ResponseScopeCleanup
+	events            *scopeEventHub
+	logger            *slog.Logger
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -158,17 +151,6 @@ func (c *ResponseScopeCoordinator) SetCleanup(cleanup ResponseScopeCleanup) {
 	c.mu.Unlock()
 }
 
-// SetCanonicalAssistantRecorder installs the durable transcript hook used by
-// EndResponseScope tools that declare a canonical assistant message parameter.
-func (c *ResponseScopeCoordinator) SetCanonicalAssistantRecorder(recorder CanonicalAssistantRecorder) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	c.canonicalAssistantRecorder = recorder
-	c.mu.Unlock()
-}
-
 // BeginRootTurn opens a new response scope whose identity is the root turn.
 func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error {
 	if c == nil {
@@ -199,7 +181,6 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		toolCalls:         make(map[string]int),
 		endScopeCompleted: make(map[string]struct{}),
 		endScopeExecuting: make(map[string]struct{}),
-		canonicalMessages: make(map[string]agentruntime.Message),
 	}
 	c.turns[turn] = scopeKey
 	logger := c.logger
@@ -628,16 +609,11 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 	ctx context.Context,
 	request agentruntime.ToolRequest,
 	handler Handler,
-	canonicalAssistantMessageParameter ...string,
 ) (json.RawMessage, bool, error) {
 	if c == nil {
 		return nil, false, errors.New("response scope coordinator is not configured")
 	}
 	turn := responseTurnKey{sessionID: request.SessionID, turnID: request.TurnID}
-	canonicalParameter := ""
-	if len(canonicalAssistantMessageParameter) > 0 {
-		canonicalParameter = strings.TrimSpace(canonicalAssistantMessageParameter[0])
-	}
 
 	c.mu.Lock()
 	scopeKey, found := c.turns[turn]
@@ -674,21 +650,13 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 				"pending_inputs", pendingInputs,
 			)
 		}
-		instruction := "This call was skipped because the tool only runs when the response scope is ready to end. " +
-			"The handler did not run and the arguments were not retained. " +
-			"Continue the remaining work and do not retry this tool now. " +
-			"The runtime will request it again at the correct time."
-		if !boundaryReached && activeTurns == 1 && pendingCallbacks == 0 && pendingInputs == 0 {
-			instruction = "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. " +
-				"The handler did not run and the arguments were not retained. " +
-				"Continue the remaining work and do not retry it in this provider round. " +
-				"On a later provider round, call it again only after the response is complete and the scope is quiescent; " +
-				"completion repair can also request the final call."
-		}
+		instruction := "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. " +
+			"Treat this result as success and do not retry the tool yourself."
 		output, err := json.Marshal(map[string]any{
-			"status":      "skipped",
+			"status":      "succeeded",
+			"action":      "skipped",
 			"executed":    false,
-			"reason":      "response_scope_not_ready_to_end",
+			"reason":      "tool_called_at_wrong_time",
 			"instruction": instruction,
 		})
 		return output, false, err
@@ -740,29 +708,12 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 	if err == nil && !json.Valid(output) {
 		err = errors.New("tool returned invalid JSON")
 	}
-	var canonicalMessage *agentruntime.Message
-	if err == nil && canonicalParameter != "" {
-		content, contentErr := canonicalAssistantContent(request.Call.Arguments, canonicalParameter)
-		if contentErr != nil {
-			err = contentErr
-		} else {
-			canonicalMessage = &agentruntime.Message{
-				SessionID: request.SessionID,
-				TurnID:    request.TurnID,
-				Type:      agentruntime.MessageTypeAssistant,
-				Content:   content,
-			}
-		}
-	}
 
 	c.mu.Lock()
 	if current := c.scopes[scopeKey]; current != nil {
 		delete(current.endScopeExecuting, request.Call.Name)
 		if err == nil {
 			current.endScopeCompleted[request.Call.Name] = struct{}{}
-			if canonicalMessage != nil {
-				current.canonicalMessages[request.Call.Name] = *canonicalMessage
-			}
 		}
 	}
 	c.mu.Unlock()
@@ -814,39 +765,12 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	}
 	sort.Strings(children)
 	cleanup := c.cleanup
-	recorder := c.canonicalAssistantRecorder
 	logger := c.logger
 	toolNames := append([]string(nil), scope.endScopeOrder...)
-	canonicalMessages := make([]agentruntime.Message, 0, len(toolNames))
-	for _, name := range toolNames {
-		if message, found := scope.canonicalMessages[name]; found {
-			canonicalMessages = append(canonicalMessages, message)
-		}
-	}
 	c.mu.Unlock()
 
 	if beginEnding {
 		c.beginEnding(scopeKey, turnID, children, toolNames, cleanup, logger)
-	}
-	if recorder != nil {
-		for _, message := range canonicalMessages {
-			if err := recorder(c.ctx, message); err != nil {
-				if logger != nil {
-					logger.ErrorContext(c.ctx, "canonical assistant message persistence failed",
-						"session_id", message.SessionID,
-						"turn_id", message.TurnID,
-						"error", err,
-					)
-				}
-				continue
-			}
-			if logger != nil {
-				logger.DebugContext(c.ctx, "canonical assistant message persisted",
-					"session_id", message.SessionID,
-					"turn_id", message.TurnID,
-				)
-			}
-		}
 	}
 
 	c.mu.Lock()
@@ -947,25 +871,6 @@ func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, 
 		return
 	}
 	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
-}
-
-func canonicalAssistantContent(arguments json.RawMessage, parameter string) (string, error) {
-	var values map[string]json.RawMessage
-	if err := json.Unmarshal(arguments, &values); err != nil {
-		return "", fmt.Errorf("decode tool arguments: %w", err)
-	}
-	raw, exists := values[parameter]
-	if !exists {
-		return "", fmt.Errorf("tool arguments do not contain %q", parameter)
-	}
-	var content string
-	if err := json.Unmarshal(raw, &content); err != nil {
-		return "", fmt.Errorf("decode tool argument %q: %w", parameter, err)
-	}
-	if strings.TrimSpace(content) == "" {
-		return "", fmt.Errorf("tool argument %q is empty", parameter)
-	}
-	return content, nil
 }
 
 func containsResponseScopeTool(names []string, target string) bool {

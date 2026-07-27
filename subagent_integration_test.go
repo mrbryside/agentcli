@@ -282,9 +282,8 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 			delivered <- input.Message
 			return json.RawMessage(`{"sent":true}`), nil
 		},
-		Trigger:                            EndResponseScope,
-		EndTurnOnSuccess:                   true,
-		CanonicalAssistantMessageParameter: "message",
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
 	}
 	definition := SubagentDefinition{
 		Name: "researcher", Description: "research work", Provider: "test",
@@ -350,32 +349,18 @@ func TestEndResponseScopeWaitsForSubagentCallbackAndRunsLatestReportOnce(t *test
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for after-scope handler")
 	}
-	var canonical []agentruntime.Message
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		canonical, err = agent.ListMessages(context.Background(), "scope-parent")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(canonical) > 0 &&
-			canonical[len(canonical)-1].Type == agentruntime.MessageTypeAssistant {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if len(canonical) == 0 ||
-		canonical[len(canonical)-1].Type != agentruntime.MessageTypeAssistant ||
-		canonical[len(canonical)-1].Content != "final verified response" {
-		t.Fatalf("canonical transcript tail = %#v", canonical)
+	messages, err := agent.ListMessages(context.Background(), "scope-parent")
+	if err != nil {
+		t.Fatal(err)
 	}
 	assistantCount := 0
-	for _, message := range canonical {
+	for _, message := range messages {
 		if message.Type == agentruntime.MessageTypeAssistant {
 			assistantCount++
 		}
 	}
-	if assistantCount != 1 {
-		t.Fatalf("assistant messages = %d, want one canonical response", assistantCount)
+	if assistantCount != 0 {
+		t.Fatalf("assistant messages = %d, want no synthetic response", assistantCount)
 	}
 	select {
 	case duplicate := <-delivered:

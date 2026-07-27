@@ -2,7 +2,6 @@ package agentruntime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -266,46 +265,6 @@ func (r *Runtime) PermissionMode() permission.Mode {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.permissionMode
-}
-
-// AppendCanonicalAssistant persists one assistant message after an external
-// end-of-scope delivery has actually succeeded. It is intentionally separate
-// from provider draft handling so failed delivery cannot enter the transcript.
-func (r *Runtime) AppendCanonicalAssistant(ctx context.Context, message Message) error {
-	if r == nil {
-		return ErrInvalidRequest
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if message.SessionID == "" || message.TurnID == "" {
-		return invalidRequest("canonical assistant message requires session and turn IDs")
-	}
-	if message.Type != MessageTypeAssistant {
-		return invalidRequest("canonical assistant message must have assistant type")
-	}
-	if strings.TrimSpace(message.Content) == "" {
-		return invalidRequest("canonical assistant message requires content")
-	}
-	if message.ID == "" {
-		id, err := r.idGenerator.NewID("msg_")
-		if err != nil {
-			return fmt.Errorf("generate canonical assistant message ID: %w", err)
-		}
-		if id == "" {
-			return errors.New("generate canonical assistant message ID: generated ID is empty")
-		}
-		message.ID = id
-	}
-	if message.CreatedAt.IsZero() {
-		message.CreatedAt = time.Now().UTC()
-	} else {
-		message.CreatedAt = message.CreatedAt.UTC()
-	}
-	if err := r.messages.Append(ctx, storage.CloneMessage(message)); err != nil {
-		return fmt.Errorf("append canonical assistant message: %w", err)
-	}
-	return nil
 }
 
 // SetPermissionMode changes this agent-global mode. The transition is

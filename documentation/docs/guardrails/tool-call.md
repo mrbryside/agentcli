@@ -136,9 +136,11 @@ successful retry restores the configured trigger. A rejected `EndTurn` or
 
 For `EndResponseScope` tools, calls made before the final completion boundary
 are skipped before the handler or tool-call guard runs. They return successful
-`status=skipped`, `executed=false`, continue the turn, and do not satisfy the
-trigger. At the final boundary, ordinary guard and admission checks apply
-before the handler executes. A rejection remains unsatisfied and is repaired.
+`status=succeeded`, `action=skipped`, `executed=false`, and
+`reason=tool_called_at_wrong_time`. They continue the turn and do not satisfy
+the trigger. At the final boundary,
+ordinary guard and admission checks apply before the handler executes. A
+rejection remains unsatisfied and is repaired.
 
 ## Side-effect boundary
 

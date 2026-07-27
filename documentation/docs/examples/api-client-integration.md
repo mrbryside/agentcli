@@ -361,7 +361,7 @@ Closing a completed or failed, callback-consumed child keeps its history readabl
 On application reload:
 
 1. restore the stable session ID;
-2. fetch `/v1/sessions/{sessionID}/messages` for the canonical transcript;
+2. fetch `/v1/sessions/{sessionID}/messages` for the durable transcript;
 3. restore the last fully applied session cursor;
 4. reconnect `/v1/sessions/{sessionID}/events?after={cursor}`;
 5. rebuild pending prompts by applying replayed requested/resolved/cancelled/

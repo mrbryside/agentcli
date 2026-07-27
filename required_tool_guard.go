@@ -13,12 +13,10 @@ func completionGuardWithRequiredTools(
 	base agentruntime.CompletionGuard,
 	requiredAtTurnEnd []string,
 	requiredAtResponseScopeEnd []string,
-	canonicalAtResponseScopeEnd []string,
 	responseScopeReady func(string, string) bool,
 ) agentruntime.CompletionGuard {
 	requiredAtTurnEnd = append([]string(nil), requiredAtTurnEnd...)
 	requiredAtResponseScopeEnd = append([]string(nil), requiredAtResponseScopeEnd...)
-	canonicalAtResponseScopeEnd = append([]string(nil), canonicalAtResponseScopeEnd...)
 	var mu sync.Mutex
 	type repairProgress struct {
 		missing    []string
@@ -48,12 +46,6 @@ func completionGuardWithRequiredTools(
 			mu.Unlock()
 			if !scopeReady &&
 				len(requiredAtResponseScopeEnd) != 0 &&
-				baseDecision.Action == agentruntime.CompletionProceed {
-				baseDecision.DiscardAssistant = true
-			}
-			if scopeReady &&
-				len(canonicalAtResponseScopeEnd) != 0 &&
-				len(missingRequiredTools(attempt.TurnID, attempt.Messages, canonicalAtResponseScopeEnd)) == 0 &&
 				baseDecision.Action == agentruntime.CompletionProceed {
 				baseDecision.DiscardAssistant = true
 			}

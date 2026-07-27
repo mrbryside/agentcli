@@ -190,9 +190,8 @@ func NewTool(discord messageSender) agentcli.Tool {
             }
             return json.RawMessage(`{"status":"reported"}`), nil
         },
-        Trigger:                            agentcli.EndResponseScope,
-        EndTurnOnSuccess:                   true,
-        CanonicalAssistantMessageParameter: "message",
+        Trigger:          agentcli.EndResponseScope,
+        EndTurnOnSuccess: true,
     }
 }
 ```
@@ -205,8 +204,8 @@ reference Discord agent:
   deliver on provider step one when it is the final active turn.
 - `EndTurnOnSuccess` stops the model after final delivery, or yields an
   intermediate turn when callbacks still keep the response scope open.
-- `CanonicalAssistantMessageParameter` stores the delivered `message` as the
-  assistant response in conversation history.
+- The durable tool call and successful result preserve what was delivered;
+  the runtime does not append a duplicate assistant message.
 
 An early call—including calling `report_discord` as the first tool—does not
 send to Discord. With no callback or other active turn pending, it cannot end
@@ -214,10 +213,11 @@ the turn and ordinary work remains available. It returns:
 
 ```json
 {
-  "status": "skipped",
+  "status": "succeeded",
+  "action": "skipped",
   "executed": false,
-  "reason": "response_scope_not_ready_to_end",
-  "instruction": "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent."
+  "reason": "tool_called_at_wrong_time",
+  "instruction": "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. Treat this result as success and do not retry the tool yourself."
 }
 ```
 

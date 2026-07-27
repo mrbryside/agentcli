@@ -153,21 +153,18 @@ either trigger:
 
 ```go
 agentcli.Tool{
-    Definition:                         definition,
-    Handler:                            handler,
-    Trigger:                            agentcli.EndResponseScope,
-    EndTurnOnSuccess:                   true,
-    CanonicalAssistantMessageParameter: "message",
+    Definition:       definition,
+    Handler:          handler,
+    Trigger:          agentcli.EndResponseScope,
+    EndTurnOnSuccess: true,
 }
 ```
 
 Here the invocation is required only at the final response-scope boundary.
 Earlier model calls are skipped and continue the turn. When runtime completion
 repair requests the tool, the handler executes and `EndTurnOnSuccess` may end
-the turn. The optional canonical parameter must name a required string
-property in the tool schema. After the handler succeeds, its exact argument
-value is appended as the durable assistant message. Handler failure or
-cancellation appends nothing.
+the turn. The durable transcript retains the tool call and its result without
+adding a synthetic assistant message from the arguments.
 
 ## End-of-scope trigger tools
 
@@ -204,15 +201,16 @@ is retained. The model receives:
 
 ```json
 {
-  "status": "skipped",
+  "status": "succeeded",
+  "action": "skipped",
   "executed": false,
-  "reason": "response_scope_not_ready_to_end",
-  "instruction": "This call was skipped because an EndResponseScope tool cannot end the initial human root turn as its first provider action. The handler did not run and the arguments were not retained. Continue the remaining work and do not retry it in this provider round. On a later provider round, call it again only after the response is complete and the scope is quiescent; completion repair can also request the final call."
+  "reason": "tool_called_at_wrong_time",
+  "instruction": "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. Treat this result as success and do not retry the tool yourself."
 }
 ```
 
-The outer tool result is successful so the model does not treat the skip as an
-error, but `trigger_satisfied=false`. `EndTurnOnSuccess` is still honored, so a
+The result is successful so the model does not treat the skip as an error, but
+`trigger_satisfied=false`. `EndTurnOnSuccess` is still honored, so a
 final-delivery tool can yield the current turn while callbacks are pending
 without executing its handler. When no callback or other active turn keeps the
 scope open, the same premature call continues the current turn so normal tools
@@ -234,10 +232,14 @@ independent conditions below before executing an
 
 Therefore, even if `report_discord` is the first tool the model calls, its
 request receives the successful skipped result above and the model continues.
-After observing at least one provider result, the root can call the tool
-directly with its completed response. A callback continuation is already past
-the human first-action boundary, so it may deliver on provider step one. A
-normal assistant completion attempt remains an alternative path.
+The model-facing instruction says not to retry the tool itself. It finishes the
+remaining work and attempts normal completion, at which point runtime repair
+requests the final call. A callback continuation is already past the human
+first-action boundary, so it may deliver on provider step one.
+
+The coordinator still accepts a quiescent call from a later root provider round
+for compatibility, but this is a permissive runtime fallback rather than the
+retry path described to the model.
 
 Intermediate turns with accepted callback obligations may finish without this
 trigger, and their assistant drafts are discarded rather than becoming
@@ -251,11 +253,12 @@ The response scope is ready to end. Call these required
 end-response-scope tools now with the final completed response.
 ```
 
-That repair call—or a quiescent call from a later provider round—passes through
-admission and tool-call guards, runs cleanup, executes the handler, and
-satisfies the trigger. `EndTurnOnSuccess` applies only to this executed result.
-Handler failure remains unsatisfied and enters bounded repair. The runtime
-allows up to three consecutive no-progress repairs.
+That repair call passes through admission and tool-call guards, runs cleanup,
+executes the handler, and satisfies the trigger. The compatibility path for a
+quiescent later-round call reaches the same execution boundary.
+`EndTurnOnSuccess` applies only to an executed result. Handler failure remains
+unsatisfied and enters bounded repair. The runtime allows up to three
+consecutive no-progress repairs.
 
 Required trigger tools should therefore be described as standalone final actions.
 

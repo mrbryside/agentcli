@@ -20,8 +20,6 @@ requested repair rounds. Debug adds completed provider content, tool
 arguments/results, compaction, and scope/subagent details. Tool JSON is recursively redacted for
 token/secret/password/authorization/API-key fields and bounded in size.
 Reasoning and guard feedback are never written to runtime logs.
-Successful canonical assistant persistence is a debug record without message
-content; extraction, delivery, or persistence failures are error records.
 
 Repair records distinguish `output_guard` from `completion_guard`, include the
 one-based attempt, current provider-step count, and completion tool allowlist,
