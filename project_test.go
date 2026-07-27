@@ -89,6 +89,14 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	for _, expected := range []string{
 		"<skill_rules>",
+		"## Runtime-turn load state",
+		"trusted <runtime_turn_boundary> reminder with state=new_turn",
+		"only on the first provider request of a new runtime turn",
+		"reset the set of skills loaded for the current turn",
+		"Each named skill may be loaded at most once per runtime turn",
+		"MUST NOT call load_skill for that same skill again until a new <runtime_turn_boundary>",
+		"Tool results, provider steps, and continued reasoning never reset this set",
+		"different skill may still be loaded",
 		"## Catalog and selection",
 		"## Load triggers and precedence",
 		"1. Explicit requirement:",
@@ -108,10 +116,8 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"skills are never loaded collectively",
 		"Every successful result uses status=loaded",
 		"load_trigger_satisfied_for",
-		"Do not call load_skill again for that same trigger",
-		"tool returned or another provider step began",
-		"subsequent provider steps continue the current turn",
-		"later user-message or callback turn",
+		"Add that name to the current turn's loaded set",
+		"subsequent provider steps continue the current turn and never reset the loaded set",
 		"satisfies only the current load trigger for that named skill",
 		"does not load or satisfy a trigger for any other skill",
 		"separate valid trigger",
@@ -121,7 +127,8 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"When a valid trigger applies in a new turn, call load_skill once",
 		"Skill caching and freshness are runtime-managed",
 		"status=loaded together with name=<skill> and load_trigger_satisfied_for=<skill>",
-		"separately delivered later user message or callback may create a new valid trigger",
+		"blocks another load of that skill for the remainder of the current runtime turn",
+		"new <runtime_turn_boundary> with state=new_turn resets this turn-scoped block",
 		"does not decide whether the turn should continue, wait, or end",
 		"</skill_rules>",
 	} {
@@ -154,11 +161,12 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
 	for _, expected := range []string{
 		"after a valid load trigger",
-		"IMPORTANT DUPLICATE GUARD",
-		"Before calling, inspect successful load_skill results already present in the current turn",
-		"If a result has load_trigger_satisfied_for equal to the requested name",
-		"This guard applies only to the current trigger",
-		"separately delivered user message or callback starts a later turn",
+		"HARD TURN-SCOPED LIMIT",
+		"Each named skill may be loaded at most once per runtime turn",
+		"trusted <runtime_turn_boundary> reminder with state=new_turn",
+		"provider requests without that marker",
+		"MUST NOT call load_skill for that skill again until a new <runtime_turn_boundary>",
+		"Tool results, later provider steps, and continued reasoning do not reset this limit",
 		"skill description in available_skills directly matches",
 		"another applicable instruction explicitly requires",
 		"user asks to inspect",
@@ -167,14 +175,10 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"Discovery-only questions",
 		"do not trigger this tool",
 		"Inspect the complete result",
-		"A successful load from an earlier turn does not satisfy a new load trigger",
-		"When a separate valid trigger applies in a later user-message or callback turn",
+		"A successful load from an earlier runtime turn does not satisfy a trigger in a newly marked runtime turn",
 		"Skill caching and freshness are runtime-managed",
 		"Every successful result uses status=loaded",
 		"load_trigger_satisfied_for",
-		"Do not call load_skill again for that same trigger",
-		"tool returned or another provider step began",
-		"later user-message or callback turn",
 		"loads only the exact skill named",
 		"satisfies only the current load trigger for that named skill",
 		"does not load or satisfy a trigger for any other skill",
@@ -195,8 +199,8 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatal(err)
 	}
 	schema := string(schemaJSON)
-	if !strings.Contains(schema, "inspect current-turn load_skill results") ||
-		!strings.Contains(schema, "load_trigger_satisfied_for already equals this name") {
+	if !strings.Contains(schema, "MUST NOT submit a name already present in load_trigger_satisfied_for") ||
+		!strings.Contains(schema, "eligible again only after a new") {
 		t.Fatalf("load_skill input schema does not repeat duplicate guard: %s", schema)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{

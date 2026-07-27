@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -272,6 +273,10 @@ func TestEndResponseScopeDoesNotPersistDeliveredMessageAsAssistant(t *testing.T)
 			requests := model.Requests()
 			if len(requests) != 3 {
 				t.Fatalf("provider requests = %d, want early report, normal work, and direct final report", len(requests))
+			}
+			if len(requests[0].ContextReminders) != 1 ||
+				!strings.Contains(requests[0].ContextReminders[0].Content, "<runtime_turn_boundary>") {
+				t.Fatalf("first provider request new-turn reminders = %#v", requests[0].ContextReminders)
 			}
 			foundWorkTool := false
 			for _, tool := range requests[1].Tools {

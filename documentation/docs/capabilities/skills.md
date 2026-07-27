@@ -61,19 +61,25 @@ An unchanged, recently loaded skill call returns a small `loaded` result with
 successful result applies only to the exact skill in `name`, never to the skill
 catalog collectively. `load_trigger_satisfied_for` confirms that the current
 trigger for that named skill is satisfied. Tool results and subsequent
-provider steps do not create another trigger by themselves; a separately
-delivered later user message or callback may create a new valid trigger for
-the same skill. A different skill requires its own valid trigger and load.
-This means the named skill's load succeeded and the full instructions are
-already available in the
-conversation context. A successful load from an earlier turn does not satisfy
-a new load trigger. The loader only makes instructions available; it does not
-decide the turn's next behavior. The default refresh policy returns the full
-body again when any condition applies:
+provider steps do not create another trigger by themselves. Each named skill
+may be loaded at most once per runtime turn; after it loads, the model must not
+load it again until a new `<runtime_turn_boundary state=new_turn>` marker
+appears. A different skill requires its own valid trigger and load. This means
+the named skill's load succeeded and the full instructions are already
+available in the conversation context. A successful load from an earlier turn
+does not satisfy a new load trigger. The loader only makes instructions
+available; it does not decide the turn's next behavior. The default refresh
+policy returns the full body again when any condition applies:
 
 - at least 10 turns have passed;
 - approximately 12,000 transcript tokens have passed; or
 - the skill content hash changed.
+
+AgentCLI also injects an ephemeral `<runtime_turn_boundary>` system reminder
+only on the first provider request of each runtime turn. Later provider steps
+do not receive it, so a tool result or another provider round never resets the
+turn-scoped loaded-skill set. The reminder is not persisted in conversation
+history.
 
 Configure the thresholds:
 

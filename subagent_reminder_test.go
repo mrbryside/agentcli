@@ -250,7 +250,10 @@ func TestRootAgentComposesCallerAndActiveSubagentReminders(t *testing.T) {
 		t.Fatalf("root requests = %d", len(requests))
 	}
 	reminders := requests[1].ContextReminders
-	if len(reminders) != 2 || reminders[0].Content != "caller-reminder" || !strings.Contains(reminders[1].Content, "<active_subagents>") {
+	if len(reminders) != 3 ||
+		!strings.Contains(reminders[0].Content, "<runtime_turn_boundary>") ||
+		reminders[1].Content != "caller-reminder" ||
+		!strings.Contains(reminders[2].Content, "<active_subagents>") {
 		t.Fatalf("root reminders = %#v", reminders)
 	}
 }

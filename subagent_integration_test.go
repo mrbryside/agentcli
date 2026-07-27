@@ -759,8 +759,9 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	waitRun(t, first)
-	if got := parentModel.Requests()[0].ContextReminders; len(got) != 0 {
-		t.Fatalf("unexpected initial reminders = %#v", got)
+	if got := parentModel.Requests()[0].ContextReminders; len(got) != 1 ||
+		!strings.Contains(got[0].Content, "<runtime_turn_boundary>") {
+		t.Fatalf("initial new-turn reminder = %#v", got)
 	}
 
 	response := integrationJSONRequest(t, http.MethodPost, httpServer.URL+"/v1/sessions/parent/subagents", `{"name":"researcher","message":"from HTTP"}`)
@@ -782,7 +783,10 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	}
 	waitRun(t, second)
 	reminders := parentModel.Requests()[1].ContextReminders
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, created.ID) || !strings.Contains(reminders[0].Content, "<active_subagents>") {
+	if len(reminders) != 2 ||
+		!strings.Contains(reminders[0].Content, "<runtime_turn_boundary>") ||
+		!strings.Contains(reminders[1].Content, created.ID) ||
+		!strings.Contains(reminders[1].Content, "<active_subagents>") {
 		t.Fatalf("active child reminder = %#v", reminders)
 	}
 
@@ -834,7 +838,9 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	waitRun(t, third)
-	if got := parentModel.Requests()[2].ContextReminders; len(got) != 0 {
+	if got := parentModel.Requests()[2].ContextReminders; len(got) != 1 ||
+		!strings.Contains(got[0].Content, "<runtime_turn_boundary>") ||
+		strings.Contains(got[0].Content, "<active_subagents>") {
 		t.Fatalf("closed child remained in reminder = %#v", got)
 	}
 	parentMessages, err := agent.ListMessages(context.Background(), "parent")

@@ -14,16 +14,23 @@ Every successful result uses `loaded`, and its `name` satisfies only the
 current trigger for that named skill. The matching
 `load_trigger_satisfied_for` field makes this scope explicit. A tool result and
 later provider steps continue the current turn and do not create another load
-trigger by themselves, so the model does not load the same skill again for the
-same trigger. A separately delivered later user message or callback may create
-a new valid trigger for the same skill. Another skill still requires its own
-separate valid trigger and load. A lightweight result with
+trigger by themselves. Each named skill may be loaded at most once per runtime
+turn. After it loads, the model must not load that skill again until the next
+`<runtime_turn_boundary state=new_turn>` marker. Another skill still requires
+its own separate valid trigger and load. A lightweight result with
 `instructions_in_context=true` means the named skill's full body is already
 available in the conversation context and was not repeated. The loader only
 makes that named skill's instructions available; those instructions and
 current context determine whether the turn continues, waits, or ends. The
 runtime reload policy refreshes instructions after age, token, or
 content-change thresholds.
+
+The framework injects a trusted `<runtime_turn_boundary>` system reminder only
+on the first provider request of each runtime turn. Later provider steps in
+that turn do not receive the marker. The reminder identifies the new turn and
+resets the model's turn-scoped loaded-skill set. Later provider steps or tool
+results never reset that set. The reminder is ephemeral and is never stored in
+the conversation transcript.
 
 Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, description, provider, model, optional skills/tools, and Markdown instructions. Only the root Agent receives framework subagent tools; children cannot recursively spawn children.
 

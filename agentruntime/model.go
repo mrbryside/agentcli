@@ -50,8 +50,9 @@ func CloneModelRequest(request ModelRequest) ModelRequest {
 // ContextReminderRequest identifies the provider round whose transient
 // context is being resolved.
 type ContextReminderRequest struct {
-	SessionID string
-	TurnID    string
+	SessionID    string
+	TurnID       string
+	ProviderStep int
 }
 
 // ContextReminderProvider resolves trusted transient context for one provider

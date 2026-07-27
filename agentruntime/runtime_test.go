@@ -140,7 +140,10 @@ func TestRuntimeResolvesContextRemindersForEveryProviderRound(t *testing.T) {
 	results <- successfulEnvelope(request.SessionID, request.TurnID, "call", "tool", `null`)
 	collectRuntimeEvents(t, run)
 
-	if got, want := resolved, []ContextReminderRequest{{SessionID: "session", TurnID: "turn"}, {SessionID: "session", TurnID: "turn"}}; !slices.Equal(got, want) {
+	if got, want := resolved, []ContextReminderRequest{
+		{SessionID: "session", TurnID: "turn", ProviderStep: 0},
+		{SessionID: "session", TurnID: "turn", ProviderStep: 1},
+	}; !slices.Equal(got, want) {
 		t.Fatalf("resolved requests = %#v, want %#v", got, want)
 	}
 	providerRequests := model.Requests()

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Its full instructions are included in this result.`
-	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Its full instructions are already available in the conversation context.`
+	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Do not load this skill again until a new runtime_turn_boundary with state=new_turn appears. Its full instructions are included in this result.`
+	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Do not load this skill again until a new runtime_turn_boundary with state=new_turn appears. Its full instructions are already available in the conversation context.`
 )
 
 type skillLoader struct {

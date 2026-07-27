@@ -738,8 +738,9 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	var reminders []ContextReminder
 	if runtime.contextReminderProvider != nil {
 		reminders, err = runtime.contextReminderProvider(ctx, ContextReminderRequest{
-			SessionID: r.sessionID,
-			TurnID:    r.turnID,
+			SessionID:    r.sessionID,
+			TurnID:       r.turnID,
+			ProviderStep: steps,
 		})
 		if err != nil {
 			return fmt.Errorf("resolve context reminders: %w", err)

@@ -19,11 +19,12 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"after a valid load trigger",
-		"IMPORTANT DUPLICATE GUARD",
-		"Before calling, inspect successful load_skill results already present in the current turn",
-		"If a result has load_trigger_satisfied_for equal to the requested name",
-		"This guard applies only to the current trigger",
-		"separately delivered user message or callback starts a later turn",
+		"HARD TURN-SCOPED LIMIT",
+		"Each named skill may be loaded at most once per runtime turn",
+		"trusted <runtime_turn_boundary> reminder with state=new_turn",
+		"provider requests without that marker",
+		"MUST NOT call load_skill for that skill again until a new <runtime_turn_boundary>",
+		"Tool results, later provider steps, and continued reasoning do not reset this limit",
 		"skill description in available_skills directly matches",
 		"applicable instruction explicitly requires",
 		"user asks to inspect",
@@ -31,13 +32,10 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"Inspect the complete result",
 		"runtime-managed",
 		"load request succeeded",
-		"A successful load from an earlier turn does not satisfy a new load trigger",
+		"A successful load from an earlier runtime turn does not satisfy a trigger in a newly marked runtime turn",
 		"Every successful result uses status=loaded",
 		"loads only the exact skill named",
 		"load_trigger_satisfied_for",
-		"Do not call load_skill again for that same trigger",
-		"tool returned or another provider step began",
-		"later user-message or callback turn",
 		"satisfies only the current load trigger for that named skill",
 		"does not load or satisfy a trigger for any other skill",
 		"separate valid trigger",
@@ -55,8 +53,8 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
 	if !strings.Contains(schema, `"minLength":1`) ||
 		!strings.Contains(schema, "description-match, explicit-requirement, or explicit-inspection trigger") ||
-		!strings.Contains(schema, "inspect current-turn load_skill results") ||
-		!strings.Contains(schema, "load_trigger_satisfied_for already equals this name") {
+		!strings.Contains(schema, "MUST NOT submit a name already present in load_trigger_satisfied_for") ||
+		!strings.Contains(schema, "eligible again only after a new") {
 		t.Fatalf("load_skill schema does not align with its triggers: %s", schema)
 	}
 	ctx := WithInvocation(context.Background(), Invocation{

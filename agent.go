@@ -194,7 +194,10 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		subagentTools.Bind(manager)
 		agent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
 	}
-	reminderProvider := configuration.contextReminderProvider
+	reminderProvider := composeContextReminderProviders(
+		newTurnContextReminderProvider(),
+		configuration.contextReminderProvider,
+	)
 	var completionGuard agentruntime.CompletionGuard
 	if configuration.childAgent {
 		completionGuard = subagentOutcomeCompletionGuard
