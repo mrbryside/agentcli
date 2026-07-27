@@ -108,10 +108,18 @@ Use sources and explain uncertainty.
 		"only agent allowed",
 		"Children never receive subagent-management tools",
 		"Destructive child closure is application-owned",
-		"## Trigger and selection",
+		"## Trigger precedence and selection",
 		"A subagent may be triggered in either of these ways",
-		"1. Description match:",
-		"2. Explicit requirement:",
+		"1. Explicit requirement:",
+		"This trigger takes precedence",
+		"2. Description match:",
+		"when no applicable instruction already requires a different delegation route",
+		"Explicit requirements take precedence over description matching",
+		"Before selecting a subagent by description",
+		"use that required route first",
+		"Never replace, bypass, or delay it",
+		"follow normal instruction priority rather than description similarity",
+		"After satisfying the explicit requirement",
 		"select the single best matching definition",
 		"## Instance selection and fan-out",
 		"Prefer one child at a time",
@@ -174,6 +182,11 @@ Use sources and explain uncertainty.
 		if !strings.Contains(subagents, expected) {
 			t.Fatalf("catalog does not contain callback-orchestration rule %q: %q", expected, subagents)
 		}
+	}
+	explicitRequirement := strings.Index(subagents, "1. Explicit requirement:")
+	descriptionMatch := strings.Index(subagents, "2. Description match:")
+	if explicitRequirement < 0 || descriptionMatch < 0 || explicitRequirement >= descriptionMatch {
+		t.Fatalf("subagent discovery prompt does not prioritize explicit requirements before description matching: %q", subagents)
 	}
 	if strings.Contains(subagents, "close_subagent") {
 		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", subagents)

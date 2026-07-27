@@ -90,11 +90,17 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	for _, expected := range []string{
 		"<skill_rules>",
 		"## Catalog and selection",
-		"## Load triggers",
-		"1. Description match:",
-		"2. Explicit requirement:",
+		"## Load triggers and precedence",
+		"1. Explicit requirement:",
 		"This trigger is mandatory",
+		"2. Description match:",
+		"when no applicable instruction already requires a different skill",
 		"3. Explicit inspection:",
+		"Explicit requirements take precedence over description matching",
+		"Before selecting a skill by description, check all applicable instructions",
+		"load and follow that required skill first",
+		"Never replace, bypass, or delay it",
+		"After satisfying the explicit requirement",
 		"never authorize bypassing a required skill load",
 		"## Non-triggers",
 		"## Result handling",
@@ -106,6 +112,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		if !strings.Contains(prompts[1], expected) {
 			t.Fatalf("skill discovery prompt does not contain structured rule %q: %q", expected, prompts[1])
 		}
+	}
+	explicitRequirement := strings.Index(prompts[1], "1. Explicit requirement:")
+	descriptionMatch := strings.Index(prompts[1], "2. Description match:")
+	if explicitRequirement < 0 || descriptionMatch < 0 || explicitRequirement >= descriptionMatch {
+		t.Fatalf("skill discovery prompt does not prioritize explicit requirements before description matching: %q", prompts[1])
 	}
 	if strings.Contains(prompts[1], "Run go test ./...") {
 		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[1])

@@ -530,12 +530,14 @@ available_subagents is the complete catalog of configured agent types. Each desc
 
 The runtime supplies live instance summaries through active_subagents; there are no model-facing list or status tools. available_subagents names types, while active_subagents names instances with a random display_name and stable id.
 
-## Trigger and selection
+## Trigger precedence and selection
 
 A subagent may be triggered in either of these ways:
 
-1. Description match: a subagent description directly matches a focused delegated task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism.
-2. Explicit requirement: another applicable instruction or the user explicitly requires delegation or a particular subagent. Follow an explicit requirement when that configured type and its required capabilities are available.
+1. Explicit requirement: another applicable instruction or the user explicitly requires delegation or a particular subagent. This trigger takes precedence when that configured type and its required capabilities are available.
+2. Description match: when no applicable instruction already requires a different delegation route, a subagent description directly matches a focused delegated task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism.
+
+Explicit requirements take precedence over description matching. Before selecting a subagent by description, check all applicable instructions and the user's request for required delegation or a required agent type. If one exists, use that required route first. Never replace, bypass, or delay it because another subagent description appears to match the task more closely. When explicit requirements conflict, follow normal instruction priority rather than description similarity. After satisfying the explicit requirement, start another subagent only if a separate valid trigger still applies.
 
 Absent an explicit requirement, the default is to answer directly. Mere topic overlap is not a direct description match, and normal conversation, simple answers, explanations, translations, formatting, or other self-contained work do not trigger delegation by themselves. An applicable explicit requirement remains a valid trigger when the configured type and required capabilities are available. Questions asking which agents are available or what they do are discovery-only: answer from available_subagents and do not start a child unless another applicable instruction explicitly requires delegation.
 
@@ -602,13 +604,15 @@ func (project *Project) skillDiscoveryPrompt() string {
 
 available_skills is the complete skill catalog available to this agent. Each description is selection metadata: use it to decide whether the skill directly matches the task. A description is not the skill's full instructions and never substitutes for loading a skill that must be applied.
 
-## Load triggers
+## Load triggers and precedence
 
 Load a skill for any of these reasons:
 
-1. Description match: you select a skill whose description directly matches the task and are about to apply that skill.
-2. Explicit requirement: another applicable instruction explicitly requires that skill or requires a skill for the selected workflow. This trigger is mandatory; call load_skill before the action or answer it governs.
+1. Explicit requirement: another applicable instruction explicitly requires that skill or requires a skill for the selected workflow. This trigger is mandatory; call load_skill before the action or answer it governs.
+2. Description match: when no applicable instruction already requires a different skill for the governed workflow, you select a skill whose description directly matches the task and are about to apply that skill.
 3. Explicit inspection: the user asks to inspect or read the skill's full instructions.
+
+Explicit requirements take precedence over description matching. Before selecting a skill by description, check all applicable instructions for a required skill or workflow. If one exists, load and follow that required skill first. Never replace, bypass, or delay it because another skill description appears to match the task more closely. After satisfying the explicit requirement, load another skill only if a separate valid trigger still applies.
 
 Tool descriptions, subagent descriptions, and other capability metadata may help choose a route, but never authorize bypassing a required skill load. If no skill directly matches and no applicable instruction requires one, continue without loading one.
 
