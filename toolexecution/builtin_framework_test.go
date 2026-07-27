@@ -19,6 +19,11 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"after a valid load trigger",
+		"IMPORTANT DUPLICATE GUARD",
+		"Before calling, inspect successful load_skill results already present in the current turn",
+		"If a result has load_trigger_satisfied_for equal to the requested name",
+		"This guard applies only to the current trigger",
+		"separately delivered user message or callback starts a later turn",
 		"skill description in available_skills directly matches",
 		"applicable instruction explicitly requires",
 		"user asks to inspect",
@@ -49,7 +54,9 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
 	if !strings.Contains(schema, `"minLength":1`) ||
-		!strings.Contains(schema, "description-match, explicit-requirement, or explicit-inspection trigger") {
+		!strings.Contains(schema, "description-match, explicit-requirement, or explicit-inspection trigger") ||
+		!strings.Contains(schema, "inspect current-turn load_skill results") ||
+		!strings.Contains(schema, "load_trigger_satisfied_for already equals this name") {
 		t.Fatalf("load_skill schema does not align with its triggers: %s", schema)
 	}
 	ctx := WithInvocation(context.Background(), Invocation{

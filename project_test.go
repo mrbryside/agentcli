@@ -154,6 +154,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
 	for _, expected := range []string{
 		"after a valid load trigger",
+		"IMPORTANT DUPLICATE GUARD",
+		"Before calling, inspect successful load_skill results already present in the current turn",
+		"If a result has load_trigger_satisfied_for equal to the requested name",
+		"This guard applies only to the current trigger",
+		"separately delivered user message or callback starts a later turn",
 		"skill description in available_skills directly matches",
 		"another applicable instruction explicitly requires",
 		"user asks to inspect",
@@ -184,6 +189,15 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	if strings.Contains(tool.Definition.Description, "Continue the task") {
 		t.Fatalf("load_skill description must not force post-load behavior: %q", tool.Definition.Description)
+	}
+	schemaJSON, err := json.Marshal(tool.Definition.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(schemaJSON)
+	if !strings.Contains(schema, "inspect current-turn load_skill results") ||
+		!strings.Contains(schema, "load_trigger_satisfied_for already equals this name") {
+		t.Fatalf("load_skill input schema does not repeat duplicate guard: %s", schema)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: SkillLoaderToolName,
