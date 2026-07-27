@@ -825,6 +825,7 @@ func (e *Executor) newJob(root context.Context, request agentruntime.ToolRequest
 		CallID:    request.Call.CallID,
 		ToolName:  request.Call.Name,
 	})
+	callContext = withHandlerTurnControl(callContext)
 	callContext, cancel := context.WithCancelCause(callContext)
 	active := &activeCall{cancel: cancel}
 	key := requestKey(request)

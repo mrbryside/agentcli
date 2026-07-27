@@ -3,6 +3,7 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -316,6 +317,78 @@ func TestEndTurnOnSuccessEndsSuccessfulMixedBatch(t *testing.T) {
 	}
 	if handoffs != 1 || audits != 1 || len(model.Requests()) != 1 {
 		t.Fatalf("handoffs = %d, audits = %d, requests = %d; want 1, 1, 1", handoffs, audits, len(model.Requests()))
+	}
+}
+
+func TestHandlerCanConditionallyEndSuccessfulMixedBatch(t *testing.T) {
+	model := &scriptedModel{toolCalls: []provider.ToolCall{
+		{ID: "handoff", Name: "handoff", Arguments: map[string]any{}},
+		{ID: "audit", Name: "audit", Arguments: map[string]any{}},
+	}}
+	var handoffs, audits int
+	handoff := Tool{
+		Definition: ToolDefinition{Name: "handoff", Description: "Conditionally terminal handoff.", InputSchema: ObjectSchema(struct{}{})},
+		Handler: func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+			handoffs++
+			if err := RequestEndTurn(ctx); err != nil {
+				return nil, err
+			}
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	audit := Tool{
+		Definition: ToolDefinition{Name: "audit", Description: "Normal immediate tool.", InputSchema: ObjectSchema(struct{}{})},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			audits++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(handoff), WithTool(audit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("handler-requested-end-turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if handoffs != 1 || audits != 1 || len(model.Requests()) != 1 {
+		t.Fatalf("handoffs = %d, audits = %d, requests = %d; want 1, 1, 1", handoffs, audits, len(model.Requests()))
+	}
+}
+
+func TestHandlerTurnEndRequestIsIgnoredWhenHandlerFails(t *testing.T) {
+	model := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "handoff", Name: "handoff", Arguments: map[string]any{},
+	}}}
+	tool := Tool{
+		Definition: ToolDefinition{Name: "handoff", Description: "Failing conditional handoff.", InputSchema: ObjectSchema(struct{}{})},
+		Handler: func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+			if err := RequestEndTurn(ctx); err != nil {
+				return nil, err
+			}
+			return nil, errors.New("handoff failed")
+		},
+	}
+	agent, err := New(context.Background(), WithModel(model), WithTool(tool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("failed-handler-end-turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.Requests()) != 2 {
+		t.Fatalf("provider requests = %d, want failed tool result followed by recovery round", len(model.Requests()))
 	}
 }
 

@@ -85,12 +85,14 @@ child output into the selected child view.
 
 The Terminal and its repository playground use the framework-owned subagent
 tool contract directly; they do not maintain a separate schema. Model-facing
-`start_subagent` and `send_subagent_message` calls return control to the parent.
-Accepted results require the parent to finish its current turn before the
-authoritative callback can resume the root session. Independent work may
-continue meanwhile only when it neither duplicates the delegated task nor
-depends on its result. Destructive close remains a Terminal/application command
-and is not exposed to the model.
+`start_subagent` requires `continue_after_dispatch`. A false value ends a
+successful pending-callback batch without another provider step; true returns
+control for only already-planned parent work outside the delegated task that
+is independent of the callback. Parallel starts use the same value throughout
+their batch. `send_subagent_message` returns control and applies the passive
+post-dispatch policy. A callback joins a compatible active parent at its next
+provider boundary or resumes the root in a continuation turn. Destructive
+close remains a Terminal/application command and is not exposed to the model.
 
 ## Close a child
 

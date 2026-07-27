@@ -29,17 +29,19 @@ through `ResolveSubagentPermission` or `ResolveSubagentConfirmation`. This path
 is independent from child-completion callbacks, which cannot fire while an
 admission decision is unresolved.
 
-Child sessions are always asynchronous. The model-facing `start_subagent` and
-`send_subagent_message` tools produce `ContinueTurn`, which returns control to
-the parent model but does not require assistant content or another tool call;
-destructive close is application-owned and absent from the model catalog. An
-accepted dispatch returns an acknowledgement with `callback_action=automatic`
-plus the post-dispatch turn rule. The parent may continue only work planned
-before dispatch that is outside the delegated task and independent of its
-callback. Otherwise it ends the turn immediately without assistant content or
-another tool call. It must not narrate waiting, call a response or delivery
-tool, invent work, retry, redo delegated work, or poll. If a compatible parent
-run is still active,
+Child sessions are always asynchronous. `start_subagent` requires
+`continue_after_dispatch`. False requests a turn end through the same
+handler-controlled mechanism available to custom tools; it takes effect only
+when the call returns a pending callback and the complete tool batch succeeds.
+True returns control to the parent model for already-planned work outside the
+delegated task that is independent of the callback. Every parallel start in one
+batch must use the same value: all false to wait, or all true to continue.
+`send_subagent_message` returns control and uses the passive post-dispatch
+policy. Destructive close is application-owned and absent from the model
+catalog. An accepted dispatch returns an acknowledgement with
+`callback_action=automatic`. The parent must not narrate waiting, call a
+response or delivery tool, invent work, retry, redo delegated work, or poll. If
+a compatible parent run is still active,
 `TryInjectSubagentCallback` appends the trusted callback at the next provider
 boundary; it never interrupts a live provider stream or tool handler.
 Otherwise `ContinueSubagentCallbackSubscribed` starts a continuation turn.

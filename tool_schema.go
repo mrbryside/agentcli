@@ -1,6 +1,7 @@
 package agentcli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -74,6 +75,13 @@ const (
 // ToolStaticPermission creates the fixed permission descriptor used by a Tool.
 func ToolStaticPermission(config ToolPermissionConfig) toolexecution.PermissionDescriptor {
 	return toolexecution.StaticPermission(config)
+}
+
+// RequestEndTurn lets a custom tool handler conditionally end the current turn
+// after the handler and every other result in the same tool batch succeed.
+// Call it only with the context passed to that handler.
+func RequestEndTurn(ctx context.Context) error {
+	return toolexecution.RequestEndTurn(ctx)
 }
 
 const (

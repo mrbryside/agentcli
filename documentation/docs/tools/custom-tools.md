@@ -166,6 +166,39 @@ repair requests the tool, the handler executes and `EndTurnOnSuccess` may end
 the turn. The durable transcript retains the tool call and its result without
 adding a synthetic assistant message from the arguments.
 
+### Conditional end from a handler
+
+When only some successful invocations should end the turn, keep
+`EndTurnOnSuccess` false and call `RequestEndTurn` from the handler condition:
+
+```go
+agentcli.Tool{
+    Definition: definition,
+    Handler: func(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
+        var input struct {
+            Finish bool `json:"finish"`
+        }
+        if err := agentcli.DecodeArguments(arguments, &input); err != nil {
+            return nil, err
+        }
+        output := json.RawMessage(`{"status":"done"}`)
+        if input.Finish {
+            if err := agentcli.RequestEndTurn(ctx); err != nil {
+                return nil, err
+            }
+        }
+        return output, nil
+    },
+}
+```
+
+The request takes effect only when that handler and every other call in the
+same tool batch succeed. A failed, denied, declined, or interrupted call
+continues to another provider round. Required trigger tools are still enforced.
+Because the condition is application-specific, describe the controlling input
+and its true/false behavior in the tool description or parameter schema.
+Calling `RequestEndTurn` outside the active handler context returns an error.
+
 ## End-of-scope trigger tools
 
 For a side effect that must happen once after the whole user response,

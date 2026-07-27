@@ -20,8 +20,8 @@ import (
 
 func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{
-		{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research first", "new_instance": true}},
-		{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{"name": "reviewer", "message": "review first", "new_instance": true}},
+		{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research first", "new_instance": true, "continue_after_dispatch": true}},
+		{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{"name": "reviewer", "message": "review first", "new_instance": true, "continue_after_dispatch": true}},
 	}}
 	researchModel := newIntegrationChildModel("research complete")
 	reviewModel := newIntegrationChildModel("review complete")
@@ -199,7 +199,7 @@ func TestSubagentIntegrationFastCallbackDoesNotTriggerSpeculativeParentAnswer(t 
 func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
-		Arguments: map[string]any{"name": "researcher", "message": "inspect the project"},
+		Arguments: map[string]any{"name": "researcher", "message": "inspect the project", "continue_after_dispatch": true},
 	}}}
 	childModel := newIntegrationCompletedChildModel("compact child finding", "Project inspection is complete.")
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
@@ -257,6 +257,51 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 	}
 	if record.LastTurnOutcome != storage.SubagentTurnCompleted || record.LastTurnSummary != "Project inspection is complete." || record.LastTurnNextStep != "" {
 		t.Fatalf("stored child outcome = %#v", record)
+	}
+}
+
+func TestSubagentIntegrationStartCanEndParentTurnAfterDispatch(t *testing.T) {
+	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "research", Name: StartSubagentToolName,
+		Arguments: map[string]any{
+			"name": "researcher", "message": "inspect the project",
+			"continue_after_dispatch": false,
+		},
+	}}}
+	childModel := newIntegrationChildModel("research complete")
+	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{"researcher": childModel})
+	defer agent.Close()
+
+	parentRun, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "parent-end-after-dispatch", TurnID: "parent-turn",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate and wait"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, parentRun)
+	if _, err := parentRun.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if requests := parentModel.Requests(); len(requests) != 1 {
+		t.Fatalf("parent provider requests = %d, want dispatch round only", len(requests))
+	}
+	childModel.waitRequests(t, 1)
+
+	messages, err := agent.ListMessages(context.Background(), "parent-end-after-dispatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, message := range messages {
+		if message.ToolResult == nil || message.ToolResult.Name != StartSubagentToolName {
+			continue
+		}
+		found = strings.Contains(string(message.ToolResult.Output), `"turn_action":"end_turn_wait_for_callback"`) &&
+			strings.Contains(string(message.ToolResult.Output), "current turn will end automatically")
+	}
+	if !found {
+		t.Fatalf("start_subagent result has no terminal turn action: %#v", messages)
 	}
 }
 
@@ -532,7 +577,7 @@ func TestSubagentIntegrationAutoClosesAfterUserVisibleCallbackAnswer(t *testing.
 func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
-		Arguments: map[string]any{"name": "researcher", "message": "perform the domain action"},
+		Arguments: map[string]any{"name": "researcher", "message": "perform the domain action", "continue_after_dispatch": true},
 	}}}
 	childModel := &outcomeRepairIntegrationModel{}
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
@@ -623,7 +668,7 @@ func TestSubagentIntegrationRepairsMissingOutcomeWithoutRepeatingDomainTool(t *t
 func TestSubagentIntegrationMissingOutcomeFallsBackAfterBoundedRepairs(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "research", Name: StartSubagentToolName,
-		Arguments: map[string]any{"name": "researcher", "message": "answer without reporting"},
+		Arguments: map[string]any{"name": "researcher", "message": "answer without reporting", "continue_after_dispatch": true},
 	}}}
 	childModel := &scriptedModel{}
 	agent := newIntegrationSubagentAgent(t, parentModel, map[string]*integrationChildModel{
@@ -855,7 +900,7 @@ func (m *responseScopeIntegrationParentModel) Start(_ context.Context, _ agentru
 	case 0:
 		calls = []provider.ToolCall{{
 			ID: "start", Name: StartSubagentToolName,
-			Arguments: map[string]any{"name": "researcher", "message": "research"},
+			Arguments: map[string]any{"name": "researcher", "message": "research", "continue_after_dispatch": true},
 		}}
 	case 1:
 		calls = []provider.ToolCall{{ID: "report-waiting", Name: "report", Arguments: map[string]any{"message": "waiting response"}}}
@@ -883,7 +928,7 @@ func (m *continuingCloseCallbackParentModel) Start(_ context.Context, request ag
 	case 0:
 		result = provider.StreamResult{CompletedTools: []provider.ToolCall{{
 			ID: "start-child", Name: StartSubagentToolName,
-			Arguments: map[string]any{"name": "researcher", "message": "verify the delegated result"},
+			Arguments: map[string]any{"name": "researcher", "message": "verify the delegated result", "continue_after_dispatch": true},
 		}}, Finished: true}
 	case 1:
 		result = provider.StreamResult{Content: "Delegation is running asynchronously.", Finished: true}
@@ -1066,7 +1111,7 @@ func (m *integrationPendingCallbackParentModel) Start(ctx context.Context, reque
 
 	if round == 1 {
 		call := provider.ToolCall{ID: "start", Name: StartSubagentToolName, Arguments: map[string]any{
-			"name": "researcher", "message": "ask for the missing transfer details",
+			"name": "researcher", "message": "ask for the missing transfer details", "continue_after_dispatch": true,
 		}}
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
 	}
@@ -1131,11 +1176,11 @@ func (m *integrationSequentialDispatchParentModel) Start(_ context.Context, _ ag
 	m.mu.Unlock()
 
 	call := provider.ToolCall{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{
-		"name": "researcher", "message": "research this", "new_instance": true,
+		"name": "researcher", "message": "research this", "new_instance": true, "continue_after_dispatch": true,
 	}}
 	if round == 2 {
 		call = provider.ToolCall{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{
-			"name": "reviewer", "message": "review this", "new_instance": true,
+			"name": "reviewer", "message": "review this", "new_instance": true, "continue_after_dispatch": true,
 		}}
 	}
 	if round > 2 {
@@ -1155,7 +1200,7 @@ func (m *integrationInterruptParentModel) Start(_ context.Context, _ agentruntim
 	defer m.mu.Unlock()
 	m.starts++
 	if m.starts == 1 {
-		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "delegate", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "long task"}}}, Finished: true}}, nil
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "delegate", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "long task", "continue_after_dispatch": true}}}, Finished: true}}, nil
 	}
 	return scriptedStream{result: provider.StreamResult{Content: "Delegation is running asynchronously.", Finished: true}}, nil
 }

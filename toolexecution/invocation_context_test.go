@@ -22,3 +22,22 @@ func TestInvocationContext(t *testing.T) {
 		t.Fatal("incomplete invocation unexpectedly accepted")
 	}
 }
+
+func TestRequestEndTurnRequiresHandlerContextAndIsIdempotent(t *testing.T) {
+	if err := RequestEndTurn(context.Background()); err == nil {
+		t.Fatal("RequestEndTurn outside handler context error = nil")
+	}
+	ctx := withHandlerTurnControl(context.Background())
+	if handlerRequestedEndTurn(ctx) {
+		t.Fatal("fresh handler context unexpectedly requests turn end")
+	}
+	if err := RequestEndTurn(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequestEndTurn(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !handlerRequestedEndTurn(ctx) {
+		t.Fatal("handler turn-end request was not retained")
+	}
+}

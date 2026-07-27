@@ -19,11 +19,11 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	defer manager.Close()
 	bridge := newTestSubagentToolBridge(manager)
 
-	if _, err := callSubagentTool(bridge, StartSubagentToolName, context.Background(), json.RawMessage(`{"name":"researcher","message":"work"}`)); err == nil {
+	if _, err := callSubagentTool(bridge, StartSubagentToolName, context.Background(), json.RawMessage(`{"name":"researcher","message":"work","continue_after_dispatch":true}`)); err == nil {
 		t.Fatal("start without invocation context error = nil")
 	}
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent-a", TurnID: "turn", CallID: "call", ToolName: StartSubagentToolName})
-	output, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"work"}`))
+	output, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"work","continue_after_dispatch":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,12 +33,13 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 		Asynchronous bool                   `json:"asynchronous"`
 		Callback     string                 `json:"callback_action"`
 		MustWait     bool                   `json:"must_wait_for_callback"`
+		TurnAction   string                 `json:"turn_action"`
 		NextAction   string                 `json:"next_action"`
 	}
 	if err := json.Unmarshal(output, &started); err != nil {
 		t.Fatal(err)
 	}
-	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || started.Callback != "automatic" || !started.MustWait || !isPassiveCallbackInstruction(started.NextAction) || strings.Contains(string(output), `"finish_turn"`) || strings.Contains(string(output), `"prohibited_actions"`) || strings.Contains(string(output), `"turn_behavior"`) {
+	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || started.Callback != "automatic" || !started.MustWait || started.TurnAction != "continue_independent_work" || !isContinueCallbackInstruction(started.NextAction) || strings.Contains(string(output), `"finish_turn"`) || strings.Contains(string(output), `"prohibited_actions"`) || strings.Contains(string(output), `"turn_behavior"`) {
 		t.Fatalf("start result = %s", output)
 	}
 	if strings.Contains(string(output), "close_subagent") {
@@ -81,7 +82,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		defer manager.Close()
 		bridge := newTestSubagentToolBridge(manager)
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "turn", CallID: "call", ToolName: StartSubagentToolName})
-		firstJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"first"}`))
+		firstJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"first","continue_after_dispatch":true}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +96,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		if err := json.Unmarshal(firstJSON, &first); err != nil {
 			t.Fatal(err)
 		}
-		duplicateJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":" first "}`))
+		duplicateJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":" first ","continue_after_dispatch":true}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,7 +109,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		if err := json.Unmarshal(duplicateJSON, &duplicate); err != nil {
 			t.Fatal(err)
 		}
-		secondJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"talk more"}`))
+		secondJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"talk more","continue_after_dispatch":true}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +125,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 			t.Fatal(err)
 		}
 		nextTurnCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "turn-2", CallID: "call-2", ToolName: StartSubagentToolName})
-		acceptedJSON, err := callSubagentTool(bridge, StartSubagentToolName, nextTurnCtx, json.RawMessage(`{"name":"researcher","message":"talk more"}`))
+		acceptedJSON, err := callSubagentTool(bridge, StartSubagentToolName, nextTurnCtx, json.RawMessage(`{"name":"researcher","message":"talk more","continue_after_dispatch":true}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -152,12 +153,12 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		bridge := newTestSubagentToolBridge(manager)
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "turn", CallID: "call", ToolName: StartSubagentToolName})
 		for _, message := range []string{"first", "second"} {
-			arguments := json.RawMessage(`{"name":"researcher","message":"` + message + `","new_instance":true}`)
+			arguments := json.RawMessage(`{"name":"researcher","message":"` + message + `","new_instance":true,"continue_after_dispatch":true}`)
 			if _, err := callSubagentTool(bridge, StartSubagentToolName, ctx, arguments); err != nil {
 				t.Fatal(err)
 			}
 		}
-		selectionJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"talk more"}`))
+		selectionJSON, err := callSubagentTool(bridge, StartSubagentToolName, ctx, json.RawMessage(`{"name":"researcher","message":"talk more","continue_after_dispatch":false}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,6 +166,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 			Action       toolexecution.SubagentStartAction   `json:"action"`
 			Candidates   []toolexecution.SubagentToolSummary `json:"candidates"`
 			Behavior     string                              `json:"turn_behavior"`
+			TurnAction   string                              `json:"turn_action"`
 			NextAction   string                              `json:"next_action"`
 			Accepted     bool                                `json:"accepted"`
 			Deduplicated bool                                `json:"deduplicated"`
@@ -174,7 +176,7 @@ func TestStartSubagentToolReusesOneChildAndRequiresSelectionForMany(t *testing.T
 		if err := json.Unmarshal(selectionJSON, &selection); err != nil {
 			t.Fatal(err)
 		}
-		if selection.Action != toolexecution.SubagentStartSelectionRequired || selection.Accepted || selection.Deduplicated || selection.Callback != "none" || selection.MustWait || selection.Behavior != "continue_turn" || strings.Contains(string(selectionJSON), `"finish_turn"`) || len(selection.Candidates) != 2 || selection.Candidates[0].DisplayName == "" || selection.Candidates[1].DisplayName == "" || selection.Candidates[0].DisplayName == selection.Candidates[1].DisplayName || !strings.Contains(selection.NextAction, "Ask the user") {
+		if selection.Action != toolexecution.SubagentStartSelectionRequired || selection.Accepted || selection.Deduplicated || selection.Callback != "none" || selection.MustWait || selection.Behavior != "continue_turn" || selection.TurnAction != "continue_selection_required" || strings.Contains(string(selectionJSON), `"finish_turn"`) || len(selection.Candidates) != 2 || selection.Candidates[0].DisplayName == "" || selection.Candidates[1].DisplayName == "" || selection.Candidates[0].DisplayName == selection.Candidates[1].DisplayName || !strings.Contains(selection.NextAction, "Ask the user") {
 			t.Fatalf("selection = %s", selectionJSON)
 		}
 		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
@@ -190,7 +192,7 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	defer manager.Close()
 	bridge := newTestSubagentToolBridge(manager)
 	startCtx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: "turn-1", CallID: "start", ToolName: StartSubagentToolName})
-	startedJSON, err := callSubagentTool(bridge, StartSubagentToolName, startCtx, json.RawMessage(`{"name":"researcher","message":"work"}`))
+	startedJSON, err := callSubagentTool(bridge, StartSubagentToolName, startCtx, json.RawMessage(`{"name":"researcher","message":"work","continue_after_dispatch":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,8 +330,8 @@ func TestSubagentToolsRejectRemovedFinishTurnOption(t *testing.T) {
 		toolName  string
 		arguments json.RawMessage
 	}{
-		{"start background", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","background":false}`)},
-		{"start finish", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","finish_turn":true}`)},
+		{"start background", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","continue_after_dispatch":true,"background":false}`)},
+		{"start finish", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","continue_after_dispatch":true,"finish_turn":true}`)},
 		{"send finish", SendSubagentMessageToolName, json.RawMessage(`{"subagent_id":"child","message":"continue","finish_turn":true}`)},
 	}
 	for _, test := range tests {
@@ -339,6 +341,22 @@ func TestSubagentToolsRejectRemovedFinishTurnOption(t *testing.T) {
 		if _, err := callSubagentTool(bridge, test.toolName, ctx, test.arguments); err == nil || !strings.Contains(err.Error(), "unknown field") {
 			t.Fatalf("%s removed option error = %v", test.name, err)
 		}
+	}
+}
+
+func TestStartSubagentRequiresExplicitContinueAfterDispatchChoice(t *testing.T) {
+	bridge := toolexecution.NewSubagentToolBridge()
+	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+		SessionID: "parent", TurnID: "parent-turn", CallID: "start", ToolName: StartSubagentToolName,
+	})
+	_, err := callSubagentTool(
+		bridge,
+		StartSubagentToolName,
+		ctx,
+		json.RawMessage(`{"name":"researcher","message":"work"}`),
+	)
+	if err == nil || !strings.Contains(err.Error(), "continue_after_dispatch is required") {
+		t.Fatalf("missing continue_after_dispatch error = %v", err)
 	}
 }
 
@@ -394,6 +412,21 @@ func isPassiveCallbackInstruction(instruction string) bool {
 		"outside the delegated task",
 		"independent of its callback",
 		"end the turn immediately without assistant content or another tool call",
+	} {
+		if !strings.Contains(instruction, expected) {
+			return false
+		}
+	}
+	return true
+}
+
+func isContinueCallbackInstruction(instruction string) bool {
+	for _, expected := range []string{
+		"result will arrive automatically later",
+		"continue_after_dispatch=true",
+		"already-planned parent work",
+		"outside the delegated task",
+		"Do not invent work, poll, or narrate waiting",
 	} {
 		if !strings.Contains(instruction, expected) {
 			return false

@@ -81,11 +81,44 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
 			if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) {
-				t.Fatalf("subagent operation %q must always continue without finish_turn: %#v", tool.Definition.Name, tool)
+				t.Fatalf("subagent operation %q must not use static terminal behavior or legacy finish_turn: %#v", tool.Definition.Name, tool)
 			}
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "existing child") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
+		}
+		if tool.Definition.Name == StartSubagentToolName {
+			for _, expected := range []string{
+				"explicitly choose continue_after_dispatch",
+				"Set it to false",
+				"successful result with a pending callback",
+				"whole tool batch succeeds",
+				"without another provider step or assistant content",
+				"Set it to true only",
+				"already planned",
+				"never invent work to justify true",
+				"use the same value on all calls",
+				"all false to wait",
+				"all true to continue",
+				"Never mix values",
+				"any false call that returns a pending callback ends the successful batch",
+				"selection_required always continues",
+			} {
+				if !strings.Contains(tool.Definition.Description, expected) {
+					t.Fatalf("start_subagent description does not contain turn-choice rule %q: %q", expected, tool.Definition.Description)
+				}
+			}
+			for _, expected := range []string{
+				`"continue_after_dispatch"`,
+				`"required":["name","message","continue_after_dispatch"]`,
+				"Required turn choice made before dispatch",
+				"all false to wait after the batch",
+				"all true to continue independent parent work",
+			} {
+				if !strings.Contains(schema, expected) {
+					t.Fatalf("start_subagent schema does not contain turn-choice rule %q: %s", expected, schema)
+				}
+			}
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "never completed") || !strings.Contains(tool.Definition.Description, "arrives automatically")) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
@@ -102,7 +135,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "provider boundary") || !strings.Contains(tool.Definition.Description, "callback continuation turn")) {
 			t.Fatalf("asynchronous dispatch tool %q does not describe automatic callback delivery: %q", tool.Definition.Name, tool.Definition.Description)
 		}
-		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
+		if tool.Definition.Name == SendSubagentMessageToolName {
 			for _, expected := range []string{
 				"work already planned before dispatch",
 				"outside the delegated task",
@@ -135,7 +168,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 func TestSubagentToolTurnBehavior(t *testing.T) {
 	for _, tool := range NewSubagentToolBridge().Tools() {
 		if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil {
-			t.Fatalf("%s terminal behavior = (trigger=%q, end_on_success=%t, dynamic=%v), want default continue", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess, tool.resultTurnBehavior != nil)
+			t.Fatalf("%s static terminal behavior = (trigger=%q, end_on_success=%t, dynamic=%v), want handler-controlled behavior", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess, tool.resultTurnBehavior != nil)
 		}
 	}
 }

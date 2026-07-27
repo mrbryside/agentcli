@@ -46,24 +46,26 @@ and whether a successful batch ends the turn. The caller's original
 Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
-triggers. Framework `start_subagent` and `send_subagent_message` return
-`ContinueTurn`, which gives control back to the parent model but does not
-require assistant content or another tool call. Their accepted result says
-that the result will arrive automatically and includes the post-dispatch turn
-rule: continue only previously planned work outside the delegated task that is
-independent of its callback; otherwise end the turn without assistant content
-or another tool call. The callback joins a compatible active parent at its
-next provider boundary or falls back to a continuation turn.
+triggers. Framework `start_subagent` requires a
+`continue_after_dispatch` choice. False asks the handler to end a successful
+pending-callback batch; true returns control for already-planned independent
+parent work. Every parallel start in one batch uses the same value.
+`send_subagent_message` returns control and uses the passive post-dispatch
+policy. The callback joins a compatible active parent at its next provider
+boundary or falls back to a continuation turn.
 Destructive child close is application-owned and is not registered in the
 model tool catalog.
 
 `EndTurn` executes its handler immediately. Its latest successful result
 anywhere in the turn satisfies the requirement; a later failed attempt makes it
-missing again. `EndTurnOnSuccess` independently decides whether the successful
-batch ends the turn. If the model attempts to finish while a trigger tool is
-missing, repair rounds expose only the missing
-trigger tools and add a reminder naming each one. If a caller-supplied
-completion guard also requests a bounded tool allowlist, its tools are merged
+missing again. `EndTurnOnSuccess` independently decides whether every
+successful invocation should end its batch. A handler may instead call
+`RequestEndTurn(ctx)` to make that choice for one invocation. The request takes
+effect only after the handler and every result in the same batch succeed;
+handler failure or interruption discards it. If the model attempts to finish
+while a trigger tool is missing, repair rounds expose only the missing trigger
+tools and add a reminder naming each one. If a caller-supplied completion guard
+also requests a bounded tool allowlist, its tools are merged
 with the missing trigger tools.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.

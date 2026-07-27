@@ -70,18 +70,29 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. Their runtime behavior returns control to the parent model instead of
-ending the turn automatically, but it does not require assistant content or
-another tool call. Accepted results use
-`callback_action: automatic`, `must_wait_for_callback: true`, and an instruction
-that acknowledges dispatch and applies the post-dispatch turn policy. The
-parent may continue only work planned before dispatch that is outside the
-delegated task and independent of its callback. If none remains, it ends the
-turn immediately without assistant content or another tool call. It must not
-narrate waiting, call a response or delivery tool, invent work, retry, redo
-delegated work, or poll. Duplicate, already-sent,
-and callback-pending results use `callback_action: automatic_existing` because
-they create no new callback.
+work. Every `start_subagent` call requires a `continue_after_dispatch` choice:
+
+- Set it to `false` when the parent has no already-planned work outside the
+  delegated task that must run immediately. A result with a pending callback
+  requests that the current turn end after the complete tool batch succeeds,
+  without another provider step or assistant content.
+- Set it to `true` only when specific parent work was already planned before
+  dispatch, is outside the delegated task, is independent of the callback, and
+  must continue immediately.
+
+Every parallel `start_subagent` call in one tool batch must use the same value:
+all `false` to wait after the batch, or all `true` to continue independent
+parent work. Mixing values is invalid because any `false` call that returns a
+pending callback ends the successful batch.
+
+`send_subagent_message` returns control to the parent and applies the passive
+post-dispatch policy: continue only qualifying already-planned independent
+work; otherwise make no more tool calls or assistant content. The parent must
+not narrate waiting, call a response or delivery tool, invent work, retry, redo
+delegated work, or poll. Accepted results use
+`callback_action: automatic` and `must_wait_for_callback: true`. Duplicate,
+already-sent, and callback-pending results use
+`callback_action: automatic_existing` because they create no new callback.
 `selection_required` uses `callback_action: none`. The child turn outcome
 arrives through a separate callback containing:
 
@@ -104,12 +115,18 @@ Each accepted model-facing start result is deliberately compact:
   "accepted": true,
   "callback_action": "automatic",
   "must_wait_for_callback": true,
-  "next_action": "Accepted. The result will arrive automatically later. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
+  "turn_action": "end_turn_wait_for_callback",
+  "next_action": "Accepted. The result will arrive automatically later. The current turn will end automatically after this successful tool batch. Do not emit assistant content or make another tool call."
 }
 ```
 
-The runtime tool behavior still continues. A `selection_required` start result
-reports `callback_action: "none"` because no work was dispatched.
+This example is the `continue_after_dispatch: false` path. With `true`,
+`turn_action` is `continue_independent_work` and control returns to the parent
+for only the work that justified that choice. A `selection_required` start
+result reports `callback_action: "none"` and
+`turn_action: "continue_selection_required"` because no work was dispatched
+and no callback is pending, so its `continue_after_dispatch` value does not end
+the turn.
 
 When `start_subagent` returns `selection_required`, no work was routed, so that
 turn continues only long enough for the parent to ask which `display_name` the

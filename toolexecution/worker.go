@@ -112,7 +112,11 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.Result.Status = agentruntime.ToolResultSucceeded
 		result.Result.Output = cloneRawJSON(output)
 		result.Result.TriggerSatisfied = boolPointer(executed)
-		e.applySkippedEndResponseScopeTurnBehavior(&result, request)
+		if executed {
+			e.applyExecutedTurnBehavior(&result, ctx, request, output)
+		} else {
+			e.applySkippedEndResponseScopeTurnBehavior(&result, request)
+		}
 		return result
 	}
 
@@ -160,10 +164,7 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 		result.Result.Output = cloneRawJSON(output)
 		result.Result.TriggerSatisfied = boolPointer(executed)
 		if executed {
-			behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output)
-			if registered {
-				result.TurnBehavior = behavior
-			}
+			e.applyExecutedTurnBehavior(&result, ctx, request, output)
 		} else {
 			e.applySkippedEndResponseScopeTurnBehavior(&result, request)
 		}
@@ -183,10 +184,17 @@ func (e *Executor) execute(ctx context.Context, request agentruntime.ToolRequest
 	}
 	result.Result.Status = agentruntime.ToolResultSucceeded
 	result.Result.Output = cloneRawJSON(output)
+	e.applyExecutedTurnBehavior(&result, ctx, request, output)
+	return result
+}
+
+func (e *Executor) applyExecutedTurnBehavior(result *agentruntime.ToolResultEnvelope, ctx context.Context, request agentruntime.ToolRequest, output json.RawMessage) {
 	if behavior, registered := e.registry.turnBehaviorFor(request.Call.Name, request.Call.Arguments, output); registered {
 		result.TurnBehavior = behavior
 	}
-	return result
+	if handlerRequestedEndTurn(ctx) {
+		result.TurnBehavior = agentruntime.ToolTurnEndOnSuccess
+	}
 }
 
 func (e *Executor) applySkippedEndResponseScopeTurnBehavior(result *agentruntime.ToolResultEnvelope, request agentruntime.ToolRequest) {

@@ -121,6 +121,7 @@ permission checks.
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool at the final response-scope completion repair; earlier calls are successful non-executing skips. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
+| `RequestEndTurn(ctx)` | Conditionally request turn termination from inside a handler; applies only when the handler and full tool batch succeed. |
 | `Tool.ResponseScopeCallLimit` | Set a hard cumulative call budget shared by all turns in one response scope. |
 | `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
@@ -152,6 +153,10 @@ application-written description with when the model should call the tool,
 whether its handler runs immediately, the exact early-skip semantics, and
 whether a successful batch ends the turn. Registration does not mutate the
 caller's original definition.
+For invocation-specific behavior, a handler may call `RequestEndTurn(ctx)`.
+This has the same successful-batch semantics as `EndTurnOnSuccess`, but only
+for the invocation whose handler requested it. Handler failure or interruption
+discards the request.
 Missing trigger tools use bounded repair
 rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own

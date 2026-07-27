@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	StartSubagentToolName       = "start_subagent"
-	ListSubagentsToolName       = "list_subagents"
-	SubagentStatusToolName      = "subagent_status"
-	SendSubagentMessageToolName = "send_subagent_message"
-	subagentWaitInstruction     = "Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
-	subagentAcceptedInstruction = "Accepted. The result will arrive automatically later. " + subagentWaitInstruction
+	StartSubagentToolName           = "start_subagent"
+	ListSubagentsToolName           = "list_subagents"
+	SubagentStatusToolName          = "subagent_status"
+	SendSubagentMessageToolName     = "send_subagent_message"
+	subagentWaitInstruction         = "Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
+	subagentSendAcceptedInstruction = "Accepted. The result will arrive automatically later. " + subagentWaitInstruction
 )
 
 var subagentToolNames = map[string]struct{}{
@@ -132,7 +132,7 @@ func (bridge *SubagentToolBridge) get() (SubagentController, error) {
 // agents never register this bridge.
 func (bridge *SubagentToolBridge) Tools() []Tool {
 	return []Tool{
-		bridge.tool(StartSubagentToolName, "", `{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact configured type name from available_subagents, selected because its description directly matches the focused delegated task or an applicable instruction explicitly requires it. This is not a child ID or display_name."},"message":{"type":"string","minLength":1,"description":"Self-contained focused delegated task including relevant context, constraints, and the result expected from the child."},"label":{"type":"string","minLength":1,"maxLength":120,"description":"Optional short UI label for this delegated task. Do not put instructions here."},"new_instance":{"type":"boolean","default":false,"description":"False reuses the only open child of the requested definition when unambiguous. True creates a distinct child and is valid only when the user explicitly requests another instance or an intentional plan needs a separate task, such as the next sequential source after an insufficient callback or an independent comparison."}},"required":["name","message"],"additionalProperties":false}`, bridge.start),
+		bridge.tool(StartSubagentToolName, "", `{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact configured type name from available_subagents, selected because its description directly matches the focused delegated task or an applicable instruction explicitly requires it. This is not a child ID or display_name."},"message":{"type":"string","minLength":1,"description":"Self-contained focused delegated task including relevant context, constraints, and the result expected from the child."},"label":{"type":"string","minLength":1,"maxLength":120,"description":"Optional short UI label for this delegated task. Do not put instructions here."},"new_instance":{"type":"boolean","default":false,"description":"False reuses the only open child of the requested definition when unambiguous. True creates a distinct child and is valid only when the user explicitly requests another instance or an intentional plan needs a separate task, such as the next sequential source after an insufficient callback or an independent comparison."},"continue_after_dispatch":{"type":"boolean","description":"Required turn choice made before dispatch. Set false when no already-planned parent work outside the delegated task must run immediately afterward; a successful pending-callback tool batch then ends the turn automatically. Set true only when such independent work already exists and must continue immediately. For multiple start_subagent calls in one tool batch, use the same value on every call: all false to wait after the batch, or all true to continue independent parent work. Never mix values; any false call that returns a pending callback ends the successful batch."}},"required":["name","message","continue_after_dispatch"],"additionalProperties":false}`, bridge.start),
 		bridge.tool(SendSubagentMessageToolName, "", `{"type":"object","properties":{"subagent_id":{"type":"string","minLength":1,"description":"Stable id from active_subagents or a consumed callback for the exact existing child to continue. Do not pass a definition name or display_name. A pending callback returns accepted=false without sending."},"message":{"type":"string","minLength":1,"description":"One self-contained focused follow-up, recovery instruction, queued input, or distinct next task. Do not send a waiting/status request or repeat already-delegated work."}},"required":["subagent_id","message"],"additionalProperties":false}`, bridge.send),
 	}
 }
@@ -140,7 +140,7 @@ func (bridge *SubagentToolBridge) Tools() []Tool {
 func (bridge *SubagentToolBridge) tool(name, description, schema string, handler Handler) Tool {
 	switch name {
 	case StartSubagentToolName:
-		description = "Start a configured subagent or route a focused assignment to an existing child after a valid delegation trigger. Valid triggers are: (1) a definition description directly matches the focused task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism; or (2) an applicable instruction or the user explicitly requires delegation or that subagent type. Topic overlap, discovery-only questions, and simple self-contained work do not trigger this tool by themselves; an applicable explicit requirement remains a valid trigger. Select the exact configured type from available_subagents; its description is selection metadata, not proof that work started. Prefer one child at a time; ordinary lookup or research should assess one callback before starting another. Multiple starts in one response are only for genuinely independent comparison or parallel work. accepted=true means dispatched, never completed; accepted=false means no new dispatch and must not be retried. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After any result with a pending callback, do not poll, inspect status, retry, or redo the delegated work. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call; do not narrate waiting or call a response or delivery tool."
+		description = "Start a configured subagent or route a focused assignment to an existing child after a valid delegation trigger. Valid triggers are: (1) a definition description directly matches the focused task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism; or (2) an applicable instruction or the user explicitly requires delegation or that subagent type. Topic overlap, discovery-only questions, and simple self-contained work do not trigger this tool by themselves; an applicable explicit requirement remains a valid trigger. Select the exact configured type from available_subagents; its description is selection metadata, not proof that work started. Before calling, explicitly choose continue_after_dispatch. Set it to false when no already-planned parent work outside the delegated task must run immediately afterward; a successful result with a pending callback then ends the current turn after the whole tool batch succeeds, without another provider step or assistant content. Set it to true only when specific independent parent work was already planned and must continue immediately; never invent work to justify true. For multiple start_subagent calls in one tool batch, use the same value on all calls: all false to wait after the batch, or all true to continue independent parent work. Never mix values because any false call that returns a pending callback ends the successful batch. Prefer one child at a time; ordinary lookup or research should assess one callback before starting another. Multiple starts in one response are only for genuinely independent comparison or parallel work. accepted=true means dispatched, never completed; accepted=false means no new dispatch and must not be retried. selection_required always continues because it has no pending callback. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After any result with a pending callback, do not poll, inspect status, retry, or redo the delegated work."
 	case SendSubagentMessageToolName:
 		description = "Send one focused message to an existing child after a valid continuation trigger. Valid triggers are: (1) a running child needs new focused queued input; (2) the latest callback has been consumed and an incomplete outcome needs one focused follow-up, a failed outcome needs concrete recovery, or a completed child is intentionally receiving a distinct next task; or (3) an applicable instruction or the user explicitly requires continuing that child. This tool is not for waiting, status checks, polling, duplicate instructions, or redoing delegated work. Address the exact instance by stable id. accepted=true means started or queued, never completed. accepted=false with duplicate, already_sent, or callback_pending means no new dispatch; do not retry because the existing callback arrives automatically. After every result, inspect accepted, action, callback_action, must_wait_for_callback, and instruction. A pending result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call; do not narrate waiting or call a response or delivery tool."
 	}
@@ -266,15 +266,21 @@ func summarizeSubagentActivity(record storage.Subagent) string {
 	return activity
 }
 
+type startSubagentToolInput struct {
+	Name                  string `json:"name"`
+	Message               string `json:"message"`
+	Label                 string `json:"label"`
+	NewInstance           bool   `json:"new_instance"`
+	ContinueAfterDispatch *bool  `json:"continue_after_dispatch"`
+}
+
 func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
-	var input struct {
-		Name        string `json:"name"`
-		Message     string `json:"message"`
-		Label       string `json:"label"`
-		NewInstance bool   `json:"new_instance"`
-	}
+	var input startSubagentToolInput
 	if err := decodeSubagentTool(arguments, &input); err != nil {
 		return nil, err
+	}
+	if input.ContinueAfterDispatch == nil {
+		return nil, errors.New("continue_after_dispatch is required")
 	}
 	invocation, err := subagentInvocation(ctx, StartSubagentToolName)
 	if err != nil {
@@ -298,18 +304,26 @@ func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawM
 			Callback     string                   `json:"callback_action"`
 			MustWait     bool                     `json:"must_wait_for_callback"`
 			TurnBehavior string                   `json:"turn_behavior"`
+			TurnAction   string                   `json:"turn_action"`
 			NextAction   string                   `json:"next_action"`
-		}{result.Action, summarizeSubagentsRouting(result.Candidates), false, false, false, "none", false, "continue_turn", "No dispatch occurred and no callback will be created. Ask the user which friendly display_name to continue with. Do not choose for them and do not create another child. After they answer, call send_subagent_message with that candidate's id."})
+		}{result.Action, summarizeSubagentsRouting(result.Candidates), false, false, false, "none", false, "continue_turn", "continue_selection_required", "No dispatch occurred and no callback will be created. continue_after_dispatch does not apply. Ask the user which friendly display_name to continue with. Do not choose for them and do not create another child. After they answer, call send_subagent_message with that candidate's id."})
 	}
 	record := result.Subagent
 	callbackAction := "automatic"
-	nextAction := subagentAcceptedInstruction
+	nextAction := subagentStartInstruction("Accepted. The result will arrive automatically later.", *input.ContinueAfterDispatch)
 	if result.DispatchAction == SubagentSendDuplicate || result.DispatchAction == SubagentSendAlreadySent {
 		callbackAction = "automatic_existing"
-		nextAction = "Not accepted. The existing result will arrive automatically later. " + subagentWaitInstruction
+		nextAction = subagentStartInstruction("Not accepted. The existing result will arrive automatically later.", *input.ContinueAfterDispatch)
 	} else if result.DispatchAction == SubagentSendCallbackPending {
 		callbackAction = "automatic_existing"
-		nextAction = "Not accepted. The pending result will arrive automatically later. " + subagentWaitInstruction
+		nextAction = subagentStartInstruction("Not accepted. The pending result will arrive automatically later.", *input.ContinueAfterDispatch)
+	}
+	turnAction := "continue_independent_work"
+	if !*input.ContinueAfterDispatch {
+		turnAction = "end_turn_wait_for_callback"
+		if err := RequestEndTurn(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return json.Marshal(struct {
 		SubagentID     string                 `json:"subagent_id"`
@@ -325,8 +339,16 @@ func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawM
 		Asynchronous   bool                   `json:"asynchronous"`
 		Callback       string                 `json:"callback_action"`
 		MustWait       bool                   `json:"must_wait_for_callback"`
+		TurnAction     string                 `json:"turn_action"`
 		NextAction     string                 `json:"next_action"`
-	}{record.ID, record.DisplayName, record.SessionID, record.CurrentTurnID, record.Status, result.Action, result.DispatchAction, result.Action == SubagentStartReused, result.Accepted, result.Deduplicated, true, callbackAction, true, nextAction})
+	}{record.ID, record.DisplayName, record.SessionID, record.CurrentTurnID, record.Status, result.Action, result.DispatchAction, result.Action == SubagentStartReused, result.Accepted, result.Deduplicated, true, callbackAction, true, turnAction, nextAction})
+}
+
+func subagentStartInstruction(prefix string, continueAfterDispatch bool) string {
+	if continueAfterDispatch {
+		return prefix + " Continue now with only the already-planned parent work outside the delegated task that justified continue_after_dispatch=true. Do not invent work, poll, or narrate waiting."
+	}
+	return prefix + " The current turn will end automatically after this successful tool batch. Do not generate assistant content or call another tool while waiting for the callback."
 }
 
 func (bridge *SubagentToolBridge) list(ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
@@ -407,7 +429,7 @@ func (bridge *SubagentToolBridge) send(ctx context.Context, arguments json.RawMe
 		return nil, err
 	}
 	callbackAction := "automatic"
-	instruction := subagentAcceptedInstruction
+	instruction := subagentSendAcceptedInstruction
 	if !result.Accepted {
 		callbackAction = "automatic_existing"
 		if result.Action == SubagentSendCallbackPending {
