@@ -46,10 +46,14 @@ and whether a successful batch ends the turn. The caller's original
 Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
-triggers. Framework `start_subagent` and `send_subagent_message` always
-continue. Their accepted result is intentionally only `Accepted. The result
-will arrive automatically later.` The callback joins a compatible active
-parent at its next provider boundary or falls back to a continuation turn.
+triggers. Framework `start_subagent` and `send_subagent_message` return
+`ContinueTurn`, which gives control back to the parent model but does not
+require assistant content or another tool call. Their accepted result says
+that the result will arrive automatically and includes the post-dispatch turn
+rule: continue only previously planned work outside the delegated task that is
+independent of its callback; otherwise end the turn without assistant content
+or another tool call. The callback joins a compatible active parent at its
+next provider boundary or falls back to a continuation turn.
 Destructive child close is application-owned and is not registered in the
 model tool catalog.
 

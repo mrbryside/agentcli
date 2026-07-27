@@ -70,11 +70,16 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work and always continue the parent turn. Accepted results use
-`callback_action: automatic`, `must_wait_for_callback: true`, and one short
-instruction: `Accepted. The result will arrive automatically later.` This
-acknowledges dispatch without telling the parent to invent more work. The
-parent must not retry, redo delegated work, or poll. Duplicate, already-sent,
+work. Their runtime behavior returns control to the parent model instead of
+ending the turn automatically, but it does not require assistant content or
+another tool call. Accepted results use
+`callback_action: automatic`, `must_wait_for_callback: true`, and an instruction
+that acknowledges dispatch and applies the post-dispatch turn policy. The
+parent may continue only work planned before dispatch that is outside the
+delegated task and independent of its callback. If none remains, it ends the
+turn immediately without assistant content or another tool call. It must not
+narrate waiting, call a response or delivery tool, invent work, retry, redo
+delegated work, or poll. Duplicate, already-sent,
 and callback-pending results use `callback_action: automatic_existing` because
 they create no new callback.
 `selection_required` uses `callback_action: none`. The child turn outcome
@@ -99,7 +104,7 @@ Each accepted model-facing start result is deliberately compact:
   "accepted": true,
   "callback_action": "automatic",
   "must_wait_for_callback": true,
-  "next_action": "Accepted. The result will arrive automatically later."
+  "next_action": "Accepted. The result will arrive automatically later. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
 }
 ```
 
@@ -217,7 +222,7 @@ expected controlled result rather than a failed tool result:
   "accepted": false,
   "callback_action": "automatic_existing",
   "must_wait_for_callback": true,
-  "instruction": "Not accepted. The pending result will arrive automatically later."
+  "instruction": "Not accepted. The pending result will arrive automatically later. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
 }
 ```
 

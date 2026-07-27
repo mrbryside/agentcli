@@ -72,6 +72,10 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		!strings.Contains(prompts[0], "never claim an outcome") {
 		t.Fatalf("main tool-result discipline prompt = %q", prompts[0])
 	}
+	if !strings.Contains(prompts[0], "Do not emit progress-only content") ||
+		!strings.Contains(prompts[0], "ending the current turn without assistant content") {
+		t.Fatalf("main response prompt conflicts with asynchronous waiting: %q", prompts[0])
+	}
 	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}

@@ -30,12 +30,16 @@ is independent from child-completion callbacks, which cannot fire while an
 admission decision is unresolved.
 
 Child sessions are always asynchronous. The model-facing `start_subagent` and
-`send_subagent_message` tools always produce `ContinueTurn`; destructive close
-is application-owned and absent from the model catalog. An accepted dispatch
-returns the deliberately short instruction `Accepted. The result will arrive
-automatically later.` with `callback_action=automatic`. It does not tell the
-parent to invent independent work. The parent must not retry, redo delegated
-work, or poll. If a compatible parent run is still active,
+`send_subagent_message` tools produce `ContinueTurn`, which returns control to
+the parent model but does not require assistant content or another tool call;
+destructive close is application-owned and absent from the model catalog. An
+accepted dispatch returns an acknowledgement with `callback_action=automatic`
+plus the post-dispatch turn rule. The parent may continue only work planned
+before dispatch that is outside the delegated task and independent of its
+callback. Otherwise it ends the turn immediately without assistant content or
+another tool call. It must not narrate waiting, call a response or delivery
+tool, invent work, retry, redo delegated work, or poll. If a compatible parent
+run is still active,
 `TryInjectSubagentCallback` appends the trusted callback at the next provider
 boundary; it never interrupts a live provider stream or tool handler.
 Otherwise `ContinueSubagentCallbackSubscribed` starts a continuation turn.

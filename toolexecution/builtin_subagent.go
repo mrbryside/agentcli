@@ -18,7 +18,8 @@ const (
 	ListSubagentsToolName       = "list_subagents"
 	SubagentStatusToolName      = "subagent_status"
 	SendSubagentMessageToolName = "send_subagent_message"
-	subagentAcceptedInstruction = "Accepted. The result will arrive automatically later."
+	subagentWaitInstruction     = "Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call."
+	subagentAcceptedInstruction = "Accepted. The result will arrive automatically later. " + subagentWaitInstruction
 )
 
 var subagentToolNames = map[string]struct{}{
@@ -139,9 +140,9 @@ func (bridge *SubagentToolBridge) Tools() []Tool {
 func (bridge *SubagentToolBridge) tool(name, description, schema string, handler Handler) Tool {
 	switch name {
 	case StartSubagentToolName:
-		description = "Start a configured subagent or route a focused assignment to an existing child after a valid delegation trigger. Valid triggers are: (1) a definition description directly matches the focused task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism; or (2) an applicable instruction or the user explicitly requires delegation or that subagent type. Topic overlap, discovery-only questions, and simple self-contained work do not trigger this tool by themselves; an applicable explicit requirement remains a valid trigger. Select the exact configured type from available_subagents; its description is selection metadata, not proof that work started. Prefer one child at a time; ordinary lookup or research should assess one callback before starting another. Multiple starts in one response are only for genuinely independent comparison or parallel work. accepted=true means dispatched, never completed; accepted=false means no new dispatch and must not be retried. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After acceptance, do not poll, inspect status, retry, or redo the delegated work."
+		description = "Start a configured subagent or route a focused assignment to an existing child after a valid delegation trigger. Valid triggers are: (1) a definition description directly matches the focused task and delegation materially helps through specialized independent work, substantial context isolation, or useful parallelism; or (2) an applicable instruction or the user explicitly requires delegation or that subagent type. Topic overlap, discovery-only questions, and simple self-contained work do not trigger this tool by themselves; an applicable explicit requirement remains a valid trigger. Select the exact configured type from available_subagents; its description is selection metadata, not proof that work started. Prefer one child at a time; ordinary lookup or research should assess one callback before starting another. Multiple starts in one response are only for genuinely independent comparison or parallel work. accepted=true means dispatched, never completed; accepted=false means no new dispatch and must not be retried. The result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. After any result with a pending callback, do not poll, inspect status, retry, or redo the delegated work. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call; do not narrate waiting or call a response or delivery tool."
 	case SendSubagentMessageToolName:
-		description = "Send one focused message to an existing child after a valid continuation trigger. Valid triggers are: (1) a running child needs new focused queued input; (2) the latest callback has been consumed and an incomplete outcome needs one focused follow-up, a failed outcome needs concrete recovery, or a completed child is intentionally receiving a distinct next task; or (3) an applicable instruction or the user explicitly requires continuing that child. This tool is not for waiting, status checks, polling, duplicate instructions, or redoing delegated work. Address the exact instance by stable id. accepted=true means started or queued, never completed. accepted=false with duplicate, already_sent, or callback_pending means no new dispatch; do not retry because the existing callback arrives automatically. After every result, inspect accepted, action, callback_action, must_wait_for_callback, and instruction. An accepted result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. Continue only independent work; otherwise stop and wait."
+		description = "Send one focused message to an existing child after a valid continuation trigger. Valid triggers are: (1) a running child needs new focused queued input; (2) the latest callback has been consumed and an incomplete outcome needs one focused follow-up, a failed outcome needs concrete recovery, or a completed child is intentionally receiving a distinct next task; or (3) an applicable instruction or the user explicitly requires continuing that child. This tool is not for waiting, status checks, polling, duplicate instructions, or redoing delegated work. Address the exact instance by stable id. accepted=true means started or queued, never completed. accepted=false with duplicate, already_sent, or callback_pending means no new dispatch; do not retry because the existing callback arrives automatically. After every result, inspect accepted, action, callback_action, must_wait_for_callback, and instruction. A pending result arrives automatically at a provider boundary of the active parent or in a callback continuation turn. Continue only work already planned before dispatch that is outside the delegated task and independent of its callback. If none remains, end the turn immediately without assistant content or another tool call; do not narrate waiting or call a response or delivery tool."
 	}
 	return Tool{Definition: agentruntime.ToolDefinition{Name: name, Description: description, InputSchema: mustRawToolSchema(schema)}, Handler: handler}
 }
@@ -305,10 +306,10 @@ func (bridge *SubagentToolBridge) start(ctx context.Context, arguments json.RawM
 	nextAction := subagentAcceptedInstruction
 	if result.DispatchAction == SubagentSendDuplicate || result.DispatchAction == SubagentSendAlreadySent {
 		callbackAction = "automatic_existing"
-		nextAction = "Not accepted. The existing result will arrive automatically later."
+		nextAction = "Not accepted. The existing result will arrive automatically later. " + subagentWaitInstruction
 	} else if result.DispatchAction == SubagentSendCallbackPending {
 		callbackAction = "automatic_existing"
-		nextAction = "Not accepted. The pending result will arrive automatically later."
+		nextAction = "Not accepted. The pending result will arrive automatically later. " + subagentWaitInstruction
 	}
 	return json.Marshal(struct {
 		SubagentID     string                 `json:"subagent_id"`
@@ -410,9 +411,9 @@ func (bridge *SubagentToolBridge) send(ctx context.Context, arguments json.RawMe
 	if !result.Accepted {
 		callbackAction = "automatic_existing"
 		if result.Action == SubagentSendCallbackPending {
-			instruction = "Not accepted. The pending result will arrive automatically later."
+			instruction = "Not accepted. The pending result will arrive automatically later. " + subagentWaitInstruction
 		} else {
-			instruction = "Not accepted. The existing result will arrive automatically later."
+			instruction = "Not accepted. The existing result will arrive automatically later. " + subagentWaitInstruction
 		}
 	}
 	return json.Marshal(struct {

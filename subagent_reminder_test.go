@@ -156,7 +156,7 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") || strings.Contains(reminders[0].Content, "<last_turn_summary>") || strings.Contains(reminders[0].Content, "<last_turn_next_step>") || !strings.Contains(reminders[0].Content, "Outcome details are callback-only") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") || strings.Contains(reminders[0].Content, "<last_turn_summary>") || strings.Contains(reminders[0].Content, "<last_turn_next_step>") || !strings.Contains(reminders[0].Content, "Outcome details are callback-only") || !strings.Contains(reminders[0].Content, "outside the delegated task") || !strings.Contains(reminders[0].Content, "end the turn immediately without assistant content or another tool call") {
 		t.Fatalf("completion reminder = %#v", reminders)
 	}
 	if _, err := manager.Read(context.Background(), "parent", record.ID, ""); err != nil {

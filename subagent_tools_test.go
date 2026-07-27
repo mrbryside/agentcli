@@ -38,7 +38,7 @@ func TestSubagentToolsValidateInvocationAndOwnership(t *testing.T) {
 	if err := json.Unmarshal(output, &started); err != nil {
 		t.Fatal(err)
 	}
-	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || started.Callback != "automatic" || !started.MustWait || started.NextAction != "Accepted. The result will arrive automatically later." || strings.Contains(string(output), `"finish_turn"`) || strings.Contains(string(output), `"prohibited_actions"`) || strings.Contains(string(output), `"turn_behavior"`) {
+	if started.ID == "" || started.Status != storage.SubagentStatusRunning || !started.Asynchronous || started.Callback != "automatic" || !started.MustWait || !isPassiveCallbackInstruction(started.NextAction) || strings.Contains(string(output), `"finish_turn"`) || strings.Contains(string(output), `"prohibited_actions"`) || strings.Contains(string(output), `"turn_behavior"`) {
 		t.Fatalf("start result = %s", output)
 	}
 	if strings.Contains(string(output), "close_subagent") {
@@ -232,10 +232,10 @@ func TestSendSubagentMessageToolDoesNotMultiplyOneParentTurn(t *testing.T) {
 	if duplicate := send("turn-1", "duplicate", " work "); duplicate.Action != toolexecution.SubagentSendDuplicate || duplicate.Accepted || !duplicate.Deduplicated || duplicate.Subagent.QueuedMessages != 0 {
 		t.Fatalf("duplicate = %#v", duplicate)
 	}
-	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || changed.Instruction != "Not accepted. The existing result will arrive automatically later." {
+	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || !isPassiveCallbackInstruction(changed.Instruction) {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || queued.Callback != "automatic" || !queued.MustWait || queued.Instruction != "Accepted. The result will arrive automatically later." {
+	if queued := send("turn-2", "accepted", "next task"); queued.Action != toolexecution.SubagentSendQueued || !queued.Accepted || queued.Deduplicated || queued.Subagent.QueuedMessages != 1 || queued.Callback != "automatic" || !queued.MustWait || !isPassiveCallbackInstruction(queued.Instruction) {
 		t.Fatalf("next turn = %#v", queued)
 	}
 }
@@ -282,7 +282,7 @@ func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *test
 		if err := json.Unmarshal(output, &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "automatic_existing" || !result.MustWait || strings.Contains(string(output), `"finish_turn"`) || result.Instruction != "Not accepted. The pending result will arrive automatically later." {
+		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "automatic_existing" || !result.MustWait || strings.Contains(string(output), `"finish_turn"`) || !isPassiveCallbackInstruction(result.Instruction) {
 			t.Fatalf("callback_pending result = %s", output)
 		}
 		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
@@ -385,4 +385,19 @@ func callSubagentTool(bridge *toolexecution.SubagentToolBridge, name string, ctx
 		}
 	}
 	return nil, errors.New("subagent built-in is unavailable")
+}
+
+func isPassiveCallbackInstruction(instruction string) bool {
+	for _, expected := range []string{
+		"result will arrive automatically later",
+		"work already planned before dispatch",
+		"outside the delegated task",
+		"independent of its callback",
+		"end the turn immediately without assistant content or another tool call",
+	} {
+		if !strings.Contains(instruction, expected) {
+			return false
+		}
+	}
+	return true
 }

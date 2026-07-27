@@ -120,13 +120,21 @@ Use sources and explain uncertainty.
 		"new_instance=true is not a retry mechanism",
 		"## Dispatch result handling",
 		"Dispatch is not completion",
-		"start_subagent and send_subagent_message are always asynchronous and always continue",
+		"start_subagent and send_subagent_message are always asynchronous",
+		"return control to the parent model instead of ending the turn automatically",
+		"does not require assistant content or another tool call",
 		"accepted=true",
-		"required trigger tool",
+		"Post-dispatch turn policy",
 		"safe provider boundary",
 		"callback continuation turn",
-		"already-planned independent work",
-		"neither duplicates delegated work nor depends on callback results",
+		"already planned before dispatch",
+		"outside the delegated task",
+		"independent of the pending callback",
+		"without generating assistant content",
+		"without making another tool call",
+		"Do not narrate progress or waiting",
+		"call a response or delivery tool",
+		"callback will resume the work automatically",
 		"callback_action=automatic_existing",
 		"callback_action=none",
 		"retry the same dispatch with changed wording",
@@ -146,6 +154,11 @@ Use sources and explain uncertainty.
 	}
 	if strings.Contains(subagents, "close_subagent") {
 		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", subagents)
+	}
+	for _, contradictory := range []string{"WAITING_FOR_CALLBACK", "finish through the application's normal response", "use the application's waiting handoff"} {
+		if strings.Contains(subagents, contradictory) {
+			t.Fatalf("subagent prompt contains contradictory waiting instruction %q: %q", contradictory, subagents)
+		}
 	}
 	if strings.Contains(subagents, "Use sources and explain uncertainty.") {
 		t.Fatalf("definition instructions were eagerly exposed: %q", subagents)

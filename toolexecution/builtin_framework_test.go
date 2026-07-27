@@ -102,6 +102,20 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "provider boundary") || !strings.Contains(tool.Definition.Description, "callback continuation turn")) {
 			t.Fatalf("asynchronous dispatch tool %q does not describe automatic callback delivery: %q", tool.Definition.Name, tool.Definition.Description)
 		}
+		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
+			for _, expected := range []string{
+				"work already planned before dispatch",
+				"outside the delegated task",
+				"independent of its callback",
+				"end the turn immediately without assistant content or another tool call",
+				"do not narrate waiting",
+				"response or delivery tool",
+			} {
+				if !strings.Contains(tool.Definition.Description, expected) {
+					t.Fatalf("asynchronous dispatch tool %q does not contain post-dispatch rule %q: %q", tool.Definition.Name, expected, tool.Definition.Description)
+				}
+			}
+		}
 		schema = string(marshaledToolSchema(t, tool.Definition.InputSchema))
 		if strings.Contains(schema, `"type":"string"`) && !strings.Contains(schema, `"minLength":1`) {
 			t.Fatalf("subagent tool %q has an unconstrained string schema: %s", tool.Definition.Name, schema)

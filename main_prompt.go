@@ -8,13 +8,17 @@ const mainAgentToolResultPrompt = "IMPORTANT: After every tool call, read the co
 
 const mainAgentSubagentToolPrompt = `Subagent tools are asynchronous routing tools. Apply this state machine after every start_subagent or send_subagent_message result:
 
-1. accepted=true means exactly one dispatch was accepted and its authoritative callback is pending; it never means the child finished. Do not retry, resend, poll, inspect status, redo the delegated work, or start an alternate child for the same work. Continue only already-planned independent work. When none remains, stop calling tools and use the application's waiting handoff.
-2. accepted=false with callback_action=automatic_existing, or an action of duplicate, already_sent, or callback_pending, means no new dispatch occurred and the existing callback will arrive automatically. Never retry with changed wording, new_instance=true, another URL, or another child to force acceptance. Stop and wait when no independent work remains.
+1. accepted=true means exactly one dispatch was accepted and its authoritative callback is pending; it never means the child finished. Do not retry, resend, poll, inspect status, redo the delegated work, or start an alternate child for the same work. Apply the post-dispatch turn policy below.
+2. accepted=false with callback_action=automatic_existing, or an action of duplicate, already_sent, or callback_pending, means no new dispatch occurred and the existing callback will arrive automatically. Never retry with changed wording, new_instance=true, another URL, or another child to force acceptance. Apply the post-dispatch turn policy below.
 3. selection_required with callback_action=none means nothing was dispatched and no callback is pending from that call. Ask the user to choose the intended active child.
 4. Only a later completed, incomplete, or failed callback is an authoritative child outcome. Read and use that callback before deciding whether more delegation is necessary.
-5. new_instance=true is not a retry mechanism. Use it only for a genuinely distinct task, such as the next sequential source after an insufficient callback or an intentional independent comparison.`
+5. new_instance=true is not a retry mechanism. Use it only for a genuinely distinct task, such as the next sequential source after an insufficient callback or an intentional independent comparison.
 
-const mainAgentResponsePrompt = "Give the user a clear, self-contained answer. Prefer concise progress reporting while work is active, then finish with the result, important verification, and any unresolved issue."
+Post-dispatch turn policy:
+- Continue only work that was already planned before dispatch and is both independent of the pending callback and outside the delegated task. It must not inspect, verify, repeat, extend, summarize, or otherwise depend on that task or its result.
+- If no such work remains, end the current turn immediately without generating assistant content and without making another tool call. Do not narrate progress or waiting, call a response or delivery tool, or invent work merely to keep the turn active. The callback will resume the work automatically.`
+
+const mainAgentResponsePrompt = "Give the user a clear, self-contained answer when a response is due. Do not emit progress-only content when an applicable asynchronous workflow requires ending the current turn without assistant content. Finish with the result, important verification, and any unresolved issue."
 
 const modelSecretSafetyPrompt = "Never reveal credentials, authentication tokens, API keys, passwords, private keys, or other secret values in responses, callbacks, summaries, or tool arguments. If secret material is encountered despite tool protections, omit or replace the value with [REDACTED], warn that it may be exposed, and continue using only non-secret metadata."
 
