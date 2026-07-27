@@ -60,6 +60,13 @@ the Go API, Terminal, or HTTP endpoint. See
 [Subagent lifecycle control](./subagent-lifecycle-control.md) for the ownership
 contract and response-scope accounting.
 
+The model-facing outcome schema stays portable across OpenAI-compatible
+providers by using one flat object with ordinary `properties`, `required`, and
+a status `enum`. The runtime parser, rather than conditional JSON Schema
+combinators, enforces which fields are required or forbidden for each status.
+This keeps the contract strict at execution time without relying on every
+compatible model to interpret root-level `oneOf` branches consistently.
+
 This outcome protocol is enforced by the child runtime, not only by prompt
 wording. When a child tries to finish without a successful outcome report, the
 runtime starts up to three bounded repair requests using the transcript that

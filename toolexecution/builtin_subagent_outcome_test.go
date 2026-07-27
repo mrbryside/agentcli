@@ -30,15 +30,20 @@ func TestSubagentOutcomeToolValidatesSemanticCompletion(t *testing.T) {
 	}
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
 	for _, expected := range []string{
-		`"const":"completed"`,
-		`"const":"incomplete"`,
-		`"const":"failed"`,
+		`"enum":["completed","incomplete","failed"]`,
 		`"minLength":1`,
-		`"required":["status","summary","next_step"]`,
-		`"required":["status","summary","error"]`,
+		`"required":["status","summary"]`,
+		`"additionalProperties":false`,
+		`For incomplete only`,
+		`For failed only`,
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("report_subagent_outcome schema does not contain %q: %s", expected, schema)
+		}
+	}
+	for _, unsupported := range []string{`"oneOf"`, `"anyOf"`, `"allOf"`, `"const"`, `"if"`, `"then"`, `"else"`} {
+		if strings.Contains(schema, unsupported) {
+			t.Fatalf("report_subagent_outcome schema contains non-portable keyword %q: %s", unsupported, schema)
 		}
 	}
 	for _, test := range []struct {

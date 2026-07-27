@@ -91,6 +91,14 @@ when one already exists. `received_callbacks` identifies delivered child turns
 and their outcome status. Reservation rollback removes the unaccepted received
 entry and restores its pending dispatch.
 
+The provider-facing `report_subagent_outcome` schema is intentionally a flat
+object using `properties`, `required`, and a status `enum`. Status-dependent
+rules remain authoritative in the runtime parser: it rejects forbidden fields
+and requires `next_step` or `error` when appropriate. Keeping conditional
+validation out of root-level JSON Schema combinators avoids compatible
+providers that expose the tool but fail to generate arguments for nested
+`oneOf` branches.
+
 Direct Go, Terminal, and HTTP close paths have the same application-owned destructive lifecycle and should be bound to explicit user actions. The manager enforces parent ownership, queues accepted child follow-ups, and preserves child transcripts and retained runs for UI views. Every successful explicit or automatic close emits `SystemSubagentClosed` on the live `SubscribeSystemEvents` stream; the HTTP session stream retains it as `subagent_closed`. See [subagent-lifecycle.md](subagent-lifecycle.md) for close ordering, cancellation markers, callback counters, and race behavior.
 
 Back to [application/index.md](index.md).
