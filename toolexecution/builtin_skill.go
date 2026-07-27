@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	SkillLoaderToolName          = "load_skill"
-	defaultSkillMaxTurnDistance  = 10
-	defaultSkillMaxTokenDistance = 12_000
-	skillLoadSucceededNextAction = "The load request succeeded. Do not call load_skill again for this skill in the current turn; its instructions are already available."
+	SkillLoaderToolName               = "load_skill"
+	defaultSkillMaxTurnDistance       = 10
+	defaultSkillMaxTokenDistance      = 12_000
+	skillInstructionsInContextMessage = "The skill loaded successfully. Its full instructions are already available in the conversation context."
 )
 
 // Skill contains the provider-neutral content consumed by load_skill.
@@ -69,14 +69,14 @@ type skillReservation struct {
 
 // SkillToolResult is the JSON result domain emitted by load_skill.
 type SkillToolResult struct {
-	Status                 string `json:"status"`
-	Name                   string `json:"name"`
-	Description            string `json:"description,omitempty"`
-	Instructions           string `json:"instructions,omitempty"`
-	ContentHash            string `json:"content_hash"`
-	Reason                 string `json:"reason,omitempty"`
-	DoNotCallAgainThisTurn bool   `json:"do_not_call_again_this_turn,omitempty"`
-	NextAction             string `json:"next_action,omitempty"`
+	Status                string `json:"status"`
+	Name                  string `json:"name"`
+	Description           string `json:"description,omitempty"`
+	Instructions          string `json:"instructions,omitempty"`
+	ContentHash           string `json:"content_hash"`
+	Reason                string `json:"reason,omitempty"`
+	InstructionsInContext bool   `json:"instructions_in_context,omitempty"`
+	Message               string `json:"message,omitempty"`
 }
 
 func NewSkillLoader(skills []Skill, messages storage.MessageStorage, policy SkillReloadPolicy) *SkillLoader {
@@ -95,7 +95,7 @@ func (loader *SkillLoader) Tool() Tool {
 	return Tool{
 		Definition: agentruntime.ToolDefinition{
 			Name:        SkillLoaderToolName,
-			Description: "Load a skill's full instructions after a valid load trigger. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. A successful load from an earlier turn does not satisfy a new load trigger. When a valid trigger applies in a new turn, call this tool once instead of inferring freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result: loaded and already_loaded both mean the load request succeeded. Within the current turn, either status satisfies the trigger and the same skill must not be loaded again. This tool only makes skill instructions available and does not decide whether the turn should continue, wait, or end.",
+			Description: "Load a skill's full instructions after a valid load trigger. Valid triggers are: (1) a skill description in available_skills directly matches the task and you are about to apply that skill; (2) another applicable instruction explicitly requires that skill or requires a skill for the selected workflow; or (3) the user asks to inspect the skill's full instructions. An explicit requirement is mandatory before the action or answer it governs. A successful load from an earlier turn does not satisfy a new load trigger. When a valid trigger applies in a new turn, call this tool instead of inferring freshness from instructions visible in earlier turns. Skill caching and freshness are runtime-managed. Tool, subagent, and other capability descriptions may help selection but never authorize bypassing a required skill load. Discovery-only questions about available skills, their descriptions, or which skill might fit do not trigger this tool unless another applicable instruction explicitly requires loading one. Never load an irrelevant skill as a substitute for a missing capability or tool. Inspect the complete result. Every successful result uses status=loaded and means the load request succeeded. When instructions_in_context=true, the full skill instructions are already available in the conversation context even though the result does not repeat them. This tool only makes skill instructions available and does not decide whether the turn should continue, wait, or end.",
 			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact skill name selected from available_skills after a valid description-match, explicit-requirement, or explicit-inspection trigger."}},"required":["name"],"additionalProperties":false}`),
 		},
 		Handler: loader.handle,
@@ -124,7 +124,7 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 	reservation := loader.reservations[key]
 	if reservation.turnID == invocation.TurnID && reservation.contentHash == hash {
 		loader.mu.Unlock()
-		return marshalSkillAlreadyLoaded(skill, hash, "already loaded in this turn")
+		return marshalSkillFromContext(skill, hash, "instructions are already present in the conversation context for this turn")
 	}
 	loader.mu.Unlock()
 
@@ -148,14 +148,14 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 		}
 	}
 	if !reload {
-		return marshalSkillAlreadyLoaded(skill, hash, reason)
+		return marshalSkillFromContext(skill, hash, reason)
 	}
 
 	loader.mu.Lock()
 	reservation = loader.reservations[key]
 	if reservation.turnID == invocation.TurnID && reservation.contentHash == hash {
 		loader.mu.Unlock()
-		return marshalSkillAlreadyLoaded(skill, hash, "already loaded in this turn")
+		return marshalSkillFromContext(skill, hash, "instructions are already present in the conversation context for this turn")
 	}
 	loader.reservations[key] = skillReservation{turnID: invocation.TurnID, contentHash: hash}
 	loader.mu.Unlock()
@@ -163,16 +163,14 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name, Description: skill.Description,
 		Instructions: skill.Instructions, ContentHash: hash, Reason: reason,
-		DoNotCallAgainThisTurn: true,
-		NextAction:             skillLoadSucceededNextAction,
 	})
 }
 
-func marshalSkillAlreadyLoaded(skill Skill, hash, reason string) (json.RawMessage, error) {
+func marshalSkillFromContext(skill Skill, hash, reason string) (json.RawMessage, error) {
 	return json.Marshal(SkillToolResult{
-		Status: "already_loaded", Name: skill.Name, ContentHash: hash, Reason: reason,
-		DoNotCallAgainThisTurn: true,
-		NextAction:             skillLoadSucceededNextAction,
+		Status: "loaded", Name: skill.Name, ContentHash: hash, Reason: reason,
+		InstructionsInContext: true,
+		Message:               skillInstructionsInContextMessage,
 	})
 }
 

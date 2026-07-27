@@ -782,7 +782,7 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 		messages: map[string][]agentruntime.Message{"child": {
 			{Type: agentruntime.MessageTypeUser, Content: "Inspect the project."},
 			{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{CallID: "call_1", Name: "load_skill", Arguments: json.RawMessage(`{"name":"interview"}`)}}},
-			{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{CallID: "call_1", Name: "load_skill", Status: agentruntime.ToolResultSucceeded, Output: json.RawMessage(`{"status":"already_loaded"}`)}},
+			{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{CallID: "call_1", Name: "load_skill", Status: agentruntime.ToolResultSucceeded, Output: json.RawMessage(`{"status":"loaded","instructions_in_context":true}`)}},
 		}},
 	}
 	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root"}

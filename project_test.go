@@ -104,12 +104,13 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"never authorize bypassing a required skill load",
 		"## Non-triggers",
 		"## Result handling",
-		"A status of loaded or already_loaded means the load request succeeded",
+		"Every successful result uses status=loaded",
+		"instructions_in_context=true",
+		"already available in the conversation context",
 		"A successful load from an earlier turn does not satisfy a new load trigger",
 		"When a valid trigger applies in a new turn, call load_skill once",
 		"Skill caching and freshness are runtime-managed",
-		"Within the current turn, loaded or already_loaded satisfies the trigger",
-		"the same skill must not be loaded again",
+		"status=loaded satisfies the current load trigger",
 		"does not decide whether the turn should continue, wait, or end",
 		"</skill_rules>",
 	} {
@@ -151,11 +152,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"do not trigger this tool",
 		"Inspect the complete result",
 		"A successful load from an earlier turn does not satisfy a new load trigger",
-		"When a valid trigger applies in a new turn, call this tool once",
+		"When a valid trigger applies in a new turn, call this tool",
 		"Skill caching and freshness are runtime-managed",
-		"loaded and already_loaded both mean the load request succeeded",
-		"Within the current turn, either status satisfies the trigger",
-		"the same skill must not be loaded again",
+		"Every successful result uses status=loaded",
+		"instructions_in_context=true",
+		"already available in the conversation context",
 		"does not decide whether the turn should continue, wait, or end",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
@@ -248,22 +249,21 @@ func TestProjectSkillIsSelectedByModelAndRetainedAsToolResult(t *testing.T) {
 
 func TestProjectSkillToolDeduplicatesRecentAndRefreshesStaleHistory(t *testing.T) {
 	tests := []struct {
-		name             string
-		policy           SkillReloadPolicy
-		wantSecondStatus string
-		wantBodies       int
+		name                string
+		policy              SkillReloadPolicy
+		wantSecondInContext bool
+		wantBodies          int
 	}{
 		{
-			name:             "recent instructions return lightweight result",
-			policy:           SkillReloadPolicy{MaxTurnDistance: 2},
-			wantSecondStatus: "already_loaded",
-			wantBodies:       1,
+			name:                "recent instructions return lightweight result",
+			policy:              SkillReloadPolicy{MaxTurnDistance: 2},
+			wantSecondInContext: true,
+			wantBodies:          1,
 		},
 		{
-			name:             "stale instructions return a new full result",
-			policy:           SkillReloadPolicy{MaxTurnDistance: 1},
-			wantSecondStatus: "loaded",
-			wantBodies:       2,
+			name:       "stale instructions return a new full result",
+			policy:     SkillReloadPolicy{MaxTurnDistance: 1},
+			wantBodies: 2,
 		},
 	}
 	for _, test := range tests {
@@ -309,7 +309,8 @@ func TestProjectSkillToolDeduplicatesRecentAndRefreshesStaleHistory(t *testing.T
 				}
 				results = append(results, result)
 			}
-			if len(results) != 2 || results[0].Status != "loaded" || results[1].Status != test.wantSecondStatus {
+			if len(results) != 2 || results[0].Status != "loaded" || results[1].Status != "loaded" ||
+				results[1].InstructionsInContext != test.wantSecondInContext {
 				t.Fatalf("skill results = %#v", results)
 			}
 			bodies := 0

@@ -51,18 +51,18 @@ catalog or repeats words from its description.
 
 Whenever a real load trigger applies, the model calls `load_skill` even when a
 matching skill body is already visible in conversation history. The model does
-not decide whether that body is fresh; the runtime owns caching and returns
-either `loaded` or `already_loaded`.
+not decide whether that body is fresh; the runtime owns caching. Every
+successful result uses `loaded`.
 
 ## Repeat and refresh behavior
 
-An unchanged, recently loaded skill call returns a small `already_loaded`
-result instead of repeating its body. A successful load from an earlier turn
-does not satisfy a new load trigger. Within the current turn, both result
-statuses satisfy the trigger and the same skill must not be loaded again. The
-loader only makes instructions available; it does not decide the turn's next
-behavior. The default refresh policy returns the full body again when any
-condition applies:
+An unchanged, recently loaded skill call returns a small `loaded` result with
+`instructions_in_context=true` instead of repeating its body. This means the
+load succeeded and the full instructions are already available in the
+conversation context. A successful load from an earlier turn does not satisfy
+a new load trigger. The loader only makes instructions available; it does not
+decide the turn's next behavior. The default refresh policy returns the full
+body again when any condition applies:
 
 - at least 10 turns have passed;
 - approximately 12,000 transcript tokens have passed; or

@@ -8,12 +8,13 @@ one before the governed action or answer. Tool, subagent, and other capability
 descriptions help selection but do not replace a required skill load. Whenever
 a load trigger first applies in a turn, the model calls `load_skill` instead of
 inferring that a visible historical body is still current. A successful load
-from an earlier turn does not satisfy a new load trigger. Within the current
-turn, both `loaded` and `already_loaded` satisfy the trigger and the same skill
-is not loaded again. The loader only makes instructions available; those
-instructions and current context determine whether the turn continues, waits,
-or ends. The runtime reload policy refreshes instructions after age, token, or
-content-change thresholds.
+from an earlier turn does not satisfy a new load trigger. Every successful
+result uses `loaded`. A lightweight result with
+`instructions_in_context=true` means the full body is already available in the
+conversation context and was not repeated. The loader only makes instructions
+available; those instructions and current context determine whether the turn
+continues, waits, or ends. The runtime reload policy refreshes instructions
+after age, token, or content-change thresholds.
 
 Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, description, provider, model, optional skills/tools, and Markdown instructions. Only the root Agent receives framework subagent tools; children cannot recursively spawn children.
 
