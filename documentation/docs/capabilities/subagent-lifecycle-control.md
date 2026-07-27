@@ -49,7 +49,10 @@ views. Close is a lifecycle operation, not data deletion.
 Each accepted child dispatch increments the originating response scope's
 `pendingCallbacks` count and its per-child touch count. A callback reservation
 removes one dispatch from the queue, decrements `pendingCallbacks`, and creates
-an active callback continuation.
+an active callback continuation. Under the same coordinator lock, it records
+the received child identity and outcome and snapshots all remaining pending
+dispatches. That `callback_progress` snapshot is injected inside the trusted
+callback runtime message.
 
 Explicit close makes callback cancellation terminal for that child:
 
@@ -59,6 +62,8 @@ Explicit close makes callback cancellation terminal for that child:
 - a dispatch registration racing after close creates no obligation;
 - if a reserved callback fails runtime admission, rollback does not recreate
   the cancelled dispatch or increment `pendingCallbacks`;
+- ordinary reservation rollback removes the unaccepted received entry and
+  restores its original pending dispatch;
 - a callback continuation already admitted by the runtime remains an active
   parent turn and settles through the normal turn lifecycle.
 

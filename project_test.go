@@ -79,6 +79,14 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}
+	for _, staleRule := range []string{
+		"keep using instructions already present in recent conversation history",
+		"do not call load_skill again merely because a later request matches",
+	} {
+		if strings.Contains(prompts[1], staleRule) {
+			t.Fatalf("skill discovery prompt still lets the model infer cached state from history: %q", prompts[1])
+		}
+	}
 	for _, expected := range []string{
 		"<skill_rules>",
 		"## Catalog and selection",
@@ -89,7 +97,10 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"3. Explicit inspection:",
 		"never authorize bypassing a required skill load",
 		"## Non-triggers",
-		"## Result handling and reuse",
+		"## Result handling",
+		"always call load_skill",
+		"Skill caching and freshness are runtime-managed",
+		"loaded or already_loaded",
 		"</skill_rules>",
 	} {
 		if !strings.Contains(prompts[1], expected) {
@@ -121,7 +132,9 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"Discovery-only questions",
 		"do not trigger this tool",
 		"Inspect the complete result",
-		"already_loaded means continue",
+		"always call this tool",
+		"Skill caching and freshness are runtime-managed",
+		"loaded and already_loaded both satisfy",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain trigger/result rule %q: %q", expected, tool.Definition.Description)

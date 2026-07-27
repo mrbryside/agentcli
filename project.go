@@ -559,6 +559,12 @@ selection_required has callback_action=none because no dispatch occurred; ask wh
 
 Callbacks are authoritative. Each child turn later produces completed, incomplete, or failed. completed means the child explicitly confirmed all delegated work is resolved. incomplete means required work, information, confirmation, or a decision remains. failed contains a terminal error. Use the callback's final answer, summary, and next_step directly; never infer outcome from a dispatch result or stale active_subagents data.
 
+Read callback_progress before deciding what to do. pending_callbacks identifies accepted subagent dispatches whose callbacks are still outstanding. Never duplicate, replace, retry, poll, or report work already assigned to a pending subagent callback merely because it has not arrived. received_callbacks identifies the callback turns already delivered in the current response scope; process each exactly once.
+
+When pending callbacks remain, continue only work that was already planned, is independent of every pending callback, does not duplicate or invalidate any delegated assignment, and will not need to be redone after those callbacks arrive. If no such work remains, make no more tool calls or assistant content; the runtime will resume the response when another callback arrives. Do not call a response or delivery tool while a required callback remains outstanding.
+
+When no pending callbacks remain, combine the received outcomes once, then finish, continue, request clarification, or report a limitation according to the complete set of results. A newly accepted dispatch or follow-up creates another pending callback and reopens this callback barrier.
+
 ## Follow-up and lifecycle
 
 A running child may receive queued input. For any idle outcome, consume its latest callback before sending another message. After incomplete, ask the user for required information or send one focused follow-up; incomplete children remain open across response scopes. After completed, deliver the result. After failed, report the error and send a focused recovery instruction only when concrete recovery work is required.
@@ -610,11 +616,13 @@ Tool descriptions, subagent descriptions, and other capability metadata may help
 
 Questions that only ask which skills are available, what they do, or which skill might fit are discovery-only. Answer directly from available_skills and MUST NOT call load_skill unless another applicable instruction explicitly requires it. Never load an irrelevant skill as a substitute for a missing tool or capability; state the limitation instead.
 
-## Result handling and reuse
+## Result handling
 
 Inspect the complete load_skill result before continuing. Do not claim to have loaded or applied a skill unless the result confirms it. After a successful load, follow the returned instructions for the governed work.
 
-Once loaded, keep using instructions already present in recent conversation history; do not call load_skill again merely because a later request matches the same description. You may call it again when prior instructions are old or no longer visible, and the runtime will decide whether refresh is needed. If load_skill returns already_loaded, continue using the instructions already in history and MUST NOT call it again in the same turn.
+Whenever a load trigger applies, always call load_skill before the action or answer it governs. Do not skip the call because the skill appears to have been loaded earlier or its instructions are visible in conversation history. Skill caching and freshness are runtime-managed.
+
+If load_skill returns loaded or already_loaded, the load requirement is satisfied. Continue the task and do not call it repeatedly for the same trigger in the same turn.
 </skill_rules>
 
 <available_skills>

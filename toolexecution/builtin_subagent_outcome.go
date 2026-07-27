@@ -22,6 +22,7 @@ type SubagentOutcomeStatus string
 const (
 	SubagentOutcomeCompleted  SubagentOutcomeStatus = "completed"
 	SubagentOutcomeIncomplete SubagentOutcomeStatus = "incomplete"
+	SubagentOutcomeFailed     SubagentOutcomeStatus = "failed"
 )
 
 // SubagentOutcome is the validated report echoed into the generic transcript.
@@ -29,6 +30,7 @@ type SubagentOutcome struct {
 	Status   SubagentOutcomeStatus `json:"status"`
 	Summary  string                `json:"summary"`
 	NextStep string                `json:"next_step,omitempty"`
+	Error    string                `json:"error,omitempty"`
 }
 
 // NewSubagentOutcomeTool returns the child-only structured completion report.
@@ -36,8 +38,8 @@ func NewSubagentOutcomeTool() Tool {
 	return Tool{
 		Definition: agentruntime.ToolDefinition{
 			Name:        SubagentOutcomeToolName,
-			Description: "Report the child turn's semantic outcome exactly once after domain work and before the final assistant answer. This report creates the authoritative parent callback; it does not replace the child's concise final answer. Use completed only when every required part of the delegated task is resolved, with a concise evidence-grounded summary and no next_step. Use incomplete when blocked, waiting for information, partially done, or when any required work, decision, confirmation, or follow-up remains; include one concrete required next_step. Runtime/provider failure is handled separately and is not a status value. If unsure, report incomplete. After a successful report, do not call this tool or repeat domain work again; write the final answer for the parent.",
-			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"status":{"type":"string","enum":["completed","incomplete"],"description":"Semantic outcome: completed only when all required delegated work is resolved; otherwise incomplete."},"summary":{"type":"string","minLength":1,"description":"Concise evidence-grounded outcome for the parent callback."},"next_step":{"type":"string","minLength":1,"description":"Exactly one concrete required next step; required only when status is incomplete and forbidden when completed."}},"required":["status","summary"],"additionalProperties":false}`),
+			Description: "Report the child turn's semantic outcome exactly once after domain work and before the final assistant answer. This report creates the authoritative parent callback; it does not replace the child's concise final answer. Use completed only when every required part of the delegated task is resolved; include a concise evidence-grounded summary and omit next_step and error. Use incomplete when required work, information, confirmation, or a decision remains; include a concise summary and one concrete non-empty next_step, and omit error. Use failed only when a terminal error prevents the delegated task from continuing; include a concise summary and the actual non-empty error, omit next_step, and never invent recovery work. If unsure whether work is resolved, report incomplete. After a successful report, do not call this tool or repeat domain work again; write the final answer for the parent.",
+			InputSchema: mustRawToolSchema(`{"type":"object","oneOf":[{"type":"object","properties":{"status":{"const":"completed","description":"Every required part of the delegated task is resolved."},"summary":{"type":"string","minLength":1,"description":"Concise evidence-grounded outcome for the parent callback."}},"required":["status","summary"],"additionalProperties":false},{"type":"object","properties":{"status":{"const":"incomplete","description":"Required work, information, confirmation, or a decision remains."},"summary":{"type":"string","minLength":1,"description":"Concise evidence-grounded outcome for the parent callback."},"next_step":{"type":"string","minLength":1,"description":"One concrete required next step."}},"required":["status","summary","next_step"],"additionalProperties":false},{"type":"object","properties":{"status":{"const":"failed","description":"A terminal error prevents the delegated task from continuing."},"summary":{"type":"string","minLength":1,"description":"Concise evidence-grounded outcome for the parent callback."},"error":{"type":"string","minLength":1,"description":"The actual terminal error; do not invent recovery work."}},"required":["status","summary","error"],"additionalProperties":false}]}`),
 		},
 		Handler: func(_ context.Context, arguments json.RawMessage) (json.RawMessage, error) {
 			outcome, err := ParseSubagentOutcome(arguments)
@@ -67,6 +69,7 @@ func ParseSubagentOutcome(value json.RawMessage) (SubagentOutcome, error) {
 	}
 	outcome.Summary = strings.TrimSpace(outcome.Summary)
 	outcome.NextStep = strings.TrimSpace(outcome.NextStep)
+	outcome.Error = strings.TrimSpace(outcome.Error)
 	if outcome.Summary == "" {
 		return SubagentOutcome{}, errors.New("subagent outcome summary is required")
 	}
@@ -75,9 +78,22 @@ func ParseSubagentOutcome(value json.RawMessage) (SubagentOutcome, error) {
 		if outcome.NextStep != "" {
 			return SubagentOutcome{}, errors.New("completed subagent outcome cannot require a next step")
 		}
+		if outcome.Error != "" {
+			return SubagentOutcome{}, errors.New("completed subagent outcome cannot contain an error")
+		}
 	case SubagentOutcomeIncomplete:
 		if outcome.NextStep == "" {
 			return SubagentOutcome{}, errors.New("incomplete subagent outcome requires a next step")
+		}
+		if outcome.Error != "" {
+			return SubagentOutcome{}, errors.New("incomplete subagent outcome cannot contain an error")
+		}
+	case SubagentOutcomeFailed:
+		if outcome.NextStep != "" {
+			return SubagentOutcome{}, errors.New("failed subagent outcome cannot require a next step")
+		}
+		if outcome.Error == "" {
+			return SubagentOutcome{}, errors.New("failed subagent outcome requires an error")
 		}
 	default:
 		return SubagentOutcome{}, fmt.Errorf("unknown subagent outcome status %q", outcome.Status)

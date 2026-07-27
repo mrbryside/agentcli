@@ -41,27 +41,36 @@ type SubagentCallback struct {
 
 // RuntimeMessage converts the callback into trusted provider-neutral input
 // for a new parent turn. It is deliberately not represented as a human user
-// message or as a late result for an already-resolved tool call.
-func (callback SubagentCallback) RuntimeMessage() agentruntime.Message {
+// message or as a late result for an already-resolved tool call. A supplied
+// callback-progress snapshot describes the complete originating response
+// scope at the instant this callback was reserved.
+func (callback SubagentCallback) RuntimeMessage(progress ...toolexecution.ResponseScopeCallbackProgress) agentruntime.Message {
 	finalAnswer := ""
 	if callback.FinalAnswer != nil && callback.FinalAnswer.Content != "" {
 		finalAnswer = callback.FinalAnswer.Content
 	}
+	var callbackProgress *toolexecution.ResponseScopeCallbackProgress
+	if len(progress) != 0 {
+		snapshot := progress[0]
+		callbackProgress = &snapshot
+	}
 	payload, _ := json.Marshal(struct {
-		ID             string                 `json:"id"`
-		DisplayName    string                 `json:"display_name"`
-		DefinitionName string                 `json:"definition_name"`
-		TurnID         string                 `json:"turn_id"`
-		Status         SubagentCallbackStatus `json:"status"`
-		Error          string                 `json:"error,omitempty"`
-		Summary        string                 `json:"summary,omitempty"`
-		NextStep       string                 `json:"next_step,omitempty"`
-		FinalAnswer    string                 `json:"final_answer,omitempty"`
-		Instruction    string                 `json:"instruction"`
+		ID               string                                       `json:"id"`
+		DisplayName      string                                       `json:"display_name"`
+		DefinitionName   string                                       `json:"definition_name"`
+		TurnID           string                                       `json:"turn_id"`
+		Status           SubagentCallbackStatus                       `json:"status"`
+		Error            string                                       `json:"error,omitempty"`
+		Summary          string                                       `json:"summary,omitempty"`
+		NextStep         string                                       `json:"next_step,omitempty"`
+		FinalAnswer      string                                       `json:"final_answer,omitempty"`
+		CallbackProgress *toolexecution.ResponseScopeCallbackProgress `json:"callback_progress,omitempty"`
+		Instruction      string                                       `json:"instruction"`
 	}{
 		ID: callback.SubagentID, DisplayName: callback.DisplayName, DefinitionName: callback.SubagentName, TurnID: callback.TurnID,
 		Status: callback.Status, Error: callback.Error, Summary: callback.Summary, NextStep: callback.NextStep, FinalAnswer: finalAnswer,
-		Instruction: "This is the authoritative child result. For completed, use final_answer or summary in the response. For incomplete, use next_step for one focused follow-up or user question. For failed, report the error and recover only when concrete work remains. Do not poll or repeat a result already delivered.",
+		CallbackProgress: callbackProgress,
+		Instruction:      "This is the authoritative child result. Read callback_progress before deciding what to do. pending_callbacks identifies assigned work whose callback is still outstanding; never duplicate, replace, retry, or poll it. received_callbacks identifies callback turns already delivered in this response scope; process each exactly once. If pending callbacks remain, continue only work that is independent of every pending callback and will not duplicate or invalidate it; otherwise wait without calling a response or delivery tool. When none remain, combine the received outcomes before finishing. For completed, use final_answer or summary. For incomplete, use next_step for one focused follow-up or user question. For failed, report the error and recover only when concrete work remains.",
 	})
 	content := "<subagent_callback>\n" + string(payload) + "\n</subagent_callback>"
 	return agentruntime.Message{Type: agentruntime.MessageTypeRuntimeEvent, Content: content}
@@ -202,8 +211,13 @@ func callbackFromMessages(record storage.Subagent, messages []agentruntime.Messa
 		if outcome, found := reportedSubagentOutcome(record.LastTurnID, messages); found {
 			callback.Summary = outcome.Summary
 			callback.NextStep = outcome.NextStep
-			if outcome.Status == toolexecution.SubagentOutcomeCompleted {
+			switch outcome.Status {
+			case toolexecution.SubagentOutcomeCompleted:
 				callback.Status = SubagentCallbackCompleted
+			case toolexecution.SubagentOutcomeFailed:
+				callback.Status = SubagentCallbackFailed
+				callback.Error = outcome.Error
+				callback.NextStep = ""
 			}
 		}
 	}

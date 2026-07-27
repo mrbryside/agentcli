@@ -61,6 +61,7 @@ type responseScope struct {
 	activeTurns       int
 	pendingCallbacks  int
 	pendingInputs     int
+	receivedCallbacks []*ResponseScopeReceivedCallback
 	children          map[string]int
 	toolCalls         map[string]int
 	endScopeCompleted map[string]struct{}
@@ -69,12 +70,46 @@ type responseScope struct {
 }
 
 type responseDispatch struct {
-	id    string
-	scope responseScopeKey
+	id       string
+	scope    responseScopeKey
+	sequence uint64
+	pending  ResponseScopePendingCallback
 }
 
 type callbackRecord struct {
-	scope responseScopeKey
+	scope    responseScopeKey
+	received *ResponseScopeReceivedCallback
+}
+
+// ResponseScopePendingCallback identifies one accepted child dispatch whose
+// callback has not yet been reserved for delivery. TurnID is omitted when
+// queued child work has not received a runtime turn ID yet.
+type ResponseScopePendingCallback struct {
+	SubagentID     string `json:"subagent_id"`
+	DefinitionName string `json:"definition_name,omitempty"`
+	DisplayName    string `json:"display_name,omitempty"`
+	DispatchID     string `json:"dispatch_id"`
+	TurnID         string `json:"turn_id,omitempty"`
+}
+
+// ResponseScopeReceivedCallback identifies one callback reserved in the
+// response scope and records the child's authoritative semantic outcome.
+type ResponseScopeReceivedCallback struct {
+	SubagentID     string `json:"subagent_id"`
+	DefinitionName string `json:"definition_name,omitempty"`
+	DisplayName    string `json:"display_name,omitempty"`
+	DispatchID     string `json:"dispatch_id,omitempty"`
+	TurnID         string `json:"turn_id"`
+	OutcomeStatus  string `json:"outcome_status"`
+}
+
+// ResponseScopeCallbackProgress is an atomic callback-accounting snapshot
+// captured for one trusted callback runtime message.
+type ResponseScopeCallbackProgress struct {
+	RemainingCallbacks   int                             `json:"remaining_callbacks"`
+	AllCallbacksReceived bool                            `json:"all_callbacks_received"`
+	PendingCallbacks     []ResponseScopePendingCallback  `json:"pending_callbacks"`
+	ReceivedCallbacks    []ResponseScopeReceivedCallback `json:"received_callbacks"`
 }
 
 // ResponseScopeCleanup runs when a response scope enters its final completion
@@ -111,6 +146,7 @@ type ResponseScopeCoordinator struct {
 	cleanup           ResponseScopeCleanup
 	events            *scopeEventHub
 	logger            *slog.Logger
+	nextDispatch      uint64
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -216,6 +252,18 @@ func (c *ResponseScopeCoordinator) RollbackRootTurn(sessionID, turnID string) {
 // to completion. The returned function rolls the registration back if the
 // framework does not ultimately accept the work.
 func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, childID, dispatchID string) func() {
+	return c.RegisterDispatchMetadata(sessionID, parentTurnID, ResponseScopePendingCallback{
+		SubagentID: childID,
+		DispatchID: dispatchID,
+	})
+}
+
+// RegisterDispatchMetadata reserves one subagent callback obligation and
+// retains the child identity needed to describe pending callbacks to the
+// parent. The returned function rolls the registration back if dispatch fails.
+func (c *ResponseScopeCoordinator) RegisterDispatchMetadata(sessionID, parentTurnID string, pending ResponseScopePendingCallback) func() {
+	childID := pending.SubagentID
+	dispatchID := pending.DispatchID
 	if c == nil || sessionID == "" || parentTurnID == "" || childID == "" || dispatchID == "" {
 		return func() {}
 	}
@@ -237,7 +285,10 @@ func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, chi
 		c.mu.Unlock()
 		return func() {}
 	}
-	dispatch := &responseDispatch{id: dispatchID, scope: scopeKey}
+	c.nextDispatch++
+	pending.SubagentID = childID
+	pending.DispatchID = dispatchID
+	dispatch := &responseDispatch{id: dispatchID, scope: scopeKey, sequence: c.nextDispatch, pending: pending}
 	c.dispatch[child] = append(c.dispatch[child], dispatch)
 	scope.children[childID]++
 	scope.pendingCallbacks++
@@ -351,6 +402,18 @@ func (c *ResponseScopeCoordinator) ChildExclusiveToScope(sessionID, scopeID, chi
 // ReserveCallbackTurn binds a callback continuation to the response scope
 // that accepted the corresponding child dispatch.
 func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTurnID, childID, callbackTurnID string) (*ResponseScopeReservation, error) {
+	return c.ReserveCallbackTurnWithMetadata(sessionID, continuationTurnID, ResponseScopeReceivedCallback{
+		SubagentID: childID,
+		TurnID:     callbackTurnID,
+	})
+}
+
+// ReserveCallbackTurnWithMetadata binds a callback continuation to its
+// originating response scope and atomically records the callback identity and
+// outcome used by CallbackProgress.
+func (c *ResponseScopeCoordinator) ReserveCallbackTurnWithMetadata(sessionID, continuationTurnID string, callback ResponseScopeReceivedCallback) (*ResponseScopeReservation, error) {
+	childID := callback.SubagentID
+	callbackTurnID := callback.TurnID
 	if c == nil {
 		return nil, errors.New("response scope coordinator is nil")
 	}
@@ -406,7 +469,9 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 	if c.callbacks[child] == nil {
 		c.callbacks[child] = make(map[string]callbackRecord)
 	}
-	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope}
+	received := receivedCallbackFromDispatch(callback, dispatch)
+	scope.receivedCallbacks = append(scope.receivedCallbacks, received)
+	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope, received: received}
 	return &ResponseScopeReservation{
 		coordinator: c,
 		turn:        turn,
@@ -420,6 +485,17 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTu
 // pending runtime input until the active run has durably appended it at a
 // provider boundary.
 func (c *ResponseScopeCoordinator) ReserveInlineCallback(sessionID, activeTurnID, childID, callbackTurnID string) (*ResponseScopeReservation, error) {
+	return c.ReserveInlineCallbackWithMetadata(sessionID, activeTurnID, ResponseScopeReceivedCallback{
+		SubagentID: childID,
+		TurnID:     callbackTurnID,
+	})
+}
+
+// ReserveInlineCallbackWithMetadata binds a callback to an active compatible
+// turn and atomically records the callback identity and outcome.
+func (c *ResponseScopeCoordinator) ReserveInlineCallbackWithMetadata(sessionID, activeTurnID string, callback ResponseScopeReceivedCallback) (*ResponseScopeReservation, error) {
+	childID := callback.SubagentID
+	callbackTurnID := callback.TurnID
 	if c == nil {
 		return nil, errors.New("response scope coordinator is nil")
 	}
@@ -464,7 +540,9 @@ func (c *ResponseScopeCoordinator) ReserveInlineCallback(sessionID, activeTurnID
 	if c.callbacks[child] == nil {
 		c.callbacks[child] = make(map[string]callbackRecord)
 	}
-	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope}
+	received := receivedCallbackFromDispatch(callback, dispatch)
+	scope.receivedCallbacks = append(scope.receivedCallbacks, received)
+	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope, received: received}
 	return &ResponseScopeReservation{
 		coordinator: c,
 		turn:        turn,
@@ -472,6 +550,74 @@ func (c *ResponseScopeCoordinator) ReserveInlineCallback(sessionID, activeTurnID
 		dispatch:    dispatch,
 		inline:      true,
 	}, nil
+}
+
+func receivedCallbackFromDispatch(callback ResponseScopeReceivedCallback, dispatch *responseDispatch) *ResponseScopeReceivedCallback {
+	received := callback
+	if dispatch != nil {
+		received.DispatchID = dispatch.pending.DispatchID
+		if received.DefinitionName == "" {
+			received.DefinitionName = dispatch.pending.DefinitionName
+		}
+		if received.DisplayName == "" {
+			received.DisplayName = dispatch.pending.DisplayName
+		}
+	}
+	return &received
+}
+
+// CallbackProgress returns the callback-accounting snapshot associated with
+// this reservation. It includes the callback currently being delivered.
+func (r *ResponseScopeReservation) CallbackProgress() ResponseScopeCallbackProgress {
+	if r == nil || r.coordinator == nil {
+		return ResponseScopeCallbackProgress{
+			AllCallbacksReceived: true,
+			PendingCallbacks:     []ResponseScopePendingCallback{},
+			ReceivedCallbacks:    []ResponseScopeReceivedCallback{},
+		}
+	}
+	c := r.coordinator
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.callbackProgressLocked(r.scope)
+}
+
+func (c *ResponseScopeCoordinator) callbackProgressLocked(scopeKey responseScopeKey) ResponseScopeCallbackProgress {
+	progress := ResponseScopeCallbackProgress{
+		PendingCallbacks:  []ResponseScopePendingCallback{},
+		ReceivedCallbacks: []ResponseScopeReceivedCallback{},
+	}
+	scope := c.scopes[scopeKey]
+	if scope == nil {
+		progress.AllCallbacksReceived = true
+		return progress
+	}
+	type sequencedPending struct {
+		sequence uint64
+		callback ResponseScopePendingCallback
+	}
+	pending := make([]sequencedPending, 0, scope.pendingCallbacks)
+	for _, queue := range c.dispatch {
+		for _, dispatch := range queue {
+			if dispatch != nil && dispatch.scope == scopeKey {
+				pending = append(pending, sequencedPending{sequence: dispatch.sequence, callback: dispatch.pending})
+			}
+		}
+	}
+	sort.Slice(pending, func(left, right int) bool {
+		return pending[left].sequence < pending[right].sequence
+	})
+	for _, candidate := range pending {
+		progress.PendingCallbacks = append(progress.PendingCallbacks, candidate.callback)
+	}
+	for _, received := range scope.receivedCallbacks {
+		if received != nil {
+			progress.ReceivedCallbacks = append(progress.ReceivedCallbacks, *received)
+		}
+	}
+	progress.RemainingCallbacks = scope.pendingCallbacks
+	progress.AllCallbacksReceived = scope.pendingCallbacks == 0
+	return progress
 }
 
 // Commit keeps a callback turn reservation after the runtime accepts it.
@@ -525,6 +671,15 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 			}
 		}
 		if seen := c.callbacks[child]; seen != nil {
+			record := seen[callbackTurnID]
+			if scope != nil && record.received != nil {
+				for index, received := range scope.receivedCallbacks {
+					if received == record.received {
+						scope.receivedCallbacks = append(scope.receivedCallbacks[:index], scope.receivedCallbacks[index+1:]...)
+						break
+					}
+				}
+			}
 			delete(seen, callbackTurnID)
 			if len(seen) == 0 {
 				delete(c.callbacks, child)

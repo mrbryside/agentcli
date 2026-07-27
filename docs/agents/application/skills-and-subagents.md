@@ -5,8 +5,10 @@ discovery metadata; full instructions load progressively through the
 framework-owned `load_skill` tool. A model may load a skill after selecting it
 by description, and any applicable instruction may explicitly require loading
 one before the governed action or answer. Tool, subagent, and other capability
-descriptions help selection but do not replace a required skill load. The
-reload policy prevents needless recent duplication while refreshing
+descriptions help selection but do not replace a required skill load. Whenever
+a load trigger applies, the model calls `load_skill` instead of inferring that
+a visible historical body is still current. The runtime reload policy returns
+`already_loaded` to prevent needless recent duplication while refreshing
 instructions after age, token, or content-change thresholds.
 
 Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, description, provider, model, optional skills/tools, and Markdown instructions. Only the root Agent receives framework subagent tools; children cannot recursively spawn children.
@@ -50,8 +52,11 @@ Duplicate, already-sent, and callback-pending outcomes use
 `selection_required` uses `callback_action=none` because nothing was
 dispatched. A completed, incomplete, or failed outcome carries structured
 summary/next-step fields, terminal error, and final assistant answer when
-available. `report_subagent_outcome` is registered automatically only for
-children; completed requires an explicit successful report. Its bounded repair
+available. `completed` forbids `next_step` and `error`; `incomplete` requires
+one concrete `next_step`; `failed` requires the actual terminal `error` and
+forbids `next_step`. `report_subagent_outcome` is registered automatically only
+for children; every semantic outcome requires an explicit successful report.
+Its bounded repair
 exposes only `report_subagent_outcome`, preventing repeated domain actions, and
 defaults safely to incomplete if the child still omits a valid report.
 Lifecycle (`running`, `idle`, `closed`) remains separate from last-turn
@@ -78,6 +83,13 @@ round. Early root calls and calls while the scope is busy are successful
 non-executing skips and are not retained. At the final boundary, the runtime
 automatically closes touched idle children whose last outcome is completed or
 failed, while retaining incomplete and cross-scope children.
+
+Every trusted callback runtime message includes an atomic `callback_progress`
+snapshot for its response scope. `pending_callbacks` identifies outstanding
+accepted dispatches by child identity and dispatch ID, with a child turn ID
+when one already exists. `received_callbacks` identifies delivered child turns
+and their outcome status. Reservation rollback removes the unaccepted received
+entry and restores its pending dispatch.
 
 Direct Go, Terminal, and HTTP close paths have the same application-owned destructive lifecycle and should be bound to explicit user actions. The manager enforces parent ownership, queues accepted child follow-ups, and preserves child transcripts and retained runs for UI views. Every successful explicit or automatic close emits `SystemSubagentClosed` on the live `SubscribeSystemEvents` stream; the HTTP session stream retains it as `subagent_closed`. See [subagent-lifecycle.md](subagent-lifecycle.md) for close ordering, cancellation markers, callback counters, and race behavior.
 

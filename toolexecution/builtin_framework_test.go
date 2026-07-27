@@ -24,6 +24,8 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"user asks to inspect",
 		"Discovery-only questions",
 		"Inspect the complete result",
+		"always call this tool",
+		"runtime-managed",
 		"already_loaded",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {

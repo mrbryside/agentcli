@@ -240,13 +240,21 @@ func TestSubagentIntegrationCompletionCallbackContinuesParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	foundCallback := false
+	foundProgress := false
 	for _, message := range messages {
 		if message.Type == agentruntime.MessageTypeRuntimeEvent && strings.Contains(message.Content, "compact child finding") {
 			foundCallback = true
+			foundProgress = strings.Contains(message.Content, `"callback_progress"`) &&
+				strings.Contains(message.Content, `"remaining_callbacks":0`) &&
+				strings.Contains(message.Content, `"all_callbacks_received":true`) &&
+				strings.Contains(message.Content, `"received_callbacks":[{"subagent_id":"`+callback.SubagentID+`"`)
 		}
 	}
 	if !foundCallback {
 		t.Fatalf("parent transcript has no runtime callback: %#v", messages)
+	}
+	if !foundProgress {
+		t.Fatalf("parent runtime callback has no complete callback-progress snapshot: %#v", messages)
 	}
 	record, err := agent.subagents.getOwned(context.Background(), "parent", callback.SubagentID)
 	if err != nil {

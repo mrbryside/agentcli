@@ -582,11 +582,10 @@ func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback Subagent
 	if !active {
 		return false, nil
 	}
-	reservation, err := a.responseScopes.ReserveInlineCallback(
+	reservation, err := a.responseScopes.ReserveInlineCallbackWithMetadata(
 		callback.ParentSessionID,
 		activeTurnID,
-		callback.SubagentID,
-		callback.TurnID,
+		responseScopeCallback(callback),
 	)
 	if err != nil {
 		if errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) ||
@@ -606,7 +605,7 @@ func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback Subagent
 		injectCtx,
 		callback.ParentSessionID,
 		activeTurnID,
-		callback.RuntimeMessage(),
+		callback.RuntimeMessage(reservation.CallbackProgress()),
 		reservation.Commit,
 	)
 	if err != nil {
@@ -637,11 +636,10 @@ func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
-	reservation, err := a.responseScopes.ReserveCallbackTurn(
+	reservation, err := a.responseScopes.ReserveCallbackTurnWithMetadata(
 		callback.ParentSessionID,
 		continuationTurnID,
-		callback.SubagentID,
-		callback.TurnID,
+		responseScopeCallback(callback),
 	)
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
@@ -649,7 +647,7 @@ func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback
 	run, subscription, err := a.runtime.StartSubscribed(ctx, agentruntime.Request{
 		SessionID: callback.ParentSessionID,
 		TurnID:    continuationTurnID,
-		Message:   callback.RuntimeMessage(),
+		Message:   callback.RuntimeMessage(reservation.CallbackProgress()),
 	})
 	if err != nil {
 		reservation.Rollback(callback.SubagentID, callback.TurnID)
@@ -664,6 +662,16 @@ func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback
 	// a very fast callback continuation cannot end its scope first.
 	a.watchAcceptedRun(run)
 	return run, subscription, nil
+}
+
+func responseScopeCallback(callback SubagentCallback) toolexecution.ResponseScopeReceivedCallback {
+	return toolexecution.ResponseScopeReceivedCallback{
+		SubagentID:     callback.SubagentID,
+		DefinitionName: callback.SubagentName,
+		DisplayName:    callback.DisplayName,
+		TurnID:         callback.TurnID,
+		OutcomeStatus:  string(callback.Status),
+	}
 }
 
 func ensureResponseTurnID(request *agentruntime.Request) error {

@@ -221,7 +221,17 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	rollbackDispatch := m.parent.responseScopes.RegisterDispatch(parentSessionID, parentTurnID, id, turnID)
+	rollbackDispatch := m.parent.responseScopes.RegisterDispatchMetadata(
+		parentSessionID,
+		parentTurnID,
+		toolexecution.ResponseScopePendingCallback{
+			SubagentID:     id,
+			DefinitionName: definition.Name,
+			DisplayName:    displayName,
+			DispatchID:     turnID,
+			TurnID:         turnID,
+		},
+	)
 	dispatchStarted := false
 	defer func() {
 		if !dispatchStarted {
@@ -703,7 +713,16 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	if record.Status == storage.SubagentStatusRunning {
 		action = toolexecution.SubagentSendQueued
 	}
-	rollbackDispatch := m.parent.responseScopes.RegisterDispatch(parentSessionID, parentTurnID, id, key)
+	rollbackDispatch := m.parent.responseScopes.RegisterDispatchMetadata(
+		parentSessionID,
+		parentTurnID,
+		toolexecution.ResponseScopePendingCallback{
+			SubagentID:     id,
+			DefinitionName: record.DefinitionName,
+			DisplayName:    record.DisplayName,
+			DispatchID:     key,
+		},
+	)
 	updated, err := m.sendLocked(ctx, instance, record, content)
 	if err != nil {
 		rollbackDispatch()
@@ -1172,8 +1191,13 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	} else if reported, ok := reportedSubagentOutcome(run.TurnID(), messages); ok {
 		lastSummary = reported.Summary
 		lastNextStep = reported.NextStep
-		if reported.Status == toolexecution.SubagentOutcomeCompleted {
+		switch reported.Status {
+		case toolexecution.SubagentOutcomeCompleted:
 			lastOutcome = storage.SubagentTurnCompleted
+			lastNextStep = ""
+		case toolexecution.SubagentOutcomeFailed:
+			lastOutcome = storage.SubagentTurnFailed
+			lastTurnError = reported.Error
 			lastNextStep = ""
 		}
 	}

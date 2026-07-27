@@ -285,6 +285,100 @@ func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *test
 	retry.Commit()
 }
 
+func TestResponseScopeCallbackProgressTracksPendingAndReceivedIdentities(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
+		SubagentID: "child-a", DefinitionName: "web-summary", DisplayName: "Vale",
+		DispatchID: "dispatch-a", TurnID: "child-turn-a",
+	})
+	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
+		SubagentID: "child-b", DefinitionName: "web-summary", DisplayName: "Luna",
+		DispatchID: "dispatch-b",
+	})
+
+	first, err := coordinator.ReserveCallbackTurnWithMetadata("session", "callback-a", ResponseScopeReceivedCallback{
+		SubagentID: "child-a", DefinitionName: "web-summary", DisplayName: "Vale",
+		TurnID: "child-turn-a", OutcomeStatus: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProgress := first.CallbackProgress()
+	if firstProgress.RemainingCallbacks != 1 || firstProgress.AllCallbacksReceived ||
+		len(firstProgress.PendingCallbacks) != 1 || len(firstProgress.ReceivedCallbacks) != 1 {
+		t.Fatalf("first callback progress = %#v", firstProgress)
+	}
+	if pending := firstProgress.PendingCallbacks[0]; pending.SubagentID != "child-b" ||
+		pending.DefinitionName != "web-summary" || pending.DisplayName != "Luna" ||
+		pending.DispatchID != "dispatch-b" || pending.TurnID != "" {
+		t.Fatalf("pending callback = %#v", pending)
+	}
+	if received := firstProgress.ReceivedCallbacks[0]; received.SubagentID != "child-a" ||
+		received.TurnID != "child-turn-a" || received.OutcomeStatus != "completed" ||
+		received.DispatchID != "dispatch-a" {
+		t.Fatalf("received callback = %#v", received)
+	}
+	first.Commit()
+
+	second, err := coordinator.ReserveCallbackTurnWithMetadata("session", "callback-b", ResponseScopeReceivedCallback{
+		SubagentID: "child-b", DefinitionName: "web-summary", DisplayName: "Luna",
+		TurnID: "child-turn-b", OutcomeStatus: "failed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProgress := second.CallbackProgress()
+	if secondProgress.RemainingCallbacks != 0 || !secondProgress.AllCallbacksReceived ||
+		len(secondProgress.PendingCallbacks) != 0 || len(secondProgress.ReceivedCallbacks) != 2 {
+		t.Fatalf("second callback progress = %#v", secondProgress)
+	}
+	if received := secondProgress.ReceivedCallbacks[1]; received.SubagentID != "child-b" ||
+		received.TurnID != "child-turn-b" || received.OutcomeStatus != "failed" ||
+		received.DispatchID != "dispatch-b" {
+		t.Fatalf("second received callback = %#v", received)
+	}
+	second.Commit()
+}
+
+func TestResponseScopeCallbackProgressRollbackRemovesUnacceptedCallback(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
+		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
+		DispatchID: "dispatch", TurnID: "child-turn",
+	})
+	rejected, err := coordinator.ReserveCallbackTurnWithMetadata("session", "rejected", ResponseScopeReceivedCallback{
+		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
+		TurnID: "child-turn", OutcomeStatus: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rejected.CallbackProgress(); len(got.ReceivedCallbacks) != 1 {
+		t.Fatalf("reserved progress = %#v", got)
+	}
+	rejected.Rollback("child", "child-turn")
+
+	retry, err := coordinator.ReserveCallbackTurnWithMetadata("session", "accepted", ResponseScopeReceivedCallback{
+		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
+		TurnID: "child-turn", OutcomeStatus: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := retry.CallbackProgress()
+	if len(progress.ReceivedCallbacks) != 1 || progress.RemainingCallbacks != 0 ||
+		!progress.AllCallbacksReceived {
+		t.Fatalf("retried callback progress = %#v", progress)
+	}
+	retry.Commit()
+}
+
 func TestResponseScopeCleanupRunsBeforeFinalHandlerAndSeesTouchedChildren(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	scopeEvents := coordinator.SubscribeEvents(context.Background())

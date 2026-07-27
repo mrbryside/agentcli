@@ -46,8 +46,15 @@ When definitions exist, the root model receives two fixed framework tools:
 
 Child agents do not receive these management tools. Every child instead
 receives one framework-owned `report_subagent_outcome` tool. Before its final
-answer, the child reports either `completed` or `incomplete` with a concise
-summary and, for incomplete work, the required next step.
+answer, the child reports one semantic outcome with a concise summary:
+
+- `completed` means all delegated work is resolved and forbids `next_step`;
+- `incomplete` means required work or information remains and requires one
+  concrete `next_step`;
+- `failed` means a terminal error prevents continuation, requires the actual
+  `error`, and forbids `next_step`.
+
+The child never invents recovery work merely to populate an outcome field.
 Destructive closure is not model-facing. Applications may close a child through
 the Go API, Terminal, or HTTP endpoint. See
 [Subagent lifecycle control](./subagent-lifecycle-control.md) for the ownership
@@ -62,7 +69,7 @@ other domain action that already ran. The same instruction remains while the
 child writes its concise final answer.
 There is no polling or second callback during repair.
 
-If the repair reports `completed` or `incomplete`, that structured value is
+If the repair reports `completed`, `incomplete`, or `failed`, that structured value is
 authoritative. If the child still omits a valid report, the turn ends after the
 bounded repair limit and emits an `incomplete` callback with a fallback summary.
 A repair is never retried indefinitely.
@@ -265,6 +272,15 @@ active turn, the initial premature call continues so ordinary work remains
 available. The model-facing contract tells the model not to retry that call;
 normal completion repair requests the final delivery. The coordinator still
 accepts a quiescent later provider-round delivery for compatibility.
+
+Each trusted callback includes `callback_progress`, an atomic response-scope
+snapshot. `pending_callbacks` lists accepted dispatches that are still
+outstanding with their subagent ID, definition, display name, dispatch ID, and
+child turn ID when available. `received_callbacks` lists callback turns already
+delivered with the same child identity and `outcome_status`. The parent uses
+this snapshot to avoid duplicate dispatches, continue only independent work
+while results remain outstanding, and combine the complete outcome set before
+final delivery.
 
 Immediately before final `EndResponseScope` handlers execute, the runtime
 reconciles every child that accepted work in that scope:

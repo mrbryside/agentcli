@@ -49,11 +49,17 @@ tool. Its full Markdown instructions become the latest ordinary tool-result
 message. The model should not load a skill merely because the user asks for the
 catalog or repeats words from its description.
 
+Whenever a real load trigger applies, the model calls `load_skill` even when a
+matching skill body is already visible in conversation history. The model does
+not decide whether that body is fresh; the runtime owns caching and returns
+either `loaded` or `already_loaded`.
+
 ## Repeat and refresh behavior
 
-An unchanged, recently loaded skill returns a small `already_loaded` result
-instead of repeating its body. The default refresh policy returns the full body
-again when any condition applies:
+An unchanged, recently loaded skill call returns a small `already_loaded`
+result instead of repeating its body. Both result statuses satisfy the current
+load requirement. The default refresh policy returns the full body again when
+any condition applies:
 
 - at least 10 turns have passed;
 - approximately 12,000 transcript tokens have passed; or
@@ -69,8 +75,8 @@ agentcli.WithSkillReloadPolicy(agentcli.SkillReloadPolicy{
 ```
 
 Set a threshold to zero to disable that threshold. Refreshing old instructions
-near the newest messages reduces attention loss in long conversations without
-reloading on every matching prompt.
+near the newest messages reduces attention loss in long conversations while
+the runtime suppresses duplicate bodies for recent matching calls.
 
 ## Prompt placement
 
@@ -78,4 +84,3 @@ The catalog stays in the grouped framework system message. Loaded skill bodies
 are tool results in conversation history. Consequently, a provider request may
 still contain a previous skill body as history, but the runtime avoids creating
 a new duplicate result until the refresh policy says it is stale.
-

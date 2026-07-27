@@ -33,6 +33,13 @@ on an already-active compatible turn. The runtime commits it only after the
 trusted callback is durably appended at a provider boundary. Rollback restores
 the original dispatch if the run closes before acceptance.
 
+Dispatch registration retains the child definition, display name, dispatch ID,
+and child turn ID when available. Callback reservation atomically records the
+received child turn and outcome alongside the remaining pending dispatches.
+The reservation exposes this snapshot as `callback_progress` for the trusted
+runtime message. Rollback removes the received entry before restoring the
+pending obligation.
+
 `CancelChildDispatches` records a terminal cancellation marker for the
 session/child pair and deletes every queued, unreserved dispatch. Each deleted
 dispatch decrements `pendingCallbacks` and the matching touch count once.
