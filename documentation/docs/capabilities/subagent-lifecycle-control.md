@@ -104,5 +104,5 @@ The record is emitted when at least one queued dispatch is cancelled. A close
 that only establishes the terminal cancellation state has no queued dispatch
 count to log.
 
-See [Subagents](./subagents.md) for delegation, callback outcomes, reuse, and
-capacity.
+See [Subagents](./subagents.md) for delegation, callback outcomes, follow-ups,
+and capacity.

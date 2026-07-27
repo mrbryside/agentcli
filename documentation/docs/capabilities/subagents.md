@@ -41,7 +41,7 @@ When definitions exist, the root model receives two fixed framework tools:
 
 | Tool | Use |
 | --- | --- |
-| `start_subagent` | Create or reuse a child and asynchronously route work. |
+| `start_subagent` | Create a new child and asynchronously route one focused assignment. |
 | `send_subagent_message` | Send focused follow-up work to a known child. |
 
 Child agents do not receive these management tools. Every child instead
@@ -107,8 +107,7 @@ delegated work, or poll. Accepted results use
 `callback_action: automatic` and `must_wait_for_callback: true`. Duplicate,
 already-sent, and callback-pending results use
 `callback_action: automatic_existing` because they create no new callback.
-`selection_required` uses `callback_action: none`. The child turn outcome
-arrives through a separate callback containing:
+The child turn outcome arrives through a separate callback containing:
 
 - parent and child identity;
 - `completed`, `incomplete`, or `failed` status;
@@ -136,15 +135,9 @@ Each accepted model-facing start result is deliberately compact:
 
 This example is the `continue_after_dispatch: false` path. With `true`,
 `turn_action` is `continue_independent_work` and control returns to the parent
-for only the work that justified that choice. A `selection_required` start
-result reports `callback_action: "none"` and
-`turn_action: "continue_selection_required"` because no work was dispatched
-and no callback is pending, so its `continue_after_dispatch` value does not end
-the turn.
-
-When `start_subagent` returns `selection_required`, no work was routed, so that
-turn continues only long enough for the parent to ask which `display_name` the
-user means.
+for only the work that justified that choice. Every successful
+`start_subagent` call creates a new separately addressed child; it never
+selects, reuses, or continues an existing child.
 
 The callback is trusted runtime input, not a human message or a late result on
 the completed `start_subagent` call. First try to inject it into a compatible
@@ -194,27 +187,30 @@ describes whether the delegated task is actually resolved:
 The runtime never infers completion merely because the provider stopped
 without an error.
 
-## Reuse behavior
+## Creation and follow-up behavior
 
-Starting work with no matching open child creates one. When exactly one child
-is open, conversational follow-ups reuse it. When several could match, the tool
-returns `selection_required` and the parent asks the user which friendly name
-to continue with. A new child is forced when the user explicitly requests new,
-separate, another, or parallel work, or when an intentional independent
-comparison/parallel plan requires a distinct instance. The default is
-sequential: ordinary lookup or research starts one child, evaluates its
-callback, and starts another only when the result is insufficient. Multiple
-starts in one provider response are reserved for genuinely independent
-comparison or parallel work. A sequential next source may still use a distinct
-instance after the prior callback proves more evidence is needed.
+Every `start_subagent` call creates a new child. The default is sequential:
+ordinary lookup or research starts one child, evaluates its callback, and
+starts another only when the result is insufficient. Multiple starts in one
+provider response are reserved for genuinely independent comparison or
+parallel work. To continue an incomplete or failed child, wait until it is idle
+and its latest callback has been consumed, then call `send_subagent_message`
+with its stable ID. Completed children are never reused. Completed and failed
+children are automatically closed when their response scope ends; incomplete
+children remain available for follow-up.
 
 ## Queued follow-ups
 
-`SendSubagentMessage` starts immediately when the child is idle or queues behind
-its current turn. The next callback is produced for each completed queued turn.
-The parent has no model-facing list or status tools. The runtime supplies active
-instance summaries through `active_subagents`, and the parent receives child
-answers only through callbacks. When a callback is pending, the reminder marks
+The model-facing `send_subagent_message` starts immediately only when an
+incomplete or failed child is idle and its latest callback was consumed. A
+running child returns
+`callback_pending` without accepting or queuing the message. Direct Go and HTTP
+callers may still queue FIFO input behind a running child. An observed completed
+child returns `child_completed` without dispatch and cannot be reused. The
+parent has no
+model-facing list or status tools. The runtime supplies active instance
+summaries through `active_subagents`, and the parent receives child answers
+only through callbacks. When a callback is pending, the reminder marks
 `completion_callback: pending` without copying its outcome payload.
 
 The model-facing `send_subagent_message` tool enforces one accepted message per
@@ -242,10 +238,11 @@ intermediate message. `ListMessages` remains available for a full child UI.
 answer; it is not exposed as a model tool.
 
 Sending follows lifecycle admission. A running child accepts FIFO mailbox
-input. An idle `incomplete`, `completed`, or `failed` child accepts a focused
-follow-up, distinct next task, or recovery instruction only after its latest
-callback was consumed. For the model-facing tool, a pending callback is an
-expected controlled result rather than a failed tool result:
+input from direct Go and HTTP callers. An idle `incomplete` or `failed` child
+accepts a focused follow-up or recovery instruction only after its latest
+callback was consumed. A completed child rejects new messages. For the
+model-facing tool, a pending callback is an expected controlled result rather
+than a failed tool result:
 
 ```json
 {
@@ -257,7 +254,10 @@ expected controlled result rather than a failed tool result:
 }
 ```
 
-The result creates no new callback and does not authorize a retry. Tool calls
+The result creates no new callback and does not authorize a retry. An observed
+completed child similarly returns `action: child_completed`,
+`callback_action: none`, and `must_wait_for_callback: false`; deliver the
+completed result instead of messaging that child again. Tool calls
 already in the same parallel batch still all run before AgentRuntime evaluates
 the batch. Direct Go and HTTP sends continue returning the callback-pending
 lifecycle error, while closed and outcome-less children remain rejected.

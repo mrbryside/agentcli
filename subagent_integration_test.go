@@ -20,8 +20,8 @@ import (
 
 func TestSubagentIntegrationParentToolsRunParallelChildrenAndMailbox(t *testing.T) {
 	parentModel := &scriptedModel{toolCalls: []provider.ToolCall{
-		{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research first", "new_instance": true, "continue_after_dispatch": true}},
-		{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{"name": "reviewer", "message": "review first", "new_instance": true, "continue_after_dispatch": true}},
+		{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{"name": "researcher", "message": "research first", "continue_after_dispatch": true}},
+		{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{"name": "reviewer", "message": "review first", "continue_after_dispatch": true}},
 	}}
 	researchModel := newIntegrationChildModel("research complete")
 	reviewModel := newIntegrationChildModel("review complete")
@@ -1184,11 +1184,11 @@ func (m *integrationSequentialDispatchParentModel) Start(_ context.Context, _ ag
 	m.mu.Unlock()
 
 	call := provider.ToolCall{ID: "research", Name: StartSubagentToolName, Arguments: map[string]any{
-		"name": "researcher", "message": "research this", "new_instance": true, "continue_after_dispatch": true,
+		"name": "researcher", "message": "research this", "continue_after_dispatch": true,
 	}}
 	if round == 2 {
 		call = provider.ToolCall{ID: "review", Name: StartSubagentToolName, Arguments: map[string]any{
-			"name": "reviewer", "message": "review this", "new_instance": true, "continue_after_dispatch": true,
+			"name": "reviewer", "message": "review this", "continue_after_dispatch": true,
 		}}
 	}
 	if round > 2 {

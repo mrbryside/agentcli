@@ -153,8 +153,41 @@ func TestSubagentManagerIdleSendWaitsForLatestCallbackObservation(t *testing.T) 
 	}
 }
 
-func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) {
-	t.Run("one open child is reused", func(t *testing.T) {
+func TestSubagentManagerDoesNotReuseCompletedChild(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 1)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	callbacks := manager.subscribeCallbacks(context.Background())
+	record, err := manager.Start(context.Background(), "parent", "start-turn", "researcher", "first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	select {
+	case <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+	}
+	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	observeTestSubagentCallback(t, manager, markTestSubagentCompleted(t, manager, record.ID))
+
+	if _, err := manager.Send(context.Background(), "parent", record.ID, "unrelated next task"); !errors.Is(err, storage.ErrSubagentCompleted) {
+		t.Fatalf("direct completed-child send error = %v", err)
+	}
+	result, err := manager.SendFromParentTurn(context.Background(), "parent", "follow-up-turn", record.ID, "unrelated next task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != toolexecution.SubagentSendChildCompleted || result.Accepted {
+		t.Fatalf("model completed-child send = %#v", result)
+	}
+	if got := model.Requests(); len(got) != 1 {
+		t.Fatalf("provider requests = %d, want only the initial child turn", len(got))
+	}
+}
+
+func TestSubagentManagerStartAlwaysCreatesNewChild(t *testing.T) {
+	t.Run("same definition creates separately addressed child", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
 		manager := newTestSubagentManager(t, model, 3)
 		defer manager.Close()
@@ -162,20 +195,20 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		routed, err := manager.StartOrReuse(context.Background(), "parent", "turn-2", "researcher", "talk more", "", false)
+		started, err := manager.Start(context.Background(), "parent", "turn-2", "researcher", "talk more", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartReused || routed.DispatchAction != toolexecution.SubagentSendCallbackPending || routed.Accepted || routed.Subagent.ID != first.ID || len(routed.Subagent.Pending) != 0 {
-			t.Fatalf("routed result = %#v", routed)
+		if started.ID == first.ID || started.DisplayName == first.DisplayName {
+			t.Fatalf("started = %#v, first = %#v", started, first)
 		}
 		children, err := manager.List(context.Background(), "parent", false)
-		if err != nil || len(children) != 1 {
+		if err != nil || len(children) != 2 {
 			t.Fatalf("children = %#v, %v", children, err)
 		}
 	})
 
-	t.Run("many open children require user selection", func(t *testing.T) {
+	t.Run("many open children do not require selection", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
 		manager := newTestSubagentManager(t, model, 3)
 		defer manager.Close()
@@ -190,20 +223,20 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if first.DisplayName == "" || second.DisplayName == "" || first.DisplayName == second.DisplayName {
 			t.Fatalf("friendly names = %q and %q", first.DisplayName, second.DisplayName)
 		}
-		routed, err := manager.StartOrReuse(context.Background(), "parent", "turn-3", "researcher", "talk more", "", false)
+		third, err := manager.Start(context.Background(), "parent", "turn-3", "researcher", "talk more", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartSelectionRequired || len(routed.Candidates) != 2 || routed.Subagent.ID != "" {
-			t.Fatalf("routed result = %#v", routed)
+		if third.ID == first.ID || third.ID == second.ID || third.DisplayName == first.DisplayName || third.DisplayName == second.DisplayName {
+			t.Fatalf("third = %#v, first = %#v, second = %#v", third, first, second)
 		}
 		children, err := manager.List(context.Background(), "parent", false)
-		if err != nil || len(children) != 2 {
+		if err != nil || len(children) != 3 {
 			t.Fatalf("children = %#v, %v", children, err)
 		}
 	})
 
-	t.Run("explicit new instance always creates", func(t *testing.T) {
+	t.Run("same definition always creates", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
 		manager := newTestSubagentManager(t, model, 3)
 		defer manager.Close()
@@ -211,16 +244,16 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		routed, err := manager.StartOrReuse(context.Background(), "parent", "turn-2", "researcher", "parallel", "", true)
+		started, err := manager.Start(context.Background(), "parent", "turn-2", "researcher", "parallel", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartCreated || routed.Subagent.ID == first.ID || routed.Subagent.DisplayName == first.DisplayName {
-			t.Fatalf("routed result = %#v, first = %#v", routed, first)
+		if started.ID == first.ID || started.DisplayName == first.DisplayName {
+			t.Fatalf("started = %#v, first = %#v", started, first)
 		}
 	})
 
-	t.Run("different definition creates instead of reusing", func(t *testing.T) {
+	t.Run("different definition creates", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
 		manager := newTestSubagentManager(t, model, 3)
 		defer manager.Close()
@@ -228,12 +261,12 @@ func TestSubagentManagerStartOrReuseRoutesConversationalFollowUps(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		routed, err := manager.StartOrReuse(context.Background(), "parent", "turn-2", "reviewer", "review separately", "", false)
+		started, err := manager.Start(context.Background(), "parent", "turn-2", "reviewer", "review separately", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if routed.Action != toolexecution.SubagentStartCreated || routed.Subagent.ID == first.ID || routed.Subagent.DefinitionName != "reviewer" {
-			t.Fatalf("cross-definition route = %#v, first = %#v", routed, first)
+		if started.ID == first.ID || started.DefinitionName != "reviewer" {
+			t.Fatalf("started = %#v, first = %#v", started, first)
 		}
 		children, err := manager.List(context.Background(), "parent", false)
 		if err != nil || len(children) != 2 {

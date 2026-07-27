@@ -83,7 +83,7 @@ Use sources and explain uncertainty.
 		!strings.Contains(subagents, "accepted=false with callback_action=automatic_existing") ||
 		!strings.Contains(subagents, "Never retry with changed wording") ||
 		!strings.Contains(subagents, "Only a later completed, incomplete, or failed callback") ||
-		!strings.Contains(subagents, "new_instance=true is not a retry mechanism") {
+		!strings.Contains(subagents, "start_subagent always creates a new separately addressed child") {
 		t.Fatalf("subagent tool-result protocol = %q", subagents)
 	}
 	if mainInstructions != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
@@ -125,10 +125,9 @@ Use sources and explain uncertainty.
 		"Prefer one child at a time",
 		"ordinary lookup or research must start one child",
 		"genuinely independent work",
-		"new_instance=true is not a retry mechanism",
-		"new_instance=false creates a child when none is open",
-		"explicitly permits reuse",
-		"genuinely new assignment",
+		"always creates a new separately addressed child",
+		"never reuses, resumes, or continues an existing child",
+		"use send_subagent_message",
 		"use start_subagent or send_subagent_message to check status",
 		"automatic callback",
 		"Before every start_subagent call",
@@ -161,9 +160,7 @@ Use sources and explain uncertainty.
 		"Do not narrate progress or waiting",
 		"call a response or delivery tool",
 		"callback will resume the work automatically",
-		"continue_selection_required",
 		"callback_action=automatic_existing",
-		"callback_action=none",
 		"retry the same dispatch with changed wording",
 		"poll lifecycle state",
 		"## Callback handling",
@@ -178,7 +175,7 @@ Use sources and explain uncertainty.
 		"combine the received outcomes once",
 		"reopens this callback barrier",
 		"## Follow-up and lifecycle",
-		"send_subagent_message targets an idle child only",
+		"send_subagent_message targets an idle incomplete or failed child only",
 		"latest callback has been received and consumed",
 		"incomplete children remain open",
 		"automatically closes completed and failed children",

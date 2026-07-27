@@ -111,52 +111,6 @@ func (m *subagentManager) Start(ctx context.Context, parentSessionID, parentTurn
 	return m.startLocked(ctx, parentSessionID, parentTurnID, message, label, definition, existing)
 }
 
-// StartOrReuse provides conversational routing for the model-facing
-// start_subagent tool. Direct callers use Start when they explicitly want a
-// new child. With implicit routing, one open child is reused and multiple open
-// children are returned for user selection.
-func (m *subagentManager) StartOrReuse(ctx context.Context, parentSessionID, parentTurnID, name, message, label string, newInstance bool) (toolexecution.SubagentStartResult, error) {
-	ctx, definition, message, err := m.prepareStart(ctx, parentSessionID, parentTurnID, name, message)
-	if err != nil {
-		return toolexecution.SubagentStartResult{}, err
-	}
-	m.startMu.Lock()
-	defer m.startMu.Unlock()
-	existing, err := m.store.ListByParent(ctx, parentSessionID)
-	if err != nil {
-		return toolexecution.SubagentStartResult{}, err
-	}
-	open := make([]storage.Subagent, 0, len(existing))
-	for _, child := range existing {
-		if child.Status != storage.SubagentStatusClosed && child.DefinitionName == definition.Name {
-			open = append(open, child)
-		}
-	}
-	if !newInstance {
-		if len(open) == 1 {
-			dispatched, sendErr := m.SendFromParentTurn(ctx, parentSessionID, parentTurnID, open[0].ID, message)
-			if sendErr != nil {
-				return toolexecution.SubagentStartResult{}, sendErr
-			}
-			return toolexecution.SubagentStartResult{
-				Action:         toolexecution.SubagentStartReused,
-				DispatchAction: dispatched.Action,
-				Subagent:       dispatched.Subagent,
-				Deduplicated:   dispatched.Deduplicated,
-				Accepted:       dispatched.Accepted,
-			}, nil
-		}
-		if len(open) > 1 {
-			return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartSelectionRequired, Candidates: open}, nil
-		}
-	}
-	record, err := m.startLocked(ctx, parentSessionID, parentTurnID, message, label, definition, existing)
-	if err != nil {
-		return toolexecution.SubagentStartResult{}, err
-	}
-	return toolexecution.SubagentStartResult{Action: toolexecution.SubagentStartCreated, Subagent: record, Accepted: true}, nil
-}
-
 func (m *subagentManager) prepareStart(ctx context.Context, parentSessionID, parentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -714,6 +668,12 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 				IdempotencyKey: key, Accepted: false,
 			}, nil
 		}
+		if errors.Is(err, storage.ErrSubagentCompleted) {
+			return toolexecution.SubagentSendResult{
+				Action: toolexecution.SubagentSendChildCompleted, Subagent: record,
+				IdempotencyKey: key, Accepted: false,
+			}, nil
+		}
 		return toolexecution.SubagentSendResult{}, err
 	}
 	action := toolexecution.SubagentSendStarted
@@ -774,9 +734,8 @@ func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubag
 }
 
 // validateSubagentSend allows running work to accept ordered mailbox input.
-// An idle child may resume after any known outcome, but only after the parent
-// consumed that outcome's callback; otherwise a new message could overtake the
-// authoritative result that explains what the child needs next.
+// An idle incomplete or failed child may resume only after the parent consumed
+// that outcome's callback. Completed children are never reused.
 func (m *subagentManager) validateSubagentSend(ctx context.Context, record storage.Subagent) error {
 	if record.Status == storage.SubagentStatusRunning {
 		return nil
@@ -785,8 +744,13 @@ func (m *subagentManager) validateSubagentSend(ctx context.Context, record stora
 		return storage.ErrSubagentClosed
 	}
 	switch record.LastTurnOutcome {
-	case storage.SubagentTurnCompleted, storage.SubagentTurnIncomplete, storage.SubagentTurnFailed:
+	case storage.SubagentTurnIncomplete, storage.SubagentTurnFailed:
 		return m.validateLatestSubagentCallbackObserved(ctx, record)
+	case storage.SubagentTurnCompleted:
+		if err := m.validateLatestSubagentCallbackObserved(ctx, record); err != nil {
+			return err
+		}
+		return storage.ErrSubagentCompleted
 	default:
 		return storage.ErrSubagentOutcomeUnavailable
 	}

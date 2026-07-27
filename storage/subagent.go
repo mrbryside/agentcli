@@ -115,6 +115,9 @@ var (
 	// ErrSubagentOutcomeUnavailable indicates an idle child has no terminal or
 	// follow-up outcome that can safely anchor another message.
 	ErrSubagentOutcomeUnavailable = errors.New("subagent has no finished turn outcome")
+	// ErrSubagentCompleted indicates a finished child cannot be reused for
+	// follow-up or unrelated new work.
+	ErrSubagentCompleted = errors.New("completed subagent cannot be reused; start a new subagent for genuinely new work")
 )
 
 // ValidateSubagent verifies a record can be retained by a SubagentStorage.

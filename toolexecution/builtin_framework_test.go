@@ -78,7 +78,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("start_subagent does not describe sequential default and intentional fanout: %q", tool.Definition.Description)
 		}
 		schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
-		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "accepted=true means dispatched") || !strings.Contains(tool.Definition.Description, "accepted=false means no new dispatch") || strings.Contains(schema, `"background"`)) {
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "accepted=true means dispatched") || strings.Contains(schema, `"background"`)) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
@@ -86,18 +86,13 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				t.Fatalf("subagent operation %q must not use static terminal behavior or legacy finish_turn: %#v", tool.Definition.Name, tool)
 			}
 		}
-		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "existing child") || !strings.Contains(tool.Definition.Description, "accepted=true") || !strings.Contains(schema, `"new_instance"`)) {
-			t.Fatalf("start_subagent does not advertise reuse routing: %#v", tool.Definition)
+		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "Every successful call creates a separately addressed child") || !strings.Contains(tool.Definition.Description, "never reuses or continues an existing child") || !strings.Contains(tool.Definition.Description, "use send_subagent_message") || strings.Contains(schema, `"new_instance"`)) {
+			t.Fatalf("start_subagent does not enforce create-only routing: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == StartSubagentToolName {
 			for _, expected := range []string{
 				"not a status, reminder, or follow-up tool for running work",
 				"wait for its automatic callback",
-				"genuinely new assignment",
-				"new_instance=true",
-				"new_instance=false",
-				"creates a child when none is open",
-				"reuses the sole open child",
 				"explicitly choose continue_after_dispatch",
 				"Set it to false",
 				"successful result with a pending callback",
@@ -111,17 +106,14 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				"all true to continue",
 				"Never mix values",
 				"any false call that returns a pending callback ends the successful batch",
-				"selection_required always continues",
 			} {
 				if !strings.Contains(tool.Definition.Description, expected) {
 					t.Fatalf("start_subagent description does not contain turn-choice rule %q: %q", expected, tool.Definition.Description)
 				}
 			}
 			for _, expected := range []string{
-				"True is required for a genuinely new assignment",
-				"False creates a child when none is open",
-				"explicitly permits reuse",
-				"Never use new_instance=true to bypass pending work",
+				"result expected from the new child",
+				"continue an existing child",
 				`"continue_after_dispatch"`,
 				`"required":["name","message","continue_after_dispatch"]`,
 				"Required turn choice made before dispatch",
@@ -133,11 +125,30 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				}
 			}
 		}
+		if tool.Definition.Name == SendSubagentMessageToolName {
+			for _, expected := range []string{
+				"idle incomplete or failed child only",
+				"Never reuse a completed child",
+				"child_completed also means no dispatch",
+			} {
+				if !strings.Contains(tool.Definition.Description, expected) {
+					t.Fatalf("send_subagent_message description does not contain lifecycle rule %q: %q", expected, tool.Definition.Description)
+				}
+			}
+			for _, expected := range []string{
+				"idle incomplete or failed child",
+				"Never use a running, completed, or closed child",
+				"Do not send unrelated new work",
+			} {
+				if !strings.Contains(schema, expected) {
+					t.Fatalf("send_subagent_message schema does not contain lifecycle rule %q: %s", expected, schema)
+				}
+			}
+		}
 		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "focused follow-up") || !strings.Contains(tool.Definition.Description, "never completed") || !strings.Contains(tool.Definition.Description, "arrives automatically")) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
 		}
-		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "after a valid continuation trigger") ||
-			!strings.Contains(tool.Definition.Description, "idle child only") ||
+		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "idle incomplete or failed child only") ||
 			!strings.Contains(tool.Definition.Description, "latest callback has been consumed") ||
 			!strings.Contains(tool.Definition.Description, "applicable instruction or the user explicitly requires") ||
 			!strings.Contains(tool.Definition.Description, "Never call while the child is running") ||
@@ -149,9 +160,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName {
 			for _, expected := range []string{
-				"ID of an idle child from a callback already received and consumed",
-				"Never use an active or running child",
-				"Do not send status checks, reminders",
+				"ID of an idle incomplete or failed child whose latest callback was already received and consumed",
+				"Never use a running, completed, or closed child",
+				"Do not send unrelated new work, status checks, reminders",
 			} {
 				if !strings.Contains(schema, expected) {
 					t.Fatalf("send_subagent_message schema does not contain idle-only rule %q: %s", expected, schema)

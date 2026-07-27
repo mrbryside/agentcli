@@ -49,29 +49,44 @@ boundary; it never interrupts a live provider stream or tool handler.
 Otherwise `ContinueSubagentCallbackSubscribed` starts a continuation turn.
 Duplicate, already-sent, and callback-pending outcomes use
 `callback_action=automatic_existing`; they create no new pending callback.
-`selection_required` uses `callback_action=none` because nothing was
-dispatched. A completed, incomplete, or failed outcome carries structured
-summary/next-step fields, terminal error, and final assistant answer when
-available. `completed` forbids `next_step` and `error`; `incomplete` requires
-one concrete `next_step`; `failed` requires the actual terminal `error` and
-forbids `next_step`. `report_subagent_outcome` is registered automatically only
-for children; every semantic outcome requires an explicit successful report.
+Every successful `start_subagent` call creates a new separately addressed
+child; it never reuses or continues an existing child. A completed, incomplete,
+or failed outcome carries structured summary/next-step fields, terminal error,
+and final assistant answer when available. `completed` forbids `next_step` and
+`error`; `incomplete` requires one concrete `next_step`; `failed` requires the
+actual terminal `error` and forbids `next_step`.
+`report_subagent_outcome` is registered automatically only for children; every
+semantic outcome requires an explicit successful report.
 Its bounded repair
 exposes only `report_subagent_outcome`, preventing repeated domain actions, and
 defaults safely to incomplete if the child still omits a valid report.
 Lifecycle (`running`, `idle`, `closed`) remains separate from last-turn
 outcome.
 
-Implicit `start_subagent` reuse is scoped to the requested definition: an open
-child of another configured agent type is never a candidate. Start results
-expose `accepted` and `deduplicated` with the same meaning as send results, so
-callers count only accepted children in fan-out state. Created work is accepted;
-selection, duplicate, already-sent, and callback-pending outcomes are not.
-Ordinary lookup and research should start one child, evaluate its callback, and
-start another only if needed. Multiple starts in one provider response are for
-intentional independent comparison or parallel work.
+Start results are always accepted when creation succeeds. Ordinary lookup and
+research should start one child, evaluate its callback, and start another only
+if needed. Multiple starts in one provider response are for intentional
+independent comparison or parallel work. Follow-ups target a known idle
+incomplete or failed child through `send_subagent_message` after its latest
+callback is consumed. Completed children are not reused.
 
-The model-facing send path hashes normalized content with parent session, parent turn, and child ID. One parent turn may dispatch to a given child once: exact retries return `duplicate`, changed retries return `already_sent`, and neither reaches the mailbox; these idempotency decisions run before lifecycle admission, so a fast callback cannot turn a same-turn retry into an error. A new parent turn can send again. Running children accept FIFO mailbox input. Idle incomplete, completed, and failed children accept follow-up, new-task, and recovery input respectively only after the latest callback cursor was observed. When that callback is pending, model-facing send returns successful action `callback_pending` with `accepted=false`, `callback_action=automatic_existing`, and a short notice that the pending result will arrive automatically; direct Go/HTTP sends still return the lifecycle error. Closed and outcome-less children reject sends. The model has no list or status tools; the runtime supplies active instance summaries through `active_subagents`, and child results arrive only through callbacks. While a completion callback is pending, both routing tool results and the reminder omit last-turn error, outcome, summary, and next-step payloads.
+The model-facing send path hashes normalized content with parent session, parent
+turn, and child ID. One parent turn may dispatch to a given child once: exact
+retries return `duplicate`, changed retries return `already_sent`, and neither
+reaches the mailbox; these idempotency decisions run before lifecycle
+admission, so a fast callback cannot turn a same-turn retry into an error. A new
+parent turn can send again. Model-facing sends target idle children only after
+the latest callback cursor was observed. A running child returns
+`callback_pending` with `accepted=false`,
+`callback_action=automatic_existing`, and a short notice that the pending
+result will arrive automatically. An observed completed child returns
+`child_completed` without dispatch and is not reused. Direct Go/HTTP sends may
+still queue FIFO input behind a running child, but completed, closed, and
+outcome-less children reject sends.
+The model has no list or status tools; the runtime supplies active instance
+summaries through `active_subagents`, and child results arrive only through
+callbacks. While a completion callback is pending, both routing tool results
+and the reminder omit last-turn error, outcome, summary, and next-step payloads.
 
 One human root turn opens one response scope. Accepted child dispatches, inline
 callback inputs, and callback continuation turns remain in that scope;
