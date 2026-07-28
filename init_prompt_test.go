@@ -145,7 +145,7 @@ func TestInstallerIncludesCurrentProjectOptions(t *testing.T) {
 	}
 	installer := string(content)
 	for _, required := range []string{
-		"permission_mode: criticalOnly\nmax_provider_steps: 20\nmax_subagents: 4",
+		"permission_mode: criticalOnly\nmax_subagents: 4",
 		"  # openrouter:\n  #   type: openai\n  #   url: https://openrouter.ai/api/v1",
 	} {
 		if !strings.Contains(installer, required) {

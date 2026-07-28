@@ -261,10 +261,8 @@ func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, er
 	if m.config.contextEstimator != nil {
 		options = append(options, WithContextEstimator(m.config.contextEstimator))
 	}
-	if m.config.disableProviderStepLimit {
-		options = append(options, WithProviderStepLimitEnabled(false))
-	} else if m.config.maxProviderSteps > 0 {
-		options = append(options, WithMaxProviderSteps(m.config.maxProviderSteps))
+	if m.config.maxProviderSteps > 0 {
+		options = append(options, WithProviderStepLimit(m.config.maxProviderSteps))
 	}
 	for _, tool := range filterSubagentTools(definition, m.config.tools) {
 		options = append(options, WithTool(tool))

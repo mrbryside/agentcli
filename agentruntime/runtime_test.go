@@ -47,8 +47,8 @@ func TestNewValidatesConfigAndAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if runtime.ctx == nil || runtime.idGenerator == nil || runtime.maxSteps != 20 {
-		t.Fatalf("New() defaults = %#v, want context, generator, and max steps 20", runtime)
+	if runtime.ctx == nil || runtime.idGenerator == nil || runtime.maxSteps != 0 {
+		t.Fatalf("New() defaults = %#v, want context, generator, and disabled step limit", runtime)
 	}
 
 	tests := []struct {
@@ -680,7 +680,7 @@ func TestRuntimeStepLimitFinalizerCannotDispatchTools(t *testing.T) {
 	}
 }
 
-func TestRuntimeCanDisableProviderStepLimit(t *testing.T) {
+func TestRuntimeHasNoProviderStepLimitByDefault(t *testing.T) {
 	model := &scriptedRuntimeModel{streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
 			CompletedTools: []provider.ToolCall{{ID: "first", Name: "tool", Arguments: map[string]any{}}}, Finished: true,
@@ -697,7 +697,7 @@ func TestRuntimeCanDisableProviderStepLimit(t *testing.T) {
 	runtime, err := New(context.Background(), Config{
 		Model: model, Messages: inmemory.NewMessageStorage(),
 		ToolRequests: requests, ToolResults: results, ToolInterrupts: make(chan ToolInterrupt, 8),
-		IDGenerator: incrementingRuntimeIDs{}, MaxSteps: 1, DisableStepLimit: true,
+		IDGenerator: incrementingRuntimeIDs{},
 	})
 	if err != nil {
 		t.Fatal(err)

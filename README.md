@@ -76,7 +76,6 @@ Create `.agentcli/config.yaml`:
 
 ```yaml
 permission_mode: default
-max_provider_steps: 20
 max_subagents: 4
 
 # Optional structured runtime, tool, scope, and repair lifecycle logs.

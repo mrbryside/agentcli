@@ -26,7 +26,7 @@ func TestNewValidatesRequiredAndNumericOptions(t *testing.T) {
 		{name: "missing model"},
 		{name: "zero channel buffer", options: []Option{WithModel(&scriptedModel{}), WithChannelBuffer(0)}},
 		{name: "zero workers", options: []Option{WithModel(&scriptedModel{}), WithToolWorkers(0)}},
-		{name: "zero provider steps", options: []Option{WithModel(&scriptedModel{}), WithMaxProviderSteps(0)}},
+		{name: "zero provider steps", options: []Option{WithModel(&scriptedModel{}), WithProviderStepLimit(0)}},
 		{name: "empty project root", options: []Option{WithModel(&scriptedModel{}), WithProjectRoot("")}},
 		{name: "unknown permission mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionMode("unknown")}},
 		{name: "unknown policy mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionPolicy(permission.Policy{Mode: "unknown"})}},
@@ -43,28 +43,16 @@ func TestNewValidatesRequiredAndNumericOptions(t *testing.T) {
 	}
 }
 
-func TestProviderStepLimitOptionsFollowApplicationOrder(t *testing.T) {
+func TestProviderStepLimitOptionIsOptIn(t *testing.T) {
 	configuration := defaultConfig(t.TempDir())
-	if configuration.disableProviderStepLimit {
-		t.Fatal("default provider step limit is disabled")
+	if configuration.maxProviderSteps != 0 {
+		t.Fatalf("default provider step limit = %d, want disabled zero", configuration.maxProviderSteps)
 	}
-	if err := WithProviderStepLimitEnabled(false)(&configuration); err != nil {
+	if err := WithProviderStepLimit(7)(&configuration); err != nil {
 		t.Fatal(err)
 	}
-	if !configuration.disableProviderStepLimit {
-		t.Fatal("provider step limit was not disabled")
-	}
-	if err := WithMaxProviderSteps(7)(&configuration); err != nil {
-		t.Fatal(err)
-	}
-	if configuration.disableProviderStepLimit || configuration.maxProviderSteps != 7 {
-		t.Fatalf("max-step option did not re-enable configured limit: %#v", configuration)
-	}
-	if err := WithProviderStepLimitEnabled(false)(&configuration); err != nil {
-		t.Fatal(err)
-	}
-	if !configuration.disableProviderStepLimit || configuration.maxProviderSteps != 7 {
-		t.Fatalf("later disable option did not preserve configured maximum: %#v", configuration)
+	if configuration.maxProviderSteps != 7 {
+		t.Fatalf("provider step limit = %d, want 7", configuration.maxProviderSteps)
 	}
 }
 

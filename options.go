@@ -30,34 +30,33 @@ const defaultCompletionRepairLimit = 3
 type Option func(*config) error
 
 type config struct {
-	model                    agentruntime.Model
-	systemPrompts            []string
-	projectRoot              string
-	permissionMode           permission.Mode
-	permissionPolicy         permission.Policy
-	nonInteractive           bool
-	toolWorkers              int
-	channelBuffer            int
-	messages                 storage.MessageStorage
-	permissions              storage.PermissionStorage
-	confirmations            storage.ConfirmationStorage
-	tools                    []toolexecution.Tool
-	project                  *Project
-	skillReload              SkillReloadPolicy
-	subagents                storage.SubagentStorage
-	maxProviderSteps         int
-	disableProviderStepLimit bool
-	maxSubagents             int
-	childAgent               bool
-	contextReminderProvider  agentruntime.ContextReminderProvider
-	inputGuard               agentruntime.InputGuard
-	outputGuard              agentruntime.OutputGuard
-	inputGuardPrompt         string
-	outputGuardPrompt        string
-	inputGuardProvider       string
-	inputGuardModel          string
-	outputGuardProvider      string
-	outputGuardModel         string
+	model                   agentruntime.Model
+	systemPrompts           []string
+	projectRoot             string
+	permissionMode          permission.Mode
+	permissionPolicy        permission.Policy
+	nonInteractive          bool
+	toolWorkers             int
+	channelBuffer           int
+	messages                storage.MessageStorage
+	permissions             storage.PermissionStorage
+	confirmations           storage.ConfirmationStorage
+	tools                   []toolexecution.Tool
+	project                 *Project
+	skillReload             SkillReloadPolicy
+	subagents               storage.SubagentStorage
+	maxProviderSteps        int
+	maxSubagents            int
+	childAgent              bool
+	contextReminderProvider agentruntime.ContextReminderProvider
+	inputGuard              agentruntime.InputGuard
+	outputGuard             agentruntime.OutputGuard
+	inputGuardPrompt        string
+	outputGuardPrompt       string
+	inputGuardProvider      string
+	inputGuardModel         string
+	outputGuardProvider     string
+	outputGuardModel        string
 	// compactionModel is resolved by WithProject, or supplied explicitly by
 	// WithCompactionModel. It is kept in assembly config until the runtime owns
 	// the provider-neutral compactor.
@@ -369,26 +368,15 @@ func WithMaxSubagents(maximum int) Option {
 	}
 }
 
-// WithMaxProviderSteps bounds the number of provider rounds a turn may use.
-// The runtime default is used when this option is omitted.
-func WithMaxProviderSteps(maximum int) Option {
+// WithProviderStepLimit bounds the number of agentic provider rounds a turn
+// may use before one additional tools-free text finalization round. Omitting
+// this option leaves the turn unlimited.
+func WithProviderStepLimit(maximum int) Option {
 	return func(configuration *config) error {
 		if maximum <= 0 {
-			return errors.New("maximum provider steps must be positive")
+			return errors.New("provider step limit must be positive")
 		}
 		configuration.maxProviderSteps = maximum
-		configuration.disableProviderStepLimit = false
-		return nil
-	}
-}
-
-// WithProviderStepLimitEnabled controls whether a turn has a provider-round
-// ceiling. Enabling uses the configured maximum or the runtime default of 20;
-// disabling allows provider rounds until another completion boundary ends the
-// turn.
-func WithProviderStepLimitEnabled(enabled bool) Option {
-	return func(configuration *config) error {
-		configuration.disableProviderStepLimit = !enabled
 		return nil
 	}
 }

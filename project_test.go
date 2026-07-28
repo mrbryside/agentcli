@@ -714,10 +714,9 @@ providers:
 	}
 }
 
-func TestProjectConfigLoadsAppliesAndEnforcesMaxProviderSteps(t *testing.T) {
+func TestWithProviderStepLimitEnforcesTextFinalization(t *testing.T) {
 	root := projectFixture(t)
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
-max_provider_steps: 1
 providers:
   openai:
     type: openai
@@ -727,22 +726,18 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.MaxProviderSteps() != 1 {
-		t.Fatalf("project max provider steps = %d, want 1", project.MaxProviderSteps())
-	}
-
 	configuration := defaultConfig(root)
 	if err := WithProject(project)(&configuration); err != nil {
 		t.Fatal(err)
 	}
-	if configuration.maxProviderSteps != 1 {
-		t.Fatalf("applied max provider steps = %d, want 1", configuration.maxProviderSteps)
+	if configuration.maxProviderSteps != 0 {
+		t.Fatalf("project implicitly enabled provider step limit %d", configuration.maxProviderSteps)
 	}
 
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "skill-call", Name: SkillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
 	}}}
-	agent, err := New(context.Background(), WithProject(project), WithModel(model))
+	agent, err := New(context.Background(), WithProject(project), WithModel(model), WithProviderStepLimit(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -763,16 +758,16 @@ providers:
 	}
 }
 
-func TestLoadProjectRejectsNegativeMaxProviderSteps(t *testing.T) {
+func TestLoadProjectRejectsProviderStepLimitYAML(t *testing.T) {
 	root := projectFixture(t)
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `max_provider_steps: -1
+	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `max_provider_steps: 20
 providers:
   openai:
     type: openai
     api_key: test-key
 `)
-	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "max_provider_steps cannot be negative") {
-		t.Fatalf("LoadProject() error = %v", err)
+	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field max_provider_steps not found") {
+		t.Fatalf("LoadProject() error = %v, want unsupported max_provider_steps field", err)
 	}
 }
 

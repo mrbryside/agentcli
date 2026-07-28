@@ -39,7 +39,6 @@ and optional transcript compaction:
 
 ```yaml
 permission_mode: default
-max_provider_steps: 20
 max_subagents: 4
 
 # Omit this mapping to disable runtime console logs.
@@ -123,15 +122,13 @@ entry is added to its requests. Selecting `qwen-model-id` sends only
 `chat_template_kwargs.enable_thinking: false`. Selecting any other model name
 still works and receives neither override.
 
-`max_provider_steps` sets the agentic provider-round budget for each main or
-child turn. A positive value replaces the default of 20, while omitting it or
-setting it to `0` keeps that default. Once the budget is exhausted, the runtime
-makes exactly one additional provider request with no tools so the model can
-return a final text summary; that finalizer is included in `RunResult.Steps`.
-It cannot dispatch tools and does not run completion or output-guard repairs.
-Negative values are rejected. The Go option `WithMaxProviderSteps` can override
-the project value, while `WithProviderStepLimitEnabled(false)` disables the
-ceiling programmatically. There is no YAML switch for disabling it.
+Provider-step limits are programmatic rather than project configuration.
+Without `WithProviderStepLimit`, main and child turns have no provider-round
+ceiling. `WithProviderStepLimit(n)` allows `n` agentic provider rounds, then
+makes exactly one additional request with no tools so the model can return a
+final text summary; that finalizer is included in `RunResult.Steps`. It cannot
+dispatch tools and does not run completion or output-guard repairs. The option
+requires a positive value and is inherited by child agents.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.

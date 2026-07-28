@@ -248,7 +248,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ConfirmationDecisions:   confirmationDecisions,
 		PermissionMode:          configuration.permissionMode,
 		MaxSteps:                configuration.maxProviderSteps,
-		DisableStepLimit:        configuration.disableProviderStepLimit,
 		Compactor:               compactor,
 		Logger:                  configuration.logger,
 		PermissionModeChanged: func(_, current permission.Mode) error {

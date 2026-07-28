@@ -67,7 +67,6 @@ model: replace-model
 
 ```yaml
 permission_mode: criticalOnly
-max_provider_steps: 20
 
 compaction:
   auto: true

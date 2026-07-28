@@ -42,11 +42,9 @@ type Config struct {
 	// embedding atomically update the executor's permission policy.
 	PermissionModeChanged func(previous, current permission.Mode) error
 	IDGenerator           IDGenerator
-	MaxSteps              int
-	// DisableStepLimit allows provider rounds to continue until the model,
-	// caller, or another runtime boundary ends the turn. MaxSteps is ignored
-	// when this flag is true.
-	DisableStepLimit bool
+	// MaxSteps bounds agentic provider rounds before one additional tools-free
+	// text finalization round. Zero disables the boundary.
+	MaxSteps int
 	// Compactor enables provider-neutral transcript compaction before each
 	// main-model round. Its zero value is disabled.
 	Compactor *Compactor
@@ -199,11 +197,6 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	if !permission.IsValidMode(config.PermissionMode) {
 		return nil, invalidRuntimeConfig("unknown permission mode %q", config.PermissionMode)
-	}
-	if config.DisableStepLimit {
-		config.MaxSteps = 0
-	} else if config.MaxSteps == 0 {
-		config.MaxSteps = 20
 	}
 	if config.IDGenerator == nil {
 		config.IDGenerator = cryptoIDGenerator{}

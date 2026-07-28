@@ -25,8 +25,7 @@ When Go is unavailable, the generated `go.mod` pins fallback release `v0.0.39`
 so the starter still includes the public API used by its downloaded templates.
 After installing Go, `go mod tidy` completes dependency resolution.
 
-Generated `.agentcli/config.yaml` starts in `criticalOnly` mode, sets
-`max_provider_steps: 20`, and defines an
+Generated `.agentcli/config.yaml` starts in `criticalOnly` mode and defines an
 OpenAI-compatible provider under the explicit placeholder alias
 `replace-provider`. Every generated agent currently selects
 `provider: replace-provider` and `model: replace-model`, so callers must replace
