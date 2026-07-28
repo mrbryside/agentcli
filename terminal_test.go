@@ -652,7 +652,7 @@ func TestClosedAgentRejectsTerminal(t *testing.T) {
 
 func TestTerminalLeavesTaskDeliveryToAgent(t *testing.T) {
 	interfaceType := reflect.TypeOf((*terminalAgent)(nil)).Elem()
-	for _, name := range []string{"SubscribeSubagentResults", "ContinueSubagentResultSubscribed"} {
+	for _, name := range []string{"SubscribeSubagentResults", "TryInjectSubagentResult", "ContinueSubagentResultSubscribed"} {
 		if _, found := interfaceType.MethodByName(name); found {
 			t.Fatalf("terminalAgent still owns %s; task delivery belongs to Agent", name)
 		}

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -713,20 +712,6 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	return run, subscription, nil
 }
 
-// SubscribeSubagentResults returns the legacy host-session result stream.
-//
-// Deprecated: model-facing task execution is delivered internally by Agent.
-// This compatibility surface is retained only until the terminal and HTTP
-// session-management migrations remove their old host-created-session pump.
-func (a *Agent) SubscribeSubagentResults(ctx context.Context) <-chan SubagentResult {
-	if a == nil || a.subagents == nil {
-		closed := make(chan SubagentResult)
-		close(closed)
-		return closed
-	}
-	return a.subagents.subscribeResults(ctx)
-}
-
 // SubscribeSystemEvents returns a live-only stream of agent-level facts that
 // are not owned by one runtime turn.
 func (a *Agent) SubscribeSystemEvents(ctx context.Context) <-chan SystemEvent {
@@ -798,144 +783,6 @@ func (a *Agent) PendingSubagentPermissions(ctx context.Context, mainAgentSession
 		return nil, err
 	}
 	return manager.pendingPermissions(nonNilContext(ctx), mainAgentSessionID)
-}
-
-// ContinueSubagentResultSubscribed starts a main agent turn from a trusted
-// subagent completion result and advances the subagent's observation cursor only
-// after the turn was accepted. This keeps result input distinct from human
-// user messages while giving UIs the same pre-subscribed event stream.
-//
-// Call TryInjectSubagentResult first when the host wants results to join
-// an already-active main agent between provider rounds.
-//
-// Deprecated: Agent owns task-result delivery. This remains only for the
-// legacy host-created subagent session API and never receives task executions.
-func (a *Agent) ContinueSubagentResultSubscribed(ctx context.Context, result SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error) {
-	if a == nil || a.runtime == nil {
-		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
-	}
-	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("subagent result identifiers are required")
-	}
-	continuationTurnID, err := newSubagentID("turn_")
-	if err != nil {
-		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create result continuation turn: %w", err)
-	}
-	return a.continueSubagentResultSubscribed(ctx, result, continuationTurnID)
-}
-
-// TryInjectSubagentResult delivers a subagent result into the next provider
-// boundary of the currently active main agent response scope. It returns false
-// when no compatible main agent run is active, allowing the host to start a normal
-// result continuation turn instead.
-//
-// Deprecated: Agent owns task-result delivery. This remains only for the
-// legacy host-created subagent session API and never receives task executions.
-func (a *Agent) TryInjectSubagentResult(ctx context.Context, result SubagentResult) (bool, error) {
-	if a == nil || a.runtime == nil {
-		return false, errors.New("agent is nil")
-	}
-	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
-		return false, errors.New("subagent result identifiers are required")
-	}
-	manager, err := a.subagentManager()
-	if err != nil {
-		return false, err
-	}
-	activeTurnID, active := a.runtime.ActiveTurnID(result.MainAgentSessionID)
-	if !active {
-		return false, nil
-	}
-	reservation, err := a.responseScopes.ReserveInlineResultWithMetadata(
-		result.MainAgentSessionID,
-		activeTurnID,
-		responseScopeResult(result),
-	)
-	if err != nil {
-		if errors.Is(err, toolexecution.ErrResponseScopeAssignmentNotFound) ||
-			strings.Contains(err.Error(), "different response scope") ||
-			strings.Contains(err.Error(), "does not belong to a response scope") {
-			return false, nil
-		}
-		return false, err
-	}
-	injectCtx, cancel := context.WithCancel(context.Background())
-	stop := context.AfterFunc(a.closing, cancel)
-	defer func() {
-		stop()
-		cancel()
-	}()
-	err = a.runtime.InjectRuntimeMessage(
-		injectCtx,
-		result.MainAgentSessionID,
-		activeTurnID,
-		result.RuntimeMessage(reservation.ResultProgress()),
-		reservation.Commit,
-	)
-	if err != nil {
-		reservation.Rollback(result.SubagentID, result.SubagentTurnID)
-		if errors.Is(err, agentruntime.ErrRunNotFound) {
-			return false, nil
-		}
-		if a.isClosing() {
-			return false, ErrClosed
-		}
-		return false, err
-	}
-	_ = manager.observeSubagentResult(context.WithoutCancel(nonNilContext(ctx)), result)
-	return true, nil
-}
-
-func (a *Agent) continueSubagentResultSubscribed(ctx context.Context, result SubagentResult, continuationTurnID string) (*agentruntime.Run, agentruntime.EventSubscription, error) {
-	if a == nil || a.runtime == nil {
-		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
-	}
-	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("subagent result identifiers are required")
-	}
-	if continuationTurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("result continuation turn ID is required")
-	}
-	manager, err := a.subagentManager()
-	if err != nil {
-		return nil, agentruntime.EventSubscription{}, err
-	}
-	reservation, err := a.responseScopes.ReserveResultTurnWithMetadata(
-		result.MainAgentSessionID,
-		continuationTurnID,
-		responseScopeResult(result),
-	)
-	if err != nil {
-		return nil, agentruntime.EventSubscription{}, err
-	}
-	run, subscription, err := a.runtime.StartSubscribed(ctx, agentruntime.Request{
-		SessionID: result.MainAgentSessionID,
-		TurnID:    continuationTurnID,
-		Message:   result.RuntimeMessage(reservation.ResultProgress()),
-	})
-	if err != nil {
-		reservation.Rollback(result.SubagentID, result.SubagentTurnID)
-		return nil, agentruntime.EventSubscription{}, err
-	}
-	reservation.Commit()
-	// The result itself carries the final answer, so observation failure does
-	// not invalidate an already-running continuation. It only leaves the
-	// durable fallback unread for a future turn.
-	_ = manager.observeSubagentResult(context.WithoutCancel(nonNilContext(ctx)), result)
-	// Install the response-scope completion watcher only after observation so
-	// a very fast result continuation cannot end its scope first.
-	a.watchAcceptedRun(run)
-	return run, subscription, nil
-}
-
-func responseScopeResult(result SubagentResult) toolexecution.ResponseScopeDeliveredResult {
-	return toolexecution.ResponseScopeDeliveredResult{
-		SubagentID:     result.SubagentID,
-		DefinitionName: result.DefinitionName,
-		DisplayName:    result.DisplayName,
-		SubagentTurnID: result.SubagentTurnID,
-		ResultStatus:   string(result.Status),
-	}
 }
 
 func ensureResponseTurnID(request *agentruntime.Request) error {

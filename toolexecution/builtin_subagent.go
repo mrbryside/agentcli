@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
-	"github.com/mrbryside/agentcli/storage"
 )
 
 // TaskToolName is the sole framework tool through which a main agent assigns
@@ -180,42 +179,4 @@ func validateTaskToolInput(input TaskToolInput) error {
 		return errors.New("task description cannot be supplied when resuming a task")
 	}
 	return nil
-}
-
-// The following host-session lifecycle values remain only while the old
-// server, terminal, and integration callers are migrated in Tasks 6, 8, and
-// 10. They are not registered tools and must be removed before v0.1.0.
-//
-// TODO(tasks-6-8-10): remove this transitional host-only surface.
-type SubagentSendAction string
-
-const (
-	SubagentSendStarted           SubagentSendAction = "started"
-	SubagentSendQueued            SubagentSendAction = "queued"
-	SubagentSendDuplicate         SubagentSendAction = "duplicate"
-	SubagentSendAlreadySent       SubagentSendAction = "already_sent"
-	SubagentSendResultPending     SubagentSendAction = "result_pending"
-	SubagentSendCompleted         SubagentSendAction = "subagent_completed"
-	SubagentSendRecoveryExhausted SubagentSendAction = "recovery_exhausted"
-)
-
-type SubagentSendResult struct {
-	Action         SubagentSendAction
-	Subagent       storage.Subagent
-	IdempotencyKey string
-	Deduplicated   bool
-	Accepted       bool
-}
-
-type SubagentCloseResult struct {
-	Subagent             storage.Subagent
-	PreviousStatus       storage.SubagentStatus
-	PreviousResultStatus storage.SubagentResultStatus
-	DroppedMessages      int
-	Interrupted          bool
-}
-
-type SubagentStatusSnapshot struct {
-	Subagent storage.Subagent
-	Repeated bool
 }

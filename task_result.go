@@ -57,3 +57,8 @@ func taskFinalResultFromOutput(taskID string, definition SubagentDefinition, out
 	}
 	return result, cloneTaskMetadata(final.Metadata)
 }
+
+func taskResultFromFinalOutput(taskID string, definition SubagentDefinition, output string, incomplete bool) TaskResult {
+	result, _ := taskFinalResultFromOutput(taskID, definition, output, incomplete)
+	return result
+}

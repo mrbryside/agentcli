@@ -103,7 +103,7 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 
 func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {
 	subagentModel := &subagentGateModel{releases: make(chan struct{}, 1)}
-	agent, serverURL := newTestSubagentHTTPServer(t, subagentModel)
+	_, serverURL := newTestSubagentHTTPServer(t, subagentModel)
 	created := createHTTPSubagent(t, serverURL, "mainAgent-events", `{"name":"researcher","message":"work"}`)
 	if err := subagentModel.waitStarts(1); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,6 @@ func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {
 		t.Fatalf("reconnect after final event = %#v", reconnected)
 	}
 
-	observeTestSubagentResult(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
 	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("mainAgent-events", created.ID), "", "")
 	defer closed.Body.Close()
 	if closed.StatusCode != http.StatusOK {

@@ -54,7 +54,6 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, first.ID, storage.SubagentStatusIdle)
-	observeTestSubagentResult(t, manager, markTestSubagentCompleted(t, manager, first.ID))
 	if _, err := manager.CloseSubagent(context.Background(), "mainAgent-a", first.ID); err != nil {
 		t.Fatal(err)
 	}

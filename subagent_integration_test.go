@@ -84,8 +84,195 @@ func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *t
 	}
 }
 
-// TODO(task-10): add background and foreground-promotion integration coverage
-// once Task 6 owns background delivery and removes the legacy result pump.
+func TestSubagentIntegrationStepLimitedTaskFinalizesOnceWithoutReportTool(t *testing.T) {
+	main := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "limited", Name: TaskToolName,
+		Arguments: map[string]any{"agent": "researcher", "description": "Inspect", "prompt": "inspect"},
+	}}}
+	child := &lateStepLimitFinalTextModel{}
+	agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{
+		"researcher": newIntegrationSubagentModel("unused"),
+	})
+	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), withSubagentAgent(), WithModel(child), WithProviderStepLimit(1), WithTool(testTool("work")), WithMessageStorage(agent.messages))
+	}
+
+	run, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "main", TurnID: "root", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	requests := child.Requests()
+	if len(requests) != 2 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != "work" || len(requests[1].Tools) != 0 {
+		t.Fatalf("child provider requests = %#v, want domain-tool round then one text-only finalizer", requests)
+	}
+	if len(main.Requests()) != 2 {
+		t.Fatalf("main provider requests = %d, want task batch and final response only", len(main.Requests()))
+	}
+	messages, err := agent.ListMessages(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := onlyTaskToolResult(t, messages, "limited")
+	if result.State != TaskStateIncomplete || result.Output != "partial final answer" || result.Error != "" {
+		t.Fatalf("step-limited task result = %#v", result)
+	}
+	for _, request := range append(main.Requests(), requests...) {
+		for _, tool := range request.Tools {
+			if tool.Name == "report_subagent_result" {
+				t.Fatal("report_subagent_result was requested during task finalization")
+			}
+		}
+	}
+}
+
+func TestSubagentIntegrationBackgroundAndPromotionDeliverOneTrustedResult(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		background bool
+		wait       time.Duration
+	}{
+		{name: "background", background: true},
+		{name: "promotion", wait: time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := map[string]any{"agent": "researcher", "description": "Research", "prompt": "research"}
+			if test.background {
+				args["background"] = true
+			}
+			main := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "task", Name: TaskToolName, Arguments: args}}}
+			child := newIntegrationSubagentModel("background complete")
+			agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": child}, WithTaskForegroundWait(test.wait))
+			events := agent.SubscribeSystemEvents(context.Background())
+
+			root, err := agent.Start(context.Background(), agentruntime.Request{
+				SessionID: "main", TurnID: "root", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			child.waitRequests(t, 1)
+			waitRun(t, root)
+			child.release()
+			completed := waitTaskCompleted(t, events)
+			if completed.MainAgentTurnID != "root" || completed.TaskCompleted == nil || completed.TaskCompleted.State != TaskStateCompleted {
+				t.Fatalf("task completion = %#v", completed)
+			}
+			waitIntegrationModelRequests(t, main, 3)
+			messages, err := agent.ListMessages(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			trusted := 0
+			for _, message := range messages {
+				if message.Type == agentruntime.MessageTypeRuntimeEvent && strings.Contains(message.Content, "<task_result>") {
+					trusted++
+					if strings.Contains(message.Content, "metadata") || strings.Contains(message.Content, "result_progress") {
+						t.Fatalf("task input leaked application metadata: %s", message.Content)
+					}
+				}
+			}
+			if trusted != 1 {
+				t.Fatalf("trusted task-result inputs = %d, want exactly one", trusted)
+			}
+		})
+	}
+}
+
+func TestSubagentIntegrationBackgroundFailureDeliversOneTrustedError(t *testing.T) {
+	main := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "task", Name: TaskToolName,
+		Arguments: map[string]any{"agent": "researcher", "description": "Research", "prompt": "research", "background": true},
+	}}}
+	agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": newIntegrationSubagentModel("unused")})
+	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), withSubagentAgent(), WithModel(subagentFailModel{err: errors.New("child unavailable")}), WithMessageStorage(agent.messages))
+	}
+	events := agent.SubscribeSystemEvents(context.Background())
+	run, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "main", TurnID: "root", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	completed := waitTaskCompleted(t, events)
+	if completed.TaskCompleted == nil || completed.TaskCompleted.State != TaskStateError {
+		t.Fatalf("task completion = %#v, want one error", completed)
+	}
+	messages, err := agent.ListMessages(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trusted := 0
+	for _, message := range messages {
+		if message.Type == agentruntime.MessageTypeRuntimeEvent && strings.Contains(message.Content, "<task_result>") {
+			trusted++
+			if !strings.Contains(message.Content, `"state":"error"`) {
+				t.Fatalf("task error input = %s", message.Content)
+			}
+		}
+	}
+	if trusted != 1 {
+		t.Fatalf("trusted error task inputs = %d, want exactly one", trusted)
+	}
+}
+
+func TestSubagentIntegrationResultContractsPublishMetadataOnlyWhenValid(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		content   string
+		wantState TaskState
+		metadata  bool
+	}{
+		{name: "valid", content: `{"message":"Done","requires_reply":true}`, wantState: TaskStateCompleted, metadata: true},
+		{name: "invalid", content: `{"requires_reply":true}`, wantState: TaskStateError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			main := &scriptedModel{toolCalls: []provider.ToolCall{{
+				ID: "contract", Name: TaskToolName,
+				Arguments: map[string]any{"agent": "researcher", "description": "Operate", "prompt": "operate"},
+			}}}
+			child := newIntegrationSubagentModel(test.content)
+			child.release()
+			agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": child})
+			definition := agent.subagents.project.subagents["researcher"]
+			definition.Result = &AgentResultContract{MessageField: "message", Metadata: map[string]AgentResultMetadataField{
+				"requires_reply": {Type: "boolean", Required: true},
+			}}
+			agent.subagents.project.subagents["researcher"] = definition
+			events := agent.SubscribeSystemEvents(context.Background())
+			run, err := agent.Start(context.Background(), agentruntime.Request{
+				SessionID: "main", TurnID: "root", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitRun(t, run)
+			completed := waitTaskCompleted(t, events)
+			if completed.TaskCompleted == nil || completed.TaskCompleted.State != test.wantState {
+				t.Fatalf("task completion = %#v", completed)
+			}
+			if got := completed.TaskCompleted.Metadata["requires_reply"]; test.metadata && got != true {
+				t.Fatalf("task metadata = %#v, want validated requires_reply", completed.TaskCompleted.Metadata)
+			} else if !test.metadata && len(completed.TaskCompleted.Metadata) != 0 {
+				t.Fatalf("invalid contract published metadata = %#v", completed.TaskCompleted.Metadata)
+			}
+			messages, err := agent.ListMessages(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result := onlyTaskToolResult(t, messages, "contract"); result.State != test.wantState {
+				t.Fatalf("contract task result = %#v", result)
+			}
+		})
+	}
+}
 
 func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T) {
 	mainAgentModel := &scriptedModel{}
@@ -135,21 +322,15 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 
 	subagentModel.release()
 	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
-	pendingResponse := integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("mainAgent", created.ID)+"/turns", `{"message":"too early"}`)
-	if pendingResponse.StatusCode != http.StatusConflict {
-		defer pendingResponse.Body.Close()
-		t.Fatalf("send before result consumption status = %d", pendingResponse.StatusCode)
-	}
-	pendingResponse.Body.Close()
-	if _, err := agent.ReadSubagent(context.Background(), "mainAgent", created.ID, ""); err != nil {
-		t.Fatal(err)
-	}
 	response = integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("mainAgent", created.ID)+"/turns", `{"message":"HTTP follow-up"}`)
-	if response.StatusCode != http.StatusConflict {
+	if response.StatusCode != http.StatusAccepted {
 		defer response.Body.Close()
-		t.Fatalf("completed HTTP subagent send status = %d", response.StatusCode)
+		t.Fatalf("host-managed HTTP follow-up status = %d", response.StatusCode)
 	}
 	response.Body.Close()
+	subagentModel.waitRequests(t, 2)
+	subagentModel.release()
+	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
 
 	response = integrationJSONRequest(t, http.MethodDelete, httpServer.URL+subagentPath("mainAgent", created.ID), "")
 	if response.StatusCode != http.StatusOK {
@@ -168,7 +349,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	if got := integrationResponseUserContents(history.Messages); len(got) != 1 || got[0] != "from HTTP" {
+	if got := integrationResponseUserContents(history.Messages); len(got) != 2 || got[0] != "from HTTP" || got[1] != "HTTP follow-up" {
 		t.Fatalf("HTTP subagent history = %#v", history)
 	}
 
@@ -189,7 +370,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	}
 }
 
-func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, subagentModels map[string]*integrationSubagentModel) *Agent {
+func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, subagentModels map[string]*integrationSubagentModel, options ...Option) *Agent {
 	t.Helper()
 	definitions := make(map[string]SubagentDefinition, len(subagentModels))
 	for name := range subagentModels {
@@ -201,7 +382,9 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 		}},
 		providerName: "test", modelName: "mainAgent-model", subagents: definitions,
 	}
-	agent, err := New(context.Background(), WithProject(project), WithModel(mainAgent), WithMaxSubagents(4))
+	agentOptions := []Option{WithProject(project), WithModel(mainAgent), WithMaxSubagents(4)}
+	agentOptions = append(agentOptions, options...)
+	agent, err := New(context.Background(), agentOptions...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +397,48 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 		return New(context.Background(), withSubagentAgent(), WithModel(model), WithMessageStorage(agent.messages))
 	}
 	return agent
+}
+
+func onlyTaskToolResult(t *testing.T, messages []agentruntime.Message, callID string) TaskResult {
+	t.Helper()
+	for _, message := range messages {
+		if message.ToolResult == nil || message.ToolResult.Name != TaskToolName || message.ToolResult.CallID != callID {
+			continue
+		}
+		var result TaskResult
+		if err := json.Unmarshal(message.ToolResult.Output, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	t.Fatalf("missing task result for %q in %#v", callID, messages)
+	return TaskResult{}
+}
+
+func waitTaskCompleted(t *testing.T, events <-chan SystemEvent) SystemEvent {
+	t.Helper()
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted {
+			t.Fatalf("system event = %#v, want task completion", event)
+		}
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for task completion")
+		return SystemEvent{}
+	}
+}
+
+func waitIntegrationModelRequests(t *testing.T, model *scriptedModel, count int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(model.Requests()) >= count {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d main provider requests; got %d", count, len(model.Requests()))
 }
 
 type integrationSubagentModel struct {

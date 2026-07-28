@@ -561,187 +561,6 @@ func TestSubagentManagerExecuteTaskRejectsUnknownRunningAndClosedTaskIDs(t *test
 	}
 }
 
-func TestSubagentManagerDeduplicatesMainAgentTurnMessages(t *testing.T) {
-	model := &subagentGateModel{releases: make(chan struct{})}
-	manager := newTestSubagentManager(t, model, 2)
-	defer manager.Close()
-
-	record, err := manager.Start(context.Background(), "mainAgent", "turn-1", "researcher", "first", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	exact, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "turn-1", record.ID, " first \r\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exact.Action != toolexecution.SubagentSendDuplicate || exact.Accepted || !exact.Deduplicated || len(exact.Subagent.Pending) != 0 || len(exact.IdempotencyKey) != 64 {
-		t.Fatalf("exact duplicate = %#v", exact)
-	}
-	changed, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "turn-1", record.ID, "different wording")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || len(changed.Subagent.Pending) != 0 {
-		t.Fatalf("changed repeat = %#v", changed)
-	}
-	pending, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "turn-2", record.ID, "second")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending.Action != toolexecution.SubagentSendResultPending || pending.Accepted || len(pending.Subagent.Pending) != 0 {
-		t.Fatalf("next mainAgent turn = %#v", pending)
-	}
-
-	model.releases <- struct{}{}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	if got := model.Requests(); len(got) != 1 {
-		t.Fatalf("provider requests = %d, want 1", len(got))
-	}
-}
-
-func TestSubagentManagerIdleSendWaitsForLatestResultObservation(t *testing.T) {
-	model := &subagentGateModel{releases: make(chan struct{}, 1)}
-	manager := newTestSubagentManager(t, model, 1)
-	defer manager.Close()
-	results := manager.subscribeResults(context.Background())
-	record, err := manager.Start(context.Background(), "mainAgent", "start-turn", "researcher", "first", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	model.releases <- struct{}{}
-	var result SubagentResult
-	select {
-	case result = <-results:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for subagent result")
-	}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	if result.Status != SubagentResultCompleted {
-		t.Fatalf("result status = %q, want completed", result.Status)
-	}
-	if _, err := manager.Send(context.Background(), "mainAgent", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentResultPending) {
-		t.Fatalf("direct send before result observation error = %v", err)
-	}
-	sameTurn, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "start-turn", record.ID, "follow up")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sameTurn.Action != toolexecution.SubagentSendAlreadySent || sameTurn.Accepted {
-		t.Fatalf("same-turn send after result = %#v, want already_sent", sameTurn)
-	}
-	pending, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "early-turn", record.ID, "follow up")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending.Action != toolexecution.SubagentSendResultPending || pending.Accepted || pending.Subagent.Status != storage.SubagentStatusIdle {
-		t.Fatalf("model send before result observation = %#v", pending)
-	}
-	observeTestSubagentResult(t, manager, result)
-	sent, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "result-turn", record.ID, "follow up")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sent.Action != toolexecution.SubagentSendCompleted || sent.Accepted || sent.Subagent.Status != storage.SubagentStatusIdle {
-		t.Fatalf("completed result cannot resume = %#v", sent)
-	}
-}
-
-func TestSubagentManagerDoesNotReuseCompletedSubagent(t *testing.T) {
-	model := &subagentGateModel{releases: make(chan struct{}, 1)}
-	manager := newTestSubagentManager(t, model, 1)
-	defer manager.Close()
-	results := manager.subscribeResults(context.Background())
-	record, err := manager.Start(context.Background(), "mainAgent", "start-turn", "researcher", "first", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	model.releases <- struct{}{}
-	select {
-	case <-results:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for subagent result")
-	}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	observeTestSubagentResult(t, manager, markTestSubagentCompleted(t, manager, record.ID))
-
-	if _, err := manager.Send(context.Background(), "mainAgent", record.ID, "unrelated next task"); !errors.Is(err, storage.ErrSubagentCompleted) {
-		t.Fatalf("direct completed-subagent send error = %v", err)
-	}
-	result, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "follow-up-turn", record.ID, "unrelated next task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Action != toolexecution.SubagentSendCompleted || result.Accepted {
-		t.Fatalf("model completed-subagent send = %#v", result)
-	}
-	if got := model.Requests(); len(got) != 1 {
-		t.Fatalf("provider requests = %d, want only the initial subagent turn", len(got))
-	}
-}
-
-func TestSubagentManagerLimitsRepeatedFailedRecoveryWithinResponseScope(t *testing.T) {
-	manager := newTestSubagentManager(t, subagentFailModel{err: errors.New("request 133409 tokens exceeds context limit 131072")}, 1)
-	defer manager.Close()
-	results := manager.subscribeResults(context.Background())
-	if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "root-turn"); err != nil {
-		t.Fatal(err)
-	}
-	record, err := manager.Start(context.Background(), "mainAgent", "root-turn", "researcher", "inspect project", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	firstResult := waitTestSubagentResult(t, results)
-	if firstResult.Status != SubagentResultFailed {
-		t.Fatalf("first result status = %q, want failed", firstResult.Status)
-	}
-	observeTestSubagentResult(t, manager, firstResult)
-	firstReservation, err := manager.mainAgent.responseScopes.ReserveResultTurn(
-		"mainAgent", "result-1", record.ID, firstResult.SubagentTurnID,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstReservation.Commit()
-
-	firstRecovery, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "result-1", record.ID, "retry after compacting")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstRecovery.Action != toolexecution.SubagentSendStarted || !firstRecovery.Accepted {
-		t.Fatalf("first recovery = %#v", firstRecovery)
-	}
-
-	secondResult := waitTestSubagentResult(t, results)
-	if secondResult.Status != SubagentResultFailed {
-		t.Fatalf("second result status = %q, want failed", secondResult.Status)
-	}
-	observeTestSubagentResult(t, manager, secondResult)
-	secondReservation, err := manager.mainAgent.responseScopes.ReserveResultTurn(
-		"mainAgent", "result-2", record.ID, secondResult.SubagentTurnID,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondReservation.Commit()
-
-	exhausted, err := manager.SendFromMainAgentTurn(context.Background(), "mainAgent", "result-2", record.ID, "retry once more")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exhausted.Action != toolexecution.SubagentSendRecoveryExhausted || exhausted.Accepted {
-		t.Fatalf("repeated recovery = %#v", exhausted)
-	}
-}
-
-func TestSubagentFailureFingerprintNormalizesChangingCounts(t *testing.T) {
-	first := subagentFailureFingerprint("Request 133409 tokens exceeds context limit 131072")
-	second := subagentFailureFingerprint(" request 133670 tokens exceeds context limit 131072 ")
-	if first != second || first != "request # tokens exceeds context limit #" {
-		t.Fatalf("fingerprints = (%q, %q)", first, second)
-	}
-}
-
 func TestSubagentManagerStartAlwaysCreatesNewSubagent(t *testing.T) {
 	t.Run("same definition creates separately addressed subagent", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
@@ -896,55 +715,6 @@ func TestSubagentManagerRetainsLastTurnFailure(t *testing.T) {
 	}
 }
 
-func TestSubagentManagerPublishesCompactSuccessAndFailureResults(t *testing.T) {
-	t.Run("success includes final assistant answer", func(t *testing.T) {
-		model := &subagentGateModel{releases: make(chan struct{})}
-		manager := newTestSubagentManager(t, model, 1)
-		defer manager.Close()
-		results := manager.subscribeResults(context.Background())
-		record, err := manager.Start(context.Background(), "mainAgent", "mainAgent-turn", "researcher", "work", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		model.releases <- struct{}{}
-		select {
-		case result := <-results:
-			if result.SubagentID != record.ID || result.DisplayName != record.DisplayName || result.Status != SubagentResultCompleted || result.Error != "" || result.FinalAnswer == nil || result.FinalAnswer.Content != "done" || result.LastMessageID == "" {
-				t.Fatalf("result = %#v", result)
-			}
-			message := result.RuntimeMessage()
-			for _, expected := range []string{"authoritative subagent result", "final_answer or summary", "one focused follow-up", "never duplicate", "poll"} {
-				if !strings.Contains(message.Content, expected) {
-					t.Fatalf("result instruction missing %q: %s", expected, message.Content)
-				}
-			}
-			if strings.Contains(message.Content, "close_subagent") {
-				t.Fatalf("removed destructive tool appears in result instruction: %s", message.Content)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for success result")
-		}
-	})
-
-	t.Run("failure includes terminal error", func(t *testing.T) {
-		manager := newTestSubagentManager(t, subagentFailModel{err: errors.New("provider unavailable")}, 1)
-		defer manager.Close()
-		results := manager.subscribeResults(context.Background())
-		record, err := manager.Start(context.Background(), "mainAgent", "mainAgent-turn", "researcher", "work", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case result := <-results:
-			if result.SubagentID != record.ID || result.Status != SubagentResultFailed || !strings.Contains(result.Error, "provider unavailable") || result.FinalAnswer != nil {
-				t.Fatalf("result = %#v", result)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for failure result")
-		}
-	})
-}
-
 func TestSubagentManagerReadDefaultsToObservedCursorAndFinalAnswerOnly(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
@@ -1014,90 +784,6 @@ func TestSubagentManagerReadOwnershipWaitAndClose(t *testing.T) {
 	}
 }
 
-func TestResponseScopeAutoClosesCompletedAndFailedSubagents(t *testing.T) {
-	tests := []struct {
-		name        string
-		model       agentruntime.Model
-		release     chan struct{}
-		complete    bool
-		wantStatus  storage.SubagentStatus
-		wantOutcome storage.SubagentResultStatus
-	}{
-		{name: "completed", model: &subagentGateModel{releases: make(chan struct{})}, complete: true, wantStatus: storage.SubagentStatusClosed, wantOutcome: storage.SubagentResultCompleted},
-		{name: "failed", model: subagentFailModel{err: errors.New("provider failed")}, wantStatus: storage.SubagentStatusClosed, wantOutcome: storage.SubagentResultFailed},
-	}
-	for index := range tests {
-		test := tests[index]
-		t.Run(test.name, func(t *testing.T) {
-			if gate, ok := test.model.(*subagentGateModel); ok {
-				test.release = gate.releases
-			}
-			manager := newTestSubagentManager(t, test.model, 1)
-			defer manager.Close()
-			manager.mainAgent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
-			systemEvents := manager.subscribeSystemEvents(context.Background())
-			if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "root-turn"); err != nil {
-				t.Fatal(err)
-			}
-			record, err := manager.Start(context.Background(), "mainAgent", "root-turn", "researcher", "work", "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if test.release != nil {
-				test.release <- struct{}{}
-			}
-			awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-			current, _, err := manager.store.Get(context.Background(), record.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var result SubagentResult
-			if test.complete {
-				result = markTestSubagentCompleted(t, manager, record.ID)
-			} else {
-				messages, listErr := manager.mainAgent.ListMessages(context.Background(), current.SubagentSessionID)
-				if listErr != nil {
-					t.Fatal(listErr)
-				}
-				result = subagentResultFromMessages(current, messages)
-			}
-			observeTestSubagentResult(t, manager, result)
-			reservation, err := manager.mainAgent.responseScopes.ReserveResultTurn("mainAgent", "result-turn", record.ID, result.SubagentTurnID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			reservation.Commit()
-			manager.mainAgent.responseScopes.FinishTurn("mainAgent", "root-turn")
-			before, _, err := manager.store.Get(context.Background(), record.ID)
-			if err != nil || before.Status != storage.SubagentStatusIdle {
-				t.Fatalf("subagent closed before result continuation ended: %#v, %v", before, err)
-			}
-			manager.mainAgent.responseScopes.FinishTurn("mainAgent", "result-turn")
-			after, _, err := manager.store.Get(context.Background(), record.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if after.Status != test.wantStatus || after.LastResultStatus != test.wantOutcome {
-				t.Fatalf("scope-end subagent = %#v, want status=%s outcome=%s", after, test.wantStatus, test.wantOutcome)
-			}
-			if test.wantStatus == storage.SubagentStatusClosed {
-				select {
-				case event := <-systemEvents:
-					closed := event.SubagentClosed
-					if event.Type != SystemSubagentClosed || event.MainAgentSessionID != "mainAgent" || event.MainAgentTurnID != "root-turn" ||
-						closed == nil || !closed.Automatic || closed.Subagent.ID != record.ID ||
-						closed.PreviousStatus != storage.SubagentStatusIdle ||
-						closed.PreviousResultStatus != test.wantOutcome {
-						t.Fatalf("automatic close event = %#v", event)
-					}
-				case <-time.After(time.Second):
-					t.Fatal("timed out waiting for automatic close event")
-				}
-			}
-		})
-	}
-}
-
 func TestSubagentManagerCloseRetainsRunsAfterReleasingSubagent(t *testing.T) {
 	t.Run("completed run remains available for SSE backfill", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
@@ -1113,7 +799,6 @@ func TestSubagentManagerCloseRetainsRunsAfterReleasingSubagent(t *testing.T) {
 		}
 		model.releases <- struct{}{}
 		awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-		observeTestSubagentResult(t, manager, markTestSubagentCompleted(t, manager, record.ID))
 		idle, err := manager.getOwned(context.Background(), "mainAgent", record.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -1164,7 +849,6 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
-	results := manager.subscribeResults(context.Background())
 	systemEvents := manager.subscribeSystemEvents(context.Background())
 
 	record, err := manager.Start(context.Background(), "mainAgent", "start-turn", "researcher", "first", "")
@@ -1225,11 +909,6 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 	if len(messages) == 0 || messages[0].Content != "first" {
 		t.Fatalf("retained subagent transcript = %#v", messages)
 	}
-	select {
-	case result := <-results:
-		t.Fatalf("closed subagent published result: %#v", result)
-	case <-time.After(25 * time.Millisecond):
-	}
 }
 
 func TestSubagentManagerCloseCancelsOutstandingResponseScopeResults(t *testing.T) {
@@ -1266,48 +945,6 @@ func TestSubagentManagerCloseCancelsOutstandingResponseScopeResults(t *testing.T
 
 func newTestSubagentManager(t *testing.T, model agentruntime.Model, maximum int) *subagentManager {
 	return newTestSubagentManagerWithStorage(t, model, maximum, inmemory.NewMessageStorage())
-}
-
-func markTestSubagentCompleted(t *testing.T, manager *subagentManager, id string) SubagentResult {
-	t.Helper()
-	record, found, err := manager.store.Get(context.Background(), id)
-	if err != nil || !found {
-		t.Fatalf("get subagent for completion = (%#v, %v, %v)", record, found, err)
-	}
-	completed, err := manager.store.Update(context.Background(), id, record.Version, storage.SubagentUpdate{
-		Status:                record.Status,
-		CurrentSubagentTurnID: record.CurrentSubagentTurnID,
-		LastSubagentTurnID:    record.LastSubagentTurnID,
-		LastResultStatus:      storage.SubagentResultCompleted,
-		LastResultSummary:     "test work completed",
-		LastResultNextStep:    "",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	messages, err := manager.mainAgent.ListMessages(context.Background(), record.SubagentSessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return subagentResultFromMessages(completed, messages)
-}
-
-func observeTestSubagentResult(t *testing.T, manager *subagentManager, result SubagentResult) {
-	t.Helper()
-	if err := manager.observeSubagentResult(context.Background(), result); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func waitTestSubagentResult(t *testing.T, results <-chan SubagentResult) SubagentResult {
-	t.Helper()
-	select {
-	case result := <-results:
-		return result
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for subagent result")
-		return SubagentResult{}
-	}
 }
 
 func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, maximum int, messages storage.MessageStorage) *subagentManager {

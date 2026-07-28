@@ -436,29 +436,29 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `server_test.go`
 - Modify: `terminal_test.go`
 
-- [ ] Add a failing same-turn foreground scenario:
+- [x] Add a failing same-turn foreground scenario:
   main calls `task`, child returns final text, main receives one tool result,
   and no second main run exists.
-- [ ] Add a failing parallel scenario with two independent task calls in one
+- [x] Add a failing parallel scenario with two independent task calls in one
   batch; assert both child runs overlap and results correlate to call IDs.
-- [ ] Add a failing incident regression: child performs domain tools, reaches
+- [x] Add a failing incident regression: child performs domain tools, reaches
   provider-step limit, gets one text-only finalization, and returns one
   `incomplete` task result.
-- [ ] Assert the incident regression contains zero
+- [x] Assert the incident regression contains zero
   `report_subagent_result` calls, zero result-report repair rounds, and zero
   duplicate main fallback turns.
-- [ ] Add failing background and auto-promotion scenarios asserting one trusted
+- [x] Add failing background and auto-promotion scenarios asserting one trusted
   task-result input, one final response-scope delivery, and exact-once
   cancellation/error handling.
-- [ ] Add failing contracted-result scenarios: valid metadata publishes one
+- [x] Add failing contracted-result scenarios: valid metadata publishes one
   system event; invalid contract produces one task error and no metadata.
-- [ ] Run focused integration tests; expect FAIL.
-- [ ] Make only minimal production fixes required by the regressions; do not add
+- [x] Run focused integration tests; expect FAIL.
+- [x] Make only minimal production fixes required by the regressions; do not add
   compatibility translations to the old protocol.
-- [ ] Run `rtk go test ./...`; expect PASS.
-- [ ] Run `rtk go test -race ./...`; expect PASS.
-- [ ] Run `rtk go vet ./...`; expect PASS.
-- [ ] Commit with message
+- [x] Run `rtk go test ./...`; expect PASS.
+- [x] Run `rtk go test -race ./...`; expect PASS.
+- [x] Run `rtk go vet ./...`; expect PASS.
+- [x] Commit with message
   `test(task): cover foreground and background orchestration`.
 
 ## Task 11: Update harness documentation, generated API artifacts, and release

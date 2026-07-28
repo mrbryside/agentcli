@@ -348,6 +348,40 @@ func TestIntegrationFailurePaths(t *testing.T) {
 		}
 	})
 
+	t.Run("maximum steps suppresses finalizer tool calls", func(t *testing.T) {
+		fixture := newIntegrationSSEFixture(t,
+			integrationToolCallStream(integrationToolCall{ID: "call_work", Name: "work", Arguments: `{}`}),
+			integrationToolCallStream(integrationToolCall{ID: "call_blocked", Name: "work", Arguments: `{}`}),
+		)
+		registry := toolexecution.NewRegistry()
+		calls := 0
+		if err := registry.Register(toolexecution.Tool{
+			Definition: ToolDefinition{Name: "work", InputSchema: ToolSchema{Type: "object"}},
+			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				calls++
+				return json.RawMessage(`{"ok":true}`), nil
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		runtime, _, _ := newIntegrationRuntimeWithConfig(t, fixture, registry, 1, inmemory.NewMessageStorage(), 1)
+		run := startIntegrationRun(t, runtime, "session-finalizer-tool", "turn-finalizer-tool", "finish safely")
+		events := collectIntegrationRunEvents(t, run)
+		result, err := run.Result()
+		if err != nil || !run.StepLimitFinalized() || !result.Finished || result.Content == "" || len(result.ToolResults) != 1 || calls != 1 {
+			t.Fatalf("finalization result = (%#v, %v), finalized=%v calls=%d", result, err, run.StepLimitFinalized(), calls)
+		}
+		if fixture.RequestCount() != 2 || containsIntegrationEvent(events, RunFailed) || !containsIntegrationEvent(events, RunCompleted) {
+			t.Fatalf("finalization events=%#v providerRequests=%d", events, fixture.RequestCount())
+		}
+		if tools, ok := fixture.Request(1)["tools"]; ok && tools != nil {
+			values, valid := tools.([]any)
+			if !valid || len(values) != 0 {
+				t.Fatalf("finalization request tools = %#v, want none", tools)
+			}
+		}
+	})
+
 	t.Run("handler failure returns to provider", func(t *testing.T) {
 		fixture := newIntegrationSSEFixture(t,
 			integrationToolCallStream(integrationToolCall{ID: "call_handler_failure", Name: "fail", Arguments: `{}`}),
