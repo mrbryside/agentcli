@@ -221,7 +221,7 @@ func TestRuntimeForceCompactsAndRetriesOnceAfterContextWindowRejection(t *testin
 	if len(summarizer.requests) != 1 {
 		t.Fatalf("summarizer requests = %d; want 1", len(summarizer.requests))
 	}
-	if len(main.requests[1].Messages) == 0 || main.requests[1].Messages[0].Type != MessageTypeSystem {
+	if len(main.requests[1].Messages) == 0 || main.requests[1].Messages[0].Type != MessageTypeAssistant {
 		t.Fatalf("retry request was not compacted: %#v", main.requests[1])
 	}
 }
@@ -278,11 +278,11 @@ func TestRuntimeForceCompactionRetriesProviderOnlyOnce(t *testing.T) {
 
 func TestRuntimeCompactionFailurePreventsMainProviderStart(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
-	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 180)}); err != nil {
+	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 400)}); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 100, MaxOutputTokens: 20}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 100, MaxOutputTokens: 20}, startErr: errors.New("summarizer unavailable")}
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 500, MaxOutputTokens: 100}}
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, startErr: errors.New("summarizer unavailable")}
 	runtime, err := New(context.Background(), Config{Model: main, Messages: messages, Compactor: &Compactor{Model: summarizer}, ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -302,12 +302,12 @@ func TestRuntimeCompactionFailurePreventsMainProviderStart(t *testing.T) {
 
 func TestRuntimeCompactionPersistsCheckpointAndProjectsMainRequest(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
-	old := storage.Message{ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 180)}
+	old := storage.Message{ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 400)}
 	if err := messages.Append(context.Background(), old); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 100, MaxOutputTokens: 20}, streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}}}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 100, MaxOutputTokens: 20}, streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nwork", Finished: true}}}}}}}
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 500, MaxOutputTokens: 100}, streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}}}}
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nwork", Finished: true}}}}}}}
 	runtime, err := New(context.Background(), Config{Model: main, Messages: messages, Compactor: &Compactor{Model: summarizer}, ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestRuntimeCompactionPersistsCheckpointAndProjectsMainRequest(t *testing.T)
 	if countEvent(events, CompactionStarted) != 1 || countEvent(events, CompactionCompleted) != 1 || countEvent(events, CompactionFailed) != 0 {
 		t.Fatalf("unexpected compaction events: %#v", events)
 	}
-	if len(main.requests) != 1 || len(main.requests[0].Messages) == 0 || main.requests[0].Messages[0].Type != MessageTypeSystem {
+	if len(main.requests) != 1 || len(main.requests[0].Messages) == 0 || main.requests[0].Messages[0].Type != MessageTypeAssistant {
 		t.Fatalf("main request was not projected: %#v", main.requests)
 	}
 	for _, message := range main.requests[0].Messages {
@@ -359,14 +359,14 @@ func TestRuntimeCompactionPersistsCheckpointAndProjectsMainRequest(t *testing.T)
 
 func TestRuntimeRepeatedCompactionMergesCheckpointAndProjectsResume(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
-	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 240)}); err != nil {
+	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 450)}); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 600, MaxOutputTokens: 100}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "first answer", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "second answer", Finished: true}}}}},
 	}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nfirst memory", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "# Objective\nsecond memory", Finished: true}}}}},
 	}}
@@ -375,7 +375,7 @@ func TestRuntimeRepeatedCompactionMergesCheckpointAndProjectsResume(t *testing.T
 		t.Fatal(err)
 	}
 	for _, turn := range []string{"one", "two"} {
-		run, startErr := runtime.Start(context.Background(), Request{SessionID: "session", TurnID: turn, Message: Message{Type: MessageTypeUser, Content: strings.Repeat("new ", 100)}})
+		run, startErr := runtime.Start(context.Background(), Request{SessionID: "session", TurnID: turn, Message: Message{Type: MessageTypeUser, Content: strings.Repeat("new ", 180)}})
 		if startErr != nil {
 			t.Fatal(startErr)
 		}
@@ -399,15 +399,15 @@ func TestRuntimeRepeatedCompactionMergesCheckpointAndProjectsResume(t *testing.T
 func TestRuntimeCompactionSeparatesConcurrentSessions(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
 	for _, session := range []string{"a", "b"} {
-		if err := messages.Append(context.Background(), storage.Message{ID: "old-" + session, SessionID: session, TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat(session+" ", 240)}); err != nil {
+		if err := messages.Append(context.Background(), storage.Message{ID: "old-" + session, SessionID: session, TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat(session+" ", 800)}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 130, MaxOutputTokens: 20}, streams: []ModelStream{
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 500, MaxOutputTokens: 100}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}},
 	}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 130, MaxOutputTokens: 20}, streams: []ModelStream{
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "memory a", Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "memory b", Finished: true}}}}},
 	}}
@@ -447,14 +447,14 @@ func TestRuntimeCompactionSeparatesConcurrentSessions(t *testing.T) {
 
 func TestRuntimeCompactionPreservesToolRoundRequestBoundaries(t *testing.T) {
 	messages := inmemory.NewMessageStorage()
-	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 240)}); err != nil {
+	if err := messages.Append(context.Background(), storage.Message{ID: "old", SessionID: "session", TurnID: "old", Type: storage.MessageTypeUser, Content: strings.Repeat("old ", 700)}); err != nil {
 		t.Fatal(err)
 	}
-	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
+	main := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 800, MaxOutputTokens: 100}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: map[string]any{}}}, Finished: true}}}}},
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "done", Finished: true}}}}},
 	}}
-	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 300, MaxOutputTokens: 20}, streams: []ModelStream{
+	summarizer := &runtimeCompactionModel{metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{Content: "memory", Finished: true}}}}},
 	}}
 	requests := make(chan ToolRequest, 1)
@@ -463,7 +463,7 @@ func TestRuntimeCompactionPreservesToolRoundRequestBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.Start(context.Background(), Request{SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: strings.Repeat("new ", 100)}})
+	run, err := runtime.Start(context.Background(), Request{SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: strings.Repeat("new ", 180)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestRuntimeProjectsCheckpointWhenAutoCompactionDisabled(t *testing.T) {
 	if len(main.requests) != 1 || len(main.requests[0].Messages) < 3 {
 		t.Fatalf("unexpected projected request: %#v", main.requests)
 	}
-	if main.requests[0].Messages[0].Type != MessageTypeSystem || main.requests[0].Messages[1].ID != "tail" {
+	if main.requests[0].Messages[0].Type != MessageTypeAssistant || main.requests[0].Messages[1].ID != "tail" {
 		t.Fatalf("checkpoint projection = %#v", main.requests[0].Messages)
 	}
 }

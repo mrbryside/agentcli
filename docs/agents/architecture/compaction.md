@@ -9,8 +9,8 @@ inheritance.
 Compaction runs immediately before every main-model round. The runtime builds a
 provider-neutral `ModelRequest`, estimates its full input, and compares it with
 the main model's validated context-window and output-limit metadata. Internal
-input, recent-tail, serialization, and summary budgets are derived in code;
-only model limits are configurable in project YAML.
+input, recent-tail, serialized-recent-context, and summary budgets are derived
+in code; only model limits are configurable in project YAML.
 
 The model's output metadata remains a capability limit. Compaction applies an
 operational output cap equal to one eighth of the main model's context window,
@@ -18,7 +18,8 @@ capped at 16,384 tokens and reduced further by a lower explicit request limit
 or lower model capability. That same value is sent to the main provider and
 reserved from the context budget, so sizing and generation cannot diverge.
 Summary and estimator safety reserves each scale with the remaining input and
-cap at 4,096 tokens.
+cap at 4,096 tokens. The checkpoint's serialized recent context scales with
+the same input and caps at 8,192 tokens.
 Recent history does not use a fixed percentage: the estimator first charges
 system prompts, context reminders, tool schemas, the bounded summary
 placeholder, and the safety reserve. The verbatim recent-tail target is then
@@ -47,9 +48,17 @@ into the shared sentinel; the compactor contains no provider-name checks.
 
 When the request exceeds the derived input budget, `Compactor` selects the
 largest recent tail that begins at a legal conversation boundary and preserves
-complete tool-call/result batches. Everything before that tail is serialized
-in bounded chunks and merged cumulatively by a separate summarizer model. The
-summarizer receives no tools and cannot recursively compact.
+complete tool-call/result batches. It serializes everything before that native
+tail in a readable role-labelled form. Tool outputs are capped at 2,000
+characters, while user and assistant content remains intact.
+
+The newest bounded suffix of that serialization is stored directly as
+`RecentContext`. The older serialization, the prior checkpoint's
+`RecentContext`, and the prior summary are sent to a separate tool-free
+summarizer in exactly one model call. There is no sequential chunk loop. If
+the one-shot request cannot fit the summarizer's context window, compaction
+returns `ErrCompactionPromptTooLarge` without starting the summarizer or
+creating a checkpoint.
 
 If one active turn contains so many completed tool rounds that the whole turn
 cannot fit, selection retries inside that turn. The fallback summarizes its
@@ -67,10 +76,13 @@ complete provider unit is larger than 8,192 tokens.
 The prompt treats prior summaries and transcript history as untrusted data. It
 requires a same-language Markdown result with anchored `Objective`, `Important
 Details`, `Work State` (`Completed`, `Active`, `Blocked`), `Next Move`, and
-`Relevant Files` sections. Exact file paths and IDs must be preserved.
+`Relevant Files` sections. Exact file paths and IDs must be preserved when
+still relevant. Stale, superseded, and unrelated completed details must be
+removed.
 
 After successful summarization, the runtime appends a
-`compaction_checkpoint` containing the cumulative summary,
+`compaction_checkpoint` containing the cumulative summary, serialized recent
+context,
 `CoversThroughMessageID`, and `TailStartMessageID`. Checkpoint boundaries must
 be contiguous and monotonic across repeated compactions.
 
@@ -80,7 +92,8 @@ Message storage remains append-only: original messages are never deleted or
 rewritten. Before a provider call, the runtime reads the latest valid
 checkpoint and creates a temporary request containing:
 
-1. a system message wrapping the cumulative summary;
+1. an assistant message clearly labelled as historical context, containing
+   the cumulative summary and serialized recent context;
 2. when the tail begins inside an active turn, a synthetic runtime
    continuation message; and
 3. verbatim non-checkpoint messages beginning at `TailStartMessageID`.
@@ -88,7 +101,9 @@ checkpoint and creates a temporary request containing:
 Messages through `CoversThroughMessageID` remain in storage but are omitted
 from that provider request. Checkpoint records themselves are also omitted.
 Resumed sessions keep projecting their latest checkpoint even when automatic
-creation is later disabled.
+creation is later disabled. Current system prompts and newer verbatim messages
+explicitly take precedence over the historical checkpoint, so compacted
+conversation data cannot become a new system instruction.
 
 HTTP transcript responses identify checkpoint records by
 `type: "compaction_checkpoint"` but intentionally omit summary and boundary

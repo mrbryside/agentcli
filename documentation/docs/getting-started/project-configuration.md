@@ -251,7 +251,7 @@ the default selection is not precise enough.
 
 Compaction preserves full transcript storage. When a request needs shrinking,
 the runtime appends a cumulative checkpoint and sends the main model that
-summary plus a recent verbatim tail. Resuming the session continues projecting
+summary, serialized recent context, and a recent verbatim tail. Resuming the session continues projecting
 the latest stored checkpoint even if `auto` is later disabled; disabling it
 only prevents new checkpoints. See
 [Context compaction](../capabilities/context-compaction.md) for request

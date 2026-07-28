@@ -61,15 +61,18 @@ type ToolResult struct {
 }
 
 // CompactionCheckpoint retains the cumulative summary of messages through
-// CoversThroughMessageID and identifies the first original message that must
-// remain verbatim in the projected tail. The IDs are intentionally retained
-// even though the transcript is append-only so a resumed run can reconstruct
-// the same projection deterministically.
+// CoversThroughMessageID, a bounded serialized suffix of that older history,
+// and the first original message that must remain verbatim in the projected
+// tail. RecentContext is optional so checkpoints written before it was added
+// remain valid. The IDs are intentionally retained even though the transcript
+// is append-only so a resumed run can reconstruct the same projection
+// deterministically.
 //
 // Storage validates only that these values are present. The runtime validates
 // that they name messages in the same transcript and have legal ordering.
 type CompactionCheckpoint struct {
 	Summary                string
+	RecentContext          string
 	CoversThroughMessageID string
 	TailStartMessageID     string
 }

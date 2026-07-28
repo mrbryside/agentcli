@@ -177,17 +177,21 @@ func TestCloneMessageDoesNotShareMutableValues(t *testing.T) {
 func TestCloneMessageDoesNotShareCompactionCheckpoint(t *testing.T) {
 	message := Message{
 		ID: "checkpoint-1", SessionID: "session-1", TurnID: "turn-1", Type: MessageTypeCompactionCheckpoint,
-		CompactionCheckpoint: &CompactionCheckpoint{Summary: "original", CoversThroughMessageID: "message-10", TailStartMessageID: "message-11"},
+		CompactionCheckpoint: &CompactionCheckpoint{Summary: "original", RecentContext: "recent original", CoversThroughMessageID: "message-10", TailStartMessageID: "message-11"},
 	}
 	clone := CloneMessage(message)
 
 	clone.CompactionCheckpoint.Summary = "changed"
+	clone.CompactionCheckpoint.RecentContext = "recent changed"
 	clone.CompactionCheckpoint.CoversThroughMessageID = "changed-message"
 	if message.CompactionCheckpoint.Summary != "original" {
 		t.Fatalf("input summary changed through clone = %q", message.CompactionCheckpoint.Summary)
 	}
 	if message.CompactionCheckpoint.CoversThroughMessageID != "message-10" {
 		t.Fatalf("input boundary changed through clone = %q", message.CompactionCheckpoint.CoversThroughMessageID)
+	}
+	if message.CompactionCheckpoint.RecentContext != "recent original" {
+		t.Fatalf("input recent context changed through clone = %q", message.CompactionCheckpoint.RecentContext)
 	}
 }
 

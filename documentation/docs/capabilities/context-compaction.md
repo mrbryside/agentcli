@@ -7,8 +7,9 @@ sidebar_position: 3
 
 Automatic context compaction keeps long-running sessions within a model's
 context window without deleting their stored transcript. It summarizes an
-older prefix into a cumulative checkpoint and sends the main model that memory
-plus a recent verbatim tail.
+older prefix into a cumulative checkpoint and sends the main model that
+historical memory, a serialized recent-context suffix, and a recent native
+message tail.
 
 ## Enable it
 
@@ -50,10 +51,12 @@ rounds, the runtime reserves one eighth of the main model's context window,
 capped at 16,384 tokens and reduced further by a lower explicit request limit
 or lower model capability. The same value is sent to the provider. The runtime
 then reserves a bounded summary and safety margin, estimates system prompts,
-reminders, and tool schemas, and targets a recent verbatim tail equal to one
-quarter of usable input clamped between 2,048 and 8,192 tokens. System and tool
-base costs can reduce it further. The unused room is intentional: subsequent
-tool rounds can add results without immediately filling the context again.
+reminders, and tool schemas. The checkpoint can retain up to 8,192 tokens of
+serialized recent context. The runtime also targets a recent native message
+tail equal to one quarter of usable input clamped between 2,048 and 8,192
+tokens. System and tool base costs can reduce it further. The unused room is
+intentional: subsequent tool rounds can add results without immediately
+filling the context again.
 
 ## What happens before a model round
 
@@ -66,10 +69,17 @@ Immediately before each main-provider call, the runtime:
    keeping each tool-call/result batch together;
 4. if one active turn is itself too large, retries inside that turn and keeps
    the largest recent complete assistant/tool suffix;
-5. asks the configured tool-free summarizer to merge the older prefix with any
-   previous cumulative summary;
-6. persists a new append-only checkpoint; and
-7. re-estimates the projected request before starting the main model.
+5. serializes the excluded prefix, capping each tool output at 2,000
+   characters, and keeps its newest bounded suffix as recent context;
+6. asks the configured tool-free summarizer once to merge the older
+   serialization, prior recent context, and previous cumulative summary;
+7. persists a new append-only checkpoint; and
+8. re-estimates the projected request before starting the main model.
+
+Compaction never divides one checkpoint into sequential summarizer calls. If
+the complete one-shot summarization request cannot fit the summarizer model's
+context window, the run fails with
+`agentruntime.ErrCompactionPromptTooLarge` before the summarizer starts.
 
 The active-turn fallback handles research loops that accumulate many large
 tool results before producing a final answer. It summarizes the older tool
@@ -97,28 +107,31 @@ schema:
 ```
 
 Transcript history is treated as data rather than summarizer instructions.
-Exact file paths and IDs are preserved.
+Exact file paths and IDs are preserved when still relevant. The summarizer is
+also told to remove stale, superseded, and unrelated completed details.
 
 ## Storage is append-only
 
 Compaction never deletes or rewrites original messages. A checkpoint stores a
-cumulative summary and the IDs defining its covered prefix and recent tail.
-The full original transcript remains available for auditing and storage-level
-recovery.
+cumulative summary, readable serialized recent context, and the IDs defining
+its covered prefix and native message tail. The full original transcript
+remains available for auditing and storage-level recovery.
 
 For a main-provider call, the stored checkpoint is projected into a temporary
 message list:
 
 ```text
 application system prompts
-system: cumulative conversation memory
+assistant: historical summary + serialized recent context
 [runtime continuation when the tail begins inside an active turn]
 verbatim messages from TailStartMessageID through the latest message
 ```
 
 The covered older messages and checkpoint records are omitted from that
 provider request only. They remain in storage. A resumed session continues
-projecting its latest checkpoint even if `auto` is later disabled.
+projecting its latest checkpoint even if `auto` is later disabled. The
+checkpoint is explicitly labelled as historical data, not instructions;
+application system prompts and newer verbatim messages take precedence.
 
 HTTP message endpoints expose `type: "compaction_checkpoint"` so clients can
 preserve ordering, but omit the internal summary and boundary fields. Do not

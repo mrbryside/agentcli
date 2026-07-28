@@ -127,7 +127,7 @@ func TestCompactorPrepareCreatesCumulativeCheckpointAndUsesToolFreeModel(t *test
 	if !result.Compacted || result.Checkpoint == nil || result.Checkpoint.Summary != "durable memory" {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(model.request.Tools) != 0 || model.request.MaxOutputTokens != 64 || !strings.Contains(model.request.Messages[0].Content, "<history_to_merge>") || !strings.Contains(model.request.Messages[0].Content, "<previous_summary>") || !strings.Contains(model.request.Messages[0].Content, "# Objective") || !strings.Contains(model.request.Messages[0].Content, "## Completed") || !strings.Contains(model.request.Messages[0].Content, "exact file paths and exact IDs") || !strings.Contains(model.request.Messages[0].Content, "primary language") {
+	if len(model.request.Tools) != 0 || len(model.requests) != 1 || model.request.MaxOutputTokens != 64 || !strings.Contains(model.request.Messages[0].Content, "<conversation_history>") || !strings.Contains(model.request.Messages[0].Content, "<previous_summary>") || !strings.Contains(model.request.Messages[0].Content, "# Objective") || !strings.Contains(model.request.Messages[0].Content, "## Completed") || !strings.Contains(model.request.Messages[0].Content, "remove stale") || !strings.Contains(model.request.Messages[0].Content, "primary language") {
 		t.Fatalf("summary request = %#v", model.request)
 	}
 	if model.request.SessionID != "session" || model.request.TurnID != "turn" {
@@ -155,45 +155,141 @@ func TestCompactorToolUnitsAndSerializationPreserveAdjacencyAndBoundOutput(t *te
 	if len(units) != 2 || len(units[0]) != 2 {
 		t.Fatalf("units = %#v", units)
 	}
-	serialized, err := serializeHistory([]Message{call, result}, 500)
+	result.ToolResult.Output = []byte(`"` + strings.Repeat("x", 4000) + `"`)
+	serialized, err := serializeCompactionUnit([]Message{call, result})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(serialized) > 2000 || !strings.Contains(serialized, "call") || !strings.Contains(serialized, `"truncated":true`) || !strings.Contains(serialized, `"CallID":"c"`) {
+	if !strings.Contains(serialized, "call_id=c") || !strings.Contains(serialized, "[truncated]") || !strings.Contains(serialized, "status=succeeded") {
 		t.Fatalf("serialized = %q", serialized)
 	}
 }
 
-func TestCompactorSummarizesEveryHeadChunkCumulatively(t *testing.T) {
+func TestCompactorSummarizesHeadInExactlyOneModelCall(t *testing.T) {
 	first := compactionMessage("first", MessageTypeUser, strings.Repeat("first ", 350))
 	second := compactionMessage("second", MessageTypeAssistant, strings.Repeat("second ", 350))
 	latest := compactionMessage("latest", MessageTypeUser, "continue")
-	model := &compactionModel{content: "cumulative summary"}
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: "cumulative summary"},
+		metadata:        ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+	}
 	started := 0
 	result, err := (Compactor{Model: model}).PrepareWithHooks(context.Background(), CompactionInput{Request: compactionRequest(first, second, latest), MainModelMetadata: ModelMetadata{ContextWindowTokens: 1000, MaxOutputTokens: 100}}, CompactionHooks{Started: func() { started++ }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Compacted || started != 1 || len(model.requests) != 2 {
+	if !result.Compacted || started != 1 || len(model.requests) != 1 {
 		t.Fatalf("result=%#v started=%d calls=%d", result, started, len(model.requests))
 	}
-	if !strings.Contains(model.requests[0].Messages[0].Content, "first") || !strings.Contains(model.requests[1].Messages[0].Content, "second") {
-		t.Fatalf("chunks dropped history: %#v", model.requests)
+	combined := model.requests[0].Messages[0].Content + "\n" + result.Checkpoint.RecentContext
+	if !strings.Contains(combined, "first") || !strings.Contains(combined, "second") {
+		t.Fatalf("single compaction dropped history: request=%#v checkpoint=%#v", model.requests[0], result.Checkpoint)
 	}
-	if !strings.Contains(model.requests[1].Messages[0].Content, "cumulative summary") {
-		t.Fatalf("second chunk did not merge prior summary: %q", model.requests[1].Messages[0].Content)
-	}
-	for index, request := range model.requests {
-		if request.SessionID != "session" || request.TurnID != "turn" {
-			t.Fatalf("summary request %d correlation = session %q turn %q", index, request.SessionID, request.TurnID)
-		}
+	if request := model.requests[0]; request.SessionID != "session" || request.TurnID != "turn" {
+		t.Fatalf("summary request correlation = session %q turn %q", request.SessionID, request.TurnID)
 	}
 }
 
-func TestCompactionHistoryRejectsOversizedNonToolUnit(t *testing.T) {
-	_, err := compactionHistoryChunks([]Message{compactionMessage("huge", MessageTypeUser, strings.Repeat("x", 5000))}, 100)
-	if !errors.Is(err, ErrCompactionHistoryTooLarge) {
+func TestCompactorKeepsPriorAnswerWhenLatestUserMessageIsShort(t *testing.T) {
+	old := compactionMessage("old", MessageTypeUser, strings.Repeat("background ", 700))
+	answer := compactionMessage("answer", MessageTypeAssistant, "The active subagents are Zinnia and Sage; wait for their results.")
+	followup := compactionMessage("followup", MessageTypeUser, "แล้วไงต่อ")
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: "# Objective\nContinue the current task."},
+		metadata:        ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+	}
+
+	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{
+		Request:           compactionRequest(old, answer, followup),
+		MainModelMetadata: ModelMetadata{ContextWindowTokens: 1000, MaxOutputTokens: 100},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || result.Checkpoint == nil {
+		t.Fatalf("result = %#v", result)
+	}
+	if !strings.Contains(result.Checkpoint.RecentContext, "active subagents are Zinnia and Sage") {
+		t.Fatalf("recent context dropped the prior answer: %q", result.Checkpoint.RecentContext)
+	}
+	if len(result.Request.Messages) != 2 ||
+		result.Request.Messages[0].Type != MessageTypeAssistant ||
+		!strings.Contains(result.Request.Messages[0].Content, "active subagents are Zinnia and Sage") ||
+		result.Request.Messages[1].ID != "followup" ||
+		result.Request.Messages[1].Content != "แล้วไงต่อ" {
+		t.Fatalf("projection = %#v", result.Request.Messages)
+	}
+}
+
+func TestCompactorRejectsOversizedOneShotPromptWithoutChunking(t *testing.T) {
+	old := compactionMessage("old", MessageTypeUser, strings.Repeat("history ", 1000))
+	latest := compactionMessage("latest", MessageTypeUser, "continue")
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: "must not be called"},
+		metadata:        ModelMetadata{ContextWindowTokens: 256, MaxOutputTokens: 64},
+	}
+	started := 0
+
+	_, err := (Compactor{Model: model}).PrepareWithHooks(context.Background(), CompactionInput{
+		Request:           compactionRequest(old, latest),
+		MainModelMetadata: ModelMetadata{ContextWindowTokens: 1000, MaxOutputTokens: 100},
+	}, CompactionHooks{
+		Started: func() { started++ },
+	})
+	if !errors.Is(err, ErrCompactionPromptTooLarge) {
 		t.Fatalf("error = %v", err)
+	}
+	if started != 0 {
+		t.Fatalf("compaction started hooks = %d; want zero", started)
+	}
+	if len(model.requests) != 0 {
+		t.Fatalf("compaction model calls = %d; want zero", len(model.requests))
+	}
+}
+
+func TestRepeatedCompactionMergesPreviousRecentContextInSinglePrompt(t *testing.T) {
+	old := compactionMessage("old", MessageTypeUser, "covered")
+	previousTail := compactionMessage("previous-tail", MessageTypeUser, strings.Repeat("newer history ", 500))
+	checkpoint := compactionCheckpointWithRecent(
+		"checkpoint",
+		"old",
+		"previous-tail",
+		"# Objective\nPrevious objective.",
+		"[Assistant id=answer]: PREVIOUS_RECENT_MARKER",
+	)
+	latest := compactionMessage("latest", MessageTypeUser, "continue")
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: "# Objective\nMerged objective."},
+		metadata:        ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+	}
+
+	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{
+		Request:           compactionRequest(old, previousTail, checkpoint, latest),
+		MainModelMetadata: ModelMetadata{ContextWindowTokens: 1000, MaxOutputTokens: 100},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || len(model.requests) != 1 {
+		t.Fatalf("result=%#v calls=%d", result, len(model.requests))
+	}
+	prompt := model.requests[0].Messages[0].Content
+	if !strings.Contains(prompt, "PREVIOUS_RECENT_MARKER") ||
+		!strings.Contains(prompt, "# Objective\nPrevious objective.") {
+		t.Fatalf("second compaction prompt = %q", prompt)
+	}
+}
+
+func TestCompactionHistorySplitsOversizedUnitIntoBoundedRecentSuffix(t *testing.T) {
+	older, recent, err := selectCompactionHistory([]Message{compactionMessage("huge", MessageTypeUser, strings.Repeat("x", 5000))}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if older == "" || recent == "" || genericTextTokens(recent) > 100 {
+		t.Fatalf("older chars=%d recent tokens=%d", len(older), genericTextTokens(recent))
+	}
+	if !strings.HasSuffix(older+recent, strings.Repeat("x", 5000)) {
+		t.Fatal("split history did not retain the complete serialized unit")
 	}
 }
 
@@ -282,15 +378,16 @@ func TestCompactorFallsBackToCompactingWithinActiveTurn(t *testing.T) {
 		t.Fatalf("checkpoint = %#v", result.Checkpoint)
 	}
 	if len(result.Request.Messages) != 4 ||
-		result.Request.Messages[0].Type != MessageTypeSystem ||
+		result.Request.Messages[0].Type != MessageTypeAssistant ||
 		result.Request.Messages[1].Type != MessageTypeRuntimeEvent ||
 		result.Request.Messages[1].Content != compactedTurnContinuation ||
 		result.Request.Messages[2].ID != "latest-call" ||
 		result.Request.Messages[3].ID != "latest-result" {
 		t.Fatalf("projection = %#v", result.Request.Messages)
 	}
-	if !strings.Contains(model.request.Messages[0].Content, "first-call") || !strings.Contains(model.request.Messages[0].Content, "first-result") {
-		t.Fatalf("active-turn prefix was not summarized: %q", model.request.Messages[0].Content)
+	compactedInput := model.request.Messages[0].Content + "\n" + result.Checkpoint.RecentContext
+	if !strings.Contains(compactedInput, "first-call") || !strings.Contains(compactedInput, "first-result") {
+		t.Fatalf("active-turn prefix was not retained: %q", compactedInput)
 	}
 
 	transcript := append(storage.CloneMessages(request.Messages), compactionCheckpoint(
@@ -359,7 +456,10 @@ func TestCompactorPlaceholderCountsAgainstDynamicAvailableBudget(t *testing.T) {
 	middleUser := compactionMessage("middle-user", MessageTypeUser, strings.Repeat("middle ", 43))
 	middleAssistant := compactionMessage("middle-assistant", MessageTypeAssistant, strings.Repeat("answer ", 43))
 	latestUser := compactionMessage("latest", MessageTypeUser, strings.Repeat("latest ", 29))
-	model := &compactionModel{content: strings.Repeat("m", 1024)}
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: strings.Repeat("m", 1024)},
+		metadata:        ModelMetadata{ContextWindowTokens: 2048, MaxOutputTokens: 256},
+	}
 	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{Request: compactionRequest(oldUser, middleUser, middleAssistant, latestUser), MainModelMetadata: ModelMetadata{ContextWindowTokens: 500, MaxOutputTokens: 100}})
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +472,7 @@ func TestCompactorPlaceholderCountsAgainstDynamicAvailableBudget(t *testing.T) {
 		summarized.WriteString(request.Messages[0].Content)
 	}
 	if !strings.Contains(summarized.String(), "middle-user") || !strings.Contains(summarized.String(), "middle-assistant") {
-		t.Fatalf("oversized excluded tail was not summarized across chunks: %q", summarized.String())
+		t.Fatalf("excluded history was not included in the one-shot summary input: %q", summarized.String())
 	}
 }
 
@@ -390,7 +490,10 @@ func TestCompactorPreparePreselectsLegalTailBeforeSummary(t *testing.T) {
 	oldAssistant := compactionMessage("old-assistant", MessageTypeAssistant, "old answer")
 	currentUser := compactionMessage("current-user", MessageTypeUser, "continue")
 	currentAssistant := compactionMessage("current-assistant", MessageTypeAssistant, "in progress")
-	model := &compactionModel{content: strings.Repeat("m", 1024)}
+	model := &limitedCompactionModel{
+		compactionModel: compactionModel{content: strings.Repeat("m", 1024)},
+		metadata:        ModelMetadata{ContextWindowTokens: 2048, MaxOutputTokens: 256},
+	}
 	result, err := (Compactor{Model: model}).Prepare(context.Background(), CompactionInput{Request: compactionRequest(oldUser, oldAssistant, currentUser, currentAssistant), MainModelMetadata: ModelMetadata{ContextWindowTokens: 500, MaxOutputTokens: 100}})
 	if err != nil {
 		t.Fatal(err)
@@ -398,8 +501,9 @@ func TestCompactorPreparePreselectsLegalTailBeforeSummary(t *testing.T) {
 	if !result.Compacted || result.Request.Messages[1].Type != MessageTypeUser {
 		t.Fatalf("result = %#v", result)
 	}
-	if !strings.Contains(model.request.Messages[0].Content, "old-user") || !strings.Contains(model.request.Messages[0].Content, "old answer") {
-		t.Fatalf("summary omitted excluded history: %q", model.request.Messages[0].Content)
+	compactedInput := model.request.Messages[0].Content + "\n" + result.Checkpoint.RecentContext
+	if !strings.Contains(compactedInput, "old-user") || !strings.Contains(compactedInput, "old answer") {
+		t.Fatalf("checkpoint omitted excluded history: %q", compactedInput)
 	}
 }
 
@@ -446,6 +550,11 @@ func compactionMessage(id string, kind MessageType, content string) Message {
 }
 func compactionCheckpoint(id, cover, tail, summary string) Message {
 	return Message{ID: id, SessionID: "session", TurnID: "turn", Type: storage.MessageTypeCompactionCheckpoint, CompactionCheckpoint: &storage.CompactionCheckpoint{Summary: summary, CoversThroughMessageID: cover, TailStartMessageID: tail}, CreatedAt: time.Unix(1, 0)}
+}
+func compactionCheckpointWithRecent(id, cover, tail, summary, recent string) Message {
+	message := compactionCheckpoint(id, cover, tail, summary)
+	message.CompactionCheckpoint.RecentContext = recent
+	return message
 }
 func toolResultMessage(id, callID, name string) Message {
 	message := compactionMessage(id, MessageTypeToolResult, "")

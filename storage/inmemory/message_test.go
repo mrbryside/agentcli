@@ -171,7 +171,7 @@ func TestMessageStorageRetainsCompactionCheckpointInAppendOrder(t *testing.T) {
 	before := testMessage("message-1", "session-1", "turn-1", "before checkpoint")
 	checkpoint := storage.Message{
 		ID: "checkpoint-1", SessionID: "session-1", TurnID: "turn-2", Type: storage.MessageTypeCompactionCheckpoint,
-		CompactionCheckpoint: &storage.CompactionCheckpoint{Summary: "cumulative summary", CoversThroughMessageID: "message-1", TailStartMessageID: "message-2"},
+		CompactionCheckpoint: &storage.CompactionCheckpoint{Summary: "cumulative summary", RecentContext: "serialized recent context", CoversThroughMessageID: "message-1", TailStartMessageID: "message-2"},
 	}
 	after := testMessage("message-2", "session-1", "turn-2", "tail message")
 	if err := store.Append(context.Background(), before, checkpoint, after); err != nil {
@@ -186,6 +186,7 @@ func TestMessageStorageRetainsCompactionCheckpointInAppendOrder(t *testing.T) {
 		t.Fatalf("message IDs = %v, want %v", got, want)
 	}
 	messages[1].CompactionCheckpoint.Summary = "mutated"
+	messages[1].CompactionCheckpoint.RecentContext = "mutated recent context"
 	messages[1].CompactionCheckpoint.TailStartMessageID = "mutated-message"
 
 	again, err := store.List(context.Background(), "session-1")
@@ -194,6 +195,9 @@ func TestMessageStorageRetainsCompactionCheckpointInAppendOrder(t *testing.T) {
 	}
 	if got := again[1].CompactionCheckpoint.Summary; got != "cumulative summary" {
 		t.Fatalf("stored checkpoint summary = %q, want cumulative summary", got)
+	}
+	if got := again[1].CompactionCheckpoint.RecentContext; got != "serialized recent context" {
+		t.Fatalf("stored checkpoint recent context = %q, want serialized recent context", got)
 	}
 	if got := again[1].CompactionCheckpoint.TailStartMessageID; got != "message-2" {
 		t.Fatalf("stored checkpoint tail start = %q, want message-2", got)
