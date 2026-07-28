@@ -16,7 +16,7 @@ service, or another interactive application. It exposes the complete
 5. interrupt active or queued work;
 6. restore the provider-neutral transcript;
 7. display and continue subagents;
-8. receive automatic parent responses when subagents finish.
+8. receive automatic main agent responses when subagents finish.
 
 The default server and storage are in-memory. They are suitable for one
 long-lived process, local tools, prototypes, and tests. Before using multiple
@@ -36,7 +36,7 @@ Application UI
   └─ SSE session activity stream
        ├─ user-created turns
        ├─ queued lifecycle changes
-       └─ automatic subagent callback turns
+       └─ automatic subagent result turns
               │
               ▼
         agentcli Echo server
@@ -51,8 +51,8 @@ For a complete application, prefer the session stream:
 GET /v1/sessions/{sessionID}/events
 ```
 
-It has one monotonic cursor across every root turn. This is how a client learns
-about parent turns created asynchronously when subagents finish. A simple
+It has one monotonic cursor across every main-agent turn. This is how a client learns
+about main agent turns created asynchronously when subagents finish. A simple
 request-scoped integration can instead stream only the turn returned by its
 POST:
 
@@ -65,7 +65,7 @@ GET /v1/sessions/{sessionID}/turns/{turnID}/events
 | Need | Endpoint |
 | --- | --- |
 | Submit a user message | `POST /v1/sessions/{sessionID}/turns` |
-| Follow all root activity | `GET /v1/sessions/{sessionID}/events` |
+| Follow all main-agent activity | `GET /v1/sessions/{sessionID}/events` |
 | Follow one known turn | `GET /v1/sessions/{sessionID}/turns/{turnID}/events` |
 | Read status or final result | `GET /v1/sessions/{sessionID}/turns/{turnID}` |
 | Restore the transcript | `GET /v1/sessions/{sessionID}/messages` |
@@ -74,10 +74,10 @@ GET /v1/sessions/{sessionID}/turns/{turnID}/events
 | Answer an informational confirmation | `POST /v1/confirmations/{confirmationID}/decisions` |
 | Read or change permission mode | `GET`, `PUT /v1/permission-mode` |
 | Discover subagent definitions | `GET /v1/subagent-definitions` |
-| Create or list children | `POST`, `GET /v1/sessions/{sessionID}/subagents` |
-| Open or close one terminal child | `GET`, `DELETE /v1/sessions/{sessionID}/subagents/{subagentID}` |
-| Send a child message | `POST /v1/sessions/{sessionID}/subagents/{subagentID}/turns` |
-| Restore a child transcript | `GET /v1/sessions/{sessionID}/subagents/{subagentID}/messages` |
+| Create or list subagents | `POST`, `GET /v1/sessions/{sessionID}/subagents` |
+| Open or close one terminal subagent | `GET`, `DELETE /v1/sessions/{sessionID}/subagents/{subagentID}` |
+| Send a subagent message | `POST /v1/sessions/{sessionID}/subagents/{subagentID}/turns` |
+| Restore a subagent transcript | `GET /v1/sessions/{sessionID}/subagents/{subagentID}/messages` |
 
 The generated [API documentation](/api-reference) contains every request and
 response schema. The [Events reference](/api/sse-events) contains the complete
@@ -102,23 +102,23 @@ return agent.RunServer(
 )
 ```
 
-Automatic subagent callback delivery is enabled by default. A host that wants to
-manage child completions itself can opt out with
+Automatic subagent result delivery is enabled by default. A host that wants to
+manage subagent completions itself can opt out with
 `agentcli.WithServerAutoContinueSubagents(false)`.
 
-Callbacks first join a compatible active parent at its next provider boundary;
-otherwise an automatic callback turn starts. Both remain in the response scope
-that originally dispatched the child. An early `EndResponseScope` call is a successful
+Results first join a compatible active main agent at its next provider boundary;
+otherwise an automatic result turn starts. Both remain in the response scope
+that originally assigned the subagent. An early `EndResponseScope` call is a successful
 non-executing skip; no handler invocation is retained for later. A skipped tool
-configured with `EndTurnOnSuccess` ends the current turn only while callbacks
-or other active turns keep the scope open, allowing callbacks to arrive without
+configured with `EndTurnOnSuccess` ends the current turn only while results
+or other active turns keep the scope open, allowing results to arrive without
 another provider round. A premature call in an otherwise quiescent scope
-continues so ordinary work can finish. Intermediate callback turns may finish
-without that trigger. A callback continuation may execute the final handler on
-provider step one when it is the last active turn and no callback/input is
+continues so ordinary work can finish. Intermediate result turns may finish
+without that trigger. A result continuation may execute the final handler on
+provider step one when it is the last active turn and no result/input is
 pending; completion repair remains the fallback. Direct Go integrations call
-`TryInjectSubagentCallback` before
-`ContinueSubagentCallbackSubscribed`.
+`TryInjectSubagentResult` before
+`ContinueSubagentResultSubscribed`.
 
 ## End-to-end browser flow
 
@@ -266,9 +266,9 @@ the server-owned executor already handles it.
 
 `trigger_satisfied: false` is a successful runtime-owned skip, not proof that
 the tool's side effect happened. For an `EndResponseScope` delivery tool, wait
-for a later callback continuation to produce `trigger_satisfied: true` or for a
+for a later result continuation to produce `trigger_satisfied: true` or for a
 terminal run failure. The skipped call may complete the current turn while the
-scope is waiting for callbacks, but a quiescent premature call continues.
+scope is waiting for results, but a quiescent premature call continues.
 Ordinary tool results omit this field.
 
 At `stream_completed`, `provider_event.payload.result` contains the
@@ -307,12 +307,12 @@ Keep pending prompts keyed by their request ID. Remove them only after a
 resolved, cancelled, or expired event. Never infer approval from a disconnect,
 timeout in the UI, or permission mode label.
 
-For child events, post the same decision body to the ownership-scoped child
+For subagent events, post the same decision body to the ownership-scoped subagent
 permission or confirmation endpoint shown in the API reference.
 
 ## Interrupt and queued turns
 
-Each session runs one root turn at a time. Extra messages are accepted into a
+Each session runs one main-agent turn at a time. Extra messages are accepted into a
 bounded FIFO and return `202` with `status: queued`. Other sessions remain
 parallel.
 
@@ -325,36 +325,36 @@ await postJSON(
 ```
 
 The same endpoint cancels a queued turn before it reaches the model. Treat
-`queue_position` as a display hint: an automatic subagent callback is
+`queue_position` as a display hint: an automatic subagent result is
 prioritized ahead of waiting user turns, so positions can change.
 
 ## Subagent behavior
 
-A root model can start project-defined subagents through its management tools,
+A main-agent model can start project-defined subagents through its management tools,
 or an application can create one directly through the nested HTTP routes.
-Children always run asynchronously.
+Subagents always run asynchronously.
 
-When a child turn ends, the server automatically:
+When a subagent turn ends, the server automatically:
 
-1. receives its compact `completed`, `incomplete`, or `failed` callback;
-2. injects trusted `runtime_event` input at the active parent's next provider
+1. receives its compact `completed`, `incomplete`, or `failed` result;
+2. injects trusted `runtime_event` input at the active main agent's next provider
    boundary when compatible;
-3. otherwise prioritizes a callback continuation after the active turn;
-4. asks the parent model to use the result or error;
-5. publishes provider events on the owning active or callback turn stream.
+3. otherwise prioritizes a result continuation after the active turn;
+4. asks the main agent model to use the result or error;
+5. publishes provider events on the owning active or result turn stream.
 
-The activity has `source: "subagent_callback"` and a
-`subagent_callback` reference containing the child and child-turn IDs plus its
+The activity has `source: "subagent_result"` and a
+`subagent_result` reference containing the subagent and subagent-turn IDs plus its
 structured summary and required next step when present. The
-child answer itself is delivered privately to the parent runtime; render the
-parent's resulting assistant response from normal provider events. Do not poll
+subagent answer itself is delivered privately to the main agent runtime; render the
+main agent's resulting assistant response from normal provider events. Do not poll
 application lifecycle endpoints to discover model-visible completion.
 
-To build a child-session view, keep its transcript and streaming state separate
-from the root view. Open the selected child's `/messages`, then resume its
-`current_turn_id` through the nested `/events` endpoint. The complete state
-model and reconnect algorithm are in [Child views](../agentcli/child-views.md).
-Closing a completed or failed, callback-consumed child keeps its history readable.
+To build a subagent-session view, keep its transcript and streaming state separate
+from the main-agent view. Open the selected subagent's `/messages`, then resume its
+`current_subagent_turn_id` through the nested `/events` endpoint. The complete state
+model and reconnect algorithm are in [Subagent views](../agentcli/subagent-views.md).
+Closing a completed or failed, result-consumed subagent keeps its history readable.
 
 ## Reload and reconnect checklist
 
@@ -366,7 +366,7 @@ On application reload:
 4. reconnect `/v1/sessions/{sessionID}/events?after={cursor}`;
 5. rebuild pending prompts by applying replayed requested/resolved/cancelled/
    expired events in order;
-6. list subagents when the UI exposes child navigation.
+6. list subagents when the UI exposes subagent navigation.
 
 Persist a cursor only after its record has been applied to UI state. Applying
 the same event twice should be harmless; key turns by `turn_id`, messages by
@@ -392,12 +392,12 @@ as `Last-Event-ID` after reconnecting. Do not buffer the entire response.
 - **Web or mobile assistant:** one session per chat, session SSE for live text,
   modals for permissions and confirmations, transcript endpoint on reload.
 - **Slack, Teams, or Discord bot:** map a thread to a session ID, translate
-  completed parent turns into messages, and use interactive buttons for safety
+  completed main agent turns into messages, and use interactive buttons for safety
   decisions.
 - **Operations console:** render tool execution and reasoning separately,
   require confirmation for deployment tools, and audit every decision event.
-- **Background research workflow:** create several subagents, keep the parent
-  session stream open, and let callback turns synthesize results as children
+- **Background research workflow:** create several subagents, keep the main agent
+  session stream open, and let result turns synthesize results as subagents
   finish.
-- **Custom interactive client:** use the session feed for the root view and
-  independent nested streams for child navigation and background progress.
+- **Custom interactive client:** use the session feed for the main-agent view and
+  independent nested streams for subagent navigation and background progress.

@@ -27,10 +27,10 @@ requests. Existing pending requests remain pending and can be answered by ID.
 [Permissions and confirmations](../tools/permissions-and-confirmations.md)
 before enabling it.
 
-## Permission or confirmation appears while viewing a child
+## Permission or confirmation appears while viewing a subagent
 
-The request retains the child session, turn, and tool-call correlation. You
-may answer it in the selected child view or return to the root and use its ID:
+The request retains the subagent session, turn, and tool-call correlation. You
+may answer it in the selected subagent view or return to the main-agent view and use its ID:
 
 ```text
 /permissions
@@ -40,7 +40,7 @@ may answer it in the selected child view or return to the root and use its ID:
 /confirm confirm_...
 ```
 
-The Terminal queues root and child permissions and confirmations together and
+The Terminal queues main-agent and subagent permissions and confirmations together and
 shows one question at a time. Resolve the visible request to advance the FIFO.
 Use ID commands when selecting a known pending request from a listing;
 shortcuts apply only to the visible request of the matching kind.
@@ -52,8 +52,8 @@ Run `/session` and check `Streaming`:
 - `active` means the selected view still has a live run.
 - `idle` means no response is currently streaming in that view.
 
-Use `/back` or `/agent REF` to confirm that the expected view is selected. Root
-and child output are intentionally isolated.
+Use `/back` or `/agent REF` to confirm that the expected view is selected. Main-agent
+and subagent output are intentionally isolated.
 
 If a run failed, the terminal displays the provider or runtime error. The
 stored messages and events remain available for inspection.

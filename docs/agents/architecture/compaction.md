@@ -1,7 +1,7 @@
 # Context compaction
 
 Read this file when changing automatic context sizing, summary generation,
-checkpoint storage, request projection, compaction events, or child-agent
+checkpoint storage, request projection, compaction events, or subagent-agent
 inheritance.
 
 ## Preflight and budgets
@@ -28,7 +28,7 @@ filling the request immediately after compaction. System and tool base costs
 can reduce the tail further.
 
 `ContextEstimator` is replaceable. By default the runtime asks the main model's
-optional `ContextEstimatorProvider` capability, which makes root and child
+optional `ContextEstimatorProvider` capability, which makes root and subagent
 agents select the estimator for their actual provider. `GenericContextEstimator`
 is the deterministic conservative fallback. It charges ASCII at three bytes
 per token to leave headroom for JSON, code, and tokenizers that are denser than
@@ -94,7 +94,7 @@ HTTP transcript responses identify checkpoint records by
 `type: "compaction_checkpoint"` but intentionally omit summary and boundary
 fields. Treat them as opaque internal runtime state.
 
-## Events and child sessions
+## Events and subagent sessions
 
 A new compaction emits `compaction_started` immediately before the summarizer,
 persists the checkpoint, then emits `compaction_completed` before the main
@@ -104,11 +104,11 @@ The same event sequence is emitted for a forced compaction retry after a
 context-window rejection.
 
 No compaction event is emitted when the request already fits or when a resumed
-session only projects an existing checkpoint. Project-created child agents
+session only projects an existing checkpoint. Project-created subagents
 inherit the compaction model and any explicit estimator override; otherwise
-each child selects the estimator from its own main model. Their events carry
-the child's own session and turn IDs and do not appear as parent-run events;
-the parent continues receiving the normal child callback lifecycle.
+each subagent selects the estimator from its own main model. Their events carry
+the subagent's own session and turn IDs and do not appear as main agent-run events;
+the main agent continues receiving the normal subagent result lifecycle.
 
 ## Provider boundary
 
@@ -116,7 +116,7 @@ The main model must implement `ModelMetadataProvider` when compaction is
 enabled. A summarizer that implements the optional capability is validated too.
 Each provider profile may supply explicit limits in exact-name model entries.
 Those limits apply only to a matching model; otherwise each distinct main,
-child, and summarizer model resolves its limits from the provider `/models`
+subagent, and summarizer model resolves its limits from the provider `/models`
 endpoint, then `models.dev`, then project defaults of 122,880 context tokens
 and 66,560 output tokens. Directly
 constructed OpenAI-compatible adapters retain their exact-alias catalog.

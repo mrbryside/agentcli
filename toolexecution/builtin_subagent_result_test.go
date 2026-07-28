@@ -7,25 +7,24 @@ import (
 	"testing"
 )
 
-func TestSubagentOutcomeToolValidatesSemanticCompletion(t *testing.T) {
-	tool := NewSubagentOutcomeTool()
-	if tool.Definition.Name != SubagentOutcomeToolName || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
-		t.Fatalf("invalid outcome tool: %#v", tool.Definition)
+func TestSubagentReportToolValidatesSemanticCompletion(t *testing.T) {
+	tool := NewSubagentReportTool()
+	if tool.Definition.Name != SubagentResultToolName || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
+		t.Fatalf("invalid report tool: %#v", tool.Definition)
 	}
 	for _, expected := range []string{
-		"exactly once after domain work and before the final assistant answer",
-		"authoritative parent callback",
-		"completed only when every required part",
+		"exactly once after the assigned work is finished",
+		"status=completed only when every required part",
 		"omit next_step and error",
-		"one concrete non-empty next_step",
+		"one concrete next_step",
 		"terminal error prevents",
-		"actual non-empty error",
-		"never invent recovery work",
-		"If unsure whether work is resolved, report incomplete",
-		"do not call this tool or repeat domain work again",
+		"actual error",
+		"If unsure, use incomplete",
+		"do not call it or repeat domain work",
+		"final answer for the main agent",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
-			t.Fatalf("report_subagent_outcome description does not contain %q: %q", expected, tool.Definition.Description)
+			t.Fatalf("report_subagent_result description does not contain %q: %q", expected, tool.Definition.Description)
 		}
 	}
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
@@ -34,27 +33,27 @@ func TestSubagentOutcomeToolValidatesSemanticCompletion(t *testing.T) {
 		`"minLength":1`,
 		`"required":["status","summary"]`,
 		`"additionalProperties":false`,
-		`For incomplete only`,
-		`For failed only`,
+		`Required only for incomplete`,
+		`Required only for failed`,
 	} {
 		if !strings.Contains(schema, expected) {
-			t.Fatalf("report_subagent_outcome schema does not contain %q: %s", expected, schema)
+			t.Fatalf("report_subagent_result schema does not contain %q: %s", expected, schema)
 		}
 	}
 	for _, unsupported := range []string{`"oneOf"`, `"anyOf"`, `"allOf"`, `"const"`, `"if"`, `"then"`, `"else"`} {
 		if strings.Contains(schema, unsupported) {
-			t.Fatalf("report_subagent_outcome schema contains non-portable keyword %q: %s", unsupported, schema)
+			t.Fatalf("report_subagent_result schema contains non-portable keyword %q: %s", unsupported, schema)
 		}
 	}
 	for _, test := range []struct {
 		name      string
 		arguments string
-		want      SubagentOutcomeStatus
+		want      SubagentReportStatus
 		wantError bool
 	}{
-		{name: "completed", arguments: `{"status":"completed","summary":"All work is resolved."}`, want: SubagentOutcomeCompleted},
-		{name: "incomplete", arguments: `{"status":"incomplete","summary":"Need confirmation.","next_step":"Ask the user to confirm."}`, want: SubagentOutcomeIncomplete},
-		{name: "failed", arguments: `{"status":"failed","summary":"The operation cannot continue.","error":"Discord API is unavailable."}`, want: SubagentOutcomeFailed},
+		{name: "completed", arguments: `{"status":"completed","summary":"All work is resolved."}`, want: SubagentReportCompleted},
+		{name: "incomplete", arguments: `{"status":"incomplete","summary":"Need confirmation.","next_step":"Ask the user to confirm."}`, want: SubagentReportIncomplete},
+		{name: "failed", arguments: `{"status":"failed","summary":"The operation cannot continue.","error":"Discord API is unavailable."}`, want: SubagentReportFailed},
 		{name: "completed with next step", arguments: `{"status":"completed","summary":"Done.","next_step":"Do more."}`, wantError: true},
 		{name: "completed with error", arguments: `{"status":"completed","summary":"Done.","error":"Unexpected."}`, wantError: true},
 		{name: "incomplete without next step", arguments: `{"status":"incomplete","summary":"Not done."}`, wantError: true},
@@ -74,9 +73,9 @@ func TestSubagentOutcomeToolValidatesSemanticCompletion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			outcome, err := ParseSubagentOutcome(output)
-			if err != nil || outcome.Status != test.want {
-				t.Fatalf("outcome = %#v, err = %v", outcome, err)
+			report, err := ParseSubagentReport(output)
+			if err != nil || report.Status != test.want {
+				t.Fatalf("report = %#v, err = %v", report, err)
 			}
 		})
 	}

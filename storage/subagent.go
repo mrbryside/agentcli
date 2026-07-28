@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// SubagentStatus describes the lifecycle state of a child agent session.
+// SubagentStatus describes the lifecycle state of a subagent session.
 type SubagentStatus string
 
 const (
@@ -16,44 +16,44 @@ const (
 	SubagentStatusClosed  SubagentStatus = "closed"
 )
 
-// SubagentTurnOutcome is the semantic result of the most recently finished
-// child turn. It is independent from the running/idle/closed lifecycle.
-type SubagentTurnOutcome string
+// SubagentResultStatus is the semantic result of the most recently finished
+// subagent turn. It is independent from the running/idle/closed lifecycle.
+type SubagentResultStatus string
 
 const (
-	SubagentTurnCompleted  SubagentTurnOutcome = "completed"
-	SubagentTurnIncomplete SubagentTurnOutcome = "incomplete"
-	SubagentTurnFailed     SubagentTurnOutcome = "failed"
+	SubagentResultCompleted  SubagentResultStatus = "completed"
+	SubagentResultIncomplete SubagentResultStatus = "incomplete"
+	SubagentResultFailed     SubagentResultStatus = "failed"
 )
 
-// SubagentQueuedMessage is one ordered parent-to-child mailbox entry.
+// SubagentQueuedMessage is one ordered main agent-to-subagent mailbox entry.
 type SubagentQueuedMessage struct {
 	ID        string
 	Content   string
 	CreatedAt time.Time
 }
 
-// Subagent is provider-neutral state for one child agent instance. Child
-// transcript messages remain in MessageStorage under SessionID.
+// Subagent is provider-neutral state for one subagent instance. Subagent
+// transcript messages remain in MessageStorage under SubagentSessionID.
 type Subagent struct {
-	ID              string
-	DisplayName     string
-	Label           string
-	ParentSessionID string
-	ParentTurnID    string
-	SessionID       string
-	DefinitionName  string
-	Provider        string
-	Model           string
+	ID                 string
+	DisplayName        string
+	Label              string
+	MainAgentSessionID string
+	MainAgentTurnID    string
+	SubagentSessionID  string
+	DefinitionName     string
+	Provider           string
+	Model              string
 
-	Status           SubagentStatus
-	CurrentTurnID    string
-	LastTurnID       string
-	LastTurnError    string
-	LastTurnOutcome  SubagentTurnOutcome
-	LastTurnSummary  string
-	LastTurnNextStep string
-	Version          uint64
+	Status                SubagentStatus
+	CurrentSubagentTurnID string
+	LastSubagentTurnID    string
+	LastResultError       string
+	LastResultStatus      SubagentResultStatus
+	LastResultSummary     string
+	LastResultNextStep    string
+	Version               uint64
 
 	Pending []SubagentQueuedMessage
 
@@ -68,21 +68,21 @@ type Subagent struct {
 // SubagentUpdate contains the lifecycle values that may be compare-safely
 // changed together. Mailbox and observation updates have dedicated methods.
 type SubagentUpdate struct {
-	Status           SubagentStatus
-	CurrentTurnID    string
-	LastTurnID       string
-	LastTurnError    string
-	LastTurnOutcome  SubagentTurnOutcome
-	LastTurnSummary  string
-	LastTurnNextStep string
+	Status                SubagentStatus
+	CurrentSubagentTurnID string
+	LastSubagentTurnID    string
+	LastResultError       string
+	LastResultStatus      SubagentResultStatus
+	LastResultSummary     string
+	LastResultNextStep    string
 }
 
-// SubagentStorage persists parent-child session relationships independently of
+// SubagentStorage persists main-agent-to-subagent session relationships independently of
 // provider messages and events. Every returned record is a defensive copy.
 type SubagentStorage interface {
 	Create(context.Context, Subagent) (Subagent, error)
 	Get(ctx context.Context, id string) (Subagent, bool, error)
-	ListByParent(ctx context.Context, parentSessionID string) ([]Subagent, error)
+	ListByMainAgent(ctx context.Context, mainAgentSessionID string) ([]Subagent, error)
 	Update(ctx context.Context, id string, expectedVersion uint64, update SubagentUpdate) (Subagent, error)
 	Enqueue(ctx context.Context, id string, message SubagentQueuedMessage) (Subagent, error)
 	Dequeue(ctx context.Context, id string) (Subagent, *SubagentQueuedMessage, error)
@@ -98,24 +98,24 @@ var (
 	ErrDuplicateSubagentID = errors.New("duplicate subagent ID")
 	// ErrDuplicateSubagentMessageID indicates a mailbox repeats an entry ID.
 	ErrDuplicateSubagentMessageID = errors.New("duplicate subagent message ID")
-	// ErrSubagentNotFound indicates the requested child instance is absent.
+	// ErrSubagentNotFound indicates the requested subagent instance is absent.
 	ErrSubagentNotFound = errors.New("subagent not found")
 	// ErrSubagentVersionConflict indicates a compare-safe mutation lost a race.
 	ErrSubagentVersionConflict = errors.New("subagent version conflict")
-	// ErrSubagentClosed indicates an operation would send work to a closed child.
+	// ErrSubagentClosed indicates an operation would send work to a closed subagent.
 	ErrSubagentClosed = errors.New("subagent closed")
-	// ErrSubagentRunning indicates an operation requires the child to be idle.
+	// ErrSubagentRunning indicates an operation requires the subagent to be idle.
 	ErrSubagentRunning = errors.New("subagent is still running")
 	// ErrSubagentIncomplete indicates lifecycle cleanup was requested while the
-	// child's latest outcome still requires a follow-up.
-	ErrSubagentIncomplete = errors.New("subagent outcome is incomplete")
-	// ErrSubagentCallbackPending indicates send or lifecycle cleanup was
-	// requested before the latest callback was consumed by the parent.
-	ErrSubagentCallbackPending = errors.New("subagent callback has not been consumed")
-	// ErrSubagentOutcomeUnavailable indicates an idle child has no terminal or
-	// follow-up outcome that can safely anchor another message.
-	ErrSubagentOutcomeUnavailable = errors.New("subagent has no finished turn outcome")
-	// ErrSubagentCompleted indicates a finished child cannot be reused for
+	// subagent's latest result still requires a follow-up.
+	ErrSubagentIncomplete = errors.New("subagent result is incomplete")
+	// ErrSubagentResultPending indicates send or lifecycle cleanup was
+	// requested before the latest result was consumed by the main agent.
+	ErrSubagentResultPending = errors.New("subagent result has not been consumed")
+	// ErrSubagentReportUnavailable indicates an idle subagent has no terminal or
+	// follow-up result that can safely anchor another message.
+	ErrSubagentReportUnavailable = errors.New("subagent has no finished result")
+	// ErrSubagentCompleted indicates a finished subagent cannot be reused for
 	// follow-up or unrelated new work.
 	ErrSubagentCompleted = errors.New("completed subagent cannot be reused; start a new subagent for genuinely new work")
 )
@@ -128,9 +128,9 @@ func ValidateSubagent(subagent Subagent) error {
 	}{
 		{"ID", subagent.ID},
 		{"display name", subagent.DisplayName},
-		{"parent session ID", subagent.ParentSessionID},
-		{"parent turn ID", subagent.ParentTurnID},
-		{"child session ID", subagent.SessionID},
+		{"main agent session ID", subagent.MainAgentSessionID},
+		{"main agent turn ID", subagent.MainAgentTurnID},
+		{"subagent session ID", subagent.SubagentSessionID},
 		{"definition name", subagent.DefinitionName},
 		{"provider", subagent.Provider},
 		{"model", subagent.Model},
@@ -139,8 +139,8 @@ func ValidateSubagent(subagent Subagent) error {
 			return invalidSubagent("%s is required", field.name)
 		}
 	}
-	if subagent.SessionID == subagent.ParentSessionID {
-		return invalidSubagent("child session ID must differ from parent session ID")
+	if subagent.SubagentSessionID == subagent.MainAgentSessionID {
+		return invalidSubagent("subagent session ID must differ from main agent session ID")
 	}
 	if subagent.CreatedAt.IsZero() || subagent.UpdatedAt.IsZero() {
 		return invalidSubagent("created and updated timestamps are required")
@@ -151,22 +151,22 @@ func ValidateSubagent(subagent Subagent) error {
 
 	switch subagent.Status {
 	case SubagentStatusRunning:
-		if subagent.CurrentTurnID == "" {
-			return invalidSubagent("running subagent requires a current turn ID")
+		if subagent.CurrentSubagentTurnID == "" {
+			return invalidSubagent("running subagent requires a current subagent turn ID")
 		}
 		if subagent.ClosedAt != nil {
 			return invalidSubagent("running subagent cannot have a closed timestamp")
 		}
 	case SubagentStatusIdle:
-		if subagent.CurrentTurnID != "" {
-			return invalidSubagent("idle subagent cannot have a current turn ID")
+		if subagent.CurrentSubagentTurnID != "" {
+			return invalidSubagent("idle subagent cannot have a current subagent turn ID")
 		}
 		if subagent.ClosedAt != nil {
 			return invalidSubagent("idle subagent cannot have a closed timestamp")
 		}
 	case SubagentStatusClosed:
-		if subagent.CurrentTurnID != "" {
-			return invalidSubagent("closed subagent cannot have a current turn ID")
+		if subagent.CurrentSubagentTurnID != "" {
+			return invalidSubagent("closed subagent cannot have a current subagent turn ID")
 		}
 		if subagent.ClosedAt == nil || subagent.ClosedAt.IsZero() {
 			return invalidSubagent("closed subagent requires a closed timestamp")
@@ -194,34 +194,34 @@ func ValidateSubagent(subagent Subagent) error {
 	if subagent.ObservedMessageID == "" && subagent.ObservedVersion != 0 {
 		return invalidSubagent("observed version requires an observed message ID")
 	}
-	if subagent.LastTurnOutcome != "" && subagent.LastTurnID == "" {
-		return invalidSubagent("last turn outcome requires a last turn ID")
+	if subagent.LastResultStatus != "" && subagent.LastSubagentTurnID == "" {
+		return invalidSubagent("last result status requires a last subagent turn ID")
 	}
-	if subagent.LastTurnError != "" && subagent.LastTurnOutcome != SubagentTurnFailed {
-		return invalidSubagent("last turn error requires failed outcome")
+	if subagent.LastResultError != "" && subagent.LastResultStatus != SubagentResultFailed {
+		return invalidSubagent("last result error requires failed status")
 	}
-	switch subagent.LastTurnOutcome {
+	switch subagent.LastResultStatus {
 	case "":
-		if subagent.LastTurnSummary != "" || subagent.LastTurnNextStep != "" {
-			return invalidSubagent("last turn details require an outcome")
+		if subagent.LastResultSummary != "" || subagent.LastResultNextStep != "" {
+			return invalidSubagent("last result details require a result status")
 		}
-	case SubagentTurnCompleted:
-		if subagent.LastTurnSummary == "" {
-			return invalidSubagent("completed last turn requires a summary")
+	case SubagentResultCompleted:
+		if subagent.LastResultSummary == "" {
+			return invalidSubagent("completed result requires a summary")
 		}
-		if subagent.LastTurnNextStep != "" {
-			return invalidSubagent("completed last turn cannot require a next step")
+		if subagent.LastResultNextStep != "" {
+			return invalidSubagent("completed result cannot require a next step")
 		}
-	case SubagentTurnIncomplete:
-		if subagent.LastTurnSummary == "" || subagent.LastTurnNextStep == "" {
-			return invalidSubagent("incomplete last turn requires a summary and next step")
+	case SubagentResultIncomplete:
+		if subagent.LastResultSummary == "" || subagent.LastResultNextStep == "" {
+			return invalidSubagent("incomplete result requires a summary and next step")
 		}
-	case SubagentTurnFailed:
-		if subagent.LastTurnError == "" {
-			return invalidSubagent("failed last turn requires an error")
+	case SubagentResultFailed:
+		if subagent.LastResultError == "" {
+			return invalidSubagent("failed result requires an error")
 		}
 	default:
-		return invalidSubagent("unknown last turn outcome %q", subagent.LastTurnOutcome)
+		return invalidSubagent("unknown last result status %q", subagent.LastResultStatus)
 	}
 	return nil
 }
@@ -240,7 +240,7 @@ func ValidateSubagentQueuedMessage(message SubagentQueuedMessage) error {
 	return nil
 }
 
-// CloneSubagent returns a defensive copy of a child record.
+// CloneSubagent returns a defensive copy of a subagent record.
 func CloneSubagent(subagent Subagent) Subagent {
 	clone := subagent
 	if subagent.Pending != nil {
@@ -253,7 +253,7 @@ func CloneSubagent(subagent Subagent) Subagent {
 	return clone
 }
 
-// CloneSubagents returns defensive copies of child records.
+// CloneSubagents returns defensive copies of subagent records.
 func CloneSubagents(subagents []Subagent) []Subagent {
 	if subagents == nil {
 		return nil

@@ -23,7 +23,7 @@ type serverTurn struct {
 	mu                sync.RWMutex
 	request           agentruntime.Request
 	source            ServerTurnSource
-	callback          *SubagentCallback
+	result            *SubagentResult
 	ready             chan struct{}
 	runtimeEventsDone chan struct{}
 	once              sync.Once
@@ -32,9 +32,9 @@ type serverTurn struct {
 	err               error
 }
 
-func newServerTurn(request agentruntime.Request, source ServerTurnSource, callback *SubagentCallback) *serverTurn {
+func newServerTurn(request agentruntime.Request, source ServerTurnSource, result *SubagentResult) *serverTurn {
 	return &serverTurn{
-		request: request, source: source, callback: callback,
+		request: request, source: source, result: result,
 		ready: make(chan struct{}), runtimeEventsDone: make(chan struct{}),
 	}
 }
@@ -71,7 +71,7 @@ func (server *Server) submitTurn(ctx context.Context, request agentruntime.Reque
 	return server.submitTurnWithSource(ctx, request, ServerTurnSourceUser, nil, false)
 }
 
-func (server *Server) submitTurnWithSource(ctx context.Context, request agentruntime.Request, source ServerTurnSource, callback *SubagentCallback, priority bool) (*serverTurn, bool, error) {
+func (server *Server) submitTurnWithSource(ctx context.Context, request agentruntime.Request, source ServerTurnSource, result *SubagentResult, priority bool) (*serverTurn, bool, error) {
 	if request.TurnID == "" {
 		turnID, err := newSubagentID("turn_")
 		if err != nil {
@@ -90,7 +90,7 @@ func (server *Server) submitTurnWithSource(ctx context.Context, request agentrun
 	if source == "" {
 		source = ServerTurnSourceUser
 	}
-	turn := newServerTurn(request, source, callback)
+	turn := newServerTurn(request, source, result)
 	key := serverRunKey{sessionID: request.SessionID, turnID: request.TurnID}
 	server.runsMu.Lock()
 	if _, found := server.turns[key]; found {
@@ -133,23 +133,23 @@ func (server *Server) startAcceptedTurn(turn *serverTurn) error {
 		run *agentruntime.Run
 		err error
 	)
-	if turn.callback == nil {
+	if turn.result == nil {
 		run, err = server.agent.Start(server.context, turn.request)
 	} else {
-		run, _, err = server.agent.continueSubagentCallbackSubscribed(
+		run, _, err = server.agent.continueSubagentResultSubscribed(
 			server.context,
-			*turn.callback,
+			*turn.result,
 			turn.request.TurnID,
 		)
-		if errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) {
-			// A child created directly through the HTTP API has no originating
-			// root response scope. Preserve its useful automatic callback by
-			// treating the continuation as a new root scope.
+		if errors.Is(err, toolexecution.ErrResponseScopeAssignmentNotFound) {
+			// A subagent created directly through the HTTP API has no originating
+			// main-agent response scope. Preserve its useful automatic result by
+			// treating the continuation as a new main-agent scope.
 			run, err = server.agent.Start(server.context, turn.request)
 			if err == nil && server.agent.subagents != nil {
-				_ = server.agent.subagents.observeCallback(
+				_ = server.agent.subagents.observeSubagentResult(
 					context.WithoutCancel(server.context),
-					*turn.callback,
+					*turn.result,
 				)
 			}
 		}

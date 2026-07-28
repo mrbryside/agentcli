@@ -6,17 +6,17 @@ import (
 	langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
 )
 
-// withChildAgent marks an internally constructed child. It is deliberately
-// private: only the manager may make a child that inherits project skills and
+// withSubagentAgent marks an internally constructed subagent. It is deliberately
+// private: only the manager may make a subagent that inherits project skills and
 // caller tools while withholding management capabilities.
-func withChildAgent() Option {
+func withSubagentAgent() Option {
 	return func(configuration *config) error {
-		configuration.childAgent = true
+		configuration.subagentAgent = true
 		return nil
 	}
 }
 
-// withSharedLangfuse reuses the root Agent's exporter for a child. The root
+// withSharedLangfuse reuses the main Agent's exporter for a subagent. The main
 // remains the sole owner responsible for flushing and shutting it down.
 func withSharedLangfuse(client *langfuseobs.Client) Option {
 	return func(configuration *config) error {
@@ -25,7 +25,7 @@ func withSharedLangfuse(client *langfuseobs.Client) Option {
 	}
 }
 
-// withSharedLogger keeps root and child lifecycle records on the same handler.
+// withSharedLogger keeps main-agent and subagent lifecycle records on the same handler.
 func withSharedLogger(logger *slog.Logger) Option {
 	return func(configuration *config) error {
 		configuration.logger = logger

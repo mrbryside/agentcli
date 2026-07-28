@@ -157,7 +157,7 @@ func (hub *sessionEventHub) close() {
 // streamSessionEvents godoc
 // @Summary Stream retained and live session activity
 // @ID streamSessionEvents
-// @Description Replays and follows every root turn in a session, including queued lifecycle records, response-scope boundaries, and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.
+// @Description Replays and follows every main-agent turn in a session, including queued lifecycle records, response-scope boundaries, and turns created automatically from subagent results. The session cursor is independent from each runtime event sequence.
 // @Tags Event streams
 // @Produce text/event-stream
 // @Param sessionID path string true "Session ID"
@@ -251,18 +251,18 @@ func newSessionLifecycleEvent(turn *serverTurn, eventType SessionActivityType, q
 		EventsURL:     turnPath(turn.request.SessionID, turn.request.TurnID) + "/events",
 		Error:         eventError,
 	}
-	if turn.callback != nil {
-		response.SubagentCallback = &SubagentCallbackReference{
-			ParentSessionID: turn.callback.ParentSessionID,
-			ParentTurnID:    turn.callback.ParentTurnID,
-			SubagentID:      turn.callback.SubagentID,
-			DisplayName:     turn.callback.DisplayName,
-			DefinitionName:  turn.callback.SubagentName,
-			ChildSessionID:  turn.callback.SessionID,
-			ChildTurnID:     turn.callback.TurnID,
-			Status:          turn.callback.Status,
-			Summary:         turn.callback.Summary,
-			NextStep:        turn.callback.NextStep,
+	if turn.result != nil {
+		response.SubagentResult = &SubagentResultReference{
+			MainAgentSessionID: turn.result.MainAgentSessionID,
+			MainAgentTurnID:    turn.result.MainAgentTurnID,
+			SubagentID:         turn.result.SubagentID,
+			DisplayName:        turn.result.DisplayName,
+			DefinitionName:     turn.result.DefinitionName,
+			SubagentSessionID:  turn.result.SubagentSessionID,
+			SubagentTurnID:     turn.result.SubagentTurnID,
+			Status:             turn.result.Status,
+			Summary:            turn.result.Summary,
+			NextStep:           turn.result.NextStep,
 		}
 	}
 	return response

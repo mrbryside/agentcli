@@ -10,7 +10,7 @@ import (
 )
 
 // AgentDefinition is the normalized definition domain shared by the main
-// agent and project-defined child agents. Main fixes Name to "main" and leaves
+// agent and project-defined subagent agents. Main fixes Name to "main" and leaves
 // Description empty because neither field is configured in MAIN.md.
 type AgentDefinition struct {
 	Name         string
@@ -23,7 +23,7 @@ type AgentDefinition struct {
 	Path         string
 }
 
-// SubagentDefinition is retained as the child-agent API name.
+// SubagentDefinition is retained as the subagent-agent API name.
 type SubagentDefinition = AgentDefinition
 
 func loadSubagentDefinitions(root string, providers map[string]ProviderConfig, skills map[string]Skill) (map[string]SubagentDefinition, error) {

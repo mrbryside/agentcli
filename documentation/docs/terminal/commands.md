@@ -6,21 +6,21 @@ sidebar_position: 3
 # Command reference
 
 Commands begin with `/`. Any other submitted text becomes a user message for
-the currently selected root or subagent view.
+the currently selected main-agent or subagent view.
 
 ## General commands
 
 | Command | Description |
 | --- | --- |
 | `/help` | Print the command and keyboard-shortcut summary. |
-| `/session` | Show the root session, selected child when applicable, and selected-view streaming state. |
-| `/new` | Generate and switch to a new root session. The Agent remains open. |
-| `/clear` | Clear the screen and redraw the banner for the current root session. |
+| `/session` | Show the main-agent session, selected subagent when applicable, and selected-view streaming state. |
+| `/new` | Generate and switch to a new main-agent session. The Agent remains open. |
+| `/clear` | Clear the screen and redraw the banner for the current main-agent session. |
 | `/skills` | List skills available for automatic selection. This does not load a skill. |
 | `/exit` | Leave the terminal without closing the Agent. |
 | `/quit` | Alias for `/exit`. |
 
-`/new` clears queued root prompts but does not delete the old session or its
+`/new` clears queued main-agent prompts but does not delete the old session or its
 stored transcript. The old session can still be inspected through the Go or
 HTTP APIs.
 
@@ -28,13 +28,13 @@ HTTP APIs.
 
 | Command | Description |
 | --- | --- |
-| `/agents` | List available subagent definitions and child sessions. |
-| `/agent REF` | Open a child using its ID or case-insensitive display name. |
+| `/agents` | List available subagent definitions and subagent sessions. |
+| `/agent REF` | Open a subagent using its ID or case-insensitive display name. |
 | `/agent-status REF` | Show lifecycle status and activity summary without starting a model turn. |
-| `/back` | Return to the root view without interrupting the child. |
-| `/close REF` | Destructively close a child, interrupting active work if needed, dropping queued input, and releasing outstanding callback obligations. |
+| `/back` | Return to the main-agent view without interrupting the subagent. |
+| `/close REF` | Destructively close a subagent, interrupting active work if needed, dropping queued input, and releasing outstanding result obligations. |
 
-`REF` is one child ID or one display name. See
+`REF` is one subagent ID or one display name. See
 [Subagent views](./subagent-views.md) for message routing and background work.
 
 ## Permission commands
@@ -70,7 +70,7 @@ answer it:
 | `3` | Allow for this project |
 | `4` | Deny |
 
-Use the explicit ID commands when several root or child requests are pending.
+Use the explicit ID commands when several main-agent or subagent requests are pending.
 
 ## Confirmation commands
 
@@ -80,7 +80,7 @@ Use the explicit ID commands when several root or child requests are pending.
 | `/confirm ID` | Answer Yes to one confirmation. |
 | `/decline ID` | Answer No to one confirmation. |
 
-Typing `y` or `n` answers the visible confirmation. Root/child permissions and
+Typing `y` or `n` answers the visible confirmation. Main-agent/subagent permissions and
 confirmations share one global FIFO, so only the oldest request is actionable.
 A shortcut for the wrong kind is ignored rather than resolving another queued
 request. Confirmations are never bypassed by unrestricted mode.

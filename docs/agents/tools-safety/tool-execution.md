@@ -18,13 +18,13 @@ constraints. `RawInputSchema` is the validated escape hatch.
 rejects trailing values. There is no typed custom-tool inference wrapper.
 
 `ResponseScopeCallLimit` sets a hard cumulative call budget for one tool across
-the root turn and every inline/callback continuation in the same response
+the main-agent turn and every inline/result continuation in the same response
 scope. Exhaustion returns successful `status=skipped` with
 `reason=response_scope_tool_budget_exhausted` without running admission, the
 handler, or network I/O. Admitted attempts count even if their handler later
 fails, so retries cannot bypass the limit.
 
-`Executor.Run` applies admission, dispatches through a bounded worker pool,
+`Executor.Run` applies admission, assignments through a bounded worker pool,
 emits correlated results, and consumes exact-turn interrupts. Calls are keyed
 by session, turn, and call ID; that `ToolInvocation` metadata is attached to
 handler context after admission. Successful handler output must be valid JSON.
@@ -47,17 +47,17 @@ Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
 triggers. Framework `start_subagent` requires a
-`continue_after_dispatch` choice. False asks the handler to end a successful
-pending-callback batch; true returns control for already-planned independent
-parent work. Every parallel start in one batch uses the same value.
-`send_subagent_message` also requires `continue_after_dispatch`: false ends an
+`continue_main_agent` choice. False asks the handler to end a successful
+pending-result batch; true returns control for already-planned independent
+main agent work. Every parallel start in one batch uses the same value.
+`send_subagent_message` also requires `continue_main_agent`: false ends an
 accepted successful batch and true returns control for already-planned
-independent work. Duplicate, already-sent, and callback-pending results end the
+independent work. Duplicate, already-sent, and result-pending results end the
 successful batch regardless of the value. A `recovery_exhausted` result
-continues so the parent can report the terminal failure. The callback joins a
-compatible active parent at its next provider boundary or falls back to a
+continues so the main agent can report the terminal failure. The result joins a
+compatible active main agent at its next provider boundary or falls back to a
 continuation turn.
-Destructive child close is application-owned and is not registered in the
+Destructive subagent close is application-owned and is not registered in the
 model tool catalog.
 
 `EndTurn` executes its handler immediately. Its latest successful result
@@ -77,10 +77,10 @@ budget. Exhaustion fails the turn.
 For root user-visible delivery, prefer `Trigger: EndResponseScope`; add
 `EndTurnOnSuccess: true` when successful final delivery should finish the
 current turn. Subagents do not support `EndResponseScope`; they use the
-framework-owned `report_subagent_outcome` followed by a concise final answer
-for the parent callback. Successful root delivery remains represented by its
+framework-owned `report_subagent_result` followed by a concise final answer
+for the main agent result. Successful root delivery remains represented by its
 durable tool call and tool result; the runtime does not synthesize an assistant
-message from tool arguments. A call made as the initial human root turn's first provider action,
+message from tool arguments. A call made as the initial human main-agent turn's first provider action,
 or while the response scope is still busy,
 receives `status=succeeded`, `action=skipped`, `executed=false`, and
 `reason=tool_called_at_wrong_time`. It does not satisfy the trigger. The result
@@ -89,22 +89,22 @@ injected tool description directs the model to continue the remaining work
 until completion repair requests the final call. Admission and the handler are
 bypassed, and no candidate is retained. `EndTurnOnSuccess` is still honored,
 allowing an early final-delivery
-call to yield the current turn while callbacks are pending without executing
+call to yield the current turn while results are pending without executing
 the handler. If the scope is otherwise quiescent, the premature call continues
 the current turn instead, preserving access to ordinary work tools. This
-includes a call made as the human root model's first tool. A callback
+includes a call made as the human main-agent model's first tool. A result
 continuation may execute the final tool on provider step one because it is not
 the initial human action. For compatibility, the coordinator can execute a
-later direct root call when it is the last active scope turn and no callback or
+later direct root call when it is the last active scope turn and no result or
 pending runtime input remains, but the model-facing contract does not instruct
 the model to retry that way. A normal completion attempt makes completion
 repair expose the missing `EndResponseScope` tools with a final-call reminder.
 One user message opens one response scope. Accepted
-subagent work keeps it open, and intermediate parent/callback assistant drafts
+subagent work keeps it open, and intermediate main agent/result assistant drafts
 are discarded until the final scope turn.
 
 The live response-scope event stream emits `PreEndScope` after the scope
-enters its final completion boundary but before child cleanup and final
+enters its final completion boundary but before subagent cleanup and final
 handlers. It emits
 `EndScope` after cleanup, handler invocation, and scope removal. These are
 scope-level events rather than per-turn `AgentEvent` values.
@@ -112,7 +112,7 @@ scope-level events rather than per-turn `AgentEvent` values.
 Framework tools (`load_skill` and root-only subagent tools) are owned by
 `toolexecution`; application tools remain caller-owned. Go, Terminal, and HTTP
 close paths call the same manager operation. After durable close, it cancels
-every outstanding unreserved dispatch for that child and decrements the owning
-response scopes' callback barriers.
+every outstanding unreserved assignment for that subagent and decrements the owning
+response scopes' result barriers.
 
 Back to [tools-safety/index.md](index.md).

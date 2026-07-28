@@ -18,8 +18,8 @@ func (server *Server) forwardSubagentPermissions(events <-chan SubagentPermissio
 			server.sessionEvents.publish(SessionEventResponse{
 				Type:               SessionActivitySubagentPermission,
 				Source:             ServerTurnSourceSubagentPermission,
-				SessionID:          event.ParentSessionID,
-				TurnID:             event.ParentTurnID,
+				SessionID:          event.MainAgentSessionID,
+				TurnID:             event.MainAgentTurnID,
 				SubagentPermission: newSubagentPermissionReference(event),
 			})
 		}
@@ -29,7 +29,7 @@ func (server *Server) forwardSubagentPermissions(events <-chan SubagentPermissio
 func newSubagentPermissionReference(event SubagentPermissionEvent) *SubagentPermissionReference {
 	reference := &SubagentPermissionReference{
 		Type: event.Type, SubagentID: event.SubagentID, DisplayName: event.DisplayName,
-		DefinitionName: event.SubagentName, ChildSessionID: event.SessionID, ChildTurnID: event.TurnID,
+		DefinitionName: event.DefinitionName, SubagentSessionID: event.SubagentSessionID, SubagentTurnID: event.SubagentTurnID,
 	}
 	if event.Request != nil {
 		request := newPermissionRequestResponse(*event.Request)
@@ -43,21 +43,21 @@ func newSubagentPermissionReference(event SubagentPermissionEvent) *SubagentPerm
 }
 
 // listPendingSubagentPermissions godoc
-// @Summary List pending permissions for a parent session
+// @Summary List pending permissions for a main agent session
 // @ID listPendingSubagentPermissions
-// @Description Returns durable pending child permission requests so clients can recover after attaching late or reconnecting.
+// @Description Returns durable pending subagent permission requests so clients can recover after attaching late or reconnecting.
 // @Tags Permissions
 // @Produce json
-// @Param parentSessionID path string true "Parent session ID"
+// @Param mainAgentSessionID path string true "Main agent session ID"
 // @Success 200 {object} PendingSubagentPermissionsResponse
 // @Failure 400 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagent-permissions [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagent-permissions [get]
 func (server *Server) listPendingSubagentPermissions(c echo.Context) error {
-	parentSessionID := c.Param("parentSessionID")
-	if parentSessionID == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session ID is required")
+	mainAgentSessionID := c.Param("mainAgentSessionID")
+	if mainAgentSessionID == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session ID is required")
 	}
-	events, err := server.agent.PendingSubagentPermissions(c.Request().Context(), parentSessionID)
+	events, err := server.agent.PendingSubagentPermissions(c.Request().Context(), mainAgentSessionID)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}

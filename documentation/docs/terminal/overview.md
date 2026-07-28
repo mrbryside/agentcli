@@ -87,13 +87,13 @@ confirmation is declined instead of waiting forever.
 
 | Option | Behavior |
 | --- | --- |
-| `WithTerminalSessionID(id)` | Use a stable root session ID so the transcript can be inspected or continued later. |
+| `WithTerminalSessionID(id)` | Use a stable main-agent session ID so the transcript can be inspected or continued later. |
 | `WithTerminalInput(reader)` | Replace stdin for embedding or scripted tests. |
 | `WithTerminalOutput(writer)` | Replace stdout for embedding or output assertions. |
 | `WithTerminalInitialPrompt(text)` | Run one prompt and return without starting the interactive editor. |
 
 If no session ID is supplied, AgentCLI generates one. `/new` generates a new
-root session while the terminal remains open.
+main-agent session while the terminal remains open.
 
 ## What to read next
 

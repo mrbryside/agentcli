@@ -43,7 +43,7 @@ the runtime to OpenAI request types, tokenizers, or model names.
   - Depends on: none
   - Add the optional `compaction` YAML section with strict validation.
   - Resolve its provider/model through project provider profiles.
-  - Apply it through `WithProject`, and inherit it when creating child agents.
+  - Apply it through `WithProject`, and inherit it when creating subagents.
   - Update the example config and project-loading tests.
   - Verify: `go test .`
 
@@ -83,5 +83,5 @@ the runtime to OpenAI request types, tokenizers, or model names.
 - [x] **Task 8 — Integration audit**
   - Depends on: Tasks 1–7
   - Review all changes for provider leakage, message/tool adjacency, event
-    cloning, child inheritance, and backward compatibility.
+    cloning, subagent inheritance, and backward compatibility.
   - Verify: `go test ./...`, `go test -race ./...`, and `go vet ./...`.

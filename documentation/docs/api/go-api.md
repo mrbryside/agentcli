@@ -67,9 +67,9 @@ Common options:
 | `WithMessageStorage` | Replace transcript storage. |
 | `WithPermissionStorage` | Replace permission/grant storage. |
 | `WithConfirmationStorage` | Replace confirmation storage. |
-| `WithSubagentStorage` | Replace child relationship storage. |
-| `WithProviderStepLimit` | Opt into an agentic provider-round budget; omission is unlimited, while exhaustion exposes only required trigger tools and reuses bounded completion repair. |
-| `WithMaxSubagents` | Bound open children per parent session; overrides `config.yaml`. |
+| `WithSubagentStorage` | Replace subagent relationship storage. |
+| `WithProviderStepLimit` | Opt into an agentic provider-round budget; omission is unlimited, while exhaustion starts restricted finalization with only required completion tools. |
+| `WithMaxSubagents` | Bound open subagents per main agent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |
 
@@ -77,7 +77,7 @@ Common options:
 
 `WithModel` and `WithCompactionModel` can override the model selected by a
 project. Explicit limits belong to exact-name model entries under a provider
-profile, allowing main, child, and summarizer models to use independent
+profile, allowing main, subagent, and summarizer models to use independent
 metadata even when they share a connection.
 Without explicit limits, project loading checks provider `/models`, then
 models.dev, and finally uses exact defaults of 122,880 context tokens and
@@ -124,7 +124,7 @@ permission checks.
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
 | `RequestEndTurn(ctx)` | Conditionally request turn termination from inside a handler; applies only when the handler and full tool batch succeed. |
 | `Tool.ResponseScopeCallLimit` | Set a hard cumulative call budget shared by all turns in one response scope. |
-| `ToolCallGuard` | Function callback for validating a requested tool call before execution. |
+| `ToolCallGuard` | Function result for validating a requested tool call before execution. |
 | `ToolCallGuardPrompt` | `Tool` field containing a model-evaluated call policy. |
 | `GuardModelConfig` | Optional provider/model selection for one prompt-backed tool guard. |
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
@@ -164,7 +164,7 @@ only those trigger tools. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
 When `ResponseScopeCallLimit` is positive, admitted calls share one counter
-across the root turn and all inline/callback continuation work. Exhaustion
+across the main-agent turn and all inline/result continuation work. Exhaustion
 returns a successful non-executing
 `reason=response_scope_tool_budget_exhausted` result without admission or
 handler execution. If the budgeted tool is an `EndResponseScope` trigger, the
@@ -173,7 +173,7 @@ satisfy required-tool completion repair.
 
 For a response-delivery tool whose successful execution should also finish the
 current turn, set `Trigger: agentcli.EndResponseScope` and
-`EndTurnOnSuccess: true`. Calls made as the human root turn's initial provider action or
+`EndTurnOnSuccess: true`. Calls made as the human main-agent turn's initial provider action or
 while the scope is busy return `status=succeeded`, `action=skipped`,
 `executed=false`, `reason=tool_called_at_wrong_time`, and
 `trigger_satisfied=false`.
@@ -183,11 +183,11 @@ the call as success and not retry it. The injected tool description tells the
 model to continue the remaining work until runtime completion repair requests
 the final call. Without
 `EndTurnOnSuccess` the provider continues. With it, a successful
-skipped result ends the current turn only when callbacks or other active turns
+skipped result ends the current turn only when results or other active turns
 keep the response scope open; if the scope is otherwise quiescent, a premature
 call continues so the model can finish ordinary work. For compatibility, the
-coordinator still accepts a later provider-round root call once the scope has
-no pending callbacks, but this is not the model-facing retry path. Callback
+coordinator still accepts a later provider-round main-agent call once the scope has
+no pending results, but this is not the model-facing retry path. Result
 continuation turns may execute the tool on provider step one. A normal
 completion attempt makes runtime repair expose the required tool. Successful
 delivery remains in the
@@ -198,18 +198,18 @@ Use `agent.SubscribeScopeEvents(ctx)` for live-only scope boundaries.
 `agentcli.PreEndScope` is emitted when the last turn reaches the final boundary
 but before cleanup and final handlers. `agentcli.EndScope` is emitted after
 cleanup, final handler invocation, and scope removal. Both events include
-`SessionID`, root `ScopeID`, `TriggerTurnID`, `ChildIDs`, `ToolNames`, and
+`SessionID`, initiating `ScopeID`, `TriggerTurnID`, `SubagentIDs`, `ToolNames`, and
 `OccurredAt`.
 
 ## Guardrails
 
-The root package exposes the callback, attempt, decision, and action types for
+The root package exposes the result, attempt, decision, and action types for
 input, assistant output, and tool calls. Function and prompt modes are
 mutually exclusive at the same boundary. Prompt verdicts are strict JSON and
 fail closed.
 
-Callback `InputReject` returns an error matching
-`agentcli.ErrInputGuardRejected` before a `Run` exists. Callback
+Result `InputReject` returns an error matching
+`agentcli.ErrInputGuardRejected` before a `Run` exists. Result
 `InputRespond`, and rejected input prompt verdicts, return a completed streamed
 turn without calling the main model. Assistant-output rejection requests
 another provider round with ephemeral feedback. Tool-call rejection publishes
@@ -269,56 +269,82 @@ Application-facing methods include:
 
 ```go
 agent.SubagentDefinitions()
-agent.StartSubagent(ctx, parentSessionID, parentTurnID, name, message, label)
-agent.SendSubagentMessage(ctx, parentSessionID, subagentID, message)
-agent.ListSubagents(ctx, parentSessionID, includeClosed)
-agent.CloseSubagent(ctx, parentSessionID, subagentID)
-agent.InterruptSubagent(ctx, parentSessionID, subagentID, reason)
-agent.SubscribeSubagentCallbacks(ctx)
+agent.StartSubagent(ctx, mainAgentSessionID, mainAgentTurnID, name, message, label)
+agent.SendSubagentMessage(ctx, mainAgentSessionID, subagentID, message)
+agent.ListSubagents(ctx, mainAgentSessionID, includeClosed)
+agent.CloseSubagent(ctx, mainAgentSessionID, subagentID)
+agent.InterruptSubagent(ctx, mainAgentSessionID, subagentID, reason)
+agent.SubscribeSubagentResults(ctx)
 agent.SubscribeSystemEvents(ctx)
 agent.SubscribeSubagentPermissions(ctx)
-agent.PendingSubagentPermissions(ctx, parentSessionID)
+agent.PendingSubagentPermissions(ctx, mainAgentSessionID)
 agent.SubscribeSubagentConfirmations(ctx)
-agent.PendingSubagentConfirmations(ctx, parentSessionID)
-agent.TryInjectSubagentCallback(ctx, callback)
-agent.ContinueSubagentCallbackSubscribed(ctx, callback)
-agent.ReadSubagent(ctx, parentSessionID, subagentID, afterMessageID)
-agent.WaitSubagent(ctx, parentSessionID, subagentIDs, afterVersions)
+agent.PendingSubagentConfirmations(ctx, mainAgentSessionID)
+agent.TryInjectSubagentResult(ctx, result)
+agent.ContinueSubagentResultSubscribed(ctx, result)
+agent.ReadSubagent(ctx, mainAgentSessionID, subagentID, afterMessageID)
+agent.WaitSubagent(ctx, mainAgentSessionID, subagentIDs, afterVersions)
 ```
 
-`TryInjectSubagentCallback` returns `true` after the trusted callback has been
-durably appended at a safe provider boundary of a compatible active parent.
-When it returns `false`, use `ContinueSubagentCallbackSubscribed` as the
+The result/report types use explicit main-agent and subagent names:
+
+```go
+agentcli.SubagentResult{
+    MainAgentSessionID: "...",
+    MainAgentTurnID:    "...",
+    SubagentID:         "...",
+    DefinitionName:     "researcher",
+    SubagentSessionID:  "...",
+    SubagentTurnID:     "...",
+    Status:             agentcli.SubagentResultCompleted,
+}
+
+toolexecution.SubagentReport{
+    Status:  toolexecution.SubagentReportCompleted,
+    Summary: "...",
+}
+```
+
+`SubagentReadResult.LastMessageID` is the durable observation cursor returned
+by `ReadSubagent`. `SubagentConfirmationEvent` and
+`SubagentPermissionEvent` expose `DefinitionName`, `SubagentSessionID`, and
+`SubagentTurnID`. `SystemEvent` exposes `MainAgentSessionID` and
+`MainAgentTurnID`; no legacy identity aliases are retained.
+
+`TryInjectSubagentResult` returns `true` after the trusted result has been
+durably appended at a safe provider boundary of a compatible active main agent.
+When it returns `false`, use `ContinueSubagentResultSubscribed` as the
 fallback continuation turn.
 
 `CloseSubagent` is an explicit destructive command: it may interrupt active
-work, drops queued child input, cancels outstanding unreserved callback
+work, drops queued subagent input, cancels outstanding unreserved result
 obligations, retains transcript/run history, and rejects future sends. The
-callback cancellation releases the parent response scope's callback barrier.
+result cancellation releases the main agent response scope's result barrier.
 Bind it to a direct user action. Routine cleanup does not require an application
 call: after a response scope fully settles, AgentCLI automatically closes
-completed and failed children that are not referenced by another live scope,
-while retaining incomplete children for follow-up.
-Cancellation is terminal for the closed child, so racing dispatch registration
-and callback-reservation rollback cannot recreate the obligation. It releases
+completed and failed subagents that are not referenced by another live scope,
+while retaining incomplete subagents for follow-up.
+Cancellation is terminal for the closed subagent, so racing assignment registration
+and result-reservation rollback cannot recreate the obligation. It releases
 scope accounting but does not create a provider turn. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 `SubscribeSystemEvents` reports agent-level facts that are not owned by one
 runtime turn. `SystemSubagentClosed` includes both explicit and automatic
-successful closes with the final child snapshot and close effects.
+successful closes with the final subagent snapshot and close effects. The
+previous structured result field is `PreviousResultStatus`.
 
-Child decision methods require parent and child ownership in addition to the
+Subagent decision methods require main agent and subagent ownership in addition to the
 normal correlated decision:
 
 ```go
-agent.ResolveSubagentPermission(ctx, parentID, childID, decision)
-agent.ResolveSubagentConfirmation(ctx, parentID, childID, decision)
+agent.ResolveSubagentPermission(ctx, mainAgentSessionID, subagentID, decision)
+agent.ResolveSubagentConfirmation(ctx, mainAgentSessionID, subagentID, decision)
 ```
 
-Standard children evaluate the parent's permission policy and mode. Permission
-and confirmation requests are sent to the parent event stream and remain
+Standard subagents evaluate the main agent's permission policy and mode. Permission
+and confirmation requests are sent to the main agent event stream and remain
 recoverable through `PendingSubagentPermissions` and
-`PendingSubagentConfirmations`; the parent session UI, not a child UI or the
+`PendingSubagentConfirmations`; the main agent session UI, not a subagent UI or the
 main model, supplies the decision.
 
 ## Reference terminal
@@ -350,7 +376,9 @@ server.Shutdown(ctx)
 
 Options: `WithServerAddress`, `WithServerRequestLimit`,
 `WithServerHeartbeat`, `WithServerTurnQueueLimit`, and
-`WithServerMiddleware`. The queue option bounds accepted waiting root turns per
+`WithServerMiddleware`. `WithServerAutoContinueSubagents` controls whether the
+server first tries inline result injection and otherwise starts a result
+continuation. The queue option bounds accepted waiting main-agent turns per
 session; it does not change direct `Agent.Start` admission.
 
 ## Lifecycle

@@ -73,20 +73,20 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			return nil, fmt.Errorf("agentcli option %d: %w", index, err)
 		}
 	}
-	if configuration.project != nil && !configuration.childAgent {
+	if configuration.project != nil && !configuration.subagentAgent {
 		if err := validateProjectToolAllowlists(configuration.project, configuration.tools); err != nil {
 			return nil, err
 		}
 	}
-	if configuration.childAgent {
-		if err := validateChildTools(configuration.tools); err != nil {
+	if configuration.subagentAgent {
+		if err := validateSubagentTools(configuration.tools); err != nil {
 			return nil, err
 		}
 	}
-	// Projects without definitions deliberately allocate no child-session
-	// resources. A child itself is also not a parent manager, keeping the
+	// Projects without definitions deliberately allocate no subagent-session
+	// resources. A subagent itself is also not a main agent manager, keeping the
 	// initial nesting depth at one.
-	if configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.childAgent {
+	if configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent {
 		if configuration.subagents == nil {
 			configuration.subagents = inmemory.NewSubagentStorage()
 		}
@@ -112,21 +112,21 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 
 	registry := toolexecution.NewRegistry()
 	var subagentTools *toolexecution.SubagentToolBridge
-	rootHasSubagents := configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.childAgent
-	if rootHasSubagents {
+	mainAgentHasSubagents := configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent
+	if mainAgentHasSubagents {
 		for _, tool := range configuration.tools {
-			if toolexecution.IsSubagentToolName(tool.Definition.Name) || tool.Definition.Name == toolexecution.SubagentOutcomeToolName {
+			if toolexecution.IsSubagentToolName(tool.Definition.Name) || tool.Definition.Name == toolexecution.SubagentResultToolName {
 				return nil, fmt.Errorf("custom tool %q conflicts with reserved subagent tool", tool.Definition.Name)
 			}
 		}
 		subagentTools = toolexecution.NewSubagentToolBridge()
 	}
 	// Keep configuration.tools as caller-provided tools only. The skill loader
-	// is a per-Agent framework tool; retaining it in config would make child
+	// is a per-Agent framework tool; retaining it in config would make subagent
 	// construction inherit it and register a duplicate loader of its own.
 	runtimeTools := configuration.tools
-	if configuration.project != nil && !configuration.childAgent {
-		runtimeTools = configuration.project.filterRootTools(configuration.tools)
+	if configuration.project != nil && !configuration.subagentAgent {
+		runtimeTools = configuration.project.filterMainAgentTools(configuration.tools)
 	}
 	registeredTools := append([]toolexecution.Tool(nil), runtimeTools...)
 	if configuration.project != nil && len(configuration.project.skills) != 0 {
@@ -136,8 +136,8 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			configuration.skillReload,
 		).Tool())
 	}
-	if configuration.childAgent {
-		registeredTools = append(registeredTools, toolexecution.NewSubagentOutcomeTool())
+	if configuration.subagentAgent {
+		registeredTools = append(registeredTools, toolexecution.NewSubagentReportTool())
 	}
 	for _, tool := range registeredTools {
 		if err := registry.Register(tool); err != nil {
@@ -188,7 +188,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	agent.responseScopes.SetLogger(configuration.logger)
 	var manager *subagentManager
-	if rootHasSubagents {
+	if mainAgentHasSubagents {
 		manager, err = newSubagentManager(agent, configuration)
 		if err != nil {
 			closeSignal()
@@ -204,8 +204,8 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		configuration.contextReminderProvider,
 	)
 	var completionGuard agentruntime.CompletionGuard
-	if configuration.childAgent {
-		completionGuard = subagentOutcomeCompletionGuard
+	if configuration.subagentAgent {
+		completionGuard = subagentReportCompletionGuard
 	}
 	requiredAtTurnEnd := make([]string, 0)
 	requiredAtResponseScopeEnd := make([]string, 0)
@@ -219,11 +219,11 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 	stepLimitFinalizationTools := append([]string(nil), requiredAtTurnEnd...)
 	stepLimitFinalizationTools = append(stepLimitFinalizationTools, requiredAtResponseScopeEnd...)
-	if configuration.childAgent {
-		// report_subagent_outcome is required for every child but deliberately
-		// has no trigger because the child still owes the parent a concise
+	if configuration.subagentAgent {
+		// report_subagent_result is required for every subagent but deliberately
+		// has no trigger because the subagent still owes the main agent a concise
 		// final assistant answer after the report succeeds.
-		stepLimitFinalizationTools = append(stepLimitFinalizationTools, toolexecution.SubagentOutcomeToolName)
+		stepLimitFinalizationTools = append(stepLimitFinalizationTools, toolexecution.SubagentResultToolName)
 	}
 	completionGuard = completionGuardWithRequiredTools(
 		completionGuard,
@@ -328,7 +328,7 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 	if project.restrictTools {
 		for _, name := range project.toolNames {
 			if _, found := registered[name]; !found {
-				return fmt.Errorf("root agent requires custom tool %q, but it is not registered", name)
+				return fmt.Errorf("main agent requires custom tool %q, but it is not registered", name)
 			}
 		}
 	}
@@ -340,7 +340,7 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 			}
 			if tool.Trigger == toolexecution.EndResponseScope {
 				return fmt.Errorf(
-					"subagent %q cannot use custom tool %q: EndResponseScope tools are supported only by root agents",
+					"subagent %q cannot use custom tool %q: EndResponseScope tools are supported only by main agents",
 					definition.Name,
 					name,
 				)
@@ -350,11 +350,11 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 	return nil
 }
 
-func validateChildTools(tools []toolexecution.Tool) error {
+func validateSubagentTools(tools []toolexecution.Tool) error {
 	for _, tool := range tools {
 		if tool.Trigger == toolexecution.EndResponseScope {
 			return fmt.Errorf(
-				"child agent cannot use custom tool %q: EndResponseScope tools are supported only by root agents",
+				"subagent cannot use custom tool %q: EndResponseScope tools are supported only by main agents",
 				tool.Definition.Name,
 			)
 		}
@@ -362,7 +362,7 @@ func validateChildTools(tools []toolexecution.Tool) error {
 	return nil
 }
 
-func (project *Project) filterRootTools(tools []toolexecution.Tool) []toolexecution.Tool {
+func (project *Project) filterMainAgentTools(tools []toolexecution.Tool) []toolexecution.Tool {
 	if project == nil || !project.restrictTools {
 		return append([]toolexecution.Tool(nil), tools...)
 	}
@@ -433,13 +433,13 @@ func (a *Agent) Start(ctx context.Context, request agentruntime.Request) (*agent
 		return nil, err
 	}
 	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
-	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+	if err := a.responseScopes.BeginMainAgentTurn(request.SessionID, request.TurnID); err != nil {
 		finishReminderReservation(false)
 		return nil, err
 	}
 	run, err := a.runtime.Start(ctx, request)
 	if err != nil {
-		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		a.responseScopes.RollbackMainAgentTurn(request.SessionID, request.TurnID)
 		finishReminderReservation(false)
 		return nil, err
 	}
@@ -479,13 +479,13 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
-	if err := a.responseScopes.BeginRootTurn(request.SessionID, request.TurnID); err != nil {
+	if err := a.responseScopes.BeginMainAgentTurn(request.SessionID, request.TurnID); err != nil {
 		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	run, subscription, err := a.runtime.StartSubscribed(ctx, request)
 	if err != nil {
-		a.responseScopes.RollbackRootTurn(request.SessionID, request.TurnID)
+		a.responseScopes.RollbackMainAgentTurn(request.SessionID, request.TurnID)
 		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
@@ -494,16 +494,16 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	return run, subscription, nil
 }
 
-// SubscribeSubagentCallbacks returns a live-only stream of compact child-turn
+// SubscribeSubagentResults returns a live-only stream of compact subagent-turn
 // completions. Durable unread state remains available through ReadSubagent and
 // context reminders when no subscriber is attached.
-func (a *Agent) SubscribeSubagentCallbacks(ctx context.Context) <-chan SubagentCallback {
+func (a *Agent) SubscribeSubagentResults(ctx context.Context) <-chan SubagentResult {
 	if a == nil || a.subagents == nil {
-		closed := make(chan SubagentCallback)
+		closed := make(chan SubagentResult)
 		close(closed)
 		return closed
 	}
-	return a.subagents.subscribeCallbacks(ctx)
+	return a.subagents.subscribeResults(ctx)
 }
 
 // SubscribeSystemEvents returns a live-only stream of agent-level facts that
@@ -529,8 +529,8 @@ func (a *Agent) SubscribeScopeEvents(ctx context.Context) <-chan ScopeEvent {
 	return a.responseScopes.SubscribeEvents(ctx)
 }
 
-// SubscribeSubagentConfirmations returns live child confirmation lifecycle
-// events addressed to parent sessions. Call PendingSubagentConfirmations when
+// SubscribeSubagentConfirmations returns live subagent confirmation lifecycle
+// events addressed to main agent sessions. Call PendingSubagentConfirmations when
 // attaching or reconnecting so a request cannot be missed.
 func (a *Agent) SubscribeSubagentConfirmations(ctx context.Context) <-chan SubagentConfirmationEvent {
 	if a == nil || a.subagents == nil {
@@ -542,8 +542,8 @@ func (a *Agent) SubscribeSubagentConfirmations(ctx context.Context) <-chan Subag
 }
 
 // PendingSubagentConfirmations returns durable pending confirmation requests
-// for children owned by parentSessionID.
-func (a *Agent) PendingSubagentConfirmations(ctx context.Context, parentSessionID string) ([]SubagentConfirmationEvent, error) {
+// for subagents owned by mainAgentSessionID.
+func (a *Agent) PendingSubagentConfirmations(ctx context.Context, mainAgentSessionID string) ([]SubagentConfirmationEvent, error) {
 	if a == nil || a.subagents == nil {
 		return []SubagentConfirmationEvent{}, nil
 	}
@@ -551,11 +551,11 @@ func (a *Agent) PendingSubagentConfirmations(ctx context.Context, parentSessionI
 	if err != nil {
 		return nil, err
 	}
-	return manager.pendingConfirmations(nonNilContext(ctx), parentSessionID)
+	return manager.pendingConfirmations(nonNilContext(ctx), mainAgentSessionID)
 }
 
-// SubscribeSubagentPermissions returns live child permission lifecycle events
-// addressed to parent sessions. Call PendingSubagentPermissions when attaching
+// SubscribeSubagentPermissions returns live subagent permission lifecycle events
+// addressed to main agent sessions. Call PendingSubagentPermissions when attaching
 // or reconnecting so a request cannot be missed.
 func (a *Agent) SubscribeSubagentPermissions(ctx context.Context) <-chan SubagentPermissionEvent {
 	if a == nil || a.subagents == nil {
@@ -567,8 +567,8 @@ func (a *Agent) SubscribeSubagentPermissions(ctx context.Context) <-chan Subagen
 }
 
 // PendingSubagentPermissions returns durable pending permission requests for
-// children owned by parentSessionID.
-func (a *Agent) PendingSubagentPermissions(ctx context.Context, parentSessionID string) ([]SubagentPermissionEvent, error) {
+// subagents owned by mainAgentSessionID.
+func (a *Agent) PendingSubagentPermissions(ctx context.Context, mainAgentSessionID string) ([]SubagentPermissionEvent, error) {
 	if a == nil || a.subagents == nil {
 		return []SubagentPermissionEvent{}, nil
 	}
@@ -576,56 +576,56 @@ func (a *Agent) PendingSubagentPermissions(ctx context.Context, parentSessionID 
 	if err != nil {
 		return nil, err
 	}
-	return manager.pendingPermissions(nonNilContext(ctx), parentSessionID)
+	return manager.pendingPermissions(nonNilContext(ctx), mainAgentSessionID)
 }
 
-// ContinueSubagentCallbackSubscribed starts a parent turn from a trusted
-// child completion callback and advances the child's observation cursor only
-// after the turn was accepted. This keeps callback input distinct from human
+// ContinueSubagentResultSubscribed starts a main agent turn from a trusted
+// subagent completion result and advances the subagent's observation cursor only
+// after the turn was accepted. This keeps result input distinct from human
 // user messages while giving UIs the same pre-subscribed event stream.
 //
-// Call TryInjectSubagentCallback first when the host wants callbacks to join
-// an already-active parent between provider rounds.
-func (a *Agent) ContinueSubagentCallbackSubscribed(ctx context.Context, callback SubagentCallback) (*agentruntime.Run, agentruntime.EventSubscription, error) {
+// Call TryInjectSubagentResult first when the host wants results to join
+// an already-active main agent between provider rounds.
+func (a *Agent) ContinueSubagentResultSubscribed(ctx context.Context, result SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	if a == nil || a.runtime == nil {
 		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
 	}
-	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("subagent callback identifiers are required")
+	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
+		return nil, agentruntime.EventSubscription{}, errors.New("subagent result identifiers are required")
 	}
 	continuationTurnID, err := newSubagentID("turn_")
 	if err != nil {
-		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create callback continuation turn: %w", err)
+		return nil, agentruntime.EventSubscription{}, fmt.Errorf("create result continuation turn: %w", err)
 	}
-	return a.continueSubagentCallbackSubscribed(ctx, callback, continuationTurnID)
+	return a.continueSubagentResultSubscribed(ctx, result, continuationTurnID)
 }
 
-// TryInjectSubagentCallback delivers a child callback into the next provider
-// boundary of the currently active parent response scope. It returns false
-// when no compatible parent run is active, allowing the host to start a normal
-// callback continuation turn instead.
-func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback SubagentCallback) (bool, error) {
+// TryInjectSubagentResult delivers a subagent result into the next provider
+// boundary of the currently active main agent response scope. It returns false
+// when no compatible main agent run is active, allowing the host to start a normal
+// result continuation turn instead.
+func (a *Agent) TryInjectSubagentResult(ctx context.Context, result SubagentResult) (bool, error) {
 	if a == nil || a.runtime == nil {
 		return false, errors.New("agent is nil")
 	}
-	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
-		return false, errors.New("subagent callback identifiers are required")
+	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
+		return false, errors.New("subagent result identifiers are required")
 	}
 	manager, err := a.subagentManager()
 	if err != nil {
 		return false, err
 	}
-	activeTurnID, active := a.runtime.ActiveTurnID(callback.ParentSessionID)
+	activeTurnID, active := a.runtime.ActiveTurnID(result.MainAgentSessionID)
 	if !active {
 		return false, nil
 	}
-	reservation, err := a.responseScopes.ReserveInlineCallbackWithMetadata(
-		callback.ParentSessionID,
+	reservation, err := a.responseScopes.ReserveInlineResultWithMetadata(
+		result.MainAgentSessionID,
 		activeTurnID,
-		responseScopeCallback(callback),
+		responseScopeResult(result),
 	)
 	if err != nil {
-		if errors.Is(err, toolexecution.ErrResponseScopeDispatchNotFound) ||
+		if errors.Is(err, toolexecution.ErrResponseScopeAssignmentNotFound) ||
 			strings.Contains(err.Error(), "different response scope") ||
 			strings.Contains(err.Error(), "does not belong to a response scope") {
 			return false, nil
@@ -640,13 +640,13 @@ func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback Subagent
 	}()
 	err = a.runtime.InjectRuntimeMessage(
 		injectCtx,
-		callback.ParentSessionID,
+		result.MainAgentSessionID,
 		activeTurnID,
-		callback.RuntimeMessage(reservation.CallbackProgress()),
+		result.RuntimeMessage(reservation.ResultProgress()),
 		reservation.Commit,
 	)
 	if err != nil {
-		reservation.Rollback(callback.SubagentID, callback.TurnID)
+		reservation.Rollback(result.SubagentID, result.SubagentTurnID)
 		if errors.Is(err, agentruntime.ErrRunNotFound) {
 			return false, nil
 		}
@@ -655,59 +655,59 @@ func (a *Agent) TryInjectSubagentCallback(ctx context.Context, callback Subagent
 		}
 		return false, err
 	}
-	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
+	_ = manager.observeSubagentResult(context.WithoutCancel(nonNilContext(ctx)), result)
 	return true, nil
 }
 
-func (a *Agent) continueSubagentCallbackSubscribed(ctx context.Context, callback SubagentCallback, continuationTurnID string) (*agentruntime.Run, agentruntime.EventSubscription, error) {
+func (a *Agent) continueSubagentResultSubscribed(ctx context.Context, result SubagentResult, continuationTurnID string) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	if a == nil || a.runtime == nil {
 		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
 	}
-	if callback.ParentSessionID == "" || callback.SubagentID == "" || callback.TurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("subagent callback identifiers are required")
+	if result.MainAgentSessionID == "" || result.SubagentID == "" || result.SubagentTurnID == "" {
+		return nil, agentruntime.EventSubscription{}, errors.New("subagent result identifiers are required")
 	}
 	if continuationTurnID == "" {
-		return nil, agentruntime.EventSubscription{}, errors.New("callback continuation turn ID is required")
+		return nil, agentruntime.EventSubscription{}, errors.New("result continuation turn ID is required")
 	}
 	manager, err := a.subagentManager()
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
-	reservation, err := a.responseScopes.ReserveCallbackTurnWithMetadata(
-		callback.ParentSessionID,
+	reservation, err := a.responseScopes.ReserveResultTurnWithMetadata(
+		result.MainAgentSessionID,
 		continuationTurnID,
-		responseScopeCallback(callback),
+		responseScopeResult(result),
 	)
 	if err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	run, subscription, err := a.runtime.StartSubscribed(ctx, agentruntime.Request{
-		SessionID: callback.ParentSessionID,
+		SessionID: result.MainAgentSessionID,
 		TurnID:    continuationTurnID,
-		Message:   callback.RuntimeMessage(reservation.CallbackProgress()),
+		Message:   result.RuntimeMessage(reservation.ResultProgress()),
 	})
 	if err != nil {
-		reservation.Rollback(callback.SubagentID, callback.TurnID)
+		reservation.Rollback(result.SubagentID, result.SubagentTurnID)
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	reservation.Commit()
-	// The callback itself carries the final answer, so observation failure does
+	// The result itself carries the final answer, so observation failure does
 	// not invalidate an already-running continuation. It only leaves the
 	// durable fallback unread for a future turn.
-	_ = manager.observeCallback(context.WithoutCancel(nonNilContext(ctx)), callback)
+	_ = manager.observeSubagentResult(context.WithoutCancel(nonNilContext(ctx)), result)
 	// Install the response-scope completion watcher only after observation so
-	// a very fast callback continuation cannot end its scope first.
+	// a very fast result continuation cannot end its scope first.
 	a.watchAcceptedRun(run)
 	return run, subscription, nil
 }
 
-func responseScopeCallback(callback SubagentCallback) toolexecution.ResponseScopeReceivedCallback {
-	return toolexecution.ResponseScopeReceivedCallback{
-		SubagentID:     callback.SubagentID,
-		DefinitionName: callback.SubagentName,
-		DisplayName:    callback.DisplayName,
-		TurnID:         callback.TurnID,
-		OutcomeStatus:  string(callback.Status),
+func responseScopeResult(result SubagentResult) toolexecution.ResponseScopeDeliveredResult {
+	return toolexecution.ResponseScopeDeliveredResult{
+		SubagentID:     result.SubagentID,
+		DefinitionName: result.DefinitionName,
+		DisplayName:    result.DisplayName,
+		SubagentTurnID: result.SubagentTurnID,
+		ResultStatus:   string(result.Status),
 	}
 }
 
@@ -742,7 +742,7 @@ func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
 		return
 	}
 	if a.subagents != nil {
-		a.subagents.watchParentRun(run)
+		a.subagents.watchMainAgentRun(run)
 	}
 	subscription := run.Subscribe(context.Background())
 	go func() {
@@ -837,7 +837,7 @@ func (a *Agent) ListMessages(ctx context.Context, sessionID string) ([]agentrunt
 }
 
 // SubagentDefinitions returns the immutable project-defined catalog available
-// to this root agent. Child agents expose no management catalog.
+// to this main agent. Subagents expose no management catalog.
 func (a *Agent) SubagentDefinitions() []SubagentDefinition {
 	if a == nil || a.subagents == nil || a.subagents.project == nil {
 		return nil
@@ -849,22 +849,22 @@ func (a *Agent) SubagentDefinitions() []SubagentDefinition {
 // expose the subagent catalog directly.
 func (a *Agent) Definitions() []SubagentDefinition { return a.SubagentDefinitions() }
 
-// ListSubagents lists instances owned by parentSessionID.
-func (a *Agent) ListSubagents(ctx context.Context, parentSessionID string, includeClosed bool) ([]storage.Subagent, error) {
+// ListSubagents lists instances owned by mainAgentSessionID.
+func (a *Agent) ListSubagents(ctx context.Context, mainAgentSessionID string, includeClosed bool) ([]storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return nil, err
 	}
-	return manager.List(ctx, parentSessionID, includeClosed)
+	return manager.List(ctx, mainAgentSessionID, includeClosed)
 }
 
-// StartSubagent starts a project-defined child asynchronously.
-func (a *Agent) StartSubagent(ctx context.Context, parentSessionID, parentTurnID, name, message, label string) (storage.Subagent, error) {
+// StartSubagent starts a project-defined subagent asynchronously.
+func (a *Agent) StartSubagent(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message, label string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return manager.Start(ctx, parentSessionID, parentTurnID, name, message, label)
+	return manager.Start(ctx, mainAgentSessionID, mainAgentTurnID, name, message, label)
 }
 
 // SubagentReadResult is the compact final-answer result returned by the
@@ -872,77 +872,77 @@ func (a *Agent) StartSubagent(ctx context.Context, parentSessionID, parentTurnID
 type SubagentReadResult struct {
 	Subagent      storage.Subagent
 	FinalAnswer   *agentruntime.Message
-	NextMessageID string
+	LastMessageID string
 }
 
 // ReadSubagent returns the latest final assistant answer after a cursor and
-// advances the owned child's durable observation cursor.
-func (a *Agent) ReadSubagent(ctx context.Context, parentSessionID, subagentID, afterMessageID string) (SubagentReadResult, error) {
+// advances the owned subagent's durable observation cursor.
+func (a *Agent) ReadSubagent(ctx context.Context, mainAgentSessionID, subagentID, afterMessageID string) (SubagentReadResult, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return SubagentReadResult{}, err
 	}
-	return manager.Read(ctx, parentSessionID, subagentID, afterMessageID)
+	return manager.Read(ctx, mainAgentSessionID, subagentID, afterMessageID)
 }
 
-// WaitSubagent waits for owned child activity or lifecycle changes.
-func (a *Agent) WaitSubagent(ctx context.Context, parentSessionID string, subagentIDs []string, after map[string]uint64) ([]storage.Subagent, error) {
+// WaitSubagent waits for owned subagent activity or lifecycle changes.
+func (a *Agent) WaitSubagent(ctx context.Context, mainAgentSessionID string, subagentIDs []string, after map[string]uint64) ([]storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return nil, err
 	}
-	return manager.Wait(ctx, parentSessionID, subagentIDs, after)
+	return manager.Wait(ctx, mainAgentSessionID, subagentIDs, after)
 }
 
-// SendSubagentMessage queues running child work or resumes an idle child after
-// its latest callback has been consumed.
-func (a *Agent) SendSubagentMessage(ctx context.Context, parentSessionID, subagentID, message string) (storage.Subagent, error) {
+// SendSubagentMessage queues running subagent work or resumes an idle subagent after
+// its latest result has been consumed.
+func (a *Agent) SendSubagentMessage(ctx context.Context, mainAgentSessionID, subagentID, message string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return manager.Send(ctx, parentSessionID, subagentID, message)
+	return manager.Send(ctx, mainAgentSessionID, subagentID, message)
 }
 
-// CloseSubagent destructively closes one owned child, interrupts active work,
-// drops queued input, cancels its outstanding response-scope callback
+// CloseSubagent destructively closes one owned subagent, interrupts active work,
+// drops queued input, cancels its outstanding response-scope result
 // obligations, and retains transcript history. Applications should bind it to
 // an explicit user or operator action.
-func (a *Agent) CloseSubagent(ctx context.Context, parentSessionID, subagentID string) (storage.Subagent, error) {
+func (a *Agent) CloseSubagent(ctx context.Context, mainAgentSessionID, subagentID string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	result, err := manager.CloseSubagent(ctx, parentSessionID, subagentID)
+	result, err := manager.CloseSubagent(ctx, mainAgentSessionID, subagentID)
 	return result.Subagent, err
 }
 
-// SubagentRun returns an ownership-checked retained child run.
-func (a *Agent) SubagentRun(ctx context.Context, parentSessionID, subagentID, turnID string) (*agentruntime.Run, error) {
+// SubagentRun returns an ownership-checked retained subagent run.
+func (a *Agent) SubagentRun(ctx context.Context, mainAgentSessionID, subagentID, turnID string) (*agentruntime.Run, error) {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return nil, err
 	}
-	return manager.Run(ctx, parentSessionID, subagentID, turnID)
+	return manager.Run(ctx, mainAgentSessionID, subagentID, turnID)
 }
 
-// InterruptSubagent interrupts the active turn of one owned child.
-func (a *Agent) InterruptSubagent(ctx context.Context, parentSessionID, subagentID, reason string) error {
+// InterruptSubagent interrupts the active turn of one owned subagent.
+func (a *Agent) InterruptSubagent(ctx context.Context, mainAgentSessionID, subagentID, reason string) error {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return err
 	}
-	return manager.Interrupt(ctx, parentSessionID, subagentID, reason)
+	return manager.Interrupt(ctx, mainAgentSessionID, subagentID, reason)
 }
 
 // ResolveSubagentPermission routes a permission decision to the Agent that
-// owns the child session, after enforcing parent ownership.
-func (a *Agent) ResolveSubagentPermission(ctx context.Context, parentSessionID, subagentID string, decision permission.Decision) error {
+// owns the subagent session, after enforcing main agent ownership.
+func (a *Agent) ResolveSubagentPermission(ctx context.Context, mainAgentSessionID, subagentID string, decision permission.Decision) error {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return err
 	}
-	if _, err := manager.getOwned(nonNilContext(ctx), parentSessionID, subagentID); err != nil {
+	if _, err := manager.getOwned(nonNilContext(ctx), mainAgentSessionID, subagentID); err != nil {
 		return err
 	}
 	instance, err := manager.instance(subagentID)
@@ -952,13 +952,13 @@ func (a *Agent) ResolveSubagentPermission(ctx context.Context, parentSessionID, 
 	return instance.agent.ResolvePermission(ctx, decision)
 }
 
-// ResolveSubagentConfirmation routes a Yes/No answer to an owned child.
-func (a *Agent) ResolveSubagentConfirmation(ctx context.Context, parentSessionID, subagentID string, decision confirmation.Decision) error {
+// ResolveSubagentConfirmation routes a Yes/No answer to an owned subagent.
+func (a *Agent) ResolveSubagentConfirmation(ctx context.Context, mainAgentSessionID, subagentID string, decision confirmation.Decision) error {
 	manager, err := a.subagentManager()
 	if err != nil {
 		return err
 	}
-	if _, err := manager.getOwned(nonNilContext(ctx), parentSessionID, subagentID); err != nil {
+	if _, err := manager.getOwned(nonNilContext(ctx), mainAgentSessionID, subagentID); err != nil {
 		return err
 	}
 	instance, err := manager.instance(subagentID)

@@ -47,8 +47,8 @@ func (server *Server) health(c echo.Context) error {
 }
 
 // startTurn godoc
-// @Summary Start or queue a root agent turn
-// @ID startRootTurn
+// @Summary Start or queue a main-agent turn
+// @ID startMainAgentTurn
 // @Description Starts immediately when the session is idle or queues FIFO when another turn is active. Send Accept: text/event-stream to stream an admitted turn instead of receiving JSON.
 // @Tags Turns
 // @Accept json
@@ -116,8 +116,8 @@ func (server *Server) startTurn(c echo.Context) error {
 }
 
 // getTurn godoc
-// @Summary Read root turn status and result
-// @ID getRootTurn
+// @Summary Read main-agent turn status and result
+// @ID getMainAgentTurn
 // @Tags Turns
 // @Produce json
 // @Param sessionID path string true "Session ID"
@@ -153,8 +153,8 @@ func (server *Server) getTurn(c echo.Context) error {
 }
 
 // streamTurn godoc
-// @Summary Stream retained and live root turn events
-// @ID streamRootTurnEvents
+// @Summary Stream retained and live main-agent turn events
+// @ID streamMainAgentTurnEvents
 // @Description Replays events after the supplied cursor, then continues with live events. The SSE event ID is the event sequence.
 // @Tags Event streams
 // @Produce json
@@ -180,8 +180,8 @@ func (server *Server) streamTurn(c echo.Context) error {
 }
 
 // interruptTurn godoc
-// @Summary Interrupt a root turn
-// @ID interruptRootTurn
+// @Summary Interrupt a main-agent turn
+// @ID interruptMainAgentTurn
 // @Description Cancels a queued turn before admission or requests interruption of an active turn. The body is optional.
 // @Tags Turns
 // @Accept json
@@ -244,8 +244,8 @@ func (server *Server) listMessages(c echo.Context) error {
 }
 
 // resolvePermission godoc
-// @Summary Resolve a root tool permission
-// @ID resolveRootPermission
+// @Summary Resolve a main-agent tool permission
+// @ID resolveMainAgentPermission
 // @Tags Permissions
 // @Accept json
 // @Produce json
@@ -279,8 +279,8 @@ func (server *Server) resolvePermission(c echo.Context) error {
 }
 
 // resolveConfirmation godoc
-// @Summary Resolve a root tool confirmation
-// @ID resolveRootConfirmation
+// @Summary Resolve a main-agent tool confirmation
+// @ID resolveMainAgentConfirmation
 // @Description Answers a tool-authored informational Yes/No confirmation. This is independent of permission policy.
 // @Tags Confirmations
 // @Accept json
@@ -375,7 +375,7 @@ func (server *Server) writeRuntimeError(c echo.Context, err error) error {
 		status, code = http.StatusBadRequest, "invalid_request"
 	case errors.Is(err, agentruntime.ErrRunNotFound), errors.Is(err, permission.ErrNotFound), errors.Is(err, confirmation.ErrNotFound), errors.Is(err, storage.ErrSubagentNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning), errors.Is(err, storage.ErrSubagentIncomplete), errors.Is(err, storage.ErrSubagentCallbackPending), errors.Is(err, storage.ErrSubagentOutcomeUnavailable):
+	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning), errors.Is(err, storage.ErrSubagentIncomplete), errors.Is(err, storage.ErrSubagentResultPending), errors.Is(err, storage.ErrSubagentReportUnavailable):
 		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, errServerTurnQueueFull):
 		status, code = http.StatusTooManyRequests, "turn_queue_full"

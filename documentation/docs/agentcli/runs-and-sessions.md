@@ -101,7 +101,7 @@ soon as the prior turn finishes. Interrupting a queued turn removes it before
 any model or tool executes.
 
 An application can provide the same user-visible FIFO behavior for locally
-submitted root prompts. That queue is UI-owned, while child follow-ups use the
+submitted main-agent prompts. That queue is UI-owned, while subagent follow-ups use the
 subagent mailbox in `SubagentStorage`.
 
 Within one model step, several tool calls may execute concurrently. The runtime
@@ -119,7 +119,7 @@ guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
     agentruntime.CompletionDecision,
     error,
 ) {
-    if outcomeExists(attempt.TurnID, attempt.Messages) || attempt.RepairCount > 0 {
+    if resultReportExists(attempt.TurnID, attempt.Messages) || attempt.RepairCount > 0 {
         return agentruntime.CompletionDecision{
             Action: agentruntime.CompletionProceed,
         }, nil
@@ -127,7 +127,7 @@ guard := func(ctx context.Context, attempt agentruntime.CompletionAttempt) (
     return agentruntime.CompletionDecision{
         Action: agentruntime.CompletionRetry,
         ContextReminders: []agentruntime.ContextReminder{{
-            Content: "Report the existing outcome; do not repeat the work.",
+            Content: "Report the existing result; do not repeat the work.",
         }},
     }, nil
 }
@@ -140,11 +140,11 @@ diagnostics. Proceeding persists it immediately before `RunCompleted`.
 
 The retry reminder is ephemeral and applies only to the next provider request.
 An optional non-nil allowlist restricts that request and all of its follow-up
-rounds. A reminder can ask a child to call `report_subagent_outcome`, but the
+rounds. A reminder can ask a subagent to call `report_subagent_result`, but the
 provider is free to return a normal assistant response instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
-bounded. AgentCLI applies this mechanism automatically to child sessions to
-enforce up to three `report_subagent_outcome` repairs without re-running domain
+bounded. AgentCLI applies this mechanism automatically to subagent sessions to
+enforce up to three `report_subagent_result` repairs without re-running domain
 tools. A required `EndTurn` trigger is satisfied by its latest successful
 result in the current turn. An `EndResponseScope` trigger is satisfied only by
 a handler executed from the final response-scope completion boundary; earlier
@@ -161,21 +161,21 @@ the turn after three consecutive repair attempts without progress.
 OpenAI-compatible adapters append repair reminders as ephemeral user-role
 messages. Rejected assistant drafts never become repeated trailing transcript
 messages.
-Trusted callbacks first try to join a compatible active run between provider
-rounds. The runtime holds a pending-input barrier until the callback is durably
-appended; it never changes an in-flight provider request. Fallback callback
-turns participate in the originating response-scope barrier. Intermediate turns with pending callbacks may complete without an
+Trusted results first try to join a compatible active run between provider
+rounds. The runtime holds a pending-input barrier until the result is durably
+appended; it never changes an in-flight provider request. Fallback result
+turns participate in the originating response-scope barrier. Intermediate turns with pending results may complete without an
 `EndResponseScope` call, and their assistant drafts are discarded. When the
-last turn reaches completion with no pending callback, runtime repair requests
-the final `EndResponseScope` tools, closes unshared completed/failed children,
+last turn reaches completion with no pending result, runtime repair requests
+the final `EndResponseScope` tools, closes unshared completed/failed subagents,
 and executes those handlers. The first-action guard applies only to the human
-root turn, so a callback continuation may execute a final handler on provider
-step one. Incomplete children remain open. The model-facing
-catalog has no destructive close tool. When the application closes a child
-through Go, Terminal, or HTTP, the coordinator cancels that child's outstanding
-unreserved callback obligations and releases the scope's callback barrier. A
+main-agent turn, so a result continuation may execute a final handler on provider
+step one. Incomplete subagents remain open. The model-facing
+catalog has no destructive close tool. When the application closes a subagent
+through Go, Terminal, or HTTP, the coordinator cancels that subagent's outstanding
+unreserved result obligations and releases the scope's result barrier. A
 terminal cancellation marker also prevents a racing registration or rejected
-callback reservation from recreating an obligation. Close does not synthesize
+result reservation from recreating an obligation. Close does not synthesize
 a provider continuation; final handlers still require an active turn to reach
 the completion boundary. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
@@ -184,13 +184,13 @@ the completion boundary. See
 each human response scope:
 
 - `PreEndScope` (`pre_end_scope`) fires at the final completion boundary,
-  before automatic child cleanup and final `EndResponseScope`
+  before automatic subagent cleanup and final `EndResponseScope`
   handlers.
 - `EndScope` (`end_scope`) fires after cleanup and all final handlers run and
   the scope has been removed.
 
-Each event carries the session, root scope ID, turn that made the scope
-ready to end, touched child IDs, final tool names, and occurrence time.
+Each event carries the session, response scope ID, turn that made the scope
+ready to end, touched subagent IDs, final tool names, and occurrence time.
 
 ## Run status
 
@@ -243,12 +243,12 @@ The transcript contains all of these message types:
 - `assistant`
 - `tool_call`
 - `tool_result`
-- trusted runtime messages used for events such as subagent callbacks
+- trusted runtime messages used for events such as subagent results
 
 Provider SDK types are never stored. A model adapter transforms these domain
 messages each time it creates a provider request.
 
 Assistant and tool-call messages may also contain `Reasoning`. It remains
 separate from `Content`, is present only when the provider exposed reasoning,
-and lets a UI restore collapsed reasoning after a session or child view is
+and lets a UI restore collapsed reasoning after a session or subagent view is
 reopened. Model adapters do not merge it into ordinary assistant text.

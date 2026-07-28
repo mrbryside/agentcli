@@ -15,21 +15,21 @@ func TestSubagentSystemEventLoggingIsFrameworkOwned(t *testing.T) {
 		logger: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}}
 	manager.publishSystemEvent(SystemEvent{
-		Type:      SystemSubagentClosed,
-		SessionID: "parent",
-		TurnID:    "turn",
+		Type:               SystemSubagentClosed,
+		MainAgentSessionID: "main-agent",
+		MainAgentTurnID:    "turn",
 		SubagentClosed: &SubagentClosedEvent{
 			Subagent: storage.Subagent{
-				ID:              "child",
-				SessionID:       "child-session",
-				DisplayName:     "Research",
-				DefinitionName:  "researcher",
-				Status:          storage.SubagentStatusClosed,
-				LastTurnOutcome: storage.SubagentTurnCompleted,
+				ID:                "subagent",
+				SubagentSessionID: "subagent-session",
+				DisplayName:       "Research",
+				DefinitionName:    "researcher",
+				Status:            storage.SubagentStatusClosed,
+				LastResultStatus:  storage.SubagentResultCompleted,
 			},
-			PreviousStatus:  storage.SubagentStatusIdle,
-			PreviousOutcome: storage.SubagentTurnCompleted,
-			Automatic:       true,
+			PreviousStatus:       storage.SubagentStatusIdle,
+			PreviousResultStatus: storage.SubagentResultCompleted,
+			Automatic:            true,
 		},
 	})
 
@@ -37,9 +37,9 @@ func TestSubagentSystemEventLoggingIsFrameworkOwned(t *testing.T) {
 	for _, required := range []string{
 		`msg="subagent closed"`,
 		`msg="subagent closed details"`,
-		`session_id=parent`,
-		`turn_id=turn`,
-		`subagent_id=child`,
+		`main_agent_session_id=main-agent`,
+		`main_agent_turn_id=turn`,
+		`subagent_id=subagent`,
 		`automatic=true`,
 	} {
 		if !strings.Contains(output, required) {

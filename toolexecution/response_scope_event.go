@@ -19,14 +19,14 @@ const (
 )
 
 // ScopeEvent is a live-only lifecycle fact for one user response.
-// ScopeID is the root human turn ID. TriggerTurnID is the turn whose
+// ScopeID is the initiating human main-agent turn ID. TriggerTurnID is the turn whose
 // completion made the scope quiescent.
 type ScopeEvent struct {
 	Type          ScopeEventType
 	SessionID     string
 	ScopeID       string
 	TriggerTurnID string
-	ChildIDs      []string
+	SubagentIDs   []string
 	ToolNames     []string
 	OccurredAt    time.Time
 }
@@ -160,8 +160,8 @@ func (hub *scopeEventHub) close() {
 
 func cloneScopeEvent(event ScopeEvent) ScopeEvent {
 	clone := event
-	if event.ChildIDs != nil {
-		clone.ChildIDs = append([]string{}, event.ChildIDs...)
+	if event.SubagentIDs != nil {
+		clone.SubagentIDs = append([]string{}, event.SubagentIDs...)
 	}
 	if event.ToolNames != nil {
 		clone.ToolNames = append([]string{}, event.ToolNames...)
@@ -170,7 +170,7 @@ func cloneScopeEvent(event ScopeEvent) ScopeEvent {
 }
 
 // SubscribeEvents returns a live-only stream of response-scope lifecycle
-// events. Subscribe before starting a root turn when no event may be missed.
+// events. Subscribe before starting a main-agent turn when no event may be missed.
 func (c *ResponseScopeCoordinator) SubscribeEvents(ctx context.Context) <-chan ScopeEvent {
 	if c == nil || c.events == nil {
 		closed := make(chan ScopeEvent)

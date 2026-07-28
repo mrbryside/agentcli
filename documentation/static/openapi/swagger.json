@@ -54,8 +54,8 @@
                 "tags": [
                     "Confirmations"
                 ],
-                "summary": "Resolve a root tool confirmation",
-                "operationId": "resolveRootConfirmation",
+                "summary": "Resolve a main-agent tool confirmation",
+                "operationId": "resolveMainAgentConfirmation",
                 "parameters": [
                     {
                         "type": "string",
@@ -172,8 +172,8 @@
                 "tags": [
                     "Permissions"
                 ],
-                "summary": "Resolve a root tool permission",
-                "operationId": "resolveRootPermission",
+                "summary": "Resolve a main-agent tool permission",
+                "operationId": "resolveMainAgentPermission",
                 "parameters": [
                     {
                         "type": "string",
@@ -220,22 +220,22 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagent-confirmations": {
+        "/v1/sessions/{mainAgentSessionID}/subagent-confirmations": {
             "get": {
-                "description": "Returns durable pending child confirmation requests so clients can recover after attaching late or reconnecting.",
+                "description": "Returns durable pending subagent confirmation requests so clients can recover after attaching late or reconnecting.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Confirmations"
                 ],
-                "summary": "List pending confirmations for a parent session",
+                "summary": "List pending confirmations for a main agent session",
                 "operationId": "listPendingSubagentConfirmations",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     }
@@ -256,22 +256,22 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagent-permissions": {
+        "/v1/sessions/{mainAgentSessionID}/subagent-permissions": {
             "get": {
-                "description": "Returns durable pending child permission requests so clients can recover after attaching late or reconnecting.",
+                "description": "Returns durable pending subagent permission requests so clients can recover after attaching late or reconnecting.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Permissions"
                 ],
-                "summary": "List pending permissions for a parent session",
+                "summary": "List pending permissions for a main agent session",
                 "operationId": "listPendingSubagentPermissions",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     }
@@ -292,7 +292,7 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents": {
+        "/v1/sessions/{mainAgentSessionID}/subagents": {
             "get": {
                 "produces": [
                     "application/json"
@@ -300,19 +300,19 @@
                 "tags": [
                     "Subagents"
                 ],
-                "summary": "List subagents owned by a parent session",
+                "summary": "List subagents owned by a main agent session",
                 "operationId": "listSubagents",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "boolean",
-                        "description": "Include closed child records",
+                        "description": "Include closed subagent records",
                         "name": "include_closed",
                         "in": "query"
                     }
@@ -347,8 +347,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -390,7 +390,7 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}": {
             "get": {
                 "produces": [
                     "application/json"
@@ -403,8 +403,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -432,7 +432,7 @@
                 }
             },
             "delete": {
-                "description": "Destructively closes one child, interrupting active work, dropping queued input, and cancelling outstanding response-scope callback obligations when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the parent session event stream.",
+                "description": "Destructively closes one subagent, interrupting active work, dropping queued input, and cancelling outstanding response-scope result obligations when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the main agent session event stream.",
                 "produces": [
                     "application/json"
                 ],
@@ -444,8 +444,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -479,7 +479,7 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions": {
             "post": {
                 "consumes": [
                     "application/json"
@@ -495,8 +495,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -552,9 +552,9 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/messages": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/messages": {
             "get": {
-                "description": "Reading for UI rendering does not mark child activity as observed by the parent model.",
+                "description": "Reading for UI rendering does not mark subagent activity as observed by the main agent model.",
                 "produces": [
                     "application/json"
                 ],
@@ -566,8 +566,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -595,7 +595,7 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions": {
             "post": {
                 "consumes": [
                     "application/json"
@@ -611,8 +611,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -668,9 +668,9 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns": {
             "post": {
-                "description": "Queues the message while the child is running, or starts an idle incomplete/completed/failed child after its latest callback has been consumed. Closed, callback-pending, and outcome-less children return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
+                "description": "Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent after its latest result has been consumed. Closed, result-pending, and result-less subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
                 "consumes": [
                     "application/json"
                 ],
@@ -686,8 +686,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -736,7 +736,7 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}": {
             "get": {
                 "produces": [
                     "application/json"
@@ -749,8 +749,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -763,7 +763,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Child turn ID",
+                        "description": "Subagent turn ID",
                         "name": "turnID",
                         "in": "path",
                         "required": true
@@ -785,9 +785,9 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/events": {
             "get": {
-                "description": "Replays retained child-turn events after the cursor, then continues with live EventResponse envelopes.",
+                "description": "Replays retained subagent-turn events after the cursor, then continues with live EventResponse envelopes.",
                 "produces": [
                     "application/json",
                     "text/event-stream"
@@ -800,8 +800,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -814,7 +814,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Child turn ID",
+                        "description": "Subagent turn ID",
                         "name": "turnID",
                         "in": "path",
                         "required": true
@@ -854,9 +854,9 @@
                 }
             }
         },
-        "/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt": {
+        "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt": {
             "post": {
-                "description": "Only the child turn currently active may be interrupted. The body is optional.",
+                "description": "Only the subagent turn currently active may be interrupted. The body is optional.",
                 "consumes": [
                     "application/json"
                 ],
@@ -871,8 +871,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Owning parent session ID",
-                        "name": "parentSessionID",
+                        "description": "Owning main agent session ID",
+                        "name": "mainAgentSessionID",
                         "in": "path",
                         "required": true
                     },
@@ -885,7 +885,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "Child turn ID",
+                        "description": "Subagent turn ID",
                         "name": "turnID",
                         "in": "path",
                         "required": true
@@ -923,7 +923,7 @@
         },
         "/v1/sessions/{sessionID}/events": {
             "get": {
-                "description": "Replays and follows every root turn in a session, including queued lifecycle records, response-scope boundaries, and parent turns created automatically from subagent callbacks. The session cursor is independent from each runtime event sequence.",
+                "description": "Replays and follows every main-agent turn in a session, including queued lifecycle records, response-scope boundaries, and turns created automatically from subagent results. The session cursor is independent from each runtime event sequence.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -1018,8 +1018,8 @@
                 "tags": [
                     "Turns"
                 ],
-                "summary": "Start or queue a root agent turn",
-                "operationId": "startRootTurn",
+                "summary": "Start or queue a main-agent turn",
+                "operationId": "startMainAgentTurn",
                 "parameters": [
                     {
                         "type": "string",
@@ -1086,8 +1086,8 @@
                 "tags": [
                     "Turns"
                 ],
-                "summary": "Read root turn status and result",
-                "operationId": "getRootTurn",
+                "summary": "Read main-agent turn status and result",
+                "operationId": "getMainAgentTurn",
                 "parameters": [
                     {
                         "type": "string",
@@ -1130,8 +1130,8 @@
                 "tags": [
                     "Event streams"
                 ],
-                "summary": "Stream retained and live root turn events",
-                "operationId": "streamRootTurnEvents",
+                "summary": "Stream retained and live main-agent turn events",
+                "operationId": "streamMainAgentTurnEvents",
                 "parameters": [
                     {
                         "type": "string",
@@ -1194,8 +1194,8 @@
                 "tags": [
                     "Turns"
                 ],
-                "summary": "Interrupt a root turn",
-                "operationId": "interruptRootTurn",
+                "summary": "Interrupt a main-agent turn",
+                "operationId": "interruptMainAgentTurn",
                 "parameters": [
                     {
                         "type": "string",
@@ -1389,13 +1389,13 @@
                 "label": {
                     "type": "string"
                 },
+                "main_agent_turn_id": {
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
-                },
-                "parent_turn_id": {
                     "type": "string"
                 }
             }
@@ -1770,12 +1770,6 @@
         "agentcli.ScopeEventResponse": {
             "type": "object",
             "properties": {
-                "child_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
                 "occurred_at": {
                     "type": "string"
                 },
@@ -1784,6 +1778,12 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "subagent_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tool_names": {
                     "type": "array",
@@ -1818,14 +1818,14 @@
             "type": "string",
             "enum": [
                 "user",
-                "subagent_callback",
+                "subagent_result",
                 "subagent_confirmation",
                 "subagent_permission",
                 "subagent_lifecycle"
             ],
             "x-enum-varnames": [
                 "ServerTurnSourceUser",
-                "ServerTurnSourceSubagentCallback",
+                "ServerTurnSourceSubagentResult",
                 "ServerTurnSourceSubagentConfirmation",
                 "ServerTurnSourceSubagentPermission",
                 "ServerTurnSourceSubagentLifecycle"
@@ -1883,9 +1883,6 @@
                 "source": {
                     "$ref": "#/definitions/agentcli.ServerTurnSource"
                 },
-                "subagent_callback": {
-                    "$ref": "#/definitions/agentcli.SubagentCallbackReference"
-                },
                 "subagent_closed": {
                     "$ref": "#/definitions/agentcli.SubagentClosedReference"
                 },
@@ -1894,6 +1891,9 @@
                 },
                 "subagent_permission": {
                     "$ref": "#/definitions/agentcli.SubagentPermissionReference"
+                },
+                "subagent_result": {
+                    "$ref": "#/definitions/agentcli.SubagentResultReference"
                 },
                 "turn_id": {
                     "type": "string"
@@ -1962,54 +1962,6 @@
                 }
             }
         },
-        "agentcli.SubagentCallbackReference": {
-            "type": "object",
-            "properties": {
-                "child_session_id": {
-                    "type": "string"
-                },
-                "child_turn_id": {
-                    "type": "string"
-                },
-                "definition_name": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "next_step": {
-                    "type": "string"
-                },
-                "parent_session_id": {
-                    "type": "string"
-                },
-                "parent_turn_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/agentcli.SubagentCallbackStatus"
-                },
-                "subagent_id": {
-                    "type": "string"
-                },
-                "summary": {
-                    "type": "string"
-                }
-            }
-        },
-        "agentcli.SubagentCallbackStatus": {
-            "type": "string",
-            "enum": [
-                "completed",
-                "incomplete",
-                "failed"
-            ],
-            "x-enum-varnames": [
-                "SubagentCallbackCompleted",
-                "SubagentCallbackIncomplete",
-                "SubagentCallbackFailed"
-            ]
-        },
         "agentcli.SubagentClosedReference": {
             "type": "object",
             "properties": {
@@ -2022,8 +1974,8 @@
                 "interrupted": {
                     "type": "boolean"
                 },
-                "previous_outcome": {
-                    "$ref": "#/definitions/storage.SubagentTurnOutcome"
+                "previous_result_status": {
+                    "$ref": "#/definitions/storage.SubagentResultStatus"
                 },
                 "previous_status": {
                     "$ref": "#/definitions/storage.SubagentStatus"
@@ -2051,12 +2003,6 @@
         "agentcli.SubagentConfirmationReference": {
             "type": "object",
             "properties": {
-                "child_session_id": {
-                    "type": "string"
-                },
-                "child_turn_id": {
-                    "type": "string"
-                },
                 "confirmation": {
                     "$ref": "#/definitions/agentcli.ConfirmationRequestResponse"
                 },
@@ -2070,6 +2016,12 @@
                     "type": "string"
                 },
                 "subagent_id": {
+                    "type": "string"
+                },
+                "subagent_session_id": {
+                    "type": "string"
+                },
+                "subagent_turn_id": {
                     "type": "string"
                 },
                 "type": {
@@ -2149,12 +2101,6 @@
         "agentcli.SubagentPermissionReference": {
             "type": "object",
             "properties": {
-                "child_session_id": {
-                    "type": "string"
-                },
-                "child_turn_id": {
-                    "type": "string"
-                },
                 "decision": {
                     "$ref": "#/definitions/agentcli.DecisionResponse"
                 },
@@ -2168,6 +2114,12 @@
                     "$ref": "#/definitions/agentcli.PermissionRequestResponse"
                 },
                 "subagent_id": {
+                    "type": "string"
+                },
+                "subagent_session_id": {
+                    "type": "string"
+                },
+                "subagent_turn_id": {
                     "type": "string"
                 },
                 "type": {
@@ -2184,7 +2136,7 @@
                 "created_at": {
                     "type": "string"
                 },
-                "current_turn_id": {
+                "current_subagent_turn_id": {
                     "type": "string"
                 },
                 "definition_name": {
@@ -2199,28 +2151,28 @@
                 "label": {
                     "type": "string"
                 },
-                "last_turn_error": {
+                "last_result_error": {
                     "type": "string"
                 },
-                "last_turn_id": {
+                "last_result_next_step": {
                     "type": "string"
                 },
-                "last_turn_next_step": {
+                "last_result_status": {
+                    "$ref": "#/definitions/storage.SubagentResultStatus"
+                },
+                "last_result_summary": {
                     "type": "string"
                 },
-                "last_turn_outcome": {
-                    "$ref": "#/definitions/storage.SubagentTurnOutcome"
+                "last_subagent_turn_id": {
+                    "type": "string"
                 },
-                "last_turn_summary": {
+                "main_agent_session_id": {
+                    "type": "string"
+                },
+                "main_agent_turn_id": {
                     "type": "string"
                 },
                 "model": {
-                    "type": "string"
-                },
-                "parent_session_id": {
-                    "type": "string"
-                },
-                "parent_turn_id": {
                     "type": "string"
                 },
                 "provider": {
@@ -2229,11 +2181,11 @@
                 "queued_messages": {
                     "type": "integer"
                 },
-                "session_id": {
-                    "type": "string"
-                },
                 "status": {
                     "$ref": "#/definitions/storage.SubagentStatus"
+                },
+                "subagent_session_id": {
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -2242,6 +2194,54 @@
                     "type": "integer"
                 }
             }
+        },
+        "agentcli.SubagentResultReference": {
+            "type": "object",
+            "properties": {
+                "definition_name": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "main_agent_session_id": {
+                    "type": "string"
+                },
+                "main_agent_turn_id": {
+                    "type": "string"
+                },
+                "next_step": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/agentcli.SubagentResultStatus"
+                },
+                "subagent_id": {
+                    "type": "string"
+                },
+                "subagent_session_id": {
+                    "type": "string"
+                },
+                "subagent_turn_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.SubagentResultStatus": {
+            "type": "string",
+            "enum": [
+                "completed",
+                "incomplete",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SubagentResultCompleted",
+                "SubagentResultIncomplete",
+                "SubagentResultFailed"
+            ]
         },
         "agentcli.SubagentTurnResponse": {
             "type": "object",
@@ -2575,6 +2575,19 @@
                 "MessageTypeCompactionCheckpoint"
             ]
         },
+        "storage.SubagentResultStatus": {
+            "type": "string",
+            "enum": [
+                "completed",
+                "incomplete",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SubagentResultCompleted",
+                "SubagentResultIncomplete",
+                "SubagentResultFailed"
+            ]
+        },
         "storage.SubagentStatus": {
             "type": "string",
             "enum": [
@@ -2586,19 +2599,6 @@
                 "SubagentStatusRunning",
                 "SubagentStatusIdle",
                 "SubagentStatusClosed"
-            ]
-        },
-        "storage.SubagentTurnOutcome": {
-            "type": "string",
-            "enum": [
-                "completed",
-                "incomplete",
-                "failed"
-            ],
-            "x-enum-varnames": [
-                "SubagentTurnCompleted",
-                "SubagentTurnIncomplete",
-                "SubagentTurnFailed"
             ]
         }
     }

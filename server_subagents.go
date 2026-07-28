@@ -13,24 +13,24 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// subagentRoutes intentionally remain nested under their owning parent
-// session. A child ID alone is never enough authority to access a transcript,
+// subagentRoutes intentionally remain nested under their owning main agent
+// session. A subagent ID alone is never enough authority to access a transcript,
 // retained run, or permission request.
 func (server *Server) subagentRoutes() {
 	server.echo.GET("/v1/subagent-definitions", server.listSubagentDefinitions)
-	server.echo.POST("/v1/sessions/:parentSessionID/subagents", server.createSubagent)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagents", server.listSubagents)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagents/:subagentID", server.getSubagent)
-	server.echo.DELETE("/v1/sessions/:parentSessionID/subagents/:subagentID", server.closeSubagent)
-	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/turns", server.sendSubagentTurn)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagents/:subagentID/messages", server.listSubagentMessages)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagents/:subagentID/turns/:turnID", server.getSubagentTurn)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagents/:subagentID/turns/:turnID/events", server.streamSubagentTurn)
-	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/turns/:turnID/interrupt", server.interruptSubagentTurn)
-	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/permissions/:permissionID/decisions", server.resolveSubagentPermission)
-	server.echo.POST("/v1/sessions/:parentSessionID/subagents/:subagentID/confirmations/:confirmationID/decisions", server.resolveSubagentConfirmation)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagent-confirmations", server.listPendingSubagentConfirmations)
-	server.echo.GET("/v1/sessions/:parentSessionID/subagent-permissions", server.listPendingSubagentPermissions)
+	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents", server.createSubagent)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagents", server.listSubagents)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagents/:subagentID", server.getSubagent)
+	server.echo.DELETE("/v1/sessions/:mainAgentSessionID/subagents/:subagentID", server.closeSubagent)
+	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/turns", server.sendSubagentTurn)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/messages", server.listSubagentMessages)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/turns/:turnID", server.getSubagentTurn)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/turns/:turnID/events", server.streamSubagentTurn)
+	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/turns/:turnID/interrupt", server.interruptSubagentTurn)
+	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/permissions/:permissionID/decisions", server.resolveSubagentPermission)
+	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents/:subagentID/confirmations/:confirmationID/decisions", server.resolveSubagentConfirmation)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagent-confirmations", server.listPendingSubagentConfirmations)
+	server.echo.GET("/v1/sessions/:mainAgentSessionID/subagent-permissions", server.listPendingSubagentPermissions)
 }
 
 // listSubagentDefinitions godoc
@@ -56,17 +56,17 @@ func (server *Server) listSubagentDefinitions(c echo.Context) error {
 // @Tags Subagents
 // @Accept json
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param request body CreateSubagentRequest true "Subagent definition and initial message"
 // @Success 201 {object} SubagentResponse
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
 // @Failure 500 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents [post]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents [post]
 func (server *Server) createSubagent(c echo.Context) error {
-	parentSessionID := c.Param("parentSessionID")
-	if strings.TrimSpace(parentSessionID) == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session ID is required")
+	mainAgentSessionID := c.Param("mainAgentSessionID")
+	if strings.TrimSpace(mainAgentSessionID) == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session ID is required")
 	}
 	var body CreateSubagentRequest
 	if err := server.decodeJSON(c, &body); err != nil {
@@ -75,40 +75,40 @@ func (server *Server) createSubagent(c echo.Context) error {
 	if strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.Message) == "" {
 		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "name and message are required")
 	}
-	parentTurnID := strings.TrimSpace(body.ParentTurnID)
-	if parentTurnID == "" {
+	mainAgentTurnID := strings.TrimSpace(body.MainAgentTurnID)
+	if mainAgentTurnID == "" {
 		var err error
-		parentTurnID, err = newSubagentID("turn_")
+		mainAgentTurnID, err = newSubagentID("turn_")
 		if err != nil {
 			return server.writeRuntimeError(c, err)
 		}
 	}
-	record, err := server.agent.StartSubagent(c.Request().Context(), parentSessionID, parentTurnID, body.Name, body.Message, body.Label)
+	record, err := server.agent.StartSubagent(c.Request().Context(), mainAgentSessionID, mainAgentTurnID, body.Name, body.Message, body.Label)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
 	response := newSubagentResponse(record)
-	c.Response().Header().Set("Location", subagentPath(parentSessionID, record.ID))
+	c.Response().Header().Set("Location", subagentPath(mainAgentSessionID, record.ID))
 	return writeJSON(c, http.StatusCreated, response)
 }
 
 // listSubagents godoc
-// @Summary List subagents owned by a parent session
+// @Summary List subagents owned by a main agent session
 // @ID listSubagents
 // @Tags Subagents
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
-// @Param include_closed query boolean false "Include closed child records"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
+// @Param include_closed query boolean false "Include closed subagent records"
 // @Success 200 {object} SubagentsResponse
 // @Failure 400 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents [get]
 func (server *Server) listSubagents(c echo.Context) error {
-	parentSessionID := c.Param("parentSessionID")
-	if strings.TrimSpace(parentSessionID) == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session ID is required")
+	mainAgentSessionID := c.Param("mainAgentSessionID")
+	if strings.TrimSpace(mainAgentSessionID) == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session ID is required")
 	}
 	includeClosed := c.QueryParam("include_closed") == "true"
-	records, err := server.agent.ListSubagents(c.Request().Context(), parentSessionID, includeClosed)
+	records, err := server.agent.ListSubagents(c.Request().Context(), mainAgentSessionID, includeClosed)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
@@ -120,11 +120,11 @@ func (server *Server) listSubagents(c echo.Context) error {
 // @ID getSubagent
 // @Tags Subagents
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Success 200 {object} SubagentResponse
 // @Failure 404 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID} [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID} [get]
 func (server *Server) getSubagent(c echo.Context) error {
 	record, err := server.ownedSubagent(c)
 	if err != nil {
@@ -135,22 +135,22 @@ func (server *Server) getSubagent(c echo.Context) error {
 
 // closeSubagent godoc
 // @Summary Close one owned subagent
-// @Description Destructively closes one child, interrupting active work, dropping queued input, and cancelling outstanding response-scope callback obligations when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the parent session event stream.
+// @Description Destructively closes one subagent, interrupting active work, dropping queued input, and cancelling outstanding response-scope result obligations when necessary, while retaining transcript and completed event history. Bind this endpoint to an explicit user action. A successful close also emits subagent_closed on the main agent session event stream.
 // @ID closeSubagent
 // @Tags Subagents
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Success 200 {object} SubagentResponse
 // @Failure 404 {object} APIErrorResponse
 // @Failure 409 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID} [delete]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID} [delete]
 func (server *Server) closeSubagent(c echo.Context) error {
-	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(subagentID) == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session and subagent IDs are required")
+	mainAgentSessionID, subagentID := c.Param("mainAgentSessionID"), c.Param("subagentID")
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(subagentID) == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session and subagent IDs are required")
 	}
-	record, err := server.agent.CloseSubagent(c.Request().Context(), parentSessionID, subagentID)
+	record, err := server.agent.CloseSubagent(c.Request().Context(), mainAgentSessionID, subagentID)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
@@ -160,23 +160,23 @@ func (server *Server) closeSubagent(c echo.Context) error {
 // sendSubagentTurn godoc
 // @Summary Continue a subagent conversation
 // @ID startSubagentTurn
-// @Description Queues the message while the child is running, or starts an idle incomplete/completed/failed child after its latest callback has been consumed. Closed, callback-pending, and outcome-less children return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
+// @Description Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent after its latest result has been consumed. Closed, result-pending, and result-less subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
 // @Tags Subagents
 // @Accept json
 // @Produce json
 // @Produce text/event-stream
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Param request body SendSubagentMessageRequest true "Next user message"
 // @Success 202 {object} SubagentResponse
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
 // @Failure 409 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns [post]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns [post]
 func (server *Server) sendSubagentTurn(c echo.Context) error {
-	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(subagentID) == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session and subagent IDs are required")
+	mainAgentSessionID, subagentID := c.Param("mainAgentSessionID"), c.Param("subagentID")
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(subagentID) == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session and subagent IDs are required")
 	}
 	var body SendSubagentMessageRequest
 	if err := server.decodeJSON(c, &body); err != nil {
@@ -185,19 +185,19 @@ func (server *Server) sendSubagentTurn(c echo.Context) error {
 	if strings.TrimSpace(body.Message) == "" {
 		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "message is required")
 	}
-	record, err := server.agent.SendSubagentMessage(c.Request().Context(), parentSessionID, subagentID, body.Message)
+	record, err := server.agent.SendSubagentMessage(c.Request().Context(), mainAgentSessionID, subagentID, body.Message)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
 	response := newSubagentResponse(record)
 	status := http.StatusAccepted
-	if record.CurrentTurnID != "" && record.Status == storage.SubagentStatusRunning {
-		c.Response().Header().Set("Location", subagentTurnPath(parentSessionID, subagentID, record.CurrentTurnID))
-		// A new idle child turn can be streamed from the same POST ergonomics as
-		// a root turn. Queued mailbox work has no run of its own yet, so it is
+	if record.CurrentSubagentTurnID != "" && record.Status == storage.SubagentStatusRunning {
+		c.Response().Header().Set("Location", subagentTurnPath(mainAgentSessionID, subagentID, record.CurrentSubagentTurnID))
+		// A new idle subagent turn can be streamed from the same POST ergonomics as
+		// a main-agent turn. Queued mailbox work has no run of its own yet, so it is
 		// represented by the normal accepted summary instead.
 		if acceptsEventStream(c.Request()) && len(record.Pending) == 0 {
-			run, runErr := server.agent.SubagentRun(c.Request().Context(), parentSessionID, subagentID, record.CurrentTurnID)
+			run, runErr := server.agent.SubagentRun(c.Request().Context(), mainAgentSessionID, subagentID, record.CurrentSubagentTurnID)
 			if runErr != nil {
 				return server.writeRuntimeError(c, runErr)
 			}
@@ -210,22 +210,22 @@ func (server *Server) sendSubagentTurn(c echo.Context) error {
 // listSubagentMessages godoc
 // @Summary List an owned subagent transcript
 // @ID listSubagentMessages
-// @Description Reading for UI rendering does not mark child activity as observed by the parent model.
+// @Description Reading for UI rendering does not mark subagent activity as observed by the main agent model.
 // @Tags Subagents
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Success 200 {object} SubagentMessagesResponse
 // @Failure 404 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/messages [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/messages [get]
 func (server *Server) listSubagentMessages(c echo.Context) error {
 	record, err := server.ownedSubagent(c)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
 	// UI reads deliberately bypass ReadSubagent: rendering a nested chat must
-	// not mark activity as observed by the parent model.
-	messages, err := server.agent.ListMessages(c.Request().Context(), record.SessionID)
+	// not mark activity as observed by the main agent model.
+	messages, err := server.agent.ListMessages(c.Request().Context(), record.SubagentSessionID)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}
@@ -238,12 +238,12 @@ func (server *Server) listSubagentMessages(c echo.Context) error {
 // @ID getSubagentTurn
 // @Tags Subagents
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
-// @Param turnID path string true "Child turn ID"
+// @Param turnID path string true "Subagent turn ID"
 // @Success 200 {object} SubagentTurnResponse
 // @Failure 404 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID} [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID} [get]
 func (server *Server) getSubagentTurn(c echo.Context) error {
 	record, run, err := server.ownedSubagentRun(c)
 	if err != nil {
@@ -255,19 +255,19 @@ func (server *Server) getSubagentTurn(c echo.Context) error {
 // streamSubagentTurn godoc
 // @Summary Stream retained and live subagent turn events
 // @ID streamSubagentTurnEvents
-// @Description Replays retained child-turn events after the cursor, then continues with live EventResponse envelopes.
+// @Description Replays retained subagent-turn events after the cursor, then continues with live EventResponse envelopes.
 // @Tags Event streams
 // @Produce json
 // @Produce text/event-stream
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
-// @Param turnID path string true "Child turn ID"
+// @Param turnID path string true "Subagent turn ID"
 // @Param after query integer false "Resume after this event sequence"
 // @Param Last-Event-ID header integer false "Resume after this event sequence when after is omitted"
 // @Success 200 {object} EventResponse "One SSE data payload; the HTTP response remains open for more events"
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/events [get]
 func (server *Server) streamSubagentTurn(c echo.Context) error {
 	_, run, err := server.ownedSubagentRun(c)
 	if err != nil {
@@ -283,20 +283,20 @@ func (server *Server) streamSubagentTurn(c echo.Context) error {
 // interruptSubagentTurn godoc
 // @Summary Interrupt an owned subagent turn
 // @ID interruptSubagentTurn
-// @Description Only the child turn currently active may be interrupted. The body is optional.
+// @Description Only the subagent turn currently active may be interrupted. The body is optional.
 // @Tags Subagents
 // @Accept json
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
-// @Param turnID path string true "Child turn ID"
+// @Param turnID path string true "Subagent turn ID"
 // @Param request body InterruptRequest false "Optional interruption reason"
 // @Success 202 {object} SubagentTurnResponse
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt [post]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt [post]
 func (server *Server) interruptSubagentTurn(c echo.Context) error {
-	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")
+	mainAgentSessionID, subagentID := c.Param("mainAgentSessionID"), c.Param("subagentID")
 	record, run, err := server.ownedSubagentRun(c)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
@@ -307,11 +307,11 @@ func (server *Server) interruptSubagentTurn(c echo.Context) error {
 			return server.writeDecodeError(c, err)
 		}
 	}
-	// The manager interrupt operation is intentionally child-scoped because it
+	// The manager interrupt operation is intentionally subagent-scoped because it
 	// owns the active run gate. Do not let a historical turn URL interrupt a
-	// newer active turn for the same child.
-	if record.CurrentTurnID == run.TurnID() {
-		if err := server.agent.InterruptSubagent(c.Request().Context(), parentSessionID, subagentID, body.Reason); err != nil {
+	// newer active turn for the same subagent.
+	if record.CurrentSubagentTurnID == run.TurnID() {
+		if err := server.agent.InterruptSubagent(c.Request().Context(), mainAgentSessionID, subagentID, body.Reason); err != nil {
 			return server.writeRuntimeError(c, err)
 		}
 	}
@@ -324,7 +324,7 @@ func (server *Server) interruptSubagentTurn(c echo.Context) error {
 // @Tags Subagents
 // @Accept json
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Param permissionID path string true "Permission request ID"
 // @Param request body PermissionDecisionRequest true "Permission decision"
@@ -332,15 +332,15 @@ func (server *Server) interruptSubagentTurn(c echo.Context) error {
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
 // @Failure 409 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions [post]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions [post]
 func (server *Server) resolveSubagentPermission(c echo.Context) error {
-	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")
+	mainAgentSessionID, subagentID := c.Param("mainAgentSessionID"), c.Param("subagentID")
 	permissionID := permission.ID(c.Param("permissionID"))
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(subagentID) == "" || permissionID == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session, subagent, and permission IDs are required")
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(subagentID) == "" || permissionID == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session, subagent, and permission IDs are required")
 	}
 	// Check ownership before accepting the decision; this must never route a
-	// root-session decision into a child or across another parent's child.
+	// main-agent-session decision into a subagent or across another main agent's subagent.
 	record, err := server.ownedSubagent(c)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
@@ -349,11 +349,11 @@ func (server *Server) resolveSubagentPermission(c echo.Context) error {
 	if err := server.decodeJSON(c, &body); err != nil {
 		return server.writeDecodeError(c, err)
 	}
-	decision := permission.Decision{PermissionID: permissionID, SessionID: record.SessionID, TurnID: body.TurnID, CallID: body.CallID, Type: body.Decision}
-	if body.SessionID != "" && body.SessionID != record.SessionID {
+	decision := permission.Decision{PermissionID: permissionID, SessionID: record.SubagentSessionID, TurnID: body.TurnID, CallID: body.CallID, Type: body.Decision}
+	if body.SessionID != "" && body.SessionID != record.SubagentSessionID {
 		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "permission session does not match subagent")
 	}
-	if err := server.agent.ResolveSubagentPermission(c.Request().Context(), parentSessionID, subagentID, decision); err != nil {
+	if err := server.agent.ResolveSubagentPermission(c.Request().Context(), mainAgentSessionID, subagentID, decision); err != nil {
 		return server.writeRuntimeError(c, err)
 	}
 	return writeJSON(c, http.StatusOK, PermissionDecisionResponse{Decision: newDecisionResponse(decision)})
@@ -365,7 +365,7 @@ func (server *Server) resolveSubagentPermission(c echo.Context) error {
 // @Tags Subagents
 // @Accept json
 // @Produce json
-// @Param parentSessionID path string true "Owning parent session ID"
+// @Param mainAgentSessionID path string true "Owning main agent session ID"
 // @Param subagentID path string true "Subagent ID"
 // @Param confirmationID path string true "Confirmation request ID"
 // @Param request body ConfirmationDecisionRequest true "Confirmation answer"
@@ -373,12 +373,12 @@ func (server *Server) resolveSubagentPermission(c echo.Context) error {
 // @Failure 400 {object} APIErrorResponse
 // @Failure 404 {object} APIErrorResponse
 // @Failure 409 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions [post]
+// @Router /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions [post]
 func (server *Server) resolveSubagentConfirmation(c echo.Context) error {
-	parentSessionID, subagentID := c.Param("parentSessionID"), c.Param("subagentID")
+	mainAgentSessionID, subagentID := c.Param("mainAgentSessionID"), c.Param("subagentID")
 	confirmationID := confirmation.ID(c.Param("confirmationID"))
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(subagentID) == "" || confirmationID == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session, subagent, and confirmation IDs are required")
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(subagentID) == "" || confirmationID == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session, subagent, and confirmation IDs are required")
 	}
 	record, err := server.ownedSubagent(c)
 	if err != nil {
@@ -388,11 +388,11 @@ func (server *Server) resolveSubagentConfirmation(c echo.Context) error {
 	if err := server.decodeJSON(c, &body); err != nil {
 		return server.writeDecodeError(c, err)
 	}
-	if body.SessionID != "" && body.SessionID != record.SessionID {
+	if body.SessionID != "" && body.SessionID != record.SubagentSessionID {
 		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "confirmation session does not match subagent")
 	}
-	decision := confirmation.Decision{ConfirmationID: confirmationID, SessionID: record.SessionID, TurnID: body.TurnID, CallID: body.CallID, Answer: body.Answer}
-	if err := server.agent.ResolveSubagentConfirmation(c.Request().Context(), parentSessionID, subagentID, decision); err != nil {
+	decision := confirmation.Decision{ConfirmationID: confirmationID, SessionID: record.SubagentSessionID, TurnID: body.TurnID, CallID: body.CallID, Answer: body.Answer}
+	if err := server.agent.ResolveSubagentConfirmation(c.Request().Context(), mainAgentSessionID, subagentID, decision); err != nil {
 		return server.writeRuntimeError(c, err)
 	}
 	return writeJSON(c, http.StatusOK, ConfirmationDecisionResponse{Decision: newConfirmationDecisionResponse(decision)})
@@ -403,7 +403,7 @@ func (server *Server) ownedSubagent(c echo.Context) (storage.Subagent, error) {
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return manager.getOwned(c.Request().Context(), c.Param("parentSessionID"), c.Param("subagentID"))
+	return manager.getOwned(c.Request().Context(), c.Param("mainAgentSessionID"), c.Param("subagentID"))
 }
 
 func (server *Server) ownedSubagentRun(c echo.Context) (storage.Subagent, *agentruntime.Run, error) {
@@ -411,7 +411,7 @@ func (server *Server) ownedSubagentRun(c echo.Context) (storage.Subagent, *agent
 	if err != nil {
 		return storage.Subagent{}, nil, err
 	}
-	run, err := server.agent.SubagentRun(c.Request().Context(), c.Param("parentSessionID"), record.ID, c.Param("turnID"))
+	run, err := server.agent.SubagentRun(c.Request().Context(), c.Param("mainAgentSessionID"), record.ID, c.Param("turnID"))
 	if err != nil {
 		return storage.Subagent{}, nil, err
 	}
@@ -423,7 +423,7 @@ func newSubagentDefinitionResponse(definition SubagentDefinition) SubagentDefini
 }
 
 func newSubagentResponse(record storage.Subagent) SubagentResponse {
-	return SubagentResponse{ID: record.ID, DisplayName: record.DisplayName, Label: record.Label, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID, SessionID: record.SessionID, DefinitionName: record.DefinitionName, Provider: record.Provider, Model: record.Model, Status: record.Status, CurrentTurnID: record.CurrentTurnID, LastTurnID: record.LastTurnID, LastTurnError: record.LastTurnError, LastTurnOutcome: record.LastTurnOutcome, LastTurnSummary: record.LastTurnSummary, LastTurnNextStep: record.LastTurnNextStep, Version: record.Version, QueuedMessages: len(record.Pending), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, ClosedAt: record.ClosedAt}
+	return SubagentResponse{ID: record.ID, DisplayName: record.DisplayName, Label: record.Label, MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: record.MainAgentTurnID, SubagentSessionID: record.SubagentSessionID, DefinitionName: record.DefinitionName, Provider: record.Provider, Model: record.Model, Status: record.Status, CurrentSubagentTurnID: record.CurrentSubagentTurnID, LastSubagentTurnID: record.LastSubagentTurnID, LastResultError: record.LastResultError, LastResultStatus: record.LastResultStatus, LastResultSummary: record.LastResultSummary, LastResultNextStep: record.LastResultNextStep, Version: record.Version, QueuedMessages: len(record.Pending), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, ClosedAt: record.ClosedAt}
 }
 
 func newSubagentResponses(records []storage.Subagent) []SubagentResponse {
@@ -456,10 +456,10 @@ func newTurnResponse(run *agentruntime.Run) TurnResponse {
 	return response
 }
 
-func subagentPath(parentSessionID, subagentID string) string {
-	return "/v1/sessions/" + url.PathEscape(parentSessionID) + "/subagents/" + url.PathEscape(subagentID)
+func subagentPath(mainAgentSessionID, subagentID string) string {
+	return "/v1/sessions/" + url.PathEscape(mainAgentSessionID) + "/subagents/" + url.PathEscape(subagentID)
 }
 
-func subagentTurnPath(parentSessionID, subagentID, turnID string) string {
-	return subagentPath(parentSessionID, subagentID) + "/turns/" + url.PathEscape(turnID)
+func subagentTurnPath(mainAgentSessionID, subagentID, turnID string) string {
+	return subagentPath(mainAgentSessionID, subagentID) + "/turns/" + url.PathEscape(turnID)
 }

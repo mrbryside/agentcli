@@ -18,8 +18,8 @@ func (server *Server) forwardSubagentConfirmations(events <-chan SubagentConfirm
 			server.sessionEvents.publish(SessionEventResponse{
 				Type:                 SessionActivitySubagentConfirmation,
 				Source:               ServerTurnSourceSubagentConfirmation,
-				SessionID:            event.ParentSessionID,
-				TurnID:               event.ParentTurnID,
+				SessionID:            event.MainAgentSessionID,
+				TurnID:               event.MainAgentTurnID,
 				SubagentConfirmation: newSubagentConfirmationReference(event),
 			})
 		}
@@ -29,7 +29,7 @@ func (server *Server) forwardSubagentConfirmations(events <-chan SubagentConfirm
 func newSubagentConfirmationReference(event SubagentConfirmationEvent) *SubagentConfirmationReference {
 	reference := &SubagentConfirmationReference{
 		Type: event.Type, SubagentID: event.SubagentID, DisplayName: event.DisplayName,
-		DefinitionName: event.SubagentName, ChildSessionID: event.SessionID, ChildTurnID: event.TurnID,
+		DefinitionName: event.DefinitionName, SubagentSessionID: event.SubagentSessionID, SubagentTurnID: event.SubagentTurnID,
 	}
 	if event.Request != nil {
 		request := newConfirmationRequestResponse(*event.Request)
@@ -43,21 +43,21 @@ func newSubagentConfirmationReference(event SubagentConfirmationEvent) *Subagent
 }
 
 // listPendingSubagentConfirmations godoc
-// @Summary List pending confirmations for a parent session
+// @Summary List pending confirmations for a main agent session
 // @ID listPendingSubagentConfirmations
-// @Description Returns durable pending child confirmation requests so clients can recover after attaching late or reconnecting.
+// @Description Returns durable pending subagent confirmation requests so clients can recover after attaching late or reconnecting.
 // @Tags Confirmations
 // @Produce json
-// @Param parentSessionID path string true "Parent session ID"
+// @Param mainAgentSessionID path string true "Main agent session ID"
 // @Success 200 {object} PendingSubagentConfirmationsResponse
 // @Failure 400 {object} APIErrorResponse
-// @Router /v1/sessions/{parentSessionID}/subagent-confirmations [get]
+// @Router /v1/sessions/{mainAgentSessionID}/subagent-confirmations [get]
 func (server *Server) listPendingSubagentConfirmations(c echo.Context) error {
-	parentSessionID := c.Param("parentSessionID")
-	if parentSessionID == "" {
-		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "parent session ID is required")
+	mainAgentSessionID := c.Param("mainAgentSessionID")
+	if mainAgentSessionID == "" {
+		return writeAPIError(c, http.StatusBadRequest, "invalid_request", "main agent session ID is required")
 	}
-	events, err := server.agent.PendingSubagentConfirmations(c.Request().Context(), parentSessionID)
+	events, err := server.agent.PendingSubagentConfirmations(c.Request().Context(), mainAgentSessionID)
 	if err != nil {
 		return server.writeRuntimeError(c, err)
 	}

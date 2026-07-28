@@ -88,15 +88,15 @@ explicitly test the first-tool-call case: the early call must return successful
 `reason=tool_called_at_wrong_time`;
 bypass admission and the handler; ignore `EndTurnOnSuccess` while the scope is
 otherwise quiescent; and continue the turn with ordinary tools still available.
-Separately keep a callback pending
+Separately keep a result pending
 and assert that the same skipped tool honors `EndTurnOnSuccess` to yield that
 turn without another provider round. After ordinary work and a natural
 completion attempt, assert that the restricted completion-repair call executes
 the handler exactly once and satisfies the trigger. Also prove that provider
-step one of a callback continuation may execute the final handler; only the
-human root's initial action is guarded.
+step one of a result continuation may execute the final handler; only the
+human main-agent turn's initial action is guarded.
 
-For `ResponseScopeCallLimit`, send calls from both the root and a callback turn.
+For `ResponseScopeCallLimit`, send calls from both the main-agent turn and a result turn.
 Assert that the cumulative limit is shared, over-budget calls return controlled
 success, and the handler/network path runs only for admitted calls.
 
@@ -147,4 +147,4 @@ npm run build
 ```
 
 The race run matters because sessions, subscribers, tool workers, decisions,
-and child callbacks intentionally operate concurrently.
+and subagent results intentionally operate concurrently.

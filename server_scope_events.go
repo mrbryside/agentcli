@@ -48,7 +48,7 @@ func (server *Server) newSessionScopeEvent(event ScopeEvent) SessionEventRespons
 		SessionID:     event.SessionID,
 		ScopeID:       event.ScopeID,
 		TriggerTurnID: event.TriggerTurnID,
-		ChildIDs:      append([]string{}, event.ChildIDs...),
+		SubagentIDs:   append([]string{}, event.SubagentIDs...),
 		ToolNames:     append([]string{}, event.ToolNames...),
 		OccurredAt:    event.OccurredAt,
 	}

@@ -17,8 +17,8 @@ func (server *Server) forwardSystemEvents(events <-chan SystemEvent) {
 				server.sessionEvents.publish(SessionEventResponse{
 					Type:           SessionActivitySubagentClosed,
 					Source:         ServerTurnSourceSubagentLifecycle,
-					SessionID:      event.SessionID,
-					TurnID:         event.TurnID,
+					SessionID:      event.MainAgentSessionID,
+					TurnID:         event.MainAgentTurnID,
 					SubagentClosed: newSubagentClosedReference(*event.SubagentClosed),
 				})
 			}
@@ -28,11 +28,11 @@ func (server *Server) forwardSystemEvents(events <-chan SystemEvent) {
 
 func newSubagentClosedReference(event SubagentClosedEvent) *SubagentClosedReference {
 	return &SubagentClosedReference{
-		Subagent:        newSubagentResponse(event.Subagent),
-		PreviousStatus:  event.PreviousStatus,
-		PreviousOutcome: event.PreviousOutcome,
-		DroppedMessages: event.DroppedMessages,
-		Interrupted:     event.Interrupted,
-		Automatic:       event.Automatic,
+		Subagent:             newSubagentResponse(event.Subagent),
+		PreviousStatus:       event.PreviousStatus,
+		PreviousResultStatus: event.PreviousResultStatus,
+		DroppedMessages:      event.DroppedMessages,
+		Interrupted:          event.Interrupted,
+		Automatic:            event.Automatic,
 	}
 }

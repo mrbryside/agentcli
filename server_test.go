@@ -149,7 +149,7 @@ func TestWriteSessionSSEUsesScopeBoundaryAsEventName(t *testing.T) {
 			SessionID:     "session",
 			ScopeID:       "root",
 			TriggerTurnID: "trigger",
-			ChildIDs:      []string{},
+			SubagentIDs:   []string{},
 			ToolNames:     []string{"report"},
 			OccurredAt:    time.Now().UTC(),
 		},

@@ -288,7 +288,7 @@ func TestEndResponseScopeDoesNotPersistDeliveredMessageAsAssistant(t *testing.T)
 				t.Fatalf("provider requests = %d, want early report, normal work, and direct final report", len(requests))
 			}
 			if len(requests[0].ContextReminders) != 1 ||
-				!strings.Contains(requests[0].ContextReminders[0].Content, "<runtime_turn_boundary>") {
+				!strings.Contains(requests[0].ContextReminders[0].Content, "<turn_start>") {
 				t.Fatalf("first provider request new-turn reminders = %#v", requests[0].ContextReminders)
 			}
 			foundWorkTool := false

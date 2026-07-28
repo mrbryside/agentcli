@@ -202,7 +202,7 @@ Calling `RequestEndTurn` outside the active handler context returns an error.
 ## End-of-scope trigger tools
 
 For a side effect that must happen once after the whole user response,
-including subagent callbacks and follow-ups, set one trigger:
+including subagent results and follow-ups, set one trigger:
 
 ```go
 agentcli.Tool{
@@ -213,7 +213,7 @@ agentcli.Tool{
 ```
 
 For an ordinary tool that must not exceed a cumulative response-scope budget,
-set `ResponseScopeCallLimit`. The root turn, inline callbacks, and callback
+set `ResponseScopeCallLimit`. The main-agent turn, inline results, and result
 continuations share the counter:
 
 ```go
@@ -228,7 +228,7 @@ An over-budget call returns successful `status=skipped`,
 `reason=response_scope_tool_budget_exhausted`, and never reaches admission,
 the handler, or the network. Admitted attempts count even if they later fail.
 
-If the model calls the tool as the human root turn's first provider action, or
+If the model calls the tool as the human main-agent turn's first provider action, or
 while the response scope is busy, the handler is not called and no candidate
 is retained. The model receives:
 
@@ -244,8 +244,8 @@ is retained. The model receives:
 
 The result is successful so the model does not treat the skip as an error, but
 `trigger_satisfied=false`. `EndTurnOnSuccess` is still honored, so a
-final-delivery tool can yield the current turn while callbacks are pending
-without executing its handler. When no callback or other active turn keeps the
+final-delivery tool can yield the current turn while results are pending
+without executing its handler. When no result or other active turn keeps the
 scope open, the same premature call continues the current turn so normal tools
 remain available. The runtime does not invoke the handler, permission resolver,
 confirmation resolver, or tool-call guard for this skipped call. It also does
@@ -257,28 +257,28 @@ The runtime does not infer intent from message text. It requires both
 independent conditions below before executing an
 `EndResponseScope` handler:
 
-| Condition | Human root step 1 | Later root round | Callback turn step 1 | Completion repair |
+| Condition | Human main-agent step 1 | Later main-agent round | Result turn step 1 | Completion repair |
 | --- | --- | --- | --- | --- |
 | Initial-action guard has passed | No | Yes | Yes | Yes |
-| Last active turn; no callback/input pending | Maybe | Required | Required | Required |
+| Last active turn; no result/input pending | Maybe | Required | Required | Required |
 | Handler executes and trigger is satisfied | No | Yes | Yes | Yes |
 
 Therefore, even if `report_discord` is the first tool the model calls, its
 request receives the successful skipped result above and the model continues.
 The model-facing instruction says not to retry the tool itself. It finishes the
 remaining work and attempts normal completion, at which point runtime repair
-requests the final call. A callback continuation is already past the human
+requests the final call. A result continuation is already past the human
 first-action boundary, so it may deliver on provider step one.
 
-The coordinator still accepts a quiescent call from a later root provider round
+The coordinator still accepts a quiescent call from a later main-agent provider round
 for compatibility, but this is a permissive runtime fallback rather than the
 retry path described to the model.
 
-Intermediate turns with accepted callback obligations may finish without this
+Intermediate turns with accepted result obligations may finish without this
 trigger, and their assistant drafts are discarded rather than becoming
 conversation history.
 
-When the last active turn attempts completion with no pending callbacks, the
+When the last active turn attempts completion with no pending results, the
 completion guard exposes the missing `EndResponseScope` tools and adds:
 
 ```text
@@ -313,7 +313,7 @@ for event := range events {
 }
 ```
 
-The stream is live-only. Subscribe before starting the root turn when neither
+The stream is live-only. Subscribe before starting the main-agent turn when neither
 boundary may be missed. `PreEndScope` precedes automatic subagent cleanup and
 the first final `EndResponseScope` handler. `EndScope` is emitted only after
 the turn completes, canonical messages are persisted, and the scope is removed.
@@ -381,12 +381,12 @@ failure posture, prompt mode, and trigger tool behavior.
 ## Project allowlists
 
 - `WithTool` registers the handler globally.
-- `MAIN.md` selects which registered application tools the root sees.
-- A subagent definition selects which registered application tools that child
+- `MAIN.md` selects which registered application tools the main agent sees.
+- A subagent definition selects which registered application tools that subagent
   sees.
 
 Required trigger tool behavior applies only to agents that expose that tool.
-Subagents never receive root-only management tools and cannot nest.
+Subagents never receive main-agent-only management tools and cannot nest.
 
 ## Handler checklist
 

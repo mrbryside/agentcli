@@ -20,21 +20,21 @@ type subagentReminderKey struct {
 type autoClosedSubagentNotice struct {
 	ID          string
 	DisplayName string
-	Outcome     storage.SubagentTurnOutcome
+	Status      storage.SubagentResultStatus
 }
 
 func (m *subagentManager) recordAutoClosedSubagent(record storage.Subagent) {
-	if m == nil || record.ParentSessionID == "" || record.ID == "" {
+	if m == nil || record.MainAgentSessionID == "" || record.ID == "" {
 		return
 	}
-	notice := autoClosedSubagentNotice{ID: record.ID, DisplayName: record.DisplayName, Outcome: record.LastTurnOutcome}
+	notice := autoClosedSubagentNotice{ID: record.ID, DisplayName: record.DisplayName, Status: record.LastResultStatus}
 	m.reminderMu.Lock()
-	m.pendingAutoClosed[record.ParentSessionID] = append(m.pendingAutoClosed[record.ParentSessionID], notice)
+	m.pendingAutoClosed[record.MainAgentSessionID] = append(m.pendingAutoClosed[record.MainAgentSessionID], notice)
 	m.reminderMu.Unlock()
 }
 
 // reserveAutoClosedSubagentReminder assigns pending notices only to a new
-// human root turn. The rollback function restores them if turn admission fails.
+// human main-agent turn. The rollback function restores them if turn admission fails.
 func (m *subagentManager) reserveAutoClosedSubagentReminder(sessionID, turnID string) func(bool) {
 	if m == nil || sessionID == "" || turnID == "" {
 		return func(bool) {}
@@ -91,18 +91,18 @@ func (m *subagentManager) autoClosedSubagentReminders(sessionID, turnID string) 
 	content.WriteString("<subagents_automatically_closed>\n")
 	for _, notice := range notices {
 		content.WriteString("  <subagent>\n")
-		fmt.Fprintf(&content, "    <id>%s</id>\n", html.EscapeString(notice.ID))
+		fmt.Fprintf(&content, "    <subagent_id>%s</subagent_id>\n", html.EscapeString(notice.ID))
 		fmt.Fprintf(&content, "    <display_name>%s</display_name>\n", html.EscapeString(notice.DisplayName))
-		fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(notice.Outcome)))
+		fmt.Fprintf(&content, "    <result_status>%s</result_status>\n", html.EscapeString(string(notice.Status)))
 		content.WriteString("  </subagent>\n")
 	}
-	content.WriteString("  <instruction>These completed or failed children were automatically closed after the previous response scope. They cannot receive follow-up messages. Start a new subagent if more work is required. Destructive child closure is controlled by the host application and is not available as a model action.</instruction>\n")
+	content.WriteString("  <instruction>These completed or failed subagents were closed automatically after the previous user response. They cannot receive follow-up messages. Start a new subagent only if new work requires one. Closing a subagent is controlled by the host application and is not available as a model action.</instruction>\n")
 	content.WriteString("</subagents_automatically_closed>")
 	return []agentruntime.ContextReminder{{Content: content.String()}}
 }
 
 // subagentReminderProvider derives only session-scoped lifecycle metadata.
-// Child results arrive through callbacks; the reminder is the authoritative
+// Subagent results arrive automatically; the reminder is the authoritative
 // current snapshot for deciding whether to work or wait without polling.
 func subagentReminderProvider(manager *subagentManager) agentruntime.ContextReminderProvider {
 	const maximumSnapshots = 256
@@ -147,44 +147,22 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 		var content strings.Builder
 		content.WriteString("<active_subagents>\n")
 		for _, record := range records {
-			unread, err := unreadSubagentMessages(ctx, manager, record.SessionID, record.ObservedMessageID)
+			unread, err := unreadSubagentMessages(ctx, manager, record.SubagentSessionID, record.ObservedMessageID)
 			if err != nil {
 				return nil, err
 			}
 			content.WriteString("  <subagent>\n")
-			fmt.Fprintf(&content, "    <id>%s</id>\n", html.EscapeString(record.ID))
+			fmt.Fprintf(&content, "    <subagent_id>%s</subagent_id>\n", html.EscapeString(record.ID))
 			fmt.Fprintf(&content, "    <display_name>%s</display_name>\n", html.EscapeString(record.DisplayName))
 			fmt.Fprintf(&content, "    <definition_name>%s</definition_name>\n", html.EscapeString(record.DefinitionName))
-			fmt.Fprintf(&content, "    <status>%s</status>\n", html.EscapeString(string(record.Status)))
-			if record.CurrentTurnID != "" {
-				fmt.Fprintf(&content, "    <current_turn>%s</current_turn>\n", html.EscapeString(record.CurrentTurnID))
-			}
-			if record.LastTurnID != "" {
-				fmt.Fprintf(&content, "    <last_turn>%s</last_turn>\n", html.EscapeString(record.LastTurnID))
-			}
-			callbackPending := record.Status == storage.SubagentStatusIdle && unread > 0
-			if !callbackPending {
-				if record.LastTurnError != "" {
-					fmt.Fprintf(&content, "    <last_turn_error>%s</last_turn_error>\n", html.EscapeString(record.LastTurnError))
-				}
-				if record.LastTurnOutcome != "" {
-					fmt.Fprintf(&content, "    <last_turn_outcome>%s</last_turn_outcome>\n", html.EscapeString(string(record.LastTurnOutcome)))
-				}
-				if record.LastTurnSummary != "" {
-					fmt.Fprintf(&content, "    <last_turn_summary>%s</last_turn_summary>\n", html.EscapeString(record.LastTurnSummary))
-				}
-				if record.LastTurnNextStep != "" {
-					fmt.Fprintf(&content, "    <last_turn_next_step>%s</last_turn_next_step>\n", html.EscapeString(record.LastTurnNextStep))
-				}
-			}
-			fmt.Fprintf(&content, "    <unread_messages>%d</unread_messages>\n", unread)
-			fmt.Fprintf(&content, "    <queued_messages>%d</queued_messages>\n", len(record.Pending))
-			if callbackPending {
-				content.WriteString("    <completion_callback>pending</completion_callback>\n")
+			fmt.Fprintf(&content, "    <lifecycle_status>%s</lifecycle_status>\n", html.EscapeString(string(record.Status)))
+			resultPending := record.Status == storage.SubagentStatusIdle && unread > 0
+			if resultPending {
+				content.WriteString("    <result_delivery>pending</result_delivery>\n")
 			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <callback_policy>Dispatch is not completion. A running child has an outstanding result. Never poll or inspect lifecycle state while waiting. Continue only specific work planned before dispatch that is outside the delegated task and independent of its result. If none remains, stop this turn without assistant content or another tool call; never call a tool to simulate waiting. The runtime resumes the parent automatically when a subagent result is ready. Use a delivered result or send one focused follow-up for an incomplete outcome. Completed and failed children are automatically closed when their response scope ends; incomplete children remain open. Destructive closure is controlled by the host application.</callback_policy>\n")
+		content.WriteString("  <result_policy>A listed subagent may have a pending result. Never poll or inspect it to simulate waiting. Continue only specific independent main-agent work already planned before the assignment. If none remains, stop without assistant content or another tool call. The result arrives automatically as <subagent_result>. Use send_subagent_message only after a delivered incomplete or failed result needs one focused follow-up. Completed and failed subagents close automatically after the user response; incomplete subagents remain available.</result_policy>\n")
 		content.WriteString("</active_subagents>")
 		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
 		if request.TurnID != "" {
@@ -213,8 +191,8 @@ func cloneSubagentReminders(reminders []agentruntime.ContextReminder) []agentrun
 	return cloned
 }
 
-func unreadSubagentMessages(ctx context.Context, manager *subagentManager, childSessionID, observedID string) (int, error) {
-	messages, err := manager.parent.ListMessages(ctx, childSessionID)
+func unreadSubagentMessages(ctx context.Context, manager *subagentManager, subagentSessionID, observedID string) (int, error) {
+	messages, err := manager.mainAgent.ListMessages(ctx, subagentSessionID)
 	if err != nil {
 		return 0, err
 	}

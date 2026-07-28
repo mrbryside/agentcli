@@ -6,7 +6,7 @@ sidebar_position: 3
 # Tool-call guards
 
 A custom tool can inspect the tool name and arguments requested by the model
-with either a callback or a prompt. The guard runs before the handler, so a
+with either a result or a prompt. The guard runs before the handler, so a
 rejected call cannot cause handler side effects. Configure exactly one mode per
 tool.
 
@@ -105,7 +105,7 @@ Direct users of `toolexecution.NewExecutor` set
 `Config.ToolCallGuardModel` for fallback checks and
 `Config.ToolCallGuardModelResolver` when registered tools can select an
 explicit provider/model pair. Each prompt guard has a 30-second timeout by
-default; root Agents can override it with `WithToolCallGuardTimeout`, while
+default; main Agents can override it with `WithToolCallGuardTimeout`, while
 direct executor users set `Config.ToolCallGuardTimeout`.
 
 ## Rejection becomes agent feedback

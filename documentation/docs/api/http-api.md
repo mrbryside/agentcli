@@ -33,13 +33,13 @@ one JSON value, and default to a 1 MiB limit.
 
 ## Endpoint summary
 
-### Root sessions
+### Main-agent sessions
 
 | Method | Path | Result |
 | --- | --- | --- |
 | `GET` | `/healthz` | Health status. |
-| `POST` | `/v1/sessions/{sessionID}/turns` | Start a root turn. |
-| `GET` | `/v1/sessions/{sessionID}/events` | Retained/live activity across all root turns. |
+| `POST` | `/v1/sessions/{sessionID}/turns` | Start a main-agent turn. |
+| `GET` | `/v1/sessions/{sessionID}/events` | Retained/live activity across all main-agent turns. |
 | `GET` | `/v1/sessions/{sessionID}/turns/{turnID}` | Read run status/result. |
 | `GET` | `/v1/sessions/{sessionID}/turns/{turnID}/events` | Retained plus live SSE. |
 | `POST` | `/v1/sessions/{sessionID}/turns/{turnID}/interrupt` | Interrupt one turn. |
@@ -49,8 +49,8 @@ one JSON value, and default to a 1 MiB limit.
 
 | Method | Path | Result |
 | --- | --- | --- |
-| `POST` | `/v1/permissions/{permissionID}/decisions` | Resolve a root permission. |
-| `POST` | `/v1/confirmations/{confirmationID}/decisions` | Resolve a root confirmation. |
+| `POST` | `/v1/permissions/{permissionID}/decisions` | Resolve a main-agent permission. |
+| `POST` | `/v1/confirmations/{confirmationID}/decisions` | Resolve a main-agent confirmation. |
 | `GET` | `/v1/permission-mode` | Read current permission mode. |
 | `PUT` | `/v1/permission-mode` | Change permission mode. |
 
@@ -59,19 +59,19 @@ one JSON value, and default to a 1 MiB limit.
 | Method | Path |
 | --- | --- |
 | `GET` | `/v1/subagent-definitions` |
-| `POST`, `GET` | `/v1/sessions/{parentSessionID}/subagents` |
-| `GET`, `DELETE` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}` |
-| `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns` |
-| `GET` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/messages` |
-| `GET` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}` |
-| `GET` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events` |
-| `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt` |
-| `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions` |
-| `POST` | `/v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions` |
-| `GET` | `/v1/sessions/{parentSessionID}/subagent-permissions` |
-| `GET` | `/v1/sessions/{parentSessionID}/subagent-confirmations` |
+| `POST`, `GET` | `/v1/sessions/{mainAgentSessionID}/subagents` |
+| `GET`, `DELETE` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}` |
+| `POST` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns` |
+| `GET` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/messages` |
+| `GET` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}` |
+| `GET` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/events` |
+| `POST` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt` |
+| `POST` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions` |
+| `POST` | `/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions` |
+| `GET` | `/v1/sessions/{mainAgentSessionID}/subagent-permissions` |
+| `GET` | `/v1/sessions/{mainAgentSessionID}/subagent-confirmations` |
 
-Every nested route verifies parent ownership; a child ID alone is insufficient.
+Every nested route verifies main agent ownership; a subagent ID alone is insufficient.
 
 ## Start a turn
 
@@ -125,7 +125,7 @@ overflow returns `429 turn_queue_full`. A different session starts immediately
 and runs in parallel.
 
 For a complete chat application, keep `session_events_url` open. Its cursor is
-monotonic across user turns and server-created subagent callback turns. See
+monotonic across user turns and server-created subagent result turns. See
 [Build an application with the API](../examples/api-client-integration.md).
 
 The response also sets `Location`, `X-Session-ID`, and `X-Turn-ID`. If the POST
@@ -253,62 +253,87 @@ curl -sS -X POST \
     "name":"researcher",
     "message":"Compare the storage implementations",
     "label":"storage research",
-    "parent_turn_id":"TURN_ID"
+    "main_agent_turn_id":"TURN_ID"
   }'
 ```
 
-`parent_turn_id` is optional for UI-created children; the server generates a
-synthetic parent turn identity when omitted. Creation returns `201 Created` and
-starts the child asynchronously.
+`main_agent_turn_id` is optional for UI-created subagents; the server generates a
+synthetic main agent turn identity when omitted. Creation returns `201 Created` and
+starts the subagent asynchronously.
 
-By default, child completion first tries to append trusted callback input at
-the next provider boundary of a compatible active parent. Its subsequent
+Subagent JSON uses explicit identities throughout:
+
+```json
+{
+  "id": "subagent_123",
+  "display_name": "Vale",
+  "label": "storage research",
+  "main_agent_session_id": "demo",
+  "main_agent_turn_id": "TURN_ID",
+  "subagent_session_id": "session_subagent",
+  "definition_name": "researcher",
+  "provider": "primary",
+  "model": "gpt-4.1-mini",
+  "status": "running",
+  "current_subagent_turn_id": "turn_subagent",
+  "version": 1,
+  "queued_messages": 0
+}
+```
+
+Completed records use `last_subagent_turn_id`, `last_result_status`,
+`last_result_summary`, `last_result_next_step`, and `last_result_error` when
+those values exist. The API does not emit legacy identity or result aliases.
+
+By default, subagent completion first tries to append trusted result input at
+the next provider boundary of a compatible active main agent. Its subsequent
 provider events stay on that active turn's stream. If no compatible run
-remains, the server creates a callback turn with
-`source: subagent_callback`. Clients do not need to poll or manually ask the
-parent to read the child.
+remains, the server creates a result turn with
+`source: subagent_result`. Clients do not need to poll or manually ask the
+main agent to read the subagent.
 
-When the child originated from an agent-dispatched subagent call, its automatic
-callback remains in that original response scope. A child created directly
-through this HTTP endpoint has no originating scope, so its callback
-continuation starts a new root response scope instead.
+When the subagent originated from a main-agent assignment, its automatic
+result remains in that original response scope. A subagent created directly
+through this HTTP endpoint has no originating scope, so its result
+continuation starts a new main-agent response scope instead.
 
-Continue an existing child:
+Continue an existing subagent:
 
 ```bash
 curl -sS -X POST \
-  http://127.0.0.1:8080/v1/sessions/demo/subagents/CHILD_ID/turns \
+  http://127.0.0.1:8080/v1/sessions/demo/subagents/SUBAGENT_ID/turns \
   -H 'Content-Type: application/json' \
   -d '{"message":"Now focus on confirmation storage"}'
 ```
 
-This returns `202 Accepted`. If the child was idle, `Location` identifies its
+This returns `202 Accepted`. If the subagent was idle, `Location` identifies its
 new turn. If it was active, the message is queued and no turn exists for that
 queued input yet. Supplying `Accept: text/event-stream` streams only an
 immediately started turn, not queued mailbox work.
 
-List children, including closed records:
+List subagents, including closed records:
 
 ```bash
 curl -sS 'http://127.0.0.1:8080/v1/sessions/demo/subagents?include_closed=true'
 ```
 
-Child permission and confirmation bodies use the same fields as root
-decisions. Their nested endpoints force ownership and derive the child session
+Subagent permission and confirmation bodies use the same fields as main-agent
+decisions. Their nested endpoints force ownership and derive the subagent session
 from the owned record. On reload, query `subagent-permissions` and
-`subagent-confirmations` to recover unresolved child gates that may predate the
+`subagent-confirmations` to recover unresolved subagent gates that may predate the
 current session-stream subscription.
 
-Sending to a running child queues the message. Sending to an idle incomplete,
-completed, or failed child starts the follow-up only after its latest callback
-has been consumed; otherwise it returns `409 conflict`.
+Sending to a running subagent queues the message. Sending to an idle incomplete
+or failed subagent starts the follow-up only after its latest result has been
+consumed; otherwise it returns `409 conflict`. A completed subagent rejects
+follow-up work and is not reused.
 
 Delete uses the same destructive lifecycle path as `Agent.CloseSubagent`. It
 may interrupt active work, drops queued input, retains transcript and completed
-event history, and cancels outstanding unreserved callback obligations to
-release the parent response scope's callback barrier. Bind it to an explicit
+event history, and cancels outstanding unreserved result obligations to
+release the main agent response scope's result barrier. Bind it to an explicit
 application or user action. Cancellation remains terminal across racing
-dispatch registration and callback-reservation rollback. The endpoint changes
+assignment registration and result-reservation rollback. The endpoint changes
 lifecycle and scope accounting; it does not create a provider turn or
 user-visible response. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
@@ -331,8 +356,8 @@ Common mappings:
 | HTTP | Code | Examples |
 | --- | --- | --- |
 | `400` | `invalid_request`, `invalid_json`, `invalid_cursor` | Missing identity, invalid decision, malformed JSON. |
-| `404` | `run_not_found`, `not_found` | Unknown run, permission, confirmation, or child. |
-| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, send before callback consumption, or invalid child cleanup state. |
+| `404` | `run_not_found`, `not_found` | Unknown run, permission, confirmation, or subagent. |
+| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, send before result consumption, or invalid subagent cleanup state. |
 | `429` | `turn_queue_full` | Per-session waiting-turn bound reached. |
 | `408` | `request_cancelled` | Context cancellation or deadline. |
 | `413` | `request_too_large` | JSON body exceeds configured limit. |

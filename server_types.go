@@ -15,12 +15,12 @@ import (
 // single-session runtime admits an accepted turn.
 const RunStatusQueued agentruntime.RunStatus = "queued"
 
-// ServerTurnSource explains why the HTTP server created a root turn.
+// ServerTurnSource explains why the HTTP server created a main-agent turn.
 type ServerTurnSource string
 
 const (
 	ServerTurnSourceUser                 ServerTurnSource = "user"
-	ServerTurnSourceSubagentCallback     ServerTurnSource = "subagent_callback"
+	ServerTurnSourceSubagentResult       ServerTurnSource = "subagent_result"
 	ServerTurnSourceSubagentConfirmation ServerTurnSource = "subagent_confirmation"
 	ServerTurnSourceSubagentPermission   ServerTurnSource = "subagent_permission"
 	ServerTurnSourceSubagentLifecycle    ServerTurnSource = "subagent_lifecycle"
@@ -69,30 +69,30 @@ type TurnResponse struct {
 	Error         string                 `json:"error,omitempty"`
 }
 
-// SubagentCallbackReference identifies the child completion that caused an
-// automatic parent continuation without duplicating its answer.
-type SubagentCallbackReference struct {
-	ParentSessionID string                 `json:"parent_session_id"`
-	ParentTurnID    string                 `json:"parent_turn_id"`
-	SubagentID      string                 `json:"subagent_id"`
-	DisplayName     string                 `json:"display_name,omitempty"`
-	DefinitionName  string                 `json:"definition_name"`
-	ChildSessionID  string                 `json:"child_session_id"`
-	ChildTurnID     string                 `json:"child_turn_id"`
-	Status          SubagentCallbackStatus `json:"status"`
-	Summary         string                 `json:"summary,omitempty"`
-	NextStep        string                 `json:"next_step,omitempty"`
+// SubagentResultReference identifies the subagent completion that caused an
+// automatic main agent continuation without duplicating its answer.
+type SubagentResultReference struct {
+	MainAgentSessionID string               `json:"main_agent_session_id"`
+	MainAgentTurnID    string               `json:"main_agent_turn_id"`
+	SubagentID         string               `json:"subagent_id"`
+	DisplayName        string               `json:"display_name,omitempty"`
+	DefinitionName     string               `json:"definition_name"`
+	SubagentSessionID  string               `json:"subagent_session_id"`
+	SubagentTurnID     string               `json:"subagent_turn_id"`
+	Status             SubagentResultStatus `json:"status"`
+	Summary            string               `json:"summary,omitempty"`
+	NextStep           string               `json:"next_step,omitempty"`
 }
 
 type SubagentConfirmationReference struct {
-	Type           SubagentConfirmationEventType      `json:"type"`
-	SubagentID     string                             `json:"subagent_id"`
-	DisplayName    string                             `json:"display_name,omitempty"`
-	DefinitionName string                             `json:"definition_name"`
-	ChildSessionID string                             `json:"child_session_id"`
-	ChildTurnID    string                             `json:"child_turn_id"`
-	Confirmation   *ConfirmationRequestResponse       `json:"confirmation,omitempty"`
-	Decision       *ConfirmationDecisionResponseValue `json:"decision,omitempty"`
+	Type              SubagentConfirmationEventType      `json:"type"`
+	SubagentID        string                             `json:"subagent_id"`
+	DisplayName       string                             `json:"display_name,omitempty"`
+	DefinitionName    string                             `json:"definition_name"`
+	SubagentSessionID string                             `json:"subagent_session_id"`
+	SubagentTurnID    string                             `json:"subagent_turn_id"`
+	Confirmation      *ConfirmationRequestResponse       `json:"confirmation,omitempty"`
+	Decision          *ConfirmationDecisionResponseValue `json:"decision,omitempty"`
 }
 
 type PendingSubagentConfirmationsResponse struct {
@@ -100,33 +100,33 @@ type PendingSubagentConfirmationsResponse struct {
 }
 
 type SubagentPermissionReference struct {
-	Type           SubagentPermissionEventType `json:"type"`
-	SubagentID     string                      `json:"subagent_id"`
-	DisplayName    string                      `json:"display_name,omitempty"`
-	DefinitionName string                      `json:"definition_name"`
-	ChildSessionID string                      `json:"child_session_id"`
-	ChildTurnID    string                      `json:"child_turn_id"`
-	Permission     *PermissionRequestResponse  `json:"permission,omitempty"`
-	Decision       *DecisionResponse           `json:"decision,omitempty"`
+	Type              SubagentPermissionEventType `json:"type"`
+	SubagentID        string                      `json:"subagent_id"`
+	DisplayName       string                      `json:"display_name,omitempty"`
+	DefinitionName    string                      `json:"definition_name"`
+	SubagentSessionID string                      `json:"subagent_session_id"`
+	SubagentTurnID    string                      `json:"subagent_turn_id"`
+	Permission        *PermissionRequestResponse  `json:"permission,omitempty"`
+	Decision          *DecisionResponse           `json:"decision,omitempty"`
 }
 
 type PendingSubagentPermissionsResponse struct {
 	Permissions []SubagentPermissionReference `json:"permissions"`
 }
 
-// SubagentClosedReference describes the child state removed by one successful
+// SubagentClosedReference describes the subagent state removed by one successful
 // explicit or automatic close.
 type SubagentClosedReference struct {
-	Subagent        SubagentResponse            `json:"subagent"`
-	PreviousStatus  storage.SubagentStatus      `json:"previous_status"`
-	PreviousOutcome storage.SubagentTurnOutcome `json:"previous_outcome,omitempty"`
-	DroppedMessages int                         `json:"dropped_messages,omitempty"`
-	Interrupted     bool                        `json:"interrupted,omitempty"`
-	Automatic       bool                        `json:"automatic,omitempty"`
+	Subagent             SubagentResponse             `json:"subagent"`
+	PreviousStatus       storage.SubagentStatus       `json:"previous_status"`
+	PreviousResultStatus storage.SubagentResultStatus `json:"previous_result_status,omitempty"`
+	DroppedMessages      int                          `json:"dropped_messages,omitempty"`
+	Interrupted          bool                         `json:"interrupted,omitempty"`
+	Automatic            bool                         `json:"automatic,omitempty"`
 }
 
 // SessionEventResponse is the session-wide SSE envelope. Cursor is monotonic
-// across every root turn in one session and is independent from the
+// across every main-agent turn in one session and is independent from the
 // per-turn RuntimeEvent.Sequence cursor.
 type SessionEventResponse struct {
 	Cursor               uint64                         `json:"cursor"`
@@ -138,7 +138,7 @@ type SessionEventResponse struct {
 	TurnURL              string                         `json:"turn_url,omitempty"`
 	EventsURL            string                         `json:"events_url,omitempty"`
 	Error                string                         `json:"error,omitempty"`
-	SubagentCallback     *SubagentCallbackReference     `json:"subagent_callback,omitempty"`
+	SubagentResult       *SubagentResultReference       `json:"subagent_result,omitempty"`
 	SubagentConfirmation *SubagentConfirmationReference `json:"subagent_confirmation,omitempty"`
 	SubagentPermission   *SubagentPermissionReference   `json:"subagent_permission,omitempty"`
 	SubagentClosed       *SubagentClosedReference       `json:"subagent_closed,omitempty"`
@@ -154,7 +154,7 @@ type ScopeEventResponse struct {
 	SessionID     string         `json:"session_id"`
 	ScopeID       string         `json:"scope_id"`
 	TriggerTurnID string         `json:"trigger_turn_id"`
-	ChildIDs      []string       `json:"child_ids"`
+	SubagentIDs   []string       `json:"subagent_ids"`
 	ToolNames     []string       `json:"tool_names"`
 	OccurredAt    time.Time      `json:"occurred_at"`
 }
@@ -213,44 +213,44 @@ type SubagentDefinitionsResponse struct {
 	Definitions []SubagentDefinitionResponse `json:"definitions"`
 }
 
-// CreateSubagentRequest starts a child session from a project definition.
-// ParentTurnID is optional for direct UI creation; the server assigns a
+// CreateSubagentRequest starts a subagent session from a project definition.
+// MainAgentTurnID is optional for direct UI creation; the server assigns a
 // synthetic ID when it is not supplied.
 type CreateSubagentRequest struct {
-	Name         string `json:"name" validate:"required"`
-	Message      string `json:"message" validate:"required"`
-	Label        string `json:"label,omitempty"`
-	ParentTurnID string `json:"parent_turn_id,omitempty"`
+	Name            string `json:"name" validate:"required"`
+	Message         string `json:"message" validate:"required"`
+	Label           string `json:"label,omitempty"`
+	MainAgentTurnID string `json:"main_agent_turn_id,omitempty"`
 }
 
 type SendSubagentMessageRequest struct {
 	Message string `json:"message" validate:"required"`
 }
 
-// SubagentResponse is an HTTP-safe summary of one child instance. Pending
+// SubagentResponse is an HTTP-safe summary of one subagent instance. Pending
 // message content remains private to the manager mailbox.
 type SubagentResponse struct {
-	ID               string                      `json:"id"`
-	DisplayName      string                      `json:"display_name"`
-	Label            string                      `json:"label,omitempty"`
-	ParentSessionID  string                      `json:"parent_session_id"`
-	ParentTurnID     string                      `json:"parent_turn_id"`
-	SessionID        string                      `json:"session_id"`
-	DefinitionName   string                      `json:"definition_name"`
-	Provider         string                      `json:"provider"`
-	Model            string                      `json:"model"`
-	Status           storage.SubagentStatus      `json:"status"`
-	CurrentTurnID    string                      `json:"current_turn_id,omitempty"`
-	LastTurnID       string                      `json:"last_turn_id,omitempty"`
-	LastTurnError    string                      `json:"last_turn_error,omitempty"`
-	LastTurnOutcome  storage.SubagentTurnOutcome `json:"last_turn_outcome,omitempty"`
-	LastTurnSummary  string                      `json:"last_turn_summary,omitempty"`
-	LastTurnNextStep string                      `json:"last_turn_next_step,omitempty"`
-	Version          uint64                      `json:"version"`
-	QueuedMessages   int                         `json:"queued_messages"`
-	CreatedAt        time.Time                   `json:"created_at"`
-	UpdatedAt        time.Time                   `json:"updated_at"`
-	ClosedAt         *time.Time                  `json:"closed_at,omitempty"`
+	ID                    string                       `json:"id"`
+	DisplayName           string                       `json:"display_name"`
+	Label                 string                       `json:"label,omitempty"`
+	MainAgentSessionID    string                       `json:"main_agent_session_id"`
+	MainAgentTurnID       string                       `json:"main_agent_turn_id"`
+	SubagentSessionID     string                       `json:"subagent_session_id"`
+	DefinitionName        string                       `json:"definition_name"`
+	Provider              string                       `json:"provider"`
+	Model                 string                       `json:"model"`
+	Status                storage.SubagentStatus       `json:"status"`
+	CurrentSubagentTurnID string                       `json:"current_subagent_turn_id,omitempty"`
+	LastSubagentTurnID    string                       `json:"last_subagent_turn_id,omitempty"`
+	LastResultError       string                       `json:"last_result_error,omitempty"`
+	LastResultStatus      storage.SubagentResultStatus `json:"last_result_status,omitempty"`
+	LastResultSummary     string                       `json:"last_result_summary,omitempty"`
+	LastResultNextStep    string                       `json:"last_result_next_step,omitempty"`
+	Version               uint64                       `json:"version"`
+	QueuedMessages        int                          `json:"queued_messages"`
+	CreatedAt             time.Time                    `json:"created_at"`
+	UpdatedAt             time.Time                    `json:"updated_at"`
+	ClosedAt              *time.Time                   `json:"closed_at,omitempty"`
 }
 
 type SubagentsResponse struct {

@@ -146,7 +146,7 @@ func TestReportDiscordRejectedToolCallDoesNotAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 	responseScopes := toolexecution.NewResponseScopeCoordinator(context.Background())
-	if err := responseScopes.BeginRootTurn("session-rejected", "turn-rejected"); err != nil {
+	if err := responseScopes.BeginMainAgentTurn("session-rejected", "turn-rejected"); err != nil {
 		t.Fatal(err)
 	}
 	executor, err := toolexecution.NewExecutor(registry, 1, toolexecution.Config{

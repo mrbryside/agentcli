@@ -29,7 +29,7 @@ and tool selection belong to agent definitions, not skills.
 
 ## Allow a skill
 
-Add its exact name to `.agentcli/MAIN.md` or a child definition:
+Add its exact name to `.agentcli/MAIN.md` or a subagent definition:
 
 ```yaml
 skills:
@@ -49,33 +49,55 @@ tool. Its full Markdown instructions become the latest ordinary tool-result
 message. The model should not load a skill merely because the user asks for the
 catalog or repeats words from its description.
 
-Whenever a real load trigger applies, the model calls `load_skill` even when a
-matching skill body is already visible in conversation history. The model does
-not decide whether that body is fresh; the runtime owns caching. Every
-successful result uses `loaded`.
+Whenever a real load trigger applies, the model calls `load_skill` for that
+exact skill even when a matching body is already visible in conversation
+history. The model does not decide whether that body is fresh; the runtime owns
+caching. Every successful result uses `status: "loaded"` and names the one
+skill that was loaded.
 
 ## Repeat and refresh behavior
 
-An unchanged, recently loaded skill call returns a small `loaded` result with
-`instructions_in_context=true` instead of repeating its body. Each call and
-successful result applies only to the exact skill in `name`, never to the skill
-catalog collectively. `load_trigger_satisfied_for` confirms that the current
-trigger for that named skill is satisfied. Tool results and subsequent
-provider steps do not create another trigger by themselves. Each named skill
-may be loaded at most once per runtime turn; after it loads, the model must not
-load it again until a new `<runtime_turn_boundary state=new_turn>` marker
-appears. A different skill requires its own valid trigger and load. This means
-the named skill's load succeeded and the full instructions are already
-available in the conversation context. A successful load from an earlier turn
-does not satisfy a new load trigger. The loader only makes instructions
-available; it does not decide the turn's next behavior. The default refresh
-policy returns the full body again when any condition applies:
+The full-body result is:
+
+```json
+{
+  "status": "loaded",
+  "name": "interview",
+  "description": "Interview the user to resolve missing requirements before implementation.",
+  "instructions": "# Interview workflow\n\n...",
+  "message": "Skill \"interview\" loaded successfully. This result applies only to \"interview\". Its full instructions are included in this result. Do not load this skill again until a new <turn_start>."
+}
+```
+
+An unchanged, recently loaded skill call returns a compact result instead of
+repeating its body:
+
+```json
+{
+  "status": "loaded",
+  "name": "interview",
+  "instructions_in_context": true,
+  "message": "Skill \"interview\" loaded successfully. This result applies only to \"interview\". Its full instructions are already available in the conversation. Do not load this skill again until a new <turn_start>."
+}
+```
+
+Both forms mean that the named skill loaded successfully. The compact form
+does not mean that the whole skill catalog loaded; another skill needs its own
+call. It also does not instruct the model to perform any particular next
+action—the loaded skill contains that workflow.
+
+Tool results and later provider steps do not create another trigger by
+themselves. After a named skill loads, the model must not load that skill again
+until a new `<turn_start>` marker appears. A different skill still requires its
+own valid trigger and load. A successful load from an earlier turn does not
+satisfy a new load trigger. The default refresh policy returns the full body
+again when any condition applies:
 
 - at least 10 turns have passed;
 - approximately 12,000 transcript tokens have passed; or
 - the skill content hash changed.
 
-AgentCLI also injects an ephemeral `<runtime_turn_boundary>` system reminder
+AgentCLI also injects an ephemeral `<turn_start>` system reminder
 only on the first provider request of each runtime turn. Later provider steps
 do not receive it, so a tool result or another provider round never resets the
 turn-scoped loaded-skill set. The reminder is not persisted in conversation

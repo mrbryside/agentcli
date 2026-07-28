@@ -89,7 +89,7 @@ status are available.
 
 ## Shutdown and troubleshooting
 
-Always close the root Agent:
+Always close the main Agent:
 
 ```go
 agent, err := agentcli.New(ctx, agentcli.WithProject(project))
@@ -99,7 +99,7 @@ if err != nil {
 defer agent.Close()
 ```
 
-`Agent.Close()` closes live children, stops the executor, and then gives the
+`Agent.Close()` closes live subagents, stops the executor, and then gives the
 shared exporter up to five seconds to flush. Short-lived programs that exit
 without closing the Agent may lose queued spans.
 

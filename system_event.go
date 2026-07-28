@@ -11,30 +11,30 @@ import (
 type SystemEventType string
 
 const (
-	// SystemSubagentClosed reports one successful explicit or automatic child
+	// SystemSubagentClosed reports one successful explicit or automatic subagent
 	// close.
 	SystemSubagentClosed SystemEventType = "subagent_closed"
 )
 
-// SystemEvent is one parent-session system fact. Payload fields are selected
+// SystemEvent is one main-agent-session system fact. Payload fields are selected
 // by Type so callers can use a stable subscription as new system facts are
 // added.
 type SystemEvent struct {
-	Type           SystemEventType
-	SessionID      string
-	TurnID         string
-	SubagentClosed *SubagentClosedEvent
+	Type               SystemEventType
+	MainAgentSessionID string
+	MainAgentTurnID    string
+	SubagentClosed     *SubagentClosedEvent
 }
 
-// SubagentClosedEvent describes the child state removed by one successful
+// SubagentClosedEvent describes the subagent state removed by one successful
 // explicit or automatic close.
 type SubagentClosedEvent struct {
-	Subagent        storage.Subagent
-	PreviousStatus  storage.SubagentStatus
-	PreviousOutcome storage.SubagentTurnOutcome
-	DroppedMessages int
-	Interrupted     bool
-	Automatic       bool
+	Subagent             storage.Subagent
+	PreviousStatus       storage.SubagentStatus
+	PreviousResultStatus storage.SubagentResultStatus
+	DroppedMessages      int
+	Interrupted          bool
+	Automatic            bool
 }
 
 type systemEventSubscriber struct {
@@ -107,8 +107,8 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 			if event.SubagentClosed == nil {
 				m.config.logger.Warn("agent system event missing payload",
 					"event_type", event.Type,
-					"session_id", event.SessionID,
-					"turn_id", event.TurnID,
+					"main_agent_session_id", event.MainAgentSessionID,
+					"main_agent_turn_id", event.MainAgentTurnID,
 				)
 				break
 			}
@@ -116,23 +116,23 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 			subagent := closed.Subagent
 			m.config.logger.Info("subagent closed",
 				"event_type", event.Type,
-				"session_id", event.SessionID,
-				"turn_id", event.TurnID,
+				"main_agent_session_id", event.MainAgentSessionID,
+				"main_agent_turn_id", event.MainAgentTurnID,
 				"subagent_id", subagent.ID,
 				"automatic", closed.Automatic,
 			)
 			m.config.logger.Debug("subagent closed details",
 				"event_type", event.Type,
-				"session_id", event.SessionID,
-				"turn_id", event.TurnID,
+				"main_agent_session_id", event.MainAgentSessionID,
+				"main_agent_turn_id", event.MainAgentTurnID,
 				"subagent_id", subagent.ID,
-				"subagent_session_id", subagent.SessionID,
+				"subagent_session_id", subagent.SubagentSessionID,
 				"subagent_name", subagent.DisplayName,
 				"subagent_definition", subagent.DefinitionName,
 				"previous_status", closed.PreviousStatus,
-				"previous_outcome", closed.PreviousOutcome,
+				"previous_outcome", closed.PreviousResultStatus,
 				"final_status", subagent.Status,
-				"final_outcome", subagent.LastTurnOutcome,
+				"final_outcome", subagent.LastResultStatus,
 				"dropped_messages", closed.DroppedMessages,
 				"interrupted", closed.Interrupted,
 				"automatic", closed.Automatic,
@@ -140,8 +140,8 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 		default:
 			m.config.logger.Debug("agent system event",
 				"event_type", event.Type,
-				"session_id", event.SessionID,
-				"turn_id", event.TurnID,
+				"main_agent_session_id", event.MainAgentSessionID,
+				"main_agent_turn_id", event.MainAgentTurnID,
 			)
 		}
 	}

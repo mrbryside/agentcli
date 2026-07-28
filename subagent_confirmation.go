@@ -8,8 +8,8 @@ import (
 	"github.com/mrbryside/agentcli/confirmation"
 )
 
-// SubagentConfirmationEventType identifies a child confirmation lifecycle
-// fact delivered to the parent session.
+// SubagentConfirmationEventType identifies a subagent confirmation lifecycle
+// fact delivered to the main agent session.
 type SubagentConfirmationEventType string
 
 const (
@@ -19,20 +19,20 @@ const (
 	SubagentConfirmationExpired   SubagentConfirmationEventType = "expired"
 )
 
-// SubagentConfirmationEvent is a parent-addressed child confirmation fact.
+// SubagentConfirmationEvent is a main agent-addressed subagent confirmation fact.
 // Request creation remains durable in ConfirmationStorage; this event is the
 // immediate notification path and includes enough identity to route a reply.
 type SubagentConfirmationEvent struct {
-	Type            SubagentConfirmationEventType
-	ParentSessionID string
-	ParentTurnID    string
-	SubagentID      string
-	SubagentName    string
-	DisplayName     string
-	SessionID       string
-	TurnID          string
-	Request         *confirmation.Request
-	Decision        *confirmation.Decision
+	Type               SubagentConfirmationEventType
+	MainAgentSessionID string
+	MainAgentTurnID    string
+	SubagentID         string
+	DefinitionName     string
+	DisplayName        string
+	SubagentSessionID  string
+	SubagentTurnID     string
+	Request            *confirmation.Request
+	Decision           *confirmation.Decision
 }
 
 type subagentConfirmationSubscriber struct {
@@ -148,9 +148,9 @@ func (m *subagentManager) subagentConfirmationEvent(id string, event agentruntim
 		return SubagentConfirmationEvent{}, false
 	}
 	result := SubagentConfirmationEvent{
-		Type: eventType, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID,
-		SubagentID: record.ID, SubagentName: record.DefinitionName, DisplayName: record.DisplayName,
-		SessionID: record.SessionID, TurnID: event.TurnID,
+		Type: eventType, MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: record.MainAgentTurnID,
+		SubagentID: record.ID, DefinitionName: record.DefinitionName, DisplayName: record.DisplayName,
+		SubagentSessionID: record.SubagentSessionID, SubagentTurnID: event.TurnID,
 	}
 	if event.Confirmation != nil {
 		request := *event.Confirmation
@@ -163,19 +163,19 @@ func (m *subagentManager) subagentConfirmationEvent(id string, event agentruntim
 	return result, true
 }
 
-func (m *subagentManager) pendingConfirmations(ctx context.Context, parentSessionID string) ([]SubagentConfirmationEvent, error) {
-	records, err := m.List(ctx, parentSessionID, true)
+func (m *subagentManager) pendingConfirmations(ctx context.Context, mainAgentSessionID string) ([]SubagentConfirmationEvent, error) {
+	records, err := m.List(ctx, mainAgentSessionID, true)
 	if err != nil {
 		return nil, err
 	}
 	events := make([]SubagentConfirmationEvent, 0)
 	for _, record := range records {
-		for _, pending := range m.config.confirmations.Pending(record.SessionID) {
+		for _, pending := range m.config.confirmations.Pending(record.SubagentSessionID) {
 			request := pending.Request
 			events = append(events, SubagentConfirmationEvent{
-				Type: SubagentConfirmationRequested, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID,
-				SubagentID: record.ID, SubagentName: record.DefinitionName, DisplayName: record.DisplayName,
-				SessionID: record.SessionID, TurnID: request.TurnID, Request: &request,
+				Type: SubagentConfirmationRequested, MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: record.MainAgentTurnID,
+				SubagentID: record.ID, DefinitionName: record.DefinitionName, DisplayName: record.DisplayName,
+				SubagentSessionID: record.SubagentSessionID, SubagentTurnID: request.TurnID, Request: &request,
 			})
 		}
 	}

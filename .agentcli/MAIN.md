@@ -9,5 +9,5 @@ tools:
   - confirm_demo
 ---
 
-Understand the requested outcome, use the available capabilities deliberately,
+Understand the requested result, use the available capabilities deliberately,
 and give the user a clear, self-contained result.

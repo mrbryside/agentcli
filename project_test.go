@@ -65,17 +65,16 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatalf("main secret-safety prompt = %q", prompts[0])
 	}
 	if !strings.Contains(prompts[0], "# Tool-result discipline") ||
-		!strings.Contains(prompts[0], "read the complete tool result") ||
-		!strings.Contains(prompts[0], "status=succeeded means the invocation was handled") ||
-		!strings.Contains(prompts[0], "accepted=false") ||
-		!strings.Contains(prompts[0], "never claim an outcome") {
+		!strings.Contains(prompts[0], "Read the complete result") ||
+		!strings.Contains(prompts[0], "The outer status only says whether the tool call was handled") ||
+		!strings.Contains(prompts[0], "Never claim more than the complete result confirms") {
 		t.Fatalf("main tool-result discipline prompt = %q", prompts[0])
 	}
-	if !strings.Contains(prompts[0], "Do not emit progress-only content") ||
-		!strings.Contains(prompts[0], "ending the current turn without assistant content") {
+	if !strings.Contains(prompts[0], "required subagent results are still pending") ||
+		!strings.Contains(prompts[0], "stop without a progress message") {
 		t.Fatalf("main response prompt conflicts with asynchronous waiting: %q", prompts[0])
 	}
-	if !strings.Contains(prompts[1], "discovery-only") || !strings.Contains(prompts[1], "MUST NOT call load_skill") {
+	if !strings.Contains(prompts[1], "Do not load a skill merely to list or describe available skills") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
 	}
 	for _, staleRule := range []string{
@@ -88,47 +87,25 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	for _, expected := range []string{
 		"<skill_rules>",
-		"## Runtime-turn load state",
-		"trusted <runtime_turn_boundary> reminder with state=new_turn",
-		"only on the first provider request of a new runtime turn",
-		"reset the set of skills loaded for the current turn",
-		"Each named skill may be loaded at most once per runtime turn",
-		"MUST NOT call load_skill for that same skill again until a new <runtime_turn_boundary>",
-		"Tool results, provider steps, and continued reasoning never reset this set",
-		"different skill may still be loaded",
-		"## Catalog and selection",
-		"## Load triggers and precedence",
-		"1. Explicit requirement:",
-		"This trigger is mandatory",
-		"2. Description match:",
-		"when no applicable instruction already requires a different skill",
-		"3. Explicit inspection:",
-		"Explicit requirements take precedence over description matching",
-		"Before selecting a skill by description, check all applicable instructions",
-		"load and follow that required skill first",
-		"Never replace, bypass, or delay it",
-		"After satisfying the explicit requirement",
-		"never authorize bypassing a required skill load",
-		"## Non-triggers",
-		"## Result handling",
-		"Each load_skill call loads only the exact skill named in that call",
-		"skills are never loaded collectively",
-		"Every successful result uses status=loaded",
-		"load_trigger_satisfied_for",
-		"Add that name to the current turn's loaded set",
-		"subsequent provider steps continue the current turn and never reset the loaded set",
-		"satisfies only the current load trigger for that named skill",
-		"does not load or satisfy a trigger for any other skill",
-		"separate valid trigger",
+		"## Choose",
+		"applicable instruction requires it",
+		"description directly",
+		"user asks to read its full",
+		"Do not load a skill merely to list",
+		"Explicit requirements take precedence over description",
+		"## Load once per turn",
+		"<turn_start> message marks a new turn",
+		"Each skill may be loaded once",
+		"status=loaded and name=<skill>",
+		"Do not load it again until a new <turn_start>",
+		"A different\nskill is separate",
+		"## Read the result",
+		"One load_skill call loads only the skill named",
 		"instructions_in_context=true",
-		"already available in the conversation context",
-		"A successful load from an earlier turn does not satisfy a new load trigger",
-		"When a valid trigger applies in a new turn, call load_skill once",
-		"Skill caching and freshness are runtime-managed",
-		"status=loaded together with name=<skill> and load_trigger_satisfied_for=<skill>",
-		"blocks another load of that skill for the remainder of the current runtime turn",
-		"new <runtime_turn_boundary> with state=new_turn resets this turn-scoped block",
-		"does not decide whether the turn should continue, wait, or end",
+		"already available in the",
+		"Loading a skill only makes its instructions available",
+		"web-research is loaded",
+		"discord-live-server now has a separate valid",
 		"</skill_rules>",
 	} {
 		if !strings.Contains(prompts[1], expected) {
@@ -137,11 +114,6 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	if strings.Contains(prompts[1], "Continue the task") {
 		t.Fatalf("skill discovery prompt must not force post-load behavior: %q", prompts[1])
-	}
-	explicitRequirement := strings.Index(prompts[1], "1. Explicit requirement:")
-	descriptionMatch := strings.Index(prompts[1], "2. Description match:")
-	if explicitRequirement < 0 || descriptionMatch < 0 || explicitRequirement >= descriptionMatch {
-		t.Fatalf("skill discovery prompt does not prioritize explicit requirements before description matching: %q", prompts[1])
 	}
 	if strings.Contains(prompts[1], "Run go test ./...") {
 		t.Fatalf("skill body was eagerly loaded in discovery prompt: %q", prompts[1])
@@ -159,32 +131,16 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
 	for _, expected := range []string{
-		"after a valid load trigger",
-		"HARD TURN-SCOPED LIMIT",
-		"Each named skill may be loaded at most once per runtime turn",
-		"trusted <runtime_turn_boundary> reminder with state=new_turn",
-		"provider requests without that marker",
-		"MUST NOT call load_skill for that skill again until a new <runtime_turn_boundary>",
-		"Tool results, later provider steps, and continued reasoning do not reset this limit",
-		"skill description in available_skills directly matches",
-		"another applicable instruction explicitly requires",
-		"user asks to inspect",
-		"explicit requirement is mandatory",
-		"never authorize bypassing a required skill load",
-		"Discovery-only questions",
-		"do not trigger this tool",
-		"Inspect the complete result",
-		"A successful load from an earlier runtime turn does not satisfy a trigger in a newly marked runtime turn",
-		"Skill caching and freshness are runtime-managed",
-		"Every successful result uses status=loaded",
-		"load_trigger_satisfied_for",
-		"loads only the exact skill named",
-		"satisfies only the current load trigger for that named skill",
-		"does not load or satisfy a trigger for any other skill",
-		"separate valid trigger",
+		"exactly one skill",
+		"available_skills",
+		"applicable instruction requires",
+		"description directly matches",
+		"user asks to read it",
+		"once per <turn_start>",
+		"status=loaded",
 		"instructions_in_context=true",
-		"already available in the conversation context",
-		"does not decide whether the turn should continue, wait, or end",
+		"already in the conversation",
+		"does not load any other skill",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain trigger/result rule %q: %q", expected, tool.Definition.Description)
@@ -198,8 +154,8 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatal(err)
 	}
 	schema := string(schemaJSON)
-	if !strings.Contains(schema, "MUST NOT submit a name already present in load_trigger_satisfied_for") ||
-		!strings.Contains(schema, "eligible again only after a new") {
+	if !strings.Contains(schema, "Exact skill name from available_skills") ||
+		!strings.Contains(schema, "turn_start") {
 		t.Fatalf("load_skill input schema does not repeat duplicate guard: %s", schema)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
@@ -1018,13 +974,13 @@ providers:
 		t.Fatal(err)
 	}
 	if project.ProviderName() != "openai" || project.ModelName() != "root-model" || !slices.Equal(project.ToolNames(), []string{"search"}) {
-		t.Fatalf("root agent selection = provider %q model %q tools %v", project.ProviderName(), project.ModelName(), project.ToolNames())
+		t.Fatalf("main-agent selection = provider %q model %q tools %v", project.ProviderName(), project.ModelName(), project.ToolNames())
 	}
 	if skills := project.Skills(); len(skills) != 1 || skills[0].Name != "testing-go" {
 		t.Fatalf("root skills = %#v", skills)
 	}
-	if _, err := New(context.Background(), WithProject(project), WithModel(&scriptedModel{})); err == nil || !strings.Contains(err.Error(), `root agent requires custom tool "search"`) {
-		t.Fatalf("missing root tool error = %v", err)
+	if _, err := New(context.Background(), WithProject(project), WithModel(&scriptedModel{})); err == nil || !strings.Contains(err.Error(), `main agent requires custom tool "search"`) {
+		t.Fatalf("missing main-agent tool error = %v", err)
 	}
 
 	model := &scriptedModel{}

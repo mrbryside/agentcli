@@ -7,11 +7,28 @@ assembly API. Its prompts, placeholders, generated files, bounded starter
 tools, and verification flow are documented in
 [bootstrap-installer.md](../development/bootstrap-installer.md).
 
-`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`, `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys are arbitrary connection aliases; each profile requires a supported `type` (`openai` currently). Environment references are expanded, but `.env` is not loaded. `config.yaml` may set `max_subagents` to bound non-closed child instances per parent session (default 4). Provider-step limiting is opt-in through `WithProviderStepLimit(n)` and is inherited by child agents; omission leaves turns unlimited. Exhaustion enters a restricted finalization phase that exposes only required completion tools and reuses bounded completion repair if the model forgets one. Root finalization retains its registered trigger tools, including `EndResponseScope`; child finalization retains the framework-owned `report_subagent_outcome`. `MAIN.md` selects a provider alias, model, optional skills/tools, and instructions. Startup validation rejects missing or unsupported provider types, negative limits, unknown profiles or skills, registered-tool allowlist mismatches, and any subagent assignment of an `EndResponseScope` tool.
+`LoadProject(root)` snapshots `.agentcli/config.yaml`, `.agentcli/MAIN.md`,
+`.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys
+are arbitrary connection aliases; each profile requires a supported `type`
+(`openai` currently). Environment references are expanded, but `.env` is not
+loaded. `config.yaml` may set `max_subagents` to bound non-closed subagent
+instances per main-agent session (default 4).
 
-Provider requests keep the framework prompt and the `MAIN.md` body (or child
-definition body) in separate ordered system messages. Root projects insert a
-harness-owned skill-discovery system message when skills are configured, then
+Provider-step limiting is opt-in through `WithProviderStepLimit(n)` and is
+inherited by subagents; omission leaves turns unlimited. Exhaustion enters a
+restricted finalization phase that removes ordinary work tools. Main-agent
+finalization retains its registered `EndTurn` and `EndResponseScope` tools;
+subagent finalization retains the framework-owned `report_subagent_result`.
+With no required completion tool, the finalizer returns a text summary from
+existing results and cannot resume ordinary work. `MAIN.md` selects a provider
+alias, model, optional skills/tools, and instructions. Startup validation
+rejects missing or unsupported provider types, negative limits, unknown
+profiles or skills, registered-tool allowlist mismatches, and any subagent
+assignment of an `EndResponseScope` tool.
+
+Provider requests keep the framework prompt and the `MAIN.md` body (or subagent
+definition body) in separate ordered system messages. Main-agent projects
+insert a framework-owned skill-discovery system message when skills are configured, then
 a subagent system message when subagents are configured, before `MAIN.md`. The
 subagent message owns the focused tool-result protocol, the complete
 orchestration rules, and the available-subagent catalog. Capability
@@ -41,10 +58,10 @@ compactions. When the mapping is present, `auto` defaults to `true`; set
 `auto: false` to disable new compactions while retaining the configuration.
 `provider` is an existing provider-profile alias, not a provider type, and
 `model` selects the separate summarizer. It is constructed through the same
-project model factory used by main and child agents.
+project model factory used by main and subagents.
 
 Optional `context_window_tokens` and `max_output_tokens` belong to each exact
-model entry. They take priority only for that model, so main, child, and
+model entry. They take priority only for that model, so main, subagent, and
 summarizer adapters can use independent limits while sharing a profile. When
 omitted, project loading checks each required model's authenticated provider `/models`
 endpoint first, falls back to `models.dev`, then uses exact defaults of 122,880
@@ -56,7 +73,7 @@ validated at startup; a summarizer without that optional capability uses the
 internal summary cap. Explicit non-positive or partially configured model
 limits fail startup validation.
 
-The setting is inherited when the project creates child agents. It controls
+The setting is inherited when the project creates subagents. It controls
 only creation of future checkpoints: a resumed session always projects its
 latest stored checkpoint, including after `auto` is later disabled.
 

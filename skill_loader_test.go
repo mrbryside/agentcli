@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	expectedFreshSkillMessage                 = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Do not load this skill again until a new runtime_turn_boundary with state=new_turn appears. Its full instructions are included in this result.`
-	expectedSkillInstructionsInContextMessage = `The requested skill "testing-go" loaded successfully. The current load trigger for "testing-go" is satisfied. Do not load this skill again until a new runtime_turn_boundary with state=new_turn appears. Its full instructions are already available in the conversation context.`
+	expectedFreshSkillMessage                 = `Skill "testing-go" loaded successfully. This result applies only to "testing-go". Its full instructions are included in this result. Do not load this skill again until a new <turn_start>.`
+	expectedSkillInstructionsInContextMessage = `Skill "testing-go" loaded successfully. This result applies only to "testing-go". Its full instructions are already available in the conversation. Do not load this skill again until a new <turn_start>.`
 )
 
 type skillLoader struct {
@@ -43,7 +43,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 
 	loaded := callSkillLoader(t, loader, "session", "turn-1", "call-1")
 	if loaded.Status != "loaded" || loaded.Instructions == "" || loaded.InstructionsInContext ||
-		loaded.Name != "testing-go" || loaded.LoadTriggerSatisfiedFor != "testing-go" ||
+		loaded.Name != "testing-go" ||
 		loaded.Message != expectedFreshSkillMessage {
 		t.Fatalf("first result = %#v", loaded)
 	}
@@ -52,7 +52,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 
 	recent := callSkillLoader(t, loader, "session", "turn-2", "call-2")
 	if recent.Status != "loaded" || recent.Instructions != "" || !recent.InstructionsInContext ||
-		recent.LoadTriggerSatisfiedFor != "testing-go" ||
+		recent.Name != "testing-go" ||
 		recent.Message != expectedSkillInstructionsInContextMessage {
 		t.Fatalf("recent result = %#v", recent)
 	}
@@ -68,7 +68,7 @@ func TestSkillLoaderRefreshesByTurnDistance(t *testing.T) {
 	appendUserMessage(t, messages, "session", "turn-2", "user-2", "test again")
 
 	refreshed := callSkillLoader(t, loader, "session", "turn-2", "call-2")
-	if refreshed.Status != "loaded" || refreshed.Instructions == "" || !strings.Contains(refreshed.Reason, "turn distance") {
+	if refreshed.Status != "loaded" || refreshed.Instructions == "" || refreshed.InstructionsInContext {
 		t.Fatalf("refreshed result = %#v", refreshed)
 	}
 }
@@ -83,7 +83,7 @@ func TestSkillLoaderRefreshesByTokenDistance(t *testing.T) {
 	appendUserMessage(t, messages, "session", "turn-2", "user-2", strings.Repeat("context ", 100))
 
 	refreshed := callSkillLoader(t, loader, "session", "turn-2", "call-2")
-	if refreshed.Status != "loaded" || !strings.Contains(refreshed.Reason, "token distance") {
+	if refreshed.Status != "loaded" || refreshed.Instructions == "" || refreshed.InstructionsInContext {
 		t.Fatalf("refreshed result = %#v", refreshed)
 	}
 }
@@ -97,7 +97,7 @@ func TestSkillLoaderRefreshesChangedContent(t *testing.T) {
 
 	newLoader := newSkillLoader(skillLoaderProject("New instructions."), messages, DefaultSkillReloadPolicy())
 	refreshed := callSkillLoader(t, newLoader, "session", "turn-2", "call-2")
-	if refreshed.Status != "loaded" || refreshed.Instructions != "New instructions." || refreshed.Reason != "skill content changed" {
+	if refreshed.Status != "loaded" || refreshed.Instructions != "New instructions." || refreshed.InstructionsInContext {
 		t.Fatalf("refreshed result = %#v", refreshed)
 	}
 }
@@ -127,9 +127,6 @@ func TestSkillLoaderDeduplicatesParallelSameTurnCalls(t *testing.T) {
 		}
 		if result.Name != "testing-go" {
 			t.Fatalf("same-turn result name = %q, want testing-go", result.Name)
-		}
-		if result.LoadTriggerSatisfiedFor != "testing-go" {
-			t.Fatalf("same-turn trigger satisfied for = %q, want testing-go", result.LoadTriggerSatisfiedFor)
 		}
 		if result.Instructions != "" && result.Message == expectedFreshSkillMessage {
 			fullBodies++

@@ -8,8 +8,8 @@ import (
 	"github.com/mrbryside/agentcli/permission"
 )
 
-// SubagentPermissionEventType identifies a child permission lifecycle fact
-// delivered to the parent session.
+// SubagentPermissionEventType identifies a subagent permission lifecycle fact
+// delivered to the main agent session.
 type SubagentPermissionEventType string
 
 const (
@@ -19,20 +19,20 @@ const (
 	SubagentPermissionExpired   SubagentPermissionEventType = "expired"
 )
 
-// SubagentPermissionEvent is a parent-addressed child permission fact.
+// SubagentPermissionEvent is a main agent-addressed subagent permission fact.
 // Request creation remains durable in PermissionStorage; this event is the
 // immediate notification path and includes enough identity to route a reply.
 type SubagentPermissionEvent struct {
-	Type            SubagentPermissionEventType
-	ParentSessionID string
-	ParentTurnID    string
-	SubagentID      string
-	SubagentName    string
-	DisplayName     string
-	SessionID       string
-	TurnID          string
-	Request         *permission.Request
-	Decision        *permission.Decision
+	Type               SubagentPermissionEventType
+	MainAgentSessionID string
+	MainAgentTurnID    string
+	SubagentID         string
+	DefinitionName     string
+	DisplayName        string
+	SubagentSessionID  string
+	SubagentTurnID     string
+	Request            *permission.Request
+	Decision           *permission.Decision
 }
 
 type subagentPermissionSubscriber struct {
@@ -148,9 +148,9 @@ func (m *subagentManager) subagentPermissionEvent(id string, event agentruntime.
 		return SubagentPermissionEvent{}, false
 	}
 	result := SubagentPermissionEvent{
-		Type: eventType, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID,
-		SubagentID: record.ID, SubagentName: record.DefinitionName, DisplayName: record.DisplayName,
-		SessionID: record.SessionID, TurnID: event.TurnID,
+		Type: eventType, MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: record.MainAgentTurnID,
+		SubagentID: record.ID, DefinitionName: record.DefinitionName, DisplayName: record.DisplayName,
+		SubagentSessionID: record.SubagentSessionID, SubagentTurnID: event.TurnID,
 	}
 	if event.Permission != nil {
 		request := cloneSubagentPermissionRequest(*event.Permission)
@@ -163,19 +163,19 @@ func (m *subagentManager) subagentPermissionEvent(id string, event agentruntime.
 	return result, true
 }
 
-func (m *subagentManager) pendingPermissions(ctx context.Context, parentSessionID string) ([]SubagentPermissionEvent, error) {
-	records, err := m.List(ctx, parentSessionID, true)
+func (m *subagentManager) pendingPermissions(ctx context.Context, mainAgentSessionID string) ([]SubagentPermissionEvent, error) {
+	records, err := m.List(ctx, mainAgentSessionID, true)
 	if err != nil {
 		return nil, err
 	}
 	events := make([]SubagentPermissionEvent, 0)
 	for _, record := range records {
-		for _, pending := range m.config.permissions.Pending(record.SessionID) {
+		for _, pending := range m.config.permissions.Pending(record.SubagentSessionID) {
 			request := cloneSubagentPermissionRequest(pending.Request)
 			events = append(events, SubagentPermissionEvent{
-				Type: SubagentPermissionRequested, ParentSessionID: record.ParentSessionID, ParentTurnID: record.ParentTurnID,
-				SubagentID: record.ID, SubagentName: record.DefinitionName, DisplayName: record.DisplayName,
-				SessionID: record.SessionID, TurnID: request.TurnID, Request: &request,
+				Type: SubagentPermissionRequested, MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: record.MainAgentTurnID,
+				SubagentID: record.ID, DefinitionName: record.DefinitionName, DisplayName: record.DisplayName,
+				SubagentSessionID: record.SubagentSessionID, SubagentTurnID: request.TurnID, Request: &request,
 			})
 		}
 	}

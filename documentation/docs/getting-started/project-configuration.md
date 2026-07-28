@@ -8,7 +8,7 @@ sidebar_position: 2
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
 the config's compaction/provider mappings, `MAIN.md`, and every subagent
-definition, then replace each main, summarizer, and child model value before
+definition, then replace each main, summarizer, and subagent model value before
 running the project. The generated `report_discord` tool separately selects
 the `guardrails` provider profile and `replace-guard-model`. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout.
@@ -34,7 +34,7 @@ This makes configuration mistakes visible before the first model request.
 ## Provider configuration
 
 `.agentcli/config.yaml` owns connections, the initial permission mode, the
-optional per-parent open-subagent quota, runtime logging, LLM observability,
+optional per-main agent open-subagent quota, runtime logging, LLM observability,
 and optional transcript compaction:
 
 ```yaml
@@ -123,16 +123,23 @@ entry is added to its requests. Selecting `qwen-model-id` sends only
 still works and receives neither override.
 
 Provider-step limits are programmatic rather than project configuration.
-Without `WithProviderStepLimit`, main and child turns have no provider-round
+Without `WithProviderStepLimit`, main and subagent turns have no provider-round
 ceiling. `WithProviderStepLimit(n)` allows `n` agentic provider rounds, then
-enters a restricted finalization phase. Ordinary work tools are unavailable,
-but required trigger tools such as `EndResponseScope` remain exposed. If the
-model forgets one, the existing bounded completion repair replays with only the
-missing trigger tools instead of silently ending the turn. Finalization and
-repair rounds are included in `RunResult.Steps`. The option requires a positive
-value and is inherited by child agents.
+enters a restricted finalization phase. Ordinary work tools are unavailable.
+The finalizer sees only registered `EndTurn` and `EndResponseScope` completion
+tools; a subagent also sees `report_subagent_result`. If no required completion
+tool is available, the model must return a text summary from existing results.
+If it returns neither a permitted completion tool nor text, the runtime inserts
+a deterministic fallback summary rather than starting more agentic work.
 
-`max_subagents` limits non-closed child instances per parent session. A positive
+Missing required completion tools reuse the existing bounded completion repair,
+which exposes only the missing tools. This preserves end-of-response delivery
+and the subagent result report without allowing new domain work after the
+budget. Finalization and repair rounds are included in `RunResult.Steps`;
+`Run.StepLimitFinalized()` reports whether the restricted phase was entered.
+The option requires a positive value and is inherited by subagents.
+
+`max_subagents` limits non-closed subagent instances per main agent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.
 Negative values are rejected. The Go option `WithMaxSubagents` can override the
 project value when constructing an Agent.
@@ -151,8 +158,8 @@ Info logging covers turn and response-scope start/end, repair requests, and
 terminal failures. Repair records identify output-guard versus
 completion-guard retries, their attempt number, provider-step count, and any
 restricted tool allowlist. Debug logging additionally includes provider
-content, tool arguments/results, and compaction details. It also records callback-obligation
-cancellation when an application-owned child close releases a response-scope
+content, tool arguments/results, and compaction details. It also records result-obligation
+cancellation when an application-owned subagent close releases a response-scope
 barrier. Delivery failures are error records. Tool JSON fields that look like tokens,
 secrets, passwords, authorization values, or API keys are redacted and large
 values are truncated. Model reasoning, guard feedback, and completion
@@ -161,8 +168,8 @@ events for diagnostics but never enter conversation storage or the next model
 request.
 
 Programmatic agents can use `WithLogger` to supply their own `*slog.Logger`.
-When applied after `WithProject`, it overrides project logging. Child agents
-reuse the selected root logger automatically.
+When applied after `WithProject`, it overrides project logging. Subagents
+reuse the selected main-agent logger automatically.
 
 See [Runtime logging](../observability/runtime-logging.md) for the event and
 privacy reference.
@@ -209,7 +216,7 @@ payloads that the project's data policy permits. Input includes system
 prompts, messages, context reminders, and tool schemas. Reasoning is controlled
 separately from normal output and remains omitted in the example above.
 
-The root Agent owns one asynchronous exporter shared by its child agents.
+The main agent owns one asynchronous exporter shared by its subagents.
 Always call `Agent.Close()` during graceful shutdown so queued observations are
 flushed. Export failures do not change model-call results.
 
@@ -224,7 +231,7 @@ disable creation of future checkpoints.
 `model` is the separate summarizer model. It is resolved through the same
 factory as the main agent and subagents; the alias's `type` still chooses the
 adapter. Optional `context_window_tokens` and `max_output_tokens` live on each
-exact model entry. This lets main, child, and summarizer models carry
+exact model entry. This lets main, subagent, and summarizer models carry
 independent limits even when they share a provider profile. The runtime derives
 compaction budgets from the active main model's metadata.
 
@@ -266,7 +273,7 @@ tools:
   - publish_report
 ---
 
-Understand the requested outcome, use capabilities deliberately, and provide a
+Understand the requested result, use capabilities deliberately, and provide a
 clear self-contained result.
 ```
 
@@ -279,7 +286,7 @@ register that exact name with `agentcli.WithTool`; otherwise
 `agentcli.New` returns an error such as:
 
 ```text
-root agent requires custom tool "publish_report", but it is not registered
+main agent requires custom tool "publish_report", but it is not registered
 ```
 
 Registration makes a handler available to the application catalog; each agent
@@ -303,7 +310,7 @@ body as the second system message.
 
 ## Programmatic overrides
 
-`WithProject` applies the loaded model, prompts, root identity, permission mode,
+`WithProject` applies the loaded model, prompts, main-agent identity, permission mode,
 skills, and subagents. Later scalar options can override it:
 
 ```go

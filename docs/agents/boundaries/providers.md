@@ -24,7 +24,7 @@ the runtime.
 The OpenAI-compatible adapter can resolve known aliases for directly
 constructed adapters. Explicit limits belong to exact-name model entries under
 each provider profile and apply only when that name is selected. Without them,
-distinct main, child, and summarizer models resolve limits from their provider
+distinct main, subagent, and summarizer models resolve limits from their provider
 `/models` endpoint first, then models.dev, then deterministic defaults of
 122,880 context tokens and 66,560 output tokens.
 Applications can still construct a custom adapter with

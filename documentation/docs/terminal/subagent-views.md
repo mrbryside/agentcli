@@ -5,11 +5,11 @@ sidebar_position: 4
 
 # Subagent views
 
-The terminal can display a root session and its child sessions without mixing
-their transcripts. Each child has its own session, turns, messages, live
+The terminal can display a main-agent session and its subagent sessions without mixing
+their transcripts. Each subagent has its own session, turns, messages, live
 stream, tool events, permission requests, and confirmation requests.
 
-## Discover child sessions
+## Discover subagent sessions
 
 Run:
 
@@ -19,46 +19,46 @@ Run:
 
 The result has two groups:
 
-- **Available subagents** are definitions the root agent may start.
-- **Child sessions** are existing instances, including their random display
+- **Available subagents** are definitions the main agent may start.
+- **Subagent sessions** are existing instances, including their random display
   name, definition, status, label, and queued-message count.
 
-The terminal does not create a child merely because `/agents` was called. Ask
-the root agent to delegate a suitable task; the root decides whether to call
+The terminal does not create a subagent merely because `/agents` was called. Ask
+the main agent to delegate a suitable task; the main agent decides whether to call
 the subagent tool.
 
-## Open and leave a child
+## Open and leave a subagent
 
-Open a child by ID or display name:
+Open a subagent by ID or display name:
 
 ```text
 /agent Sol
 ```
 
-The terminal loads that child's stored messages and attaches to its current
+The terminal loads that subagent's stored messages and attaches to its current
 run when it is still streaming. From that point, ordinary prompt input is sent
-to the child rather than the root.
+to the subagent rather than the main agent.
 
-Return to the root:
+Return to the main-agent view:
 
 ```text
 /back
 ```
 
-`/back` only detaches the child view. It does not cancel the child's turn.
-Reopen the child later to restore its transcript and continue its live stream.
+`/back` only detaches the subagent view. It does not cancel the subagent's turn.
+Reopen the subagent later to restore its transcript and continue its live stream.
 
 ## Send a follow-up
 
-While the child view is selected, enter an ordinary prompt:
+While the subagent view is selected, enter an ordinary prompt:
 
 ```text
 ❯ Compare that with the storage implementation too.
 ```
 
-If the child is idle, AgentCLI starts a new child turn. If it is running, the
-message is queued and processed by that same child instance. This avoids
-starting a duplicate child for a conversational follow-up.
+If the subagent is idle, AgentCLI starts a new subagent turn. If it is running, the
+message is queued and processed by that same subagent instance. This avoids
+starting a duplicate subagent for a conversational follow-up.
 
 Use this command for a lightweight status check:
 
@@ -67,57 +67,57 @@ Use this command for a lightweight status check:
 ```
 
 It reports lifecycle state and a compact activity summary. It does not read
-the complete child transcript or cause a parent-agent turn.
+the complete subagent transcript or cause a main-agent turn.
 
-## Background completion and callbacks
+## Background completion and results
 
-Subagents always run asynchronously relative to the root. When a child turn
-ends, AgentCLI sends a `completed`, `incomplete`, or `failed` callback to the
-root. The callback contains child identity, structured summary/next-step
+Subagents always run asynchronously relative to the main agent. When a
+subagent turn ends, AgentCLI sends a `completed`, `incomplete`, or `failed`
+result to the main agent. The result contains subagent identity, structured summary/next-step
 information, and the final result or failure information. `idle` only means no
 turn is executing; it does not imply that the delegated task is complete.
 
-If the root is already running, the callback is queued. The root may act on a
-completed child while other children continue, follow up on an incomplete
-child, or wait for more callbacks.
-The terminal displays callback notifications in the root view without copying
-child output into the selected child view.
+If the main agent is already running, the result is queued. The main agent may act on a
+completed subagent while other subagents continue, follow up on an incomplete
+subagent, or wait for more results.
+The terminal displays result notifications in the main-agent view without copying
+subagent output into the selected subagent view.
 
 The Terminal and its repository playground use the framework-owned subagent
 tool contract directly; they do not maintain a separate schema. Model-facing
-`start_subagent` requires `continue_after_dispatch`. A false value ends a
-successful pending-callback batch without another provider step; true returns
-control for only already-planned parent work outside the delegated task that
-is independent of the callback. Parallel starts use the same value throughout
+`start_subagent` requires `continue_main_agent`. A false value ends a
+successful pending-result batch without another provider step; true returns
+control for only already-planned main agent work outside the delegated task that
+is independent of the result. Parallel starts use the same value throughout
 their batch. `send_subagent_message` uses the same required choice: false ends an accepted
 successful batch, while true continues only qualifying independent work.
-Duplicate, already-sent, and callback-pending results end the batch regardless
-of that value. A callback joins a compatible active parent at its next provider
-boundary or resumes the root in a continuation turn. Destructive close remains
+Duplicate, already-sent, and result-pending results end the batch regardless
+of that value. A result joins a compatible active main agent at its next provider
+boundary or resumes the main agent in a continuation turn. Destructive close remains
 a Terminal/application command and is not exposed to the model.
 
-## Close a child
+## Close a subagent
 
-The runtime automatically closes completed and failed children at the end of
-their settled response scope. Incomplete children remain available for
+The runtime automatically closes completed and failed subagents at the end of
+their settled response scope. Incomplete subagents remain available for
 follow-up. Use `/close` only when the user explicitly wants to stop, discard,
-or close a child immediately:
+or close a subagent immediately:
 
 ```text
 /close Sol
 ```
 
-The command can interrupt a running child and drops queued child messages.
+The command can interrupt a running subagent and drops queued subagent messages.
 Closing preserves the stored transcript but changes its lifecycle state to
 closed, so the view remains available as read-only history. It also cancels
-outstanding callback obligations for that child so the parent response scope
+outstanding result obligations for that subagent so the main agent response scope
 can reach a later final completion boundary. The command itself does not start
 a provider turn or produce a model response. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 
 ## View isolation
 
-Root and child views share the same renderer features:
+Main-agent and subagent views share the same renderer features:
 
 - Markdown streaming
 - spinner-only loading state
@@ -126,5 +126,6 @@ Root and child views share the same renderer features:
 - prompt history with Up and Down
 - `Esc` interruption
 
-Only the selected view writes visible content. A root or child that continues
-in the background retains events for replay when its view is opened again.
+Only the selected view writes visible content. A main agent or subagent that
+continues in the background retains events for replay when its view is opened
+again.

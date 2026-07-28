@@ -36,7 +36,7 @@ separate summarizer. When present, `auto` defaults to `true`; omit the mapping
 to disable compaction, or set `auto: false` to stop creating new checkpoints.
 
 Optional limits are exact-model metadata, not tunable compaction budgets.
-Main, child, and summarizer models therefore use their own matching entries,
+Main, subagent, and summarizer models therefore use their own matching entries,
 even when they share one profile. The runtime derives its budgets from the
 active main model's provider-neutral metadata.
 
@@ -138,10 +138,10 @@ No compaction event is emitted when the request already fits or when the
 runtime only projects an existing checkpoint.
 
 Project-created subagents inherit the compaction model and any explicit
-estimator override. Without an override, each child selects the estimator from
-its own main model. A child emits compaction events with its own session and
-turn IDs; those events remain on the child run rather than being mixed into the
-parent run. The parent still receives the normal subagent outcome callback.
+estimator override. Without an override, each subagent selects the estimator from
+its own model. A subagent emits compaction events with its own session and
+turn IDs; those events remain on the subagent run rather than being mixed into the
+main agent run. The main agent still receives the normal subagent result.
 
 ## Models and provider-neutral sizing
 
@@ -161,8 +161,8 @@ generic request surfaces conservatively, including multilingual text and tool
 schemas. It uses a three-ASCII-bytes-per-token baseline so JSON, code, and
 denser tokenizers compact before the common four-byte approximation would. A
 main model implementing `ContextEstimatorProvider` is selected automatically
-per runtime. Applications can still force an estimator across root and child
-agents:
+per runtime. Applications can still force an estimator across main-agent and
+subagent runtimes:
 
 ```go
 agent, err := agentcli.New(ctx,

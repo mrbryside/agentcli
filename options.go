@@ -21,7 +21,7 @@ const defaultToolWorkers = 4
 const defaultMaxSubagents = 4
 
 // defaultCompletionRepairLimit bounds provider retries when a completion
-// guard requires a trigger or semantic-outcome tool. A bounded retry keeps
+// guard requires a trigger or semantic result-report tool. A bounded retry keeps
 // a non-compliant provider from consuming the entire run indefinitely while
 // allowing compatible providers more than one opportunity to emit the tool.
 const defaultCompletionRepairLimit = 3
@@ -47,7 +47,7 @@ type config struct {
 	subagents               storage.SubagentStorage
 	maxProviderSteps        int
 	maxSubagents            int
-	childAgent              bool
+	subagentAgent           bool
 	contextReminderProvider agentruntime.ContextReminderProvider
 	inputGuard              agentruntime.InputGuard
 	outputGuard             agentruntime.OutputGuard
@@ -115,7 +115,7 @@ func (configuration config) validate() error {
 	if configuration.maxProviderSteps < 0 {
 		return errors.New("maximum provider steps cannot be negative")
 	}
-	if configuration.maxSubagents > 0 && configuration.subagents == nil && configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.childAgent {
+	if configuration.maxSubagents > 0 && configuration.subagents == nil && configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent {
 		return errors.New("subagent storage is required")
 	}
 	if err := configuration.skillReload.Validate(); err != nil {
@@ -183,8 +183,8 @@ func WithCompactionModel(model agentruntime.Model) Option {
 
 // WithContextEstimator explicitly replaces the estimator selected from each
 // main model's optional ContextEstimatorProvider capability (or the
-// conservative generic fallback). The override applies to both root and
-// project-created child agents.
+// conservative generic fallback). The override applies to both main agents and
+// project-created subagents.
 func WithContextEstimator(estimator agentruntime.ContextEstimator) Option {
 	return func(configuration *config) error {
 		if isNilOptionValue(estimator) {
@@ -342,8 +342,8 @@ func WithConfirmationStorage(confirmations storage.ConfirmationStorage) Option {
 	}
 }
 
-// WithSubagentStorage replaces the child-session relationship store used by
-// a project-backed root Agent. Child Agents never create a manager of their
+// WithSubagentStorage replaces the subagent-session relationship store used by
+// a project-backed main Agent. Subagents never create a manager of their
 // own, even when this option is present.
 func WithSubagentStorage(subagents storage.SubagentStorage) Option {
 	return func(configuration *config) error {
@@ -355,8 +355,8 @@ func WithSubagentStorage(subagents storage.SubagentStorage) Option {
 	}
 }
 
-// WithMaxSubagents bounds the number of non-closed child instances each
-// parent session may keep open. The default is applied only for projects that
+// WithMaxSubagents bounds the number of non-closed subagent instances each
+// main agent session may keep open. The default is applied only for projects that
 // define subagents.
 func WithMaxSubagents(maximum int) Option {
 	return func(configuration *config) error {
@@ -392,7 +392,7 @@ func WithTool(tool toolexecution.Tool) Option {
 
 // WithContextReminderProvider supplies trusted, ephemeral context for each
 // provider round. Its values are never written to MessageStorage. A
-// project-backed root Agent composes this provider with its active-subagent
+// project-backed main Agent composes this provider with its active-subagent
 // reminder rather than replacing it.
 func WithContextReminderProvider(provider agentruntime.ContextReminderProvider) Option {
 	return func(configuration *config) error {

@@ -12,10 +12,10 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 )
 
-// ErrResponseScopeDispatchNotFound means a child callback did not originate
+// ErrResponseScopeAssignmentNotFound means a subagent result did not originate
 // from work accepted by a live response scope. Direct application-created
-// children can legitimately have no such dispatch.
-var ErrResponseScopeDispatchNotFound = errors.New("subagent callback has no accepted dispatch in its response scope")
+// subagentIDs can legitimately have no such assignments.
+var ErrResponseScopeAssignmentNotFound = errors.New("subagent result has no accepted assignments in its response scope")
 
 // ToolTrigger groups a custom tool's required-completion and handler-delivery
 // behavior into one setting. It does not control whether the current turn
@@ -28,7 +28,7 @@ const (
 	EndTurn ToolTrigger = "end_turn"
 	// EndResponseScope requires the tool when the originating response scope
 	// is ready to end. Earlier calls are skipped; the handler executes only
-	// after the initial human root action or from a callback/final repair
+	// after the initial human main-agent action or from a result/final repair
 	// boundary.
 	EndResponseScope ToolTrigger = "end_response_scope"
 )
@@ -43,9 +43,9 @@ type responseTurnKey struct {
 	turnID    string
 }
 
-type responseChildKey struct {
-	sessionID string
-	childID   string
+type responseSubagentKey struct {
+	sessionID  string
+	subagentID string
 }
 
 type responseScopeState uint8
@@ -59,10 +59,10 @@ const (
 type responseScope struct {
 	state             responseScopeState
 	activeTurns       int
-	pendingCallbacks  int
+	pendingResults    int
 	pendingInputs     int
-	receivedCallbacks []*ResponseScopeReceivedCallback
-	children          map[string]int
+	deliveredResults  []*ResponseScopeDeliveredResult
+	subagentCounts    map[string]int
 	failedRecoveries  map[string]struct{}
 	toolCalls         map[string]int
 	endScopeCompleted map[string]struct{}
@@ -70,84 +70,84 @@ type responseScope struct {
 	endScopeOrder     []string
 }
 
-type responseDispatch struct {
+type responseAssignment struct {
 	id       string
 	scope    responseScopeKey
 	sequence uint64
-	pending  ResponseScopePendingCallback
+	pending  ResponseScopePendingResult
 }
 
-type callbackRecord struct {
+type resultRecord struct {
 	scope    responseScopeKey
-	received *ResponseScopeReceivedCallback
+	received *ResponseScopeDeliveredResult
 }
 
-// ResponseScopePendingCallback identifies one accepted child dispatch whose
-// callback has not yet been reserved for delivery. TurnID is omitted when
-// queued child work has not received a runtime turn ID yet.
-type ResponseScopePendingCallback struct {
+// ResponseScopePendingResult identifies one accepted subagent assignment whose
+// result has not yet been reserved for delivery. SubagentTurnID is omitted when
+// queued subagent work has not received a runtime turn ID yet.
+type ResponseScopePendingResult struct {
 	SubagentID     string `json:"subagent_id"`
 	DefinitionName string `json:"definition_name,omitempty"`
 	DisplayName    string `json:"display_name,omitempty"`
-	DispatchID     string `json:"dispatch_id"`
-	TurnID         string `json:"turn_id,omitempty"`
+	AssignmentID   string `json:"assignment_id"`
+	SubagentTurnID string `json:"subagent_turn_id,omitempty"`
 }
 
-// ResponseScopeReceivedCallback identifies one callback reserved in the
-// response scope and records the child's authoritative semantic outcome.
-type ResponseScopeReceivedCallback struct {
+// ResponseScopeDeliveredResult identifies one result reserved in the
+// response scope and records the subagent's authoritative semantic result.
+type ResponseScopeDeliveredResult struct {
 	SubagentID     string `json:"subagent_id"`
 	DefinitionName string `json:"definition_name,omitempty"`
 	DisplayName    string `json:"display_name,omitempty"`
-	DispatchID     string `json:"dispatch_id,omitempty"`
-	TurnID         string `json:"turn_id"`
-	OutcomeStatus  string `json:"outcome_status"`
+	AssignmentID   string `json:"assignment_id,omitempty"`
+	SubagentTurnID string `json:"subagent_turn_id"`
+	ResultStatus   string `json:"result_status"`
 }
 
-// ResponseScopeCallbackProgress is an atomic callback-accounting snapshot
-// captured for one trusted callback runtime message.
-type ResponseScopeCallbackProgress struct {
-	RemainingCallbacks   int                             `json:"remaining_callbacks"`
-	AllCallbacksReceived bool                            `json:"all_callbacks_received"`
-	PendingCallbacks     []ResponseScopePendingCallback  `json:"pending_callbacks"`
-	ReceivedCallbacks    []ResponseScopeReceivedCallback `json:"received_callbacks"`
+// ResponseScopeResultProgress is an atomic result-accounting snapshot
+// captured for one trusted result runtime message.
+type ResponseScopeResultProgress struct {
+	PendingCount        int                            `json:"pending_count"`
+	AllResultsDelivered bool                           `json:"all_results_delivered"`
+	PendingResults      []ResponseScopePendingResult   `json:"pending_results"`
+	DeliveredResults    []ResponseScopeDeliveredResult `json:"delivered_results"`
 }
 
 // ResponseScopeCleanup runs when a response scope enters its final completion
-// boundary, before its EndResponseScope handlers execute. childIDs contains
-// every child that accepted work in the scope.
+// boundary, before its EndResponseScope handlers execute. subagentIDs contains
+// every subagent that accepted work in the scope.
 type ResponseScopeCleanup func(context.Context, string, string, []string)
 
-// ResponseScopeReservation reserves one callback continuation before the
-// runtime accepts its turn. Rollback restores the pending callback when turn
+// ResponseScopeReservation reserves one result continuation before the
+// runtime accepts its turn. Rollback restores the pending result when turn
 // admission fails.
 type ResponseScopeReservation struct {
 	coordinator *ResponseScopeCoordinator
 	turn        responseTurnKey
 	scope       responseScopeKey
-	dispatch    *responseDispatch
+	assignments *responseAssignment
 	inline      bool
 	committed   bool
 	closed      bool
 }
 
-// ResponseScopeCoordinator correlates root user turns, callback continuation
+// ResponseScopeCoordinator correlates main-agent user turns, result continuation
 // turns, and accepted subagent work. It is intentionally in-memory: a response
 // scope is the lifecycle of one live request, not durable conversation state.
 type ResponseScopeCoordinator struct {
 	ctx context.Context
 
-	mu                sync.Mutex
-	scopes            map[responseScopeKey]*responseScope
-	turns             map[responseTurnKey]responseScopeKey
-	callbackTurns     map[responseTurnKey]struct{}
-	dispatch          map[responseChildKey][]*responseDispatch
-	callbacks         map[responseChildKey]map[string]callbackRecord
-	cancelledChildren map[responseChildKey]struct{}
-	cleanup           ResponseScopeCleanup
-	events            *scopeEventHub
-	logger            *slog.Logger
-	nextDispatch      uint64
+	mu                 sync.Mutex
+	scopes             map[responseScopeKey]*responseScope
+	turns              map[responseTurnKey]responseScopeKey
+	resultTurns        map[responseTurnKey]struct{}
+	assignments        map[responseSubagentKey][]*responseAssignment
+	results            map[responseSubagentKey]map[string]resultRecord
+	cancelledSubagents map[responseSubagentKey]struct{}
+	cleanup            ResponseScopeCleanup
+	events             *scopeEventHub
+	logger             *slog.Logger
+	nextAssignment     uint64
 }
 
 // NewResponseScopeCoordinator creates an empty response-scope coordinator.
@@ -156,14 +156,14 @@ func NewResponseScopeCoordinator(ctx context.Context) *ResponseScopeCoordinator 
 		ctx = context.Background()
 	}
 	return &ResponseScopeCoordinator{
-		ctx:               ctx,
-		scopes:            make(map[responseScopeKey]*responseScope),
-		turns:             make(map[responseTurnKey]responseScopeKey),
-		callbackTurns:     make(map[responseTurnKey]struct{}),
-		dispatch:          make(map[responseChildKey][]*responseDispatch),
-		callbacks:         make(map[responseChildKey]map[string]callbackRecord),
-		cancelledChildren: make(map[responseChildKey]struct{}),
-		events:            newScopeEventHub(ctx),
+		ctx:                ctx,
+		scopes:             make(map[responseScopeKey]*responseScope),
+		turns:              make(map[responseTurnKey]responseScopeKey),
+		resultTurns:        make(map[responseTurnKey]struct{}),
+		assignments:        make(map[responseSubagentKey][]*responseAssignment),
+		results:            make(map[responseSubagentKey]map[string]resultRecord),
+		cancelledSubagents: make(map[responseSubagentKey]struct{}),
+		events:             newScopeEventHub(ctx),
 	}
 }
 
@@ -188,8 +188,8 @@ func (c *ResponseScopeCoordinator) SetCleanup(cleanup ResponseScopeCleanup) {
 	c.mu.Unlock()
 }
 
-// BeginRootTurn opens a new response scope whose identity is the root turn.
-func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error {
+// BeginMainAgentTurn opens a new response scope whose identity is the main-agent turn.
+func (c *ResponseScopeCoordinator) BeginMainAgentTurn(sessionID, turnID string) error {
 	if c == nil {
 		return errors.New("response scope coordinator is nil")
 	}
@@ -214,7 +214,7 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 	c.scopes[scopeKey] = &responseScope{
 		state:             responseScopeOpen,
 		activeTurns:       1,
-		children:          make(map[string]int),
+		subagentCounts:    make(map[string]int),
 		failedRecoveries:  make(map[string]struct{}),
 		toolCalls:         make(map[string]int),
 		endScopeCompleted: make(map[string]struct{}),
@@ -233,17 +233,17 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 	return nil
 }
 
-// ReserveFailedRecovery allows one recovery dispatch for the same child and
+// ReserveFailedRecovery allows one recovery assignments for the same subagent and
 // normalized failure within a live response scope. The returned rollback
-// releases the reservation when dispatch admission fails. Calls outside a
+// releases the reservation when assignments admission fails. Calls outside a
 // tracked response scope remain allowed because no scope lifecycle exists to
 // own a budget.
-func (c *ResponseScopeCoordinator) ReserveFailedRecovery(sessionID, parentTurnID, childID, failureFingerprint string) (bool, func()) {
-	if c == nil || sessionID == "" || parentTurnID == "" || childID == "" || failureFingerprint == "" {
+func (c *ResponseScopeCoordinator) ReserveFailedRecovery(sessionID, mainAgentTurnID, subagentID, failureFingerprint string) (bool, func()) {
+	if c == nil || sessionID == "" || mainAgentTurnID == "" || subagentID == "" || failureFingerprint == "" {
 		return true, func() {}
 	}
-	turn := responseTurnKey{sessionID: sessionID, turnID: parentTurnID}
-	key := childID + "\x00" + failureFingerprint
+	turn := responseTurnKey{sessionID: sessionID, turnID: mainAgentTurnID}
+	key := subagentID + "\x00" + failureFingerprint
 
 	c.mu.Lock()
 	scopeKey, found := c.turns[turn]
@@ -275,8 +275,8 @@ func (c *ResponseScopeCoordinator) ReserveFailedRecovery(sessionID, parentTurnID
 	}
 }
 
-// RollbackRootTurn removes a root scope whose runtime turn was not accepted.
-func (c *ResponseScopeCoordinator) RollbackRootTurn(sessionID, turnID string) {
+// RollbackMainAgentTurn removes a main-agent scope whose runtime turn was not accepted.
+func (c *ResponseScopeCoordinator) RollbackMainAgentTurn(sessionID, turnID string) {
 	if c == nil {
 		return
 	}
@@ -288,34 +288,34 @@ func (c *ResponseScopeCoordinator) RollbackRootTurn(sessionID, turnID string) {
 		return
 	}
 	delete(c.turns, turn)
-	delete(c.callbackTurns, turn)
+	delete(c.resultTurns, turn)
 	delete(c.scopes, scopeKey)
 }
 
-// RegisterDispatch reserves one subagent dispatch before child work can race
+// RegisterAssignment reserves one subagent assignment before subagent work can race
 // to completion. The returned function rolls the registration back if the
 // framework does not ultimately accept the work.
-func (c *ResponseScopeCoordinator) RegisterDispatch(sessionID, parentTurnID, childID, dispatchID string) func() {
-	return c.RegisterDispatchMetadata(sessionID, parentTurnID, ResponseScopePendingCallback{
-		SubagentID: childID,
-		DispatchID: dispatchID,
+func (c *ResponseScopeCoordinator) RegisterAssignment(sessionID, mainAgentTurnID, subagentID, assignmentID string) func() {
+	return c.RegisterAssignmentMetadata(sessionID, mainAgentTurnID, ResponseScopePendingResult{
+		SubagentID:   subagentID,
+		AssignmentID: assignmentID,
 	})
 }
 
-// RegisterDispatchMetadata reserves one subagent callback obligation and
-// retains the child identity needed to describe pending callbacks to the
-// parent. The returned function rolls the registration back if dispatch fails.
-func (c *ResponseScopeCoordinator) RegisterDispatchMetadata(sessionID, parentTurnID string, pending ResponseScopePendingCallback) func() {
-	childID := pending.SubagentID
-	dispatchID := pending.DispatchID
-	if c == nil || sessionID == "" || parentTurnID == "" || childID == "" || dispatchID == "" {
+// RegisterAssignmentMetadata reserves one subagent result obligation and
+// retains the subagent identity needed to describe pending results to the
+// main agent. The returned function rolls the registration back if assignment fails.
+func (c *ResponseScopeCoordinator) RegisterAssignmentMetadata(sessionID, mainAgentTurnID string, pending ResponseScopePendingResult) func() {
+	subagentID := pending.SubagentID
+	assignmentID := pending.AssignmentID
+	if c == nil || sessionID == "" || mainAgentTurnID == "" || subagentID == "" || assignmentID == "" {
 		return func() {}
 	}
-	turn := responseTurnKey{sessionID: sessionID, turnID: parentTurnID}
-	child := responseChildKey{sessionID: sessionID, childID: childID}
+	turn := responseTurnKey{sessionID: sessionID, turnID: mainAgentTurnID}
+	subagent := responseSubagentKey{sessionID: sessionID, subagentID: subagentID}
 
 	c.mu.Lock()
-	if _, cancelled := c.cancelledChildren[child]; cancelled {
+	if _, cancelled := c.cancelledSubagents[subagent]; cancelled {
 		c.mu.Unlock()
 		return func() {}
 	}
@@ -329,13 +329,13 @@ func (c *ResponseScopeCoordinator) RegisterDispatchMetadata(sessionID, parentTur
 		c.mu.Unlock()
 		return func() {}
 	}
-	c.nextDispatch++
-	pending.SubagentID = childID
-	pending.DispatchID = dispatchID
-	dispatch := &responseDispatch{id: dispatchID, scope: scopeKey, sequence: c.nextDispatch, pending: pending}
-	c.dispatch[child] = append(c.dispatch[child], dispatch)
-	scope.children[childID]++
-	scope.pendingCallbacks++
+	c.nextAssignment++
+	pending.SubagentID = subagentID
+	pending.AssignmentID = assignmentID
+	assignments := &responseAssignment{id: assignmentID, scope: scopeKey, sequence: c.nextAssignment, pending: pending}
+	c.assignments[subagent] = append(c.assignments[subagent], assignments)
+	scope.subagentCounts[subagentID]++
+	scope.pendingResults++
 	c.mu.Unlock()
 
 	var once sync.Once
@@ -343,20 +343,20 @@ func (c *ResponseScopeCoordinator) RegisterDispatchMetadata(sessionID, parentTur
 		once.Do(func() {
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			queue := c.dispatch[child]
+			queue := c.assignments[subagent]
 			for index, candidate := range queue {
-				if candidate != dispatch {
+				if candidate != assignments {
 					continue
 				}
-				c.dispatch[child] = append(queue[:index], queue[index+1:]...)
-				if len(c.dispatch[child]) == 0 {
-					delete(c.dispatch, child)
+				c.assignments[subagent] = append(queue[:index], queue[index+1:]...)
+				if len(c.assignments[subagent]) == 0 {
+					delete(c.assignments, subagent)
 				}
-				if registered := c.scopes[scopeKey]; registered != nil && registered.pendingCallbacks > 0 {
-					registered.pendingCallbacks--
-					registered.children[childID]--
-					if registered.children[childID] == 0 {
-						delete(registered.children, childID)
+				if registered := c.scopes[scopeKey]; registered != nil && registered.pendingResults > 0 {
+					registered.pendingResults--
+					registered.subagentCounts[subagentID]--
+					if registered.subagentCounts[subagentID] == 0 {
+						delete(registered.subagentCounts, subagentID)
 					}
 				}
 				return
@@ -365,42 +365,42 @@ func (c *ResponseScopeCoordinator) RegisterDispatchMetadata(sessionID, parentTur
 	}
 }
 
-// CancelChildDispatches removes every callback obligation that has not yet
-// been reserved for delivery for childID. Application-owned destructive close
-// paths call this after the child is durably closed so a callback that can no
-// longer arrive cannot keep any parent response scope open forever.
-func (c *ResponseScopeCoordinator) CancelChildDispatches(sessionID, childID string) int {
-	if c == nil || sessionID == "" || childID == "" {
+// CancelSubagentAssignments removes every result obligation that has not yet
+// been reserved for delivery for subagentID. Application-owned destructive close
+// paths call this after the subagent is durably closed so a result that can no
+// longer arrive cannot keep any main agent response scope open forever.
+func (c *ResponseScopeCoordinator) CancelSubagentAssignments(sessionID, subagentID string) int {
+	if c == nil || sessionID == "" || subagentID == "" {
 		return 0
 	}
-	child := responseChildKey{sessionID: sessionID, childID: childID}
+	subagent := responseSubagentKey{sessionID: sessionID, subagentID: subagentID}
 
 	c.mu.Lock()
-	c.cancelledChildren[child] = struct{}{}
-	queue := c.dispatch[child]
+	c.cancelledSubagents[subagent] = struct{}{}
+	queue := c.assignments[subagent]
 	if len(queue) == 0 {
 		c.mu.Unlock()
 		return 0
 	}
-	delete(c.dispatch, child)
+	delete(c.assignments, subagent)
 	scopeIDs := make([]string, 0, len(queue))
 	seenScopes := make(map[responseScopeKey]struct{}, len(queue))
-	for _, dispatch := range queue {
-		scope := c.scopes[dispatch.scope]
+	for _, assignments := range queue {
+		scope := c.scopes[assignments.scope]
 		if scope == nil {
 			continue
 		}
-		if _, seen := seenScopes[dispatch.scope]; !seen {
-			seenScopes[dispatch.scope] = struct{}{}
-			scopeIDs = append(scopeIDs, dispatch.scope.scopeID)
+		if _, seen := seenScopes[assignments.scope]; !seen {
+			seenScopes[assignments.scope] = struct{}{}
+			scopeIDs = append(scopeIDs, assignments.scope.scopeID)
 		}
-		if scope.pendingCallbacks > 0 {
-			scope.pendingCallbacks--
+		if scope.pendingResults > 0 {
+			scope.pendingResults--
 		}
-		if scope.children[childID] > 0 {
-			scope.children[childID]--
-			if scope.children[childID] == 0 {
-				delete(scope.children, childID)
+		if scope.subagentCounts[subagentID] > 0 {
+			scope.subagentCounts[subagentID]--
+			if scope.subagentCounts[subagentID] == 0 {
+				delete(scope.subagentCounts, subagentID)
 			}
 		}
 	}
@@ -408,21 +408,21 @@ func (c *ResponseScopeCoordinator) CancelChildDispatches(sessionID, childID stri
 	c.mu.Unlock()
 	sort.Strings(scopeIDs)
 	if logger != nil {
-		logger.DebugContext(c.ctx, "response scope callback obligations cancelled",
+		logger.DebugContext(c.ctx, "response scope result obligations cancelled",
 			"session_id", sessionID,
-			"child_id", childID,
-			"cancelled_dispatches", len(queue),
+			"subagent_id", subagentID,
+			"cancelled_assignments", len(queue),
 			"scope_ids", scopeIDs,
 		)
 	}
 	return len(queue)
 }
 
-// ChildExclusiveToScope reports whether no other live response scope has
-// accepted work for childID. Cleanup callers use it while holding the child's
+// SubagentExclusiveToScope reports whether no other live response scope has
+// accepted work for subagentID. Cleanup callers use it while holding the subagent's
 // own lifecycle lock so a concurrent follow-up cannot race an automatic close.
-func (c *ResponseScopeCoordinator) ChildExclusiveToScope(sessionID, scopeID, childID string) bool {
-	if c == nil || sessionID == "" || scopeID == "" || childID == "" {
+func (c *ResponseScopeCoordinator) SubagentExclusiveToScope(sessionID, scopeID, subagentID string) bool {
+	if c == nil || sessionID == "" || scopeID == "" || subagentID == "" {
 		return false
 	}
 	scopeKey := responseScopeKey{sessionID: sessionID, scopeID: scopeID}
@@ -436,36 +436,36 @@ func (c *ResponseScopeCoordinator) ChildExclusiveToScope(sessionID, scopeID, chi
 		if candidateKey == scopeKey || candidateKey.sessionID != sessionID || candidate == nil {
 			continue
 		}
-		if candidate.children[childID] > 0 {
+		if candidate.subagentCounts[subagentID] > 0 {
 			return false
 		}
 	}
 	return true
 }
 
-// ReserveCallbackTurn binds a callback continuation to the response scope
-// that accepted the corresponding child dispatch.
-func (c *ResponseScopeCoordinator) ReserveCallbackTurn(sessionID, continuationTurnID, childID, callbackTurnID string) (*ResponseScopeReservation, error) {
-	return c.ReserveCallbackTurnWithMetadata(sessionID, continuationTurnID, ResponseScopeReceivedCallback{
-		SubagentID: childID,
-		TurnID:     callbackTurnID,
+// ReserveResultTurn binds a result continuation to the response scope
+// that accepted the corresponding subagent assignments.
+func (c *ResponseScopeCoordinator) ReserveResultTurn(sessionID, continuationTurnID, subagentID, resultTurnID string) (*ResponseScopeReservation, error) {
+	return c.ReserveResultTurnWithMetadata(sessionID, continuationTurnID, ResponseScopeDeliveredResult{
+		SubagentID:     subagentID,
+		SubagentTurnID: resultTurnID,
 	})
 }
 
-// ReserveCallbackTurnWithMetadata binds a callback continuation to its
-// originating response scope and atomically records the callback identity and
-// outcome used by CallbackProgress.
-func (c *ResponseScopeCoordinator) ReserveCallbackTurnWithMetadata(sessionID, continuationTurnID string, callback ResponseScopeReceivedCallback) (*ResponseScopeReservation, error) {
-	childID := callback.SubagentID
-	callbackTurnID := callback.TurnID
+// ReserveResultTurnWithMetadata binds a result continuation to its
+// originating response scope and atomically records the result identity and
+// result used by ResultProgress.
+func (c *ResponseScopeCoordinator) ReserveResultTurnWithMetadata(sessionID, continuationTurnID string, result ResponseScopeDeliveredResult) (*ResponseScopeReservation, error) {
+	subagentID := result.SubagentID
+	resultTurnID := result.SubagentTurnID
 	if c == nil {
 		return nil, errors.New("response scope coordinator is nil")
 	}
-	if sessionID == "" || continuationTurnID == "" || childID == "" || callbackTurnID == "" {
-		return nil, errors.New("callback response scope identifiers are required")
+	if sessionID == "" || continuationTurnID == "" || subagentID == "" || resultTurnID == "" {
+		return nil, errors.New("result response scope identifiers are required")
 	}
 	turn := responseTurnKey{sessionID: sessionID, turnID: continuationTurnID}
-	child := responseChildKey{sessionID: sessionID, childID: childID}
+	subagent := responseSubagentKey{sessionID: sessionID, subagentID: subagentID}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -473,15 +473,15 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurnWithMetadata(sessionID, co
 		return nil, fmt.Errorf("response turn %q already belongs to a scope", continuationTurnID)
 	}
 
-	if seen := c.callbacks[child]; seen != nil {
-		if prior, duplicate := seen[callbackTurnID]; duplicate {
+	if seen := c.results[subagent]; seen != nil {
+		if prior, duplicate := seen[resultTurnID]; duplicate {
 			scope := c.scopes[prior.scope]
 			if scope == nil {
-				return nil, errors.New("callback response scope no longer exists")
+				return nil, errors.New("result response scope no longer exists")
 			}
 			scope.activeTurns++
 			c.turns[turn] = prior.scope
-			c.callbackTurns[turn] = struct{}{}
+			c.resultTurns[turn] = struct{}{}
 			return &ResponseScopeReservation{
 				coordinator: c,
 				turn:        turn,
@@ -490,161 +490,161 @@ func (c *ResponseScopeCoordinator) ReserveCallbackTurnWithMetadata(sessionID, co
 		}
 	}
 
-	queue := c.dispatch[child]
+	queue := c.assignments[subagent]
 	if len(queue) == 0 {
-		return nil, ErrResponseScopeDispatchNotFound
+		return nil, ErrResponseScopeAssignmentNotFound
 	}
-	dispatch := queue[0]
-	c.dispatch[child] = queue[1:]
-	if len(c.dispatch[child]) == 0 {
-		delete(c.dispatch, child)
+	assignments := queue[0]
+	c.assignments[subagent] = queue[1:]
+	if len(c.assignments[subagent]) == 0 {
+		delete(c.assignments, subagent)
 	}
-	scope := c.scopes[dispatch.scope]
+	scope := c.scopes[assignments.scope]
 	if scope == nil || scope.state != responseScopeOpen {
-		return nil, errors.New("subagent callback response scope is not open")
+		return nil, errors.New("subagent result response scope is not open")
 	}
-	if scope.pendingCallbacks == 0 {
-		return nil, errors.New("subagent callback counter is inconsistent")
+	if scope.pendingResults == 0 {
+		return nil, errors.New("subagent result counter is inconsistent")
 	}
-	scope.pendingCallbacks--
+	scope.pendingResults--
 	scope.activeTurns++
-	c.turns[turn] = dispatch.scope
-	c.callbackTurns[turn] = struct{}{}
-	if c.callbacks[child] == nil {
-		c.callbacks[child] = make(map[string]callbackRecord)
+	c.turns[turn] = assignments.scope
+	c.resultTurns[turn] = struct{}{}
+	if c.results[subagent] == nil {
+		c.results[subagent] = make(map[string]resultRecord)
 	}
-	received := receivedCallbackFromDispatch(callback, dispatch)
-	scope.receivedCallbacks = append(scope.receivedCallbacks, received)
-	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope, received: received}
+	received := deliveredResultFromAssignment(result, assignments)
+	scope.deliveredResults = append(scope.deliveredResults, received)
+	c.results[subagent][resultTurnID] = resultRecord{scope: assignments.scope, received: received}
 	return &ResponseScopeReservation{
 		coordinator: c,
 		turn:        turn,
-		scope:       dispatch.scope,
-		dispatch:    dispatch,
+		scope:       assignments.scope,
+		assignments: assignments,
 	}, nil
 }
 
-// ReserveInlineCallback binds one callback to an already-active turn in the
-// same response scope. The callback obligation stays non-quiescent as a
+// ReserveInlineResult binds one result to an already-active turn in the
+// same response scope. The result obligation stays non-quiescent as a
 // pending runtime input until the active run has durably appended it at a
 // provider boundary.
-func (c *ResponseScopeCoordinator) ReserveInlineCallback(sessionID, activeTurnID, childID, callbackTurnID string) (*ResponseScopeReservation, error) {
-	return c.ReserveInlineCallbackWithMetadata(sessionID, activeTurnID, ResponseScopeReceivedCallback{
-		SubagentID: childID,
-		TurnID:     callbackTurnID,
+func (c *ResponseScopeCoordinator) ReserveInlineResult(sessionID, activeTurnID, subagentID, resultTurnID string) (*ResponseScopeReservation, error) {
+	return c.ReserveInlineResultWithMetadata(sessionID, activeTurnID, ResponseScopeDeliveredResult{
+		SubagentID:     subagentID,
+		SubagentTurnID: resultTurnID,
 	})
 }
 
-// ReserveInlineCallbackWithMetadata binds a callback to an active compatible
-// turn and atomically records the callback identity and outcome.
-func (c *ResponseScopeCoordinator) ReserveInlineCallbackWithMetadata(sessionID, activeTurnID string, callback ResponseScopeReceivedCallback) (*ResponseScopeReservation, error) {
-	childID := callback.SubagentID
-	callbackTurnID := callback.TurnID
+// ReserveInlineResultWithMetadata binds a result to an active compatible
+// turn and atomically records the result identity and result.
+func (c *ResponseScopeCoordinator) ReserveInlineResultWithMetadata(sessionID, activeTurnID string, result ResponseScopeDeliveredResult) (*ResponseScopeReservation, error) {
+	subagentID := result.SubagentID
+	resultTurnID := result.SubagentTurnID
 	if c == nil {
 		return nil, errors.New("response scope coordinator is nil")
 	}
-	if sessionID == "" || activeTurnID == "" || childID == "" || callbackTurnID == "" {
-		return nil, errors.New("inline callback response scope identifiers are required")
+	if sessionID == "" || activeTurnID == "" || subagentID == "" || resultTurnID == "" {
+		return nil, errors.New("inline result response scope identifiers are required")
 	}
 	turn := responseTurnKey{sessionID: sessionID, turnID: activeTurnID}
-	child := responseChildKey{sessionID: sessionID, childID: childID}
+	subagent := responseSubagentKey{sessionID: sessionID, subagentID: subagentID}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	activeScope, found := c.turns[turn]
 	if !found {
-		return nil, errors.New("active callback turn does not belong to a response scope")
+		return nil, errors.New("active result turn does not belong to a response scope")
 	}
-	if seen := c.callbacks[child]; seen != nil {
-		if _, duplicate := seen[callbackTurnID]; duplicate {
-			return nil, errors.New("subagent callback was already reserved")
+	if seen := c.results[subagent]; seen != nil {
+		if _, duplicate := seen[resultTurnID]; duplicate {
+			return nil, errors.New("subagent result was already reserved")
 		}
 	}
-	queue := c.dispatch[child]
+	queue := c.assignments[subagent]
 	if len(queue) == 0 {
-		return nil, ErrResponseScopeDispatchNotFound
+		return nil, ErrResponseScopeAssignmentNotFound
 	}
-	dispatch := queue[0]
-	if dispatch.scope != activeScope {
+	assignments := queue[0]
+	if assignments.scope != activeScope {
 		return nil, errors.New("active turn belongs to a different response scope")
 	}
-	scope := c.scopes[dispatch.scope]
+	scope := c.scopes[assignments.scope]
 	if scope == nil || scope.state != responseScopeOpen {
-		return nil, errors.New("subagent callback response scope is not open")
+		return nil, errors.New("subagent result response scope is not open")
 	}
-	if scope.pendingCallbacks == 0 {
-		return nil, errors.New("subagent callback counter is inconsistent")
+	if scope.pendingResults == 0 {
+		return nil, errors.New("subagent result counter is inconsistent")
 	}
-	c.dispatch[child] = queue[1:]
-	if len(c.dispatch[child]) == 0 {
-		delete(c.dispatch, child)
+	c.assignments[subagent] = queue[1:]
+	if len(c.assignments[subagent]) == 0 {
+		delete(c.assignments, subagent)
 	}
-	scope.pendingCallbacks--
+	scope.pendingResults--
 	scope.pendingInputs++
-	if c.callbacks[child] == nil {
-		c.callbacks[child] = make(map[string]callbackRecord)
+	if c.results[subagent] == nil {
+		c.results[subagent] = make(map[string]resultRecord)
 	}
-	received := receivedCallbackFromDispatch(callback, dispatch)
-	scope.receivedCallbacks = append(scope.receivedCallbacks, received)
-	c.callbacks[child][callbackTurnID] = callbackRecord{scope: dispatch.scope, received: received}
+	received := deliveredResultFromAssignment(result, assignments)
+	scope.deliveredResults = append(scope.deliveredResults, received)
+	c.results[subagent][resultTurnID] = resultRecord{scope: assignments.scope, received: received}
 	return &ResponseScopeReservation{
 		coordinator: c,
 		turn:        turn,
-		scope:       dispatch.scope,
-		dispatch:    dispatch,
+		scope:       assignments.scope,
+		assignments: assignments,
 		inline:      true,
 	}, nil
 }
 
-func receivedCallbackFromDispatch(callback ResponseScopeReceivedCallback, dispatch *responseDispatch) *ResponseScopeReceivedCallback {
-	received := callback
-	if dispatch != nil {
-		received.DispatchID = dispatch.pending.DispatchID
+func deliveredResultFromAssignment(result ResponseScopeDeliveredResult, assignments *responseAssignment) *ResponseScopeDeliveredResult {
+	received := result
+	if assignments != nil {
+		received.AssignmentID = assignments.pending.AssignmentID
 		if received.DefinitionName == "" {
-			received.DefinitionName = dispatch.pending.DefinitionName
+			received.DefinitionName = assignments.pending.DefinitionName
 		}
 		if received.DisplayName == "" {
-			received.DisplayName = dispatch.pending.DisplayName
+			received.DisplayName = assignments.pending.DisplayName
 		}
 	}
 	return &received
 }
 
-// CallbackProgress returns the callback-accounting snapshot associated with
-// this reservation. It includes the callback currently being delivered.
-func (r *ResponseScopeReservation) CallbackProgress() ResponseScopeCallbackProgress {
+// ResultProgress returns the result-accounting snapshot associated with
+// this reservation. It includes the result currently being delivered.
+func (r *ResponseScopeReservation) ResultProgress() ResponseScopeResultProgress {
 	if r == nil || r.coordinator == nil {
-		return ResponseScopeCallbackProgress{
-			AllCallbacksReceived: true,
-			PendingCallbacks:     []ResponseScopePendingCallback{},
-			ReceivedCallbacks:    []ResponseScopeReceivedCallback{},
+		return ResponseScopeResultProgress{
+			AllResultsDelivered: true,
+			PendingResults:      []ResponseScopePendingResult{},
+			DeliveredResults:    []ResponseScopeDeliveredResult{},
 		}
 	}
 	c := r.coordinator
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.callbackProgressLocked(r.scope)
+	return c.resultProgressLocked(r.scope)
 }
 
-func (c *ResponseScopeCoordinator) callbackProgressLocked(scopeKey responseScopeKey) ResponseScopeCallbackProgress {
-	progress := ResponseScopeCallbackProgress{
-		PendingCallbacks:  []ResponseScopePendingCallback{},
-		ReceivedCallbacks: []ResponseScopeReceivedCallback{},
+func (c *ResponseScopeCoordinator) resultProgressLocked(scopeKey responseScopeKey) ResponseScopeResultProgress {
+	progress := ResponseScopeResultProgress{
+		PendingResults:   []ResponseScopePendingResult{},
+		DeliveredResults: []ResponseScopeDeliveredResult{},
 	}
 	scope := c.scopes[scopeKey]
 	if scope == nil {
-		progress.AllCallbacksReceived = true
+		progress.AllResultsDelivered = true
 		return progress
 	}
 	type sequencedPending struct {
 		sequence uint64
-		callback ResponseScopePendingCallback
+		result   ResponseScopePendingResult
 	}
-	pending := make([]sequencedPending, 0, scope.pendingCallbacks)
-	for _, queue := range c.dispatch {
-		for _, dispatch := range queue {
-			if dispatch != nil && dispatch.scope == scopeKey {
-				pending = append(pending, sequencedPending{sequence: dispatch.sequence, callback: dispatch.pending})
+	pending := make([]sequencedPending, 0, scope.pendingResults)
+	for _, queue := range c.assignments {
+		for _, assignments := range queue {
+			if assignments != nil && assignments.scope == scopeKey {
+				pending = append(pending, sequencedPending{sequence: assignments.sequence, result: assignments.pending})
 			}
 		}
 	}
@@ -652,19 +652,19 @@ func (c *ResponseScopeCoordinator) callbackProgressLocked(scopeKey responseScope
 		return pending[left].sequence < pending[right].sequence
 	})
 	for _, candidate := range pending {
-		progress.PendingCallbacks = append(progress.PendingCallbacks, candidate.callback)
+		progress.PendingResults = append(progress.PendingResults, candidate.result)
 	}
-	for _, received := range scope.receivedCallbacks {
+	for _, received := range scope.deliveredResults {
 		if received != nil {
-			progress.ReceivedCallbacks = append(progress.ReceivedCallbacks, *received)
+			progress.DeliveredResults = append(progress.DeliveredResults, *received)
 		}
 	}
-	progress.RemainingCallbacks = scope.pendingCallbacks
-	progress.AllCallbacksReceived = scope.pendingCallbacks == 0
+	progress.PendingCount = scope.pendingResults
+	progress.AllResultsDelivered = scope.pendingResults == 0
 	return progress
 }
 
-// Commit keeps a callback turn reservation after the runtime accepts it.
+// Commit keeps a result turn reservation after the runtime accepts it.
 func (r *ResponseScopeReservation) Commit() {
 	if r == nil || r.coordinator == nil {
 		return
@@ -682,8 +682,8 @@ func (r *ResponseScopeReservation) Commit() {
 	}
 }
 
-// Rollback restores the callback dispatch when runtime admission fails.
-func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
+// Rollback restores the result assignments when runtime admission fails.
+func (r *ResponseScopeReservation) Rollback(subagentID, resultTurnID string) {
 	if r == nil || r.coordinator == nil {
 		return
 	}
@@ -701,32 +701,32 @@ func (r *ResponseScopeReservation) Rollback(childID, callbackTurnID string) {
 		}
 	} else {
 		delete(c.turns, r.turn)
-		delete(c.callbackTurns, r.turn)
+		delete(c.resultTurns, r.turn)
 		if scope != nil && scope.activeTurns > 0 {
 			scope.activeTurns--
 		}
 	}
-	if r.dispatch != nil {
-		child := responseChildKey{sessionID: r.turn.sessionID, childID: childID}
-		if _, cancelled := c.cancelledChildren[child]; !cancelled {
-			c.dispatch[child] = append([]*responseDispatch{r.dispatch}, c.dispatch[child]...)
+	if r.assignments != nil {
+		subagent := responseSubagentKey{sessionID: r.turn.sessionID, subagentID: subagentID}
+		if _, cancelled := c.cancelledSubagents[subagent]; !cancelled {
+			c.assignments[subagent] = append([]*responseAssignment{r.assignments}, c.assignments[subagent]...)
 			if scope != nil {
-				scope.pendingCallbacks++
+				scope.pendingResults++
 			}
 		}
-		if seen := c.callbacks[child]; seen != nil {
-			record := seen[callbackTurnID]
+		if seen := c.results[subagent]; seen != nil {
+			record := seen[resultTurnID]
 			if scope != nil && record.received != nil {
-				for index, received := range scope.receivedCallbacks {
+				for index, received := range scope.deliveredResults {
 					if received == record.received {
-						scope.receivedCallbacks = append(scope.receivedCallbacks[:index], scope.receivedCallbacks[index+1:]...)
+						scope.deliveredResults = append(scope.deliveredResults[:index], scope.deliveredResults[index+1:]...)
 						break
 					}
 				}
 			}
-			delete(seen, callbackTurnID)
+			delete(seen, resultTurnID)
 			if len(seen) == 0 {
-				delete(c.callbacks, child)
+				delete(c.results, subagent)
 			}
 		}
 	}
@@ -750,13 +750,13 @@ func (c *ResponseScopeCoordinator) ReadyToEnd(sessionID, turnID string) bool {
 	return scope != nil &&
 		scope.state != responseScopeEnded &&
 		scope.activeTurns == 1 &&
-		scope.pendingCallbacks == 0 &&
+		scope.pendingResults == 0 &&
 		scope.pendingInputs == 0
 }
 
-// EndResponseScopeBoundaryReached allows callback continuation turns to
+// EndResponseScopeBoundaryReached allows result continuation turns to
 // deliver their final boundary tool on provider step one, while retaining the
-// first-action guard for the initial human root turn.
+// first-action guard for the initial human main-agent turn.
 func (c *ResponseScopeCoordinator) EndResponseScopeBoundaryReached(request agentruntime.ToolRequest) bool {
 	if request.CompletionBoundary {
 		return true
@@ -764,7 +764,7 @@ func (c *ResponseScopeCoordinator) EndResponseScopeBoundaryReached(request agent
 	turn := responseTurnKey{sessionID: request.SessionID, turnID: request.TurnID}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, callbackTurn := c.callbackTurns[turn]; callbackTurn {
+	if _, resultTurn := c.resultTurns[turn]; resultTurn {
 		return true
 	}
 	return request.ProviderStep > 1
@@ -800,8 +800,8 @@ func (c *ResponseScopeCoordinator) ReserveToolCall(sessionID, turnID, toolName s
 	return used, true, nil
 }
 
-// ExecuteEndResponseScope runs handler only after the initial human root
-// action, or from a callback/final repair boundary, when completing the
+// ExecuteEndResponseScope runs handler only after the initial human main-agent
+// action, or from a result/final repair boundary, when completing the
 // current turn would end its response scope. Earlier calls are successful
 // no-ops but deliberately do not satisfy the required trigger.
 func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
@@ -825,16 +825,16 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 		c.mu.Unlock()
 		return nil, false, errors.New("response scope does not exist")
 	}
-	_, callbackTurn := c.callbackTurns[turn]
-	boundaryReached := request.CompletionBoundary || callbackTurn || request.ProviderStep > 1
+	_, resultTurn := c.resultTurns[turn]
+	boundaryReached := request.CompletionBoundary || resultTurn || request.ProviderStep > 1
 	ready := boundaryReached &&
 		scope.activeTurns == 1 &&
-		scope.pendingCallbacks == 0 &&
+		scope.pendingResults == 0 &&
 		scope.pendingInputs == 0
 	if !ready {
 		logger := c.logger
 		activeTurns := scope.activeTurns
-		pendingCallbacks := scope.pendingCallbacks
+		pendingResults := scope.pendingResults
 		pendingInputs := scope.pendingInputs
 		c.mu.Unlock()
 		if logger != nil {
@@ -845,12 +845,11 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 				"provider_step", request.ProviderStep,
 				"completion_boundary", request.CompletionBoundary,
 				"active_turns", activeTurns,
-				"pending_callbacks", pendingCallbacks,
+				"pending_results", pendingResults,
 				"pending_inputs", pendingInputs,
 			)
 		}
-		instruction := "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. " +
-			"Treat this result as success and do not retry the tool yourself."
+		instruction := "The tool call was handled, but the action did not run because the complete final response is not ready. Treat this call as handled and do not retry it yourself. Finish remaining independent work, or stop if requiredsubagent results are still pending."
 		output, err := json.Marshal(map[string]any{
 			"status":      "succeeded",
 			"action":      "skipped",
@@ -886,21 +885,21 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 		scope.endScopeOrder = append(scope.endScopeOrder, request.Call.Name)
 	}
 	beginEnding := scope.state == responseScopeOpen
-	var children []string
+	var subagentIDs []string
 	cleanup := c.cleanup
 	logger := c.logger
 	if beginEnding {
 		scope.state = responseScopeEnding
-		children = make([]string, 0, len(scope.children))
-		for childID := range scope.children {
-			children = append(children, childID)
+		subagentIDs = make([]string, 0, len(scope.subagentCounts))
+		for subagentID := range scope.subagentCounts {
+			subagentIDs = append(subagentIDs, subagentID)
 		}
-		sort.Strings(children)
+		sort.Strings(subagentIDs)
 	}
 	c.mu.Unlock()
 
 	if beginEnding {
-		c.beginEnding(scopeKey, request.TurnID, children, []string{request.Call.Name}, cleanup, logger)
+		c.beginEnding(scopeKey, request.TurnID, subagentIDs, []string{request.Call.Name}, cleanup, logger)
 	}
 
 	output, err := handler(ctx, cloneRawJSON(request.Call.Arguments))
@@ -950,7 +949,7 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 		return
 	}
 	scope.activeTurns--
-	if scope.activeTurns != 0 || scope.pendingCallbacks != 0 || scope.pendingInputs != 0 || scope.state == responseScopeEnded {
+	if scope.activeTurns != 0 || scope.pendingResults != 0 || scope.pendingInputs != 0 || scope.state == responseScopeEnded {
 		c.mu.Unlock()
 		return
 	}
@@ -958,18 +957,18 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 	if beginEnding {
 		scope.state = responseScopeEnding
 	}
-	children := make([]string, 0, len(scope.children))
-	for childID := range scope.children {
-		children = append(children, childID)
+	subagentIDs := make([]string, 0, len(scope.subagentCounts))
+	for subagentID := range scope.subagentCounts {
+		subagentIDs = append(subagentIDs, subagentID)
 	}
-	sort.Strings(children)
+	sort.Strings(subagentIDs)
 	cleanup := c.cleanup
 	logger := c.logger
 	toolNames := append([]string(nil), scope.endScopeOrder...)
 	c.mu.Unlock()
 
 	if beginEnding {
-		c.beginEnding(scopeKey, turnID, children, toolNames, cleanup, logger)
+		c.beginEnding(scopeKey, turnID, subagentIDs, toolNames, cleanup, logger)
 	}
 
 	c.mu.Lock()
@@ -988,20 +987,20 @@ func (c *ResponseScopeCoordinator) FinishTurn(sessionID, turnID string) {
 			"session_id", scopeKey.sessionID,
 			"scope_id", scopeKey.scopeID,
 			"trigger_turn_id", turnID,
-			"child_ids", children,
+			"subagent_ids", subagentIDs,
 			"tool_names", toolNames,
 		)
 	}
 	c.publishEvent(ScopeEvent{
 		Type: EndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
-		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
+		TriggerTurnID: turnID, SubagentIDs: subagentIDs, ToolNames: toolNames,
 	})
 }
 
 func (c *ResponseScopeCoordinator) beginEnding(
 	scopeKey responseScopeKey,
 	turnID string,
-	children []string,
+	subagentIDs []string,
 	toolNames []string,
 	cleanup ResponseScopeCleanup,
 	logger *slog.Logger,
@@ -1016,16 +1015,16 @@ func (c *ResponseScopeCoordinator) beginEnding(
 			"session_id", scopeKey.sessionID,
 			"scope_id", scopeKey.scopeID,
 			"trigger_turn_id", turnID,
-			"child_ids", children,
+			"subagent_ids", subagentIDs,
 			"tool_names", toolNames,
 		)
 	}
 	c.publishEvent(ScopeEvent{
 		Type: PreEndScope, SessionID: scopeKey.sessionID, ScopeID: scopeKey.scopeID,
-		TriggerTurnID: turnID, ChildIDs: children, ToolNames: toolNames,
+		TriggerTurnID: turnID, SubagentIDs: subagentIDs, ToolNames: toolNames,
 	})
 	if cleanup != nil {
-		c.executeCleanup(cleanup, scopeKey, children)
+		c.executeCleanup(cleanup, scopeKey, subagentIDs)
 	}
 }
 
@@ -1034,28 +1033,28 @@ func (c *ResponseScopeCoordinator) deleteScopeLocked(scopeKey responseScopeKey) 
 	for turn, scope := range c.turns {
 		if scope == scopeKey {
 			delete(c.turns, turn)
-			delete(c.callbackTurns, turn)
+			delete(c.resultTurns, turn)
 		}
 	}
-	for child, queue := range c.dispatch {
+	for subagent, queue := range c.assignments {
 		kept := queue[:0]
-		for _, dispatch := range queue {
-			if dispatch.scope != scopeKey {
-				kept = append(kept, dispatch)
+		for _, assignments := range queue {
+			if assignments.scope != scopeKey {
+				kept = append(kept, assignments)
 			}
 		}
 		if len(kept) == 0 {
-			delete(c.dispatch, child)
+			delete(c.assignments, subagent)
 		} else {
-			c.dispatch[child] = kept
+			c.assignments[subagent] = kept
 		}
 	}
-	// Callback tombstones deliberately outlive their response scope. Without
+	// Result tombstones deliberately outlive their response scope. Without
 	// them, a late replay from an older scope could consume the first pending
-	// dispatch of a newer scope that happens to reuse the same child.
+	// assignments of a newer scope that happens to reuse the same subagent.
 }
 
-func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, scope responseScopeKey, children []string) {
+func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, scope responseScopeKey, subagentIDs []string) {
 	if cleanup == nil {
 		return
 	}
@@ -1069,7 +1068,7 @@ func (c *ResponseScopeCoordinator) executeCleanup(cleanup ResponseScopeCleanup, 
 	if c.ctx.Err() != nil {
 		return
 	}
-	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), children...))
+	cleanup(ctx, scope.sessionID, scope.scopeID, append([]string(nil), subagentIDs...))
 }
 
 func containsResponseScopeTool(names []string, target string) bool {

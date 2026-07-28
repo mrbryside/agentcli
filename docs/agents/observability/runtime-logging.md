@@ -1,7 +1,7 @@
 # Runtime logging
 
 Read this when changing console lifecycle logging, project log configuration,
-repair diagnostics, payload redaction, or root/child logger ownership.
+repair diagnostics, payload redaction, or root/subagent logger ownership.
 
 | If you want to know... | Go to |
 | --- | --- |
@@ -13,7 +13,7 @@ repair diagnostics, payload redaction, or root/child logger ownership.
 Omitting `logging` disables runtime console logging. A present mapping defaults
 to `enabled: true` and `level: info`. Supported levels are `debug`, `info`,
 `warn`, and `error`. `WithLogger` overrides project logging when applied after
-`WithProject`; child agents share the selected root logger.
+`WithProject`; subagents share the selected main-agent logger.
 
 Info records cover turn, response-scope, subagent-close lifecycle, and
 requested repair rounds. Debug adds completed provider content, tool

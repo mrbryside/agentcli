@@ -34,7 +34,7 @@ lines and a `next_offset` when more content remains. Tool source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
 `tool_report_discord.go`. A trigger call made as the model's first provider
 action is skipped with a successful continue result and must not be retried by
-the model. After the remaining work and accepted subagent callbacks or
+the model. After the remaining work and accepted subagent results or
 follow-ups finish, completion repair requests the executable final call.
 The runtime also accepts a later provider-round call when the complete response
 scope is ready to end as a compatibility path,
@@ -50,7 +50,7 @@ updates and returns feedback with a direct rewrite suggestion. The installer
 asks for the project folder name and then the Go module path used in `go.mod`.
 It detects the installed Go version for that file, falling back to `1.26.3`
 when Go is not installed. Generated projects start in `criticalOnly` permission
-mode, cap each parent at four open subagents, and read provider credentials
+mode, cap each main agent at four open subagents, and read provider credentials
 only from the process environment. The generated config includes disabled,
 commented examples for Langfuse observability and an OpenRouter-compatible
 provider. When Go is available, the installer also runs `go mod tidy` so the
@@ -138,7 +138,7 @@ override standard request fields with the same names.
 
 The optional `compaction` mapping only selects a separate summarizer through an
 existing provider alias. Optional `context_window_tokens` and
-`max_output_tokens` belong to each exact model entry, so main, child, and
+`max_output_tokens` belong to each exact model entry, so main, subagent, and
 summarizer models sharing one provider can still use independent limits. When
 omitted, startup checks that profile's `/models` endpoint, then models.dev, and
 finally defaults to 122,880 context tokens and 66,560 output tokens (`120k` and
@@ -159,7 +159,7 @@ provider: primary
 model: gpt-4.1-mini
 ---
 
-Understand the requested outcome and provide a clear, self-contained result.
+Understand the requested result and provide a clear, self-contained answer.
 ```
 
 Omit `tools` or `skills` when none are allowed. Project configuration may also

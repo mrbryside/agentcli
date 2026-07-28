@@ -52,7 +52,7 @@ func checkOutput(
 }
 ```
 
-Register the callbacks:
+Register the results:
 
 ```go
 agent, err := agentcli.New(ctx,
@@ -142,18 +142,20 @@ model.
 
 ## Lifecycle details
 
-- Input guards receive normalized IDs and a defensive message. Callback
+- Input guards receive normalized IDs and a defensive message. Result
   `InputReject` creates neither transcript history nor a `Run`.
-- Callback `InputRespond` and rejected input-prompt verdicts create a completed
+- Result `InputRespond` and rejected input-prompt verdicts create a completed
   `Run`, store the user and assistant messages, and stream the response without
   calling the main model or tools.
 - Output guards receive a defensive inspection snapshot containing the pending
   assistant candidate, plus provider-step and output-guard retry counts.
 - Retry feedback is an ephemeral `ContextReminder`; it is sent to the next
   provider request but is not stored as a user message.
-- Every retry counts toward the runtime's `MaxSteps` provider-round limit.
+- Every retry counts toward the limit configured by
+  `WithProviderStepLimit`; once its agentic budget is exhausted, the turn moves
+  into restricted finalization instead of regaining ordinary work tools.
 - Output guards run before the existing completion guard for required
-  trigger tools and subagent outcomes.
+  trigger tools and subagent result reports.
 
 The rejected assistant attempt remains visible in retained run/provider events
 for diagnostics, but it is discarded from transcript storage and is not sent

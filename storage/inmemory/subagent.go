@@ -10,7 +10,7 @@ import (
 	"github.com/mrbryside/agentcli/storage"
 )
 
-// SubagentStorage stores provider-neutral child-session state in process
+// SubagentStorage stores provider-neutral subagent-session state in process
 // memory. A mutex makes each record mutation atomic and every boundary clones
 // mutable state.
 type SubagentStorage struct {
@@ -18,12 +18,12 @@ type SubagentStorage struct {
 	records map[string]storage.Subagent
 }
 
-// NewSubagentStorage returns an empty concurrency-safe child-session store.
+// NewSubagentStorage returns an empty concurrency-safe subagent-session store.
 func NewSubagentStorage() *SubagentStorage {
 	return &SubagentStorage{records: make(map[string]storage.Subagent)}
 }
 
-// Create stores a new child record and assigns its initial version.
+// Create stores a new subagent record and assigns its initial version.
 func (s *SubagentStorage) Create(ctx context.Context, subagent storage.Subagent) (storage.Subagent, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.Subagent{}, err
@@ -46,7 +46,7 @@ func (s *SubagentStorage) Create(ctx context.Context, subagent storage.Subagent)
 	return storage.CloneSubagent(subagent), nil
 }
 
-// Get returns a copied child record. Missing records are reported as false.
+// Get returns a copied subagent record. Missing records are reported as false.
 func (s *SubagentStorage) Get(ctx context.Context, id string) (storage.Subagent, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.Subagent{}, false, err
@@ -63,15 +63,15 @@ func (s *SubagentStorage) Get(ctx context.Context, id string) (storage.Subagent,
 	return storage.CloneSubagent(record), true, nil
 }
 
-// ListByParent returns copies in stable creation order, then ID order for ties.
-func (s *SubagentStorage) ListByParent(ctx context.Context, parentSessionID string) ([]storage.Subagent, error) {
+// ListByMain agent returns copies in stable creation order, then ID order for ties.
+func (s *SubagentStorage) ListByMainAgent(ctx context.Context, mainAgentSessionID string) ([]storage.Subagent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	s.mu.RLock()
 	records := make([]storage.Subagent, 0)
 	for _, record := range s.records {
-		if record.ParentSessionID == parentSessionID {
+		if record.MainAgentSessionID == mainAgentSessionID {
 			records = append(records, storage.CloneSubagent(record))
 		}
 	}
@@ -88,7 +88,7 @@ func (s *SubagentStorage) ListByParent(ctx context.Context, parentSessionID stri
 	return records, nil
 }
 
-// Update compare-safely changes a child's lifecycle state.
+// Update compare-safely changes a subagent's lifecycle state.
 func (s *SubagentStorage) Update(ctx context.Context, id string, expectedVersion uint64, update storage.SubagentUpdate) (storage.Subagent, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.Subagent{}, err
@@ -112,12 +112,12 @@ func (s *SubagentStorage) Update(ctx context.Context, id string, expectedVersion
 		return storage.Subagent{}, fmt.Errorf("%w: use Close", storage.ErrInvalidSubagent)
 	}
 	record.Status = update.Status
-	record.CurrentTurnID = update.CurrentTurnID
-	record.LastTurnID = update.LastTurnID
-	record.LastTurnError = update.LastTurnError
-	record.LastTurnOutcome = update.LastTurnOutcome
-	record.LastTurnSummary = update.LastTurnSummary
-	record.LastTurnNextStep = update.LastTurnNextStep
+	record.CurrentSubagentTurnID = update.CurrentSubagentTurnID
+	record.LastSubagentTurnID = update.LastSubagentTurnID
+	record.LastResultError = update.LastResultError
+	record.LastResultStatus = update.LastResultStatus
+	record.LastResultSummary = update.LastResultSummary
+	record.LastResultNextStep = update.LastResultNextStep
 	record.UpdatedAt = nextSubagentTimestamp(record)
 	record.Version++
 	if err := storage.ValidateSubagent(record); err != nil {
@@ -188,7 +188,7 @@ func (s *SubagentStorage) Dequeue(ctx context.Context, id string) (storage.Subag
 	return storage.CloneSubagent(record), &message, nil
 }
 
-// Observe advances the parent's durable child-message observation cursor. A
+// Observe advances the main agent's durable subagent-message observation cursor. A
 // stale cursor is a successful no-op, which makes concurrent readers safe.
 func (s *SubagentStorage) Observe(ctx context.Context, id, messageID string, version uint64) (storage.Subagent, error) {
 	if err := ctx.Err(); err != nil {
@@ -218,7 +218,7 @@ func (s *SubagentStorage) Observe(ctx context.Context, id, messageID string, ver
 }
 
 // Close idempotently prevents new work, drops pending input, and retains the
-// child metadata and transcript cursor for later inspection.
+// subagent metadata and transcript cursor for later inspection.
 func (s *SubagentStorage) Close(ctx context.Context, id string) (storage.Subagent, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.Subagent{}, err
@@ -237,7 +237,7 @@ func (s *SubagentStorage) Close(ctx context.Context, id string) (storage.Subagen
 	}
 	now := nextSubagentTimestamp(record)
 	record.Status = storage.SubagentStatusClosed
-	record.CurrentTurnID = ""
+	record.CurrentSubagentTurnID = ""
 	record.Pending = nil
 	record.UpdatedAt = now
 	record.ClosedAt = &now

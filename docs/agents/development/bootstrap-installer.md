@@ -92,13 +92,13 @@ progress and provides a concrete direct rewrite instead of recommending
 Rejection leaves the report file unchanged and becomes a failed tool
 result with retry feedback.
 
-The `read` tool is project-root scoped, rejects sensitive paths and escaping
+The `read` tool is project-response scoped, rejects sensitive paths and escaping
 symlinks, returns UTF-8 text only, and reads at most 2,000 lines and 256 KiB per
 call. It uses a 1-based `offset` and returns `next_offset` when truncated. The
 `glob` tool supports recursive `**`, does not follow directory symlinks,
 omits sensitive paths, defaults to 100 results, and caps results at 500.
 Both tools declare low-risk filesystem-read permission; a subagent request is
-surfaced to the parent session when the active permission policy requires an
+surfaced to the main agent session when the active permission policy requires an
 answer.
 
 When changing the installer, run `sh -n init/install.sh`, execute it in a real

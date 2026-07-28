@@ -5,23 +5,23 @@ sidebar_position: 2
 
 # Events
 
-Root and child run event endpoints use standard Server-Sent Events.
+Main-agent and subagent run event endpoints use standard Server-Sent Events.
 
 Both endpoints are also present in the generated
 [API documentation](/api-reference) under **Event streams**:
 
 | Scope | Endpoint | Cursor |
 | --- | --- | --- |
-| Whole root session | `GET /v1/sessions/{sessionID}/events` | Monotonic across root turns. |
-| Root turn | `GET /v1/sessions/{sessionID}/turns/{turnID}/events` | Per turn. |
-| Subagent turn | `GET /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events` | Per child turn. |
+| Whole main-agent session | `GET /v1/sessions/{sessionID}/events` | Monotonic across main-agent turns. |
+| Main-agent turn | `GET /v1/sessions/{sessionID}/turns/{turnID}/events` | Per turn. |
+| Subagent turn | `GET /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/events` | Per subagent turn. |
 
 ```bash
 curl -NsS \
   http://127.0.0.1:8080/v1/sessions/demo/turns/TURN_ID/events
 ```
 
-If the requested root turn is still queued, the HTTP connection waits without
+If the requested main-agent turn is still queued, the HTTP connection waits without
 starting the model. Headers and normal run events begin when FIFO admission
 starts that turn. Cancelling the queued turn wakes the connection with a
 `turn_cancelled` API error if the response has not begun.
@@ -29,32 +29,32 @@ starts that turn. Cancelling the queued turn wakes the connection with a
 ## Session stream
 
 Use the whole-session endpoint for interactive applications. It replays and
-follows queued lifecycle records, ordinary user turns, parent turns created
+follows queued lifecycle records, ordinary user turns, main agent turns created
 automatically when subagents complete, and response-scope boundaries.
 
 ```text
 id: 19
 event: provider_event_received
-data: {"cursor":19,"type":"turn_event","source":"subagent_callback","session_id":"demo","turn_id":"turn_callback","turn_url":"/v1/sessions/demo/turns/turn_callback","events_url":"/v1/sessions/demo/turns/turn_callback/events","subagent_callback":{"parent_session_id":"demo","parent_turn_id":"turn_original","subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","child_session_id":"subagent-session","child_turn_id":"turn_child","status":"incomplete","summary":"A required choice remains.","next_step":"Ask the user which option to use."},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_callback","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
+data: {"cursor":19,"type":"turn_event","source":"subagent_result","session_id":"demo","turn_id":"turn_result","turn_url":"/v1/sessions/demo/turns/turn_result","events_url":"/v1/sessions/demo/turns/turn_result/events","subagent_result":{"main_agent_session_id":"demo","main_agent_turn_id":"turn_original","subagent_id":"subagent_123","display_name":"Sol","definition_name":"researcher","subagent_session_id":"subagent-session","subagent_turn_id":"turn_subagent","status":"incomplete","summary":"A required choice remains.","next_step":"Ask the user which option to use."},"runtime_event":{"sequence":2,"session_id":"demo","turn_id":"turn_result","type":"provider_event_received","provider_event":{"type":"content_received","content":"The research found..."}}}
 ```
 
 Session lifecycle types are `turn_queued`, `turn_admitted`, `turn_cancelled`,
 `turn_rejected`, `turn_event`, `scope_event`, and `subagent_closed` (alongside
-the child permission and confirmation lifecycles described below). For
+the subagent permission and confirmation lifecycles described below). For
 `turn_event`, the SSE event name is the nested `runtime_event.type`. For
 `scope_event`, it is the nested `scope_event.type`: `pre_end_scope` or
 `end_scope`. The outer `cursor` is the value to persist for session reconnect;
 the nested `sequence` remains the cursor for one turn.
 
 `pre_end_scope` is published when the scope's last active turn reaches its
-final completion-repair boundary and no accepted callback is pending, before
-child cleanup and final `EndResponseScope` tool handlers.
+final completion-repair boundary and no accepted result is pending, before
+subagent cleanup and final `EndResponseScope` tool handlers.
 `end_scope` is published after cleanup, handler invocation, and scope removal.
-The nested payload includes `scope_id`, `trigger_turn_id`, `child_ids`,
+The nested payload includes `scope_id`, `trigger_turn_id`, `subagent_ids`,
 `tool_names`, and `occurred_at`.
 
-Callback-created activities include `subagent_callback.parent_session_id` and
-`parent_turn_id`. The latter identifies the originating parent turn, while the
+Result-created activities include `subagent_result.main_agent_session_id` and
+`main_agent_turn_id`. The latter identifies the originating main agent turn, while the
 outer activity `turn_id` identifies the new automatic continuation turn. This
 distinction lets messaging clients route the continuation to the original
 request.
@@ -118,20 +118,20 @@ Depending on `type`, it additionally contains exactly relevant fields:
 | `confirmation_decision` | `confirmation_resolved`. |
 
 The session-wide stream also emits `subagent_confirmation`. Its
-`subagent_confirmation` payload contains parent/child correlation plus the
-child confirmation request or decision. These records are retained by the
+`subagent_confirmation` payload contains main agent/subagent correlation plus the
+subagent confirmation request or decision. These records are retained by the
 server session cursor. After reconnecting, clients should additionally query
-`GET /v1/sessions/{parentSessionID}/subagent-confirmations` for any durable
+`GET /v1/sessions/{mainAgentSessionID}/subagent-confirmations` for any durable
 pending request that predates the server subscription.
 
-Child permission requests follow the same pattern through the
+Subagent permission requests follow the same pattern through the
 `subagent_permission` session event and
-`GET /v1/sessions/{parentSessionID}/subagent-permissions`.
+`GET /v1/sessions/{mainAgentSessionID}/subagent-permissions`.
 
-A successful explicit or automatic child close emits `subagent_closed`. Its
-`subagent_closed` payload contains the final child snapshot,
-`previous_status`, optional `previous_outcome`, `dropped_messages`,
-`interrupted`, and `automatic`. The parent-session cursor retains this fact for
+A successful explicit or automatic subagent close emits `subagent_closed`. Its
+`subagent_closed` payload contains the final subagent snapshot,
+`previous_status`, optional `previous_result_status`, `dropped_messages`,
+`interrupted`, and `automatic`. The main agent-session cursor retains this fact for
 reconnects even though the in-process `SubscribeSystemEvents` stream is
 live-only.
 
@@ -140,14 +140,14 @@ live-only.
 System events are not conversation messages. Fetching only
 `GET /v1/sessions/{sessionID}/messages` after a page refresh does not restore a
 previous `subagent_closed` notification. Hydrate the page with both messages
-and the durable child snapshot:
+and the durable subagent snapshot:
 
 ```text
 GET /v1/sessions/{sessionID}/messages
 GET /v1/sessions/{sessionID}/subagents?include_closed=true
 ```
 
-The child list is authoritative for initial `running`, `idle`, and `closed`
+The subagent list is authoritative for initial `running`, `idle`, and `closed`
 state. Session SSE events incrementally update that state after hydration.
 Session-event replay is retained in server memory and supports reconnects while
 that server process remains alive; it does not survive a server restart.
@@ -178,7 +178,7 @@ Queued turns emit nothing until admitted.
 | `compaction_completed` | — | The summarizer checkpoint was appended and the next main-model request is projected from that checkpoint plus a recent verbatim tail. |
 | `compaction_failed` | `error` | Compaction preparation, summarization, or checkpoint persistence failed. The affected main-model round is not started and a terminal `run_failed` follows. |
 | `run_completed` | `result` | Terminal success. `result` contains final text, reasoning, tool results, provider-step count, and completion state. |
-| `run_failed` | `error` | Terminal failure, such as a provider error, closed executor, invalid tool result, or maximum-step exhaustion. |
+| `run_failed` | `error` | Terminal failure, such as a provider error, closed executor, invalid tool result, or exhausted bounded finalization repairs. Ordinary provider-step exhaustion first enters restricted finalization. |
 | `agent_interrupted` | `reason` | Terminal cancellation requested by a caller, server shutdown, or context cancellation. |
 
 ## Provider event payload

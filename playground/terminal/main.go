@@ -32,7 +32,7 @@ func run() (runErr error) {
 	}
 	agent, err := agentcli.New(ctx,
 		// WithProject also applies optional logging.enabled/logging.level from
-		// .agentcli/config.yaml to this playground and all child agents.
+		// .agentcli/config.yaml to this playground and all subagents.
 		agentcli.WithProject(project),
 		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),

@@ -21,6 +21,6 @@ Interactive controls are:
 - `Ctrl+O`: expand or collapse all reasoning.
 - `Ctrl+C`: arm exit; a second press within two seconds exits immediately.
 
-Switching child views changes only the visible subscription and transcript. It does not cancel a running child. Background callbacks and queued root messages continue to use their owning session, while only the active view may render live content.
+Switching subagent views changes only the visible subscription and transcript. It does not cancel a running subagent. Background results and queued root messages continue to use their owning session, while only the active view may render live content.
 
 Back to [application/index.md](index.md).

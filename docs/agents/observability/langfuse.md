@@ -20,12 +20,12 @@ Basic Auth built from the project public/secret keys, and sends
 
 The root `Agent` creates and owns at most one client. Its subagents receive the
 same client through the private `withSharedLangfuse` option and never shut it
-down. `Agent.Close` closes children and the executor before giving the owner
+down. `Agent.Close` closes subagents and the executor before giving the owner
 five seconds to flush and shut down telemetry. Agent construction error paths
 also shut down a newly owned client.
 
 Do not set the process-global OpenTelemetry tracer provider. The private
-provider accepts any parent span context passed to a model call without
+provider accepts any main agent span context passed to a model call without
 changing the embedding application's telemetry setup.
 
 ## Model decoration

@@ -42,8 +42,8 @@ func defaultServerConfig() serverConfig {
 	}
 }
 
-// WithServerAutoContinueSubagents controls whether completed child turns
-// automatically become trusted parent callback turns. It defaults to true so
+// WithServerAutoContinueSubagents controls whether completed subagent turns
+// automatically become trusted main-agent result turns. It defaults to true so
 // HTTP clients receive the same behavior as the reference terminal.
 func WithServerAutoContinueSubagents(enabled bool) ServerOption {
 	return func(config *serverConfig) error {
@@ -52,7 +52,7 @@ func WithServerAutoContinueSubagents(enabled bool) ServerOption {
 	}
 }
 
-// WithServerTurnQueueLimit bounds queued root turns per session. One active
+// WithServerTurnQueueLimit bounds queued main-agent turns per session. One active
 // turn is not counted toward the limit. The default is 64.
 func WithServerTurnQueueLimit(limit int) ServerOption {
 	return func(config *serverConfig) error {
@@ -153,11 +153,11 @@ func NewServer(agent *Agent, options ...ServerOption) (*Server, error) {
 			return nil, fmt.Errorf("agentcli server option %d: %w", index, err)
 		}
 	}
-	parentContext := agent.context
-	if parentContext == nil {
-		parentContext = context.Background()
+	mainAgentContext := agent.context
+	if mainAgentContext == nil {
+		mainAgentContext = context.Background()
 	}
-	serverContext, cancel := context.WithCancel(parentContext)
+	serverContext, cancel := context.WithCancel(mainAgentContext)
 	stopOnClose := context.AfterFunc(agent.closing, cancel)
 	server := &Server{
 		agent:         agent,
@@ -190,7 +190,7 @@ func NewServer(agent *Agent, options ...ServerOption) (*Server, error) {
 		server.sessionEvents.close()
 	}()
 	if config.autoContinueSubagents {
-		go server.continueSubagentCallbacks()
+		go server.continueSubagentResults()
 	}
 	subagentConfirmations := agent.SubscribeSubagentConfirmations(serverContext)
 	go server.forwardSubagentConfirmations(subagentConfirmations)

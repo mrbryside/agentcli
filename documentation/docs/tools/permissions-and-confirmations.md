@@ -201,7 +201,7 @@ err := agent.ResolveConfirmation(ctx, confirmation.Decision{
 
 ## Interactive decision ordering
 
-The reference Terminal presents one global FIFO across root sessions,
+The reference Terminal presents one global FIFO across main-agent sessions,
 subagents, permissions, and confirmations. It shows one actionable question at
 a time; after it resolves, the next oldest request becomes visible. A numeric
 permission shortcut cannot consume a visible confirmation, and `y`/`n` cannot

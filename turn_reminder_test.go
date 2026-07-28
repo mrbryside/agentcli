@@ -21,13 +21,12 @@ func TestNewTurnContextReminderAppearsOnlyOnFirstProviderStep(t *testing.T) {
 		t.Fatalf("first-step reminders = %#v, want one", first)
 	}
 	for _, expected := range []string{
-		"<runtime_turn_boundary>",
-		"state: new_turn",
+		"<turn_start>",
+		"state: new",
 		`turn_id: "turn-&#34;one&#34;"`,
-		"provider_step: 1",
-		"only on the first provider request of a new runtime turn",
-		"Later provider requests without this marker continue this same runtime turn",
-		"does not create another load trigger by itself",
+		"first model request of a new turn",
+		"Later model requests without <turn_start> belong to this same turn",
+		"Tool results do not start another turn",
 	} {
 		if !strings.Contains(first[0].Content, expected) {
 			t.Fatalf("new-turn reminder does not contain %q: %q", expected, first[0].Content)

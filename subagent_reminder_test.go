@@ -15,16 +15,16 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 3)
 	defer manager.Close()
-	first, err := manager.Start(context.Background(), "parent-a", "turn", "researcher", "<child answer>", "<label>")
+	first, err := manager.Start(context.Background(), "mainAgent-a", "turn", "researcher", "<subagent answer>", "<label>")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := manager.Start(context.Background(), "parent-b", "turn", "researcher", "other", "")
+	second, err := manager.Start(context.Background(), "mainAgent-b", "turn", "researcher", "other", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	provider := subagentReminderProvider(manager)
-	reminders, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent-a", TurnID: "next"})
+	reminders, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent-a", TurnID: "next"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,13 +35,15 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	if !strings.Contains(content, "<active_subagents>") || !strings.Contains(content, first.ID) || !strings.Contains(content, "<display_name>"+first.DisplayName+"</display_name>") || strings.Contains(content, second.ID) {
 		t.Fatalf("session-scoped reminder = %q", content)
 	}
-	if strings.Contains(content, "<child answer>") || strings.Contains(content, "<label>") {
-		t.Fatalf("reminder leaked child content or label: %q", content)
+	if strings.Contains(content, "<subagent answer>") || strings.Contains(content, "<label>") {
+		t.Fatalf("reminder leaked subagent content or label: %q", content)
 	}
-	if !strings.Contains(content, "<unread_messages>1</unread_messages>") || !strings.Contains(content, "<queued_messages>0</queued_messages>") {
-		t.Fatalf("reminder counts = %q", content)
+	for _, hidden := range []string{"<unread_messages>", "<queued_messages>", "<last_turn_", "<completion_result>"} {
+		if strings.Contains(content, hidden) {
+			t.Fatalf("reminder exposes obsolete lifecycle field %q: %q", hidden, content)
+		}
 	}
-	messages, err := manager.parent.ListMessages(context.Background(), first.SessionID)
+	messages, err := manager.mainAgent.ListMessages(context.Background(), first.SubagentSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,29 +54,29 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 	}
 	model.releases <- struct{}{}
 	awaitSubagentStatus(t, manager, first.ID, storage.SubagentStatusIdle)
-	observeTestSubagentCallback(t, manager, markTestSubagentCompleted(t, manager, first.ID))
-	if _, err := manager.CloseSubagent(context.Background(), "parent-a", first.ID); err != nil {
+	observeTestSubagentResult(t, manager, markTestSubagentCompleted(t, manager, first.ID))
+	if _, err := manager.CloseSubagent(context.Background(), "mainAgent-a", first.ID); err != nil {
 		t.Fatal(err)
 	}
-	reminders, err = provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent-a", TurnID: "later"})
+	reminders, err = provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent-a", TurnID: "later"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(reminders) != 0 {
-		t.Fatalf("closed child reminder = %#v", reminders)
+		t.Fatalf("closed subagent reminder = %#v", reminders)
 	}
 }
 
-func TestSubagentReminderIsStableWithinOneParentTurn(t *testing.T) {
+func TestSubagentReminderIsStableWithinOneMainAgentTurn(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
-	record, err := manager.Start(context.Background(), "parent", "child-parent-turn", "researcher", "work", "")
+	record, err := manager.Start(context.Background(), "mainAgent", "subagent-mainAgent-turn", "researcher", "work", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	provider := subagentReminderProvider(manager)
-	request := agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "active-parent-turn"}
+	request := agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "active-mainAgent-turn"}
 	before, err := provider(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -85,15 +87,15 @@ func TestSubagentReminderIsStableWithinOneParentTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 1 || len(after) != 1 || before[0].Content != after[0].Content || strings.Contains(after[0].Content, "<completion_callback>") {
-		t.Fatalf("same-turn reminder changed after callback: before=%#v after=%#v", before, after)
+	if len(before) != 1 || len(after) != 1 || before[0].Content != after[0].Content || strings.Contains(after[0].Content, "<result_delivery>") {
+		t.Fatalf("same-turn reminder changed after result: before=%#v after=%#v", before, after)
 	}
-	next, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "next-parent-turn"})
+	next, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "next-mainAgent-turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next) != 1 || !strings.Contains(next[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(next[0].Content, "<last_turn_outcome>") {
-		t.Fatalf("next-turn reminder does not expose callback-pending lifecycle safely: %#v", next)
+	if len(next) != 1 || !strings.Contains(next[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(next[0].Content, "<last_turn_") {
+		t.Fatalf("next-turn reminder does not expose pending result safely: %#v", next)
 	}
 }
 
@@ -101,23 +103,23 @@ func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) 
 	manager := newTestSubagentManager(t, &scriptedModel{}, 1)
 	defer manager.Close()
 	manager.recordAutoClosedSubagent(storage.Subagent{
-		ID: "subagent-closed", DisplayName: "ember-fox", ParentSessionID: "parent",
-		LastTurnOutcome: storage.SubagentTurnCompleted,
+		ID: "subagent-closed", DisplayName: "ember-fox", MainAgentSessionID: "mainAgent",
+		LastResultStatus: storage.SubagentResultCompleted,
 	})
 	provider := subagentReminderProvider(manager)
-	callbackTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "callback-turn"})
+	resultTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "result-turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(callbackTurn) != 0 {
-		t.Fatalf("callback turn consumed human-only lifecycle reminder: %#v", callbackTurn)
+	if len(resultTurn) != 0 {
+		t.Fatalf("result turn consumed human-only lifecycle reminder: %#v", resultTurn)
 	}
 
-	rejectedReservation := manager.reserveAutoClosedSubagentReminder("parent", "rejected-human-turn")
+	rejectedReservation := manager.reserveAutoClosedSubagentReminder("mainAgent", "rejected-human-turn")
 	rejectedReservation(false)
-	finishReservation := manager.reserveAutoClosedSubagentReminder("parent", "human-turn")
+	finishReservation := manager.reserveAutoClosedSubagentReminder("mainAgent", "human-turn")
 	finishReservation(true)
-	humanTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "human-turn"})
+	humanTurn, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "human-turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +129,8 @@ func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) 
 	if strings.Contains(humanTurn[0].Content, "close_subagent") {
 		t.Fatalf("removed destructive tool appears in lifecycle reminder: %s", humanTurn[0].Content)
 	}
-	manager.finishAutoClosedSubagentReminder("parent", "human-turn")
-	later, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "later-human-turn"})
+	manager.finishAutoClosedSubagentReminder("mainAgent", "human-turn")
+	later, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "later-human-turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +143,7 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
-	record, err := manager.Start(context.Background(), "parent", "parent-turn", "researcher", "work", "")
+	record, err := manager.Start(context.Background(), "mainAgent", "mainAgent-turn", "researcher", "work", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,21 +154,21 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
 
 	provider := subagentReminderProvider(manager)
-	reminders, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "callback"})
+	reminders, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "result"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") || strings.Contains(reminders[0].Content, "<last_turn_summary>") || strings.Contains(reminders[0].Content, "<last_turn_next_step>") || !strings.Contains(reminders[0].Content, "A running child has an outstanding result") || !strings.Contains(reminders[0].Content, "outside the delegated task") || !strings.Contains(reminders[0].Content, "stop this turn without assistant content or another tool call") || !strings.Contains(reminders[0].Content, "never call a tool to simulate waiting") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") || !strings.Contains(reminders[0].Content, "A listed subagent may have a pending result") || !strings.Contains(reminders[0].Content, "independent main-agent work") || !strings.Contains(reminders[0].Content, "stop without assistant content or another tool call") || !strings.Contains(reminders[0].Content, "Never poll or inspect it to simulate waiting") {
 		t.Fatalf("completion reminder = %#v", reminders)
 	}
-	if _, err := manager.Read(context.Background(), "parent", record.ID, ""); err != nil {
+	if _, err := manager.Read(context.Background(), "mainAgent", record.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	reminders, err = provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "observed"})
+	reminders, err = provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "observed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || strings.Contains(reminders[0].Content, "<completion_callback>") || !strings.Contains(reminders[0].Content, "<last_turn_outcome>incomplete</last_turn_outcome>") {
+	if len(reminders) != 1 || strings.Contains(reminders[0].Content, "<result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
 		t.Fatalf("observed completion reminder = %#v", reminders)
 	}
 }
@@ -174,16 +176,16 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 func TestSubagentReminderMarksFailedUnreadWorkAsFailed(t *testing.T) {
 	manager := newTestSubagentManager(t, subagentFailModel{err: context.DeadlineExceeded}, 1)
 	defer manager.Close()
-	record, err := manager.Start(context.Background(), "parent", "parent-turn", "researcher", "work", "")
+	record, err := manager.Start(context.Background(), "mainAgent", "mainAgent-turn", "researcher", "work", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	reminders, err := subagentReminderProvider(manager)(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "next"})
+	reminders, err := subagentReminderProvider(manager)(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "next"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<completion_callback>pending</completion_callback>") || strings.Contains(reminders[0].Content, "<last_turn_error>") || strings.Contains(reminders[0].Content, "<last_turn_outcome>") {
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
 		t.Fatalf("failed completion reminder = %#v", reminders)
 	}
 }
@@ -192,19 +194,19 @@ func TestComposeSubagentReminderProvidersCopiesAndPreservesOrder(t *testing.T) {
 	caller := func(context.Context, agentruntime.ContextReminderRequest) ([]agentruntime.ContextReminder, error) {
 		return []agentruntime.ContextReminder{{Content: "caller"}}, nil
 	}
-	child := func(context.Context, agentruntime.ContextReminderRequest) ([]agentruntime.ContextReminder, error) {
-		return []agentruntime.ContextReminder{{Content: "child"}}, nil
+	subagent := func(context.Context, agentruntime.ContextReminderRequest) ([]agentruntime.ContextReminder, error) {
+		return []agentruntime.ContextReminder{{Content: "subagent"}}, nil
 	}
-	provider := composeContextReminderProviders(caller, child)
-	got, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "turn"})
+	provider := composeContextReminderProviders(caller, subagent)
+	got, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "turn"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Content != "caller" || got[1].Content != "child" {
+	if len(got) != 2 || got[0].Content != "caller" || got[1].Content != "subagent" {
 		t.Fatalf("reminders = %#v", got)
 	}
 	got[0].Content = "mutated"
-	again, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "parent", TurnID: "turn"})
+	again, err := provider(context.Background(), agentruntime.ContextReminderRequest{SessionID: "mainAgent", TurnID: "turn"})
 	if err != nil || again[0].Content != "caller" {
 		t.Fatalf("copied reminders = %#v, err = %v", again, err)
 	}
@@ -227,20 +229,20 @@ func TestRootAgentComposesCallerAndActiveSubagentReminders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close()
-	childModel := &subagentGateModel{releases: make(chan struct{})}
-	agent.subagents.childFactory = func(SubagentDefinition) (*Agent, error) {
-		return New(context.Background(), WithModel(childModel), WithMessageStorage(messages))
+	subagentModel := &subagentGateModel{releases: make(chan struct{})}
+	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+		return New(context.Background(), WithModel(subagentModel), WithMessageStorage(messages))
 	}
 
-	first, err := agent.Start(context.Background(), agentruntime.Request{SessionID: "parent", TurnID: "one", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "first"}})
+	first, err := agent.Start(context.Background(), agentruntime.Request{SessionID: "mainAgent", TurnID: "one", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "first"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitRun(t, first)
-	if _, err := agent.StartSubagent(context.Background(), "parent", "one", "researcher", "delegated", ""); err != nil {
+	if _, err := agent.StartSubagent(context.Background(), "mainAgent", "one", "researcher", "delegated", ""); err != nil {
 		t.Fatal(err)
 	}
-	second, err := agent.Start(context.Background(), agentruntime.Request{SessionID: "parent", TurnID: "two", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "second"}})
+	second, err := agent.Start(context.Background(), agentruntime.Request{SessionID: "mainAgent", TurnID: "two", Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "second"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +253,7 @@ func TestRootAgentComposesCallerAndActiveSubagentReminders(t *testing.T) {
 	}
 	reminders := requests[1].ContextReminders
 	if len(reminders) != 3 ||
-		!strings.Contains(reminders[0].Content, "<runtime_turn_boundary>") ||
+		!strings.Contains(reminders[0].Content, "<turn_start>") ||
 		reminders[1].Content != "caller-reminder" ||
 		!strings.Contains(reminders[2].Content, "<active_subagents>") {
 		t.Fatalf("root reminders = %#v", reminders)

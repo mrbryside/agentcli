@@ -12,14 +12,14 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-func TestSubagentConfirmationIsPublishedToParentAndDurablyRecoverable(t *testing.T) {
+func TestSubagentConfirmationIsPublishedToMainAgentAndDurablyRecoverable(t *testing.T) {
 	manager := newTestSubagentManager(t, newConfirmationModel(), 1)
 	confirmations := inmemory.NewConfirmationStorage()
 	manager.config.confirmations = confirmations
 	var executed atomic.Int32
-	manager.childFactory = func(SubagentDefinition) (*Agent, error) {
+	manager.subagentFactory = func(SubagentDefinition) (*Agent, error) {
 		return New(context.Background(),
-			withChildAgent(),
+			withSubagentAgent(),
 			WithModel(newConfirmationModel()),
 			WithMessageStorage(manager.config.messages),
 			WithPermissionStorage(manager.config.permissions),
@@ -29,20 +29,20 @@ func TestSubagentConfirmationIsPublishedToParentAndDurablyRecoverable(t *testing
 	}
 
 	events := manager.subscribeConfirmations(context.Background())
-	child, err := manager.Start(context.Background(), "parent-session", "parent-turn", "researcher", "publish", "")
+	subagent, err := manager.Start(context.Background(), "mainAgent-session", "mainAgent-turn", "researcher", "publish", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	requested := waitSubagentConfirmationEvent(t, events, SubagentConfirmationRequested)
-	if requested.ParentSessionID != "parent-session" || requested.SubagentID != child.ID || requested.Request == nil {
+	if requested.MainAgentSessionID != "mainAgent-session" || requested.SubagentID != subagent.ID || requested.Request == nil {
 		t.Fatalf("requested event = %#v", requested)
 	}
-	pending, err := manager.pendingConfirmations(context.Background(), "parent-session")
+	pending, err := manager.pendingConfirmations(context.Background(), "mainAgent-session")
 	if err != nil || len(pending) != 1 || pending[0].Request.ID != requested.Request.ID {
 		t.Fatalf("pending = %#v, err=%v", pending, err)
 	}
 
-	instance, err := manager.instance(child.ID)
+	instance, err := manager.instance(subagent.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,25 +67,25 @@ func TestSubagentConfirmationIsPublishedToParentAndDurablyRecoverable(t *testing
 	if executed.Load() != 1 {
 		t.Fatalf("handler executions = %d", executed.Load())
 	}
-	pending, err = manager.pendingConfirmations(context.Background(), "parent-session")
+	pending, err = manager.pendingConfirmations(context.Background(), "mainAgent-session")
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending after resolve = %#v, err=%v", pending, err)
 	}
 }
 
-func TestSubagentPermissionIsPublishedToParentAndDurablyRecoverable(t *testing.T) {
+func TestSubagentPermissionIsPublishedToMainAgentAndDurablyRecoverable(t *testing.T) {
 	manager := newTestSubagentManager(t, newConfirmationModel(), 1)
 	var executed atomic.Int32
-	manager.childFactory = func(SubagentDefinition) (*Agent, error) {
+	manager.subagentFactory = func(SubagentDefinition) (*Agent, error) {
 		tool := confirmationTool(func() { executed.Add(1) })
 		tool.Confirmation = nil
 		tool.Permission = toolexecution.StaticPermission(toolexecution.PermissionConfig{
 			Actions: []permission.Action{permission.NetworkAccess},
 			Risk:    permission.RiskHigh,
-			Reason:  "Publishes the child report.",
+			Reason:  "Publishes the subagent report.",
 		})
 		return New(context.Background(),
-			withChildAgent(),
+			withSubagentAgent(),
 			WithModel(newConfirmationModel()),
 			WithMessageStorage(manager.config.messages),
 			WithPermissionStorage(manager.config.permissions),
@@ -95,20 +95,20 @@ func TestSubagentPermissionIsPublishedToParentAndDurablyRecoverable(t *testing.T
 	}
 
 	events := manager.subscribePermissions(context.Background())
-	child, err := manager.Start(context.Background(), "parent-session", "parent-turn", "researcher", "publish", "")
+	subagent, err := manager.Start(context.Background(), "mainAgent-session", "mainAgent-turn", "researcher", "publish", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	requested := waitSubagentPermissionEvent(t, events, SubagentPermissionRequested)
-	if requested.ParentSessionID != "parent-session" || requested.SubagentID != child.ID || requested.Request == nil {
+	if requested.MainAgentSessionID != "mainAgent-session" || requested.SubagentID != subagent.ID || requested.Request == nil {
 		t.Fatalf("requested event = %#v", requested)
 	}
-	pending, err := manager.pendingPermissions(context.Background(), "parent-session")
+	pending, err := manager.pendingPermissions(context.Background(), "mainAgent-session")
 	if err != nil || len(pending) != 1 || pending[0].Request.ID != requested.Request.ID {
 		t.Fatalf("pending = %#v, err=%v", pending, err)
 	}
 
-	instance, err := manager.instance(child.ID)
+	instance, err := manager.instance(subagent.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestSubagentPermissionIsPublishedToParentAndDurablyRecoverable(t *testing.T
 	if executed.Load() != 1 {
 		t.Fatalf("handler executions = %d", executed.Load())
 	}
-	pending, err = manager.pendingPermissions(context.Background(), "parent-session")
+	pending, err = manager.pendingPermissions(context.Background(), "mainAgent-session")
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending after resolve = %#v, err=%v", pending, err)
 	}

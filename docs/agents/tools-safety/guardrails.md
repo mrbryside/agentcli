@@ -39,7 +39,7 @@ Handler-produced data must be validated by the handler before it returns.
 
 ## Configuration
 
-Root Agent options expose `WithInputGuard`, `WithOutputGuard`,
+Main-agent options expose `WithInputGuard`, `WithOutputGuard`,
 `WithInputGuardPrompt`, and `WithOutputGuardPrompt`. Function and prompt modes
 are mutually exclusive per direction. Input/output prompt guards use the main
 model unless `WithInputGuardProvider` or `WithOutputGuardProvider` selects a
@@ -74,7 +74,7 @@ trigger or end-on-success behavior. Rejected `EndTurn` and `EndResponseScope`
 trigger tools remain unsatisfied; rejected `EndTurnOnSuccess` tools do not end
 the turn.
 
-Guard callback panics/errors, invalid decisions, and malformed prompt verdicts
+Guard result panics/errors, invalid decisions, and malformed prompt verdicts
 also become failed tool results without invoking the handler. Invalid JSON from
 an allowed handler remains a failed tool result.
 
@@ -87,11 +87,11 @@ an allowed handler remains a failed tool result.
 - Resolve explicit provider profiles during Agent/executor construction.
 - Reject unknown actions, reject decisions without feedback, and allow
   decisions containing feedback.
-- Recover callback panics and translate them into the boundary's fail-closed
+- Recover result panics and translate them into the boundary's fail-closed
   error path.
 - Decode prompt verdicts with unknown-field rejection and reject surrounding
   prose, multiple JSON values, or any missing/null required field.
-- Pass callbacks defensive message/raw-JSON copies and do not trust callback
+- Pass results defensive message/raw-JSON copies and do not trust result
   mutation.
 
 ## Security limits

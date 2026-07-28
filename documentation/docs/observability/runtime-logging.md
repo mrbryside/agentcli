@@ -27,7 +27,7 @@ Omitting `logging` disables console records. When the mapping is present,
 
 | Level | Records |
 | --- | --- |
-| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, and callback-obligation cancellation after application-owned child close. |
+| `debug` | Provider completion, tool request/result details, compaction details, response-scope details, and result-obligation cancellation after application-owned subagent close. |
 | `info` | Turn start/completion, response-scope start/end, subagent close lifecycle, and repair requests. |
 | `warn` | Recoverable framework warnings. |
 | `error` | Failed/interrupted turns, failed repairs, and final delivery failures. |
@@ -97,7 +97,7 @@ agent, err := agentcli.New(ctx,
 ```
 
 Option order matters: applying `WithLogger` after `WithProject` overrides the
-project logger. Child agents share the selected root logger. Passing `nil`
+project logger. Subagents share the selected main-agent logger. Passing `nil`
 disables logging.
 
 ## Terminal playground

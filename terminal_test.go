@@ -335,32 +335,32 @@ func TestTerminalApprovalQueueDoesNotResolveAnotherApprovalKind(t *testing.T) {
 	}
 }
 
-func TestTerminalConfirmationUsesYesNoAndRoutesOwnedChild(t *testing.T) {
+func TestTerminalConfirmationUsesYesNoAndRoutesOwnedSubagent(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{}
-	rootRequest := confirmation.Request{ID: "confirm_root", SessionID: "root", TurnID: "turn-root", CallID: "call-root", ToolName: "publish", Title: "Publish report", Message: "Publish now?", Details: "Destination: production"}
+	mainAgentRequest := confirmation.Request{ID: "confirm_mainAgent", SessionID: "mainAgent", TurnID: "turn-mainAgent", CallID: "call-mainAgent", ToolName: "publish", Title: "Publish report", Message: "Publish now?", Details: "Destination: production"}
 	client := terminalClient{
-		agent: agent, terminal: terminal{out: &output}, sessionID: "root",
-		pendingConfirmations: map[confirmation.ID]confirmation.Request{rootRequest.ID: rootRequest},
-		confirmationOrder:    []confirmation.ID{rootRequest.ID}, confirmationSubagent: make(map[confirmation.ID]string),
+		agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent",
+		pendingConfirmations: map[confirmation.ID]confirmation.Request{mainAgentRequest.ID: mainAgentRequest},
+		confirmationOrder:    []confirmation.ID{mainAgentRequest.ID}, confirmationSubagent: make(map[confirmation.ID]string),
 	}
-	client.terminal.confirmation(rootRequest)
+	client.terminal.confirmation(mainAgentRequest)
 	if handled, exit := client.command("yes"); !handled || exit {
 		t.Fatalf("yes command = (%v, %v)", handled, exit)
 	}
-	if agent.confirmationDecision.ConfirmationID != rootRequest.ID || agent.confirmationDecision.Answer != confirmation.Yes {
-		t.Fatalf("root decision = %#v", agent.confirmationDecision)
+	if agent.confirmationDecision.ConfirmationID != mainAgentRequest.ID || agent.confirmationDecision.Answer != confirmation.Yes {
+		t.Fatalf("mainAgent decision = %#v", agent.confirmationDecision)
 	}
 
-	childRequest := confirmation.Request{ID: "confirm_child", SessionID: "child", TurnID: "turn-child", CallID: "call-child", ToolName: "delete", Message: "Continue?"}
-	client.pendingConfirmations[childRequest.ID] = childRequest
-	client.confirmationOrder = append(client.confirmationOrder, childRequest.ID)
-	client.confirmationSubagent[childRequest.ID] = "subagent_1"
-	if handled, exit := client.command("/decline confirm_child"); !handled || exit {
+	subagentRequest := confirmation.Request{ID: "confirm_subagent", SessionID: "subagent", TurnID: "turn-subagent", CallID: "call-subagent", ToolName: "delete", Message: "Continue?"}
+	client.pendingConfirmations[subagentRequest.ID] = subagentRequest
+	client.confirmationOrder = append(client.confirmationOrder, subagentRequest.ID)
+	client.confirmationSubagent[subagentRequest.ID] = "subagent_1"
+	if handled, exit := client.command("/decline confirm_subagent"); !handled || exit {
 		t.Fatalf("decline command = (%v, %v)", handled, exit)
 	}
 	if agent.confirmationSubagentID != "subagent_1" || agent.confirmationDecision.Answer != confirmation.No {
-		t.Fatalf("child decision = %#v subagent=%q", agent.confirmationDecision, agent.confirmationSubagentID)
+		t.Fatalf("subagent decision = %#v subagent=%q", agent.confirmationDecision, agent.confirmationSubagentID)
 	}
 	for _, expected := range []string{"Publish report", "Destination: production", "Publish now?", "Yes", "No", "Type y/n"} {
 		if !strings.Contains(output.String(), expected) {
@@ -369,20 +369,20 @@ func TestTerminalConfirmationUsesYesNoAndRoutesOwnedChild(t *testing.T) {
 	}
 }
 
-func TestTerminalSubagentCommandsNavigateWithoutReadingParentObservation(t *testing.T) {
+func TestTerminalSubagentCommandsNavigateWithoutReadingMainAgentObservation(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{
 		mode:        permission.Default,
 		definitions: []SubagentDefinition{{Name: "researcher", Description: "Researches options.", Provider: "openai", Model: "small"}},
 		subagents: []storage.Subagent{{
-			ID: "subagent_1", DisplayName: "Mira", ParentSessionID: "root", SessionID: "child", DefinitionName: "researcher", Status: storage.SubagentStatusRunning,
+			ID: "subagent_1", DisplayName: "Mira", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", DefinitionName: "researcher", Status: storage.SubagentStatusRunning,
 		}},
-		messages: map[string][]agentruntime.Message{"child": {
+		messages: map[string][]agentruntime.Message{"subagent": {
 			{Type: agentruntime.MessageTypeUser, Content: "Compare queues."},
 			{Type: agentruntime.MessageTypeAssistant, Content: "Here is the comparison."},
 		}},
 	}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root"}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent"}
 
 	if handled, exit := client.command("/agents"); !handled || exit {
 		t.Fatalf("/agents = (%v, %v)", handled, exit)
@@ -411,7 +411,7 @@ func TestTerminalSubagentCommandsNavigateWithoutReadingParentObservation(t *test
 	if agent.readSubagentCalls != 0 {
 		t.Fatalf("terminal used ReadSubagent %d times", agent.readSubagentCalls)
 	}
-	for _, wanted := range []string{"researcher", "Mira", "skills=none", "tools=none", "subagent_1", "Subagent status · subagent_1 · running · Working on: researcher", "Compare queues.", "Here is the comparison.", "Closed subagent · subagent_1", "Session · root"} {
+	for _, wanted := range []string{"researcher", "Mira", "skills=none", "tools=none", "subagent_1", "Subagent status · subagent_1 · running · Working on: researcher", "Compare queues.", "Here is the comparison.", "Closed subagent · subagent_1", "Session · mainAgent"} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}
@@ -420,8 +420,8 @@ func TestTerminalSubagentCommandsNavigateWithoutReadingParentObservation(t *test
 
 func TestTerminalSubagentCommandsRejectUnknownAndClosedInstances(t *testing.T) {
 	var output bytes.Buffer
-	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "closed", ParentSessionID: "root", SessionID: "child", Status: storage.SubagentStatusClosed}}}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root"}
+	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "closed", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", Status: storage.SubagentStatusClosed}}}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent"}
 	client.command("/agent missing")
 	client.command("/agent closed")
 	client.command("/close missing")
@@ -432,59 +432,59 @@ func TestTerminalSubagentCommandsRejectUnknownAndClosedInstances(t *testing.T) {
 	}
 }
 
-func TestTerminalBackDetachesChildRendererWithoutStoppingChild(t *testing.T) {
+func TestTerminalBackDetachesSubagentRendererWithoutStoppingSubagent(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{
 		subagents: []storage.Subagent{{
-			ID: "subagent_1", ParentSessionID: "root", SessionID: "child", DefinitionName: "researcher",
-			Status: storage.SubagentStatusRunning, CurrentTurnID: "child-turn",
+			ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", DefinitionName: "researcher",
+			Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: "subagent-turn",
 		}},
 		messages: map[string][]agentruntime.Message{
-			"root":  {{Type: agentruntime.MessageTypeAssistant, Content: "root-only"}},
-			"child": {{Type: agentruntime.MessageTypeAssistant, Content: "child-only"}},
+			"mainAgent": {{Type: agentruntime.MessageTypeAssistant, Content: "mainAgent-only"}},
+			"subagent":  {{Type: agentruntime.MessageTypeAssistant, Content: "subagent-only"}},
 		},
 	}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output, color: true, interactive: true}, modelName: "test", sessionID: "root"}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output, color: true, interactive: true}, modelName: "test", sessionID: "mainAgent"}
 	client.switchView("")
 	if err := client.openSubagent("subagent_1"); err != nil {
 		t.Fatal(err)
 	}
-	childContext, ok := client.activeViewContext("subagent_1")
+	subagentContext, ok := client.activeViewContext("subagent_1")
 	if !ok {
-		t.Fatal("child view context is unavailable")
+		t.Fatal("subagent view context is unavailable")
 	}
 	if handled, exit := client.command("/back"); !handled || exit {
 		t.Fatalf("/back = (%v, %v)", handled, exit)
 	}
 	select {
-	case <-childContext.Done():
+	case <-subagentContext.Done():
 	default:
-		t.Fatal("/back did not detach the child renderer")
+		t.Fatal("/back did not detach the subagent renderer")
 	}
 	if client.activeView() != "" {
-		t.Fatalf("active view = %q, want root", client.activeView())
+		t.Fatalf("active view = %q, want mainAgent", client.activeView())
 	}
 	if agent.subagents[0].Status != storage.SubagentStatusRunning {
-		t.Fatalf("child status = %q, want running", agent.subagents[0].Status)
+		t.Fatalf("subagent status = %q, want running", agent.subagents[0].Status)
 	}
 	lastClear := strings.LastIndex(output.String(), "\x1b[2J\x1b[H")
-	visibleRoot := output.String()
+	visibleMainAgent := output.String()
 	if lastClear >= 0 {
-		visibleRoot = visibleRoot[lastClear:]
+		visibleMainAgent = visibleMainAgent[lastClear:]
 	}
-	if !strings.Contains(visibleRoot, "root-only") || strings.Contains(visibleRoot, "child-only") {
-		t.Fatalf("root view was not isolated: %q", visibleRoot)
+	if !strings.Contains(visibleMainAgent, "mainAgent-only") || strings.Contains(visibleMainAgent, "subagent-only") {
+		t.Fatalf("mainAgent view was not isolated: %q", visibleMainAgent)
 	}
 	if err := client.openSubagent("subagent_1"); err != nil {
 		t.Fatal(err)
 	}
 	resumedContext, ok := client.activeViewContext("subagent_1")
-	if !ok || resumedContext == childContext {
-		t.Fatal("reopening a streaming child did not attach a new renderer")
+	if !ok || resumedContext == subagentContext {
+		t.Fatal("reopening a streaming subagent did not attach a new renderer")
 	}
 	select {
 	case <-resumedContext.Done():
-		t.Fatal("resumed child renderer was already detached")
+		t.Fatal("resumed subagent renderer was already detached")
 	default:
 	}
 }
@@ -492,10 +492,10 @@ func TestTerminalBackDetachesChildRendererWithoutStoppingChild(t *testing.T) {
 func TestTerminalSessionReportsSelectedViewStreamingState(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{subagents: []storage.Subagent{{
-		ID: "subagent_1", ParentSessionID: "root", SessionID: "child",
-		Status: storage.SubagentStatusRunning, CurrentTurnID: "child-turn",
+		ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent",
+		Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: "subagent-turn",
 	}}}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root"}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent"}
 	client.switchView("subagent_1")
 
 	if handled, exit := client.command("/session"); !handled || exit {
@@ -513,33 +513,33 @@ func TestTerminalSessionReportsSelectedViewStreamingState(t *testing.T) {
 	}
 }
 
-func TestTerminalRootPromptQueueIsFIFOAndCanBeCleared(t *testing.T) {
+func TestTerminalMainAgentPromptQueueIsFIFOAndCanBeCleared(t *testing.T) {
 	client := terminalClient{}
-	if position := client.enqueueRootPrompt(" \t\n "); position != 0 {
+	if position := client.enqueueMainAgentPrompt(" \t\n "); position != 0 {
 		t.Fatalf("blank queue position = %d, want 0", position)
 	}
-	if _, ok := client.dequeueRootPrompt(); ok {
+	if _, ok := client.dequeueMainAgentPrompt(); ok {
 		t.Fatal("blank input was queued")
 	}
-	if position := client.enqueueRootPrompt("second"); position != 1 {
+	if position := client.enqueueMainAgentPrompt("second"); position != 1 {
 		t.Fatalf("first queue position = %d, want 1", position)
 	}
-	if position := client.enqueueRootPrompt("third"); position != 2 {
+	if position := client.enqueueMainAgentPrompt("third"); position != 2 {
 		t.Fatalf("second queue position = %d, want 2", position)
 	}
 	for _, want := range []string{"second", "third"} {
-		got, ok := client.dequeueRootPrompt()
+		got, ok := client.dequeueMainAgentPrompt()
 		if !ok || got != want {
 			t.Fatalf("dequeue = (%q, %v), want (%q, true)", got, ok, want)
 		}
 	}
-	if _, ok := client.dequeueRootPrompt(); ok {
+	if _, ok := client.dequeueMainAgentPrompt(); ok {
 		t.Fatal("empty queue returned a prompt")
 	}
 
-	client.enqueueRootPrompt("discard on new session")
-	client.clearRootPrompts()
-	if _, ok := client.dequeueRootPrompt(); ok {
+	client.enqueueMainAgentPrompt("discard on new session")
+	client.clearMainAgentPrompts()
+	if _, ok := client.dequeueMainAgentPrompt(); ok {
 		t.Fatal("cleared queue returned a prompt")
 	}
 }
@@ -649,19 +649,19 @@ func TestClosedAgentRejectsTerminal(t *testing.T) {
 	}
 }
 
-func TestTerminalSubagentCallbackQueueIsSilentAndFIFO(t *testing.T) {
+func TestTerminalSubagentResultQueueIsSilentAndFIFO(t *testing.T) {
 	client := terminalClient{}
-	first := SubagentCallback{SubagentID: "first"}
-	second := SubagentCallback{SubagentID: "second"}
-	client.deferRootCallback(first)
-	client.deferRootCallback(second)
-	if len(client.rootNotices) != 0 {
-		t.Fatalf("deferred callbacks produced notices: %#v", client.rootNotices)
+	first := SubagentResult{SubagentID: "first"}
+	second := SubagentResult{SubagentID: "second"}
+	client.deferMainAgentResult(first)
+	client.deferMainAgentResult(second)
+	if len(client.mainAgentNotices) != 0 {
+		t.Fatalf("deferred results produced notices: %#v", client.mainAgentNotices)
 	}
-	for _, want := range []SubagentCallback{first, second} {
-		got, ok := client.dequeueRootCallback()
+	for _, want := range []SubagentResult{first, second} {
+		got, ok := client.dequeueMainAgentResult()
 		if !ok || got.SubagentID != want.SubagentID {
-			t.Fatalf("callback dequeue = (%#v, %v), want %#v", got, ok, want)
+			t.Fatalf("result dequeue = (%#v, %v), want %#v", got, ok, want)
 		}
 	}
 }
@@ -747,14 +747,14 @@ func TestTerminalSubagentUsesSharedMarkdownAndReasoningRenderer(t *testing.T) {
 		Type: agentruntime.ProviderEventReceived,
 		ProviderEvent: provider.StreamEvent{
 			Type:      provider.ReasoningReceived,
-			Reasoning: "inspect the child task",
+			Reasoning: "inspect the subagent task",
 		},
 	}, &wroteContent)
 	client.renderSubagentEvent("subagent_1", agentruntime.AgentEvent{
 		Type: agentruntime.ProviderEventReceived,
 		ProviderEvent: provider.StreamEvent{
 			Type:    provider.ContentReceived,
-			Content: "### Child result\n\n- complete",
+			Content: "### Subagent result\n\n- complete",
 		},
 	}, &wroteContent)
 
@@ -764,10 +764,10 @@ func TestTerminalSubagentUsesSharedMarkdownAndReasoningRenderer(t *testing.T) {
 	source := renderer.source
 	renderer.mu.Unlock()
 	plain := terminalANSIEscape.ReplaceAllString(rendered, "")
-	if reasoning != "inspect the child task" || source != "### Child result\n\n- complete" {
+	if reasoning != "inspect the subagent task" || source != "### Subagent result\n\n- complete" {
 		t.Fatalf("subagent renderer state = reasoning %q source %q", reasoning, source)
 	}
-	if strings.Contains(plain, "### Child result") || !strings.Contains(plain, "> thinking") || !strings.Contains(plain, "Child result") || !strings.Contains(plain, "• complete") {
+	if strings.Contains(plain, "### Subagent result") || !strings.Contains(plain, "> thinking") || !strings.Contains(plain, "Subagent result") || !strings.Contains(plain, "• complete") {
 		t.Fatalf("subagent rendered output = %q", plain)
 	}
 }
@@ -776,16 +776,16 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 	var output bytes.Buffer
 	agent := &terminalAgentStub{
 		subagents: []storage.Subagent{{
-			ID: "subagent_1", ParentSessionID: "root", SessionID: "child", DefinitionName: "researcher",
-			Status: storage.SubagentStatusIdle, LastTurnID: "turn_1", LastTurnError: "maximum provider steps reached",
+			ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", DefinitionName: "researcher",
+			Status: storage.SubagentStatusIdle, LastSubagentTurnID: "turn_1", LastResultError: "maximum provider steps reached",
 		}},
-		messages: map[string][]agentruntime.Message{"child": {
+		messages: map[string][]agentruntime.Message{"subagent": {
 			{Type: agentruntime.MessageTypeUser, Content: "Inspect the project."},
 			{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{CallID: "call_1", Name: "load_skill", Arguments: json.RawMessage(`{"name":"interview"}`)}}},
 			{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{CallID: "call_1", Name: "load_skill", Status: agentruntime.ToolResultSucceeded, Output: json.RawMessage(`{"status":"loaded","instructions_in_context":true}`)}},
 		}},
 	}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root"}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent"}
 
 	if err := client.openSubagent("subagent_1"); err != nil {
 		t.Fatal(err)
@@ -797,10 +797,10 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 	}
 }
 
-func TestTerminalCloseActiveSubagentReturnsToRoot(t *testing.T) {
+func TestTerminalCloseActiveSubagentReturnsToMainAgent(t *testing.T) {
 	var output bytes.Buffer
-	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "subagent_1", ParentSessionID: "root", SessionID: "child", Status: storage.SubagentStatusIdle}}}
-	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "root", subagentID: "subagent_1"}
+	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", Status: storage.SubagentStatusIdle}}}
+	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent", subagentID: "subagent_1"}
 	if handled, exit := client.command("/close subagent_1"); !handled || exit {
 		t.Fatalf("/close = (%v, %v)", handled, exit)
 	}
@@ -809,16 +809,16 @@ func TestTerminalCloseActiveSubagentReturnsToRoot(t *testing.T) {
 	}
 }
 
-func TestTerminalChildInputUsesSubagentMailbox(t *testing.T) {
+func TestTerminalSubagentInputUsesSubagentMailbox(t *testing.T) {
 	agent := &terminalAgentStub{subagents: []storage.Subagent{{
-		ID: "subagent_1", ParentSessionID: "root", SessionID: "child", Status: storage.SubagentStatusRunning, CurrentTurnID: "turn_1",
+		ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: "turn_1",
 	}}}
-	client := terminalClient{agent: agent, terminal: terminal{out: &bytes.Buffer{}}, sessionID: "root", subagentID: "subagent_1"}
+	client := terminalClient{agent: agent, terminal: terminal{out: &bytes.Buffer{}}, sessionID: "mainAgent", subagentID: "subagent_1"}
 	if err := client.runSubagentTurn(context.Background(), "Please add recovery notes.", nil); err != nil {
 		t.Fatalf("runSubagentTurn() error = %v", err)
 	}
-	if agent.sentParentID != "root" || agent.sentSubagentID != "subagent_1" || agent.sentMessage != "Please add recovery notes." {
-		t.Fatalf("sent = (%q, %q, %q)", agent.sentParentID, agent.sentSubagentID, agent.sentMessage)
+	if agent.sentMainAgentID != "mainAgent" || agent.sentSubagentID != "subagent_1" || agent.sentMessage != "Please add recovery notes." {
+		t.Fatalf("sent = (%q, %q, %q)", agent.sentMainAgentID, agent.sentSubagentID, agent.sentMessage)
 	}
 }
 
@@ -831,7 +831,7 @@ type terminalAgentStub struct {
 	confirmationDecision   confirmation.Decision
 	confirmationSubagentID string
 	readSubagentCalls      int
-	sentParentID           string
+	sentMainAgentID        string
 	sentSubagentID         string
 	sentMessage            string
 }
@@ -840,8 +840,8 @@ func (*terminalAgentStub) StartSubscribed(context.Context, agentruntime.Request)
 	return nil, agentruntime.EventSubscription{}, nil
 }
 
-func (*terminalAgentStub) SubscribeSubagentCallbacks(context.Context) <-chan SubagentCallback {
-	return make(chan SubagentCallback)
+func (*terminalAgentStub) SubscribeSubagentResults(context.Context) <-chan SubagentResult {
+	return make(chan SubagentResult)
 }
 
 func (*terminalAgentStub) SubscribeSubagentPermissions(context.Context) <-chan SubagentPermissionEvent {
@@ -860,7 +860,7 @@ func (*terminalAgentStub) PendingSubagentConfirmations(context.Context, string) 
 	return nil, nil
 }
 
-func (*terminalAgentStub) ContinueSubagentCallbackSubscribed(context.Context, SubagentCallback) (*agentruntime.Run, agentruntime.EventSubscription, error) {
+func (*terminalAgentStub) ContinueSubagentResultSubscribed(context.Context, SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	return nil, agentruntime.EventSubscription{}, nil
 }
 
@@ -896,10 +896,10 @@ func (agent *terminalAgentStub) SubagentDefinitions() []SubagentDefinition {
 	return append([]SubagentDefinition(nil), agent.definitions...)
 }
 
-func (agent *terminalAgentStub) ListSubagents(_ context.Context, parentSessionID string, _ bool) ([]storage.Subagent, error) {
+func (agent *terminalAgentStub) ListSubagents(_ context.Context, mainAgentSessionID string, _ bool) ([]storage.Subagent, error) {
 	instances := make([]storage.Subagent, 0, len(agent.subagents))
 	for _, instance := range agent.subagents {
-		if instance.ParentSessionID == parentSessionID {
+		if instance.MainAgentSessionID == mainAgentSessionID {
 			instances = append(instances, instance)
 		}
 	}
@@ -910,8 +910,8 @@ func (agent *terminalAgentStub) ListMessages(_ context.Context, sessionID string
 	return append([]agentruntime.Message(nil), agent.messages[sessionID]...), nil
 }
 
-func (agent *terminalAgentStub) SendSubagentMessage(_ context.Context, parentSessionID, subagentID, message string) (storage.Subagent, error) {
-	agent.sentParentID = parentSessionID
+func (agent *terminalAgentStub) SendSubagentMessage(_ context.Context, mainAgentSessionID, subagentID, message string) (storage.Subagent, error) {
+	agent.sentMainAgentID = mainAgentSessionID
 	agent.sentSubagentID = subagentID
 	agent.sentMessage = message
 	return storage.Subagent{ID: subagentID, Status: storage.SubagentStatusRunning}, nil

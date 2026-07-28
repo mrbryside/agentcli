@@ -73,11 +73,11 @@ definitions:
     properties:
       label:
         type: string
+      main_agent_turn_id:
+        type: string
       message:
         type: string
       name:
-        type: string
-      parent_turn_id:
         type: string
     required:
     - message
@@ -325,16 +325,16 @@ definitions:
     type: object
   agentcli.ScopeEventResponse:
     properties:
-      child_ids:
-        items:
-          type: string
-        type: array
       occurred_at:
         type: string
       scope_id:
         type: string
       session_id:
         type: string
+      subagent_ids:
+        items:
+          type: string
+        type: array
       tool_names:
         items:
           type: string
@@ -357,14 +357,14 @@ definitions:
   agentcli.ServerTurnSource:
     enum:
     - user
-    - subagent_callback
+    - subagent_result
     - subagent_confirmation
     - subagent_permission
     - subagent_lifecycle
     type: string
     x-enum-varnames:
     - ServerTurnSourceUser
-    - ServerTurnSourceSubagentCallback
+    - ServerTurnSourceSubagentResult
     - ServerTurnSourceSubagentConfirmation
     - ServerTurnSourceSubagentPermission
     - ServerTurnSourceSubagentLifecycle
@@ -408,14 +408,14 @@ definitions:
         type: string
       source:
         $ref: '#/definitions/agentcli.ServerTurnSource'
-      subagent_callback:
-        $ref: '#/definitions/agentcli.SubagentCallbackReference'
       subagent_closed:
         $ref: '#/definitions/agentcli.SubagentClosedReference'
       subagent_confirmation:
         $ref: '#/definitions/agentcli.SubagentConfirmationReference'
       subagent_permission:
         $ref: '#/definitions/agentcli.SubagentPermissionReference'
+      subagent_result:
+        $ref: '#/definitions/agentcli.SubagentResultReference'
       turn_id:
         type: string
       turn_url:
@@ -460,39 +460,6 @@ definitions:
       turn_url:
         type: string
     type: object
-  agentcli.SubagentCallbackReference:
-    properties:
-      child_session_id:
-        type: string
-      child_turn_id:
-        type: string
-      definition_name:
-        type: string
-      display_name:
-        type: string
-      next_step:
-        type: string
-      parent_session_id:
-        type: string
-      parent_turn_id:
-        type: string
-      status:
-        $ref: '#/definitions/agentcli.SubagentCallbackStatus'
-      subagent_id:
-        type: string
-      summary:
-        type: string
-    type: object
-  agentcli.SubagentCallbackStatus:
-    enum:
-    - completed
-    - incomplete
-    - failed
-    type: string
-    x-enum-varnames:
-    - SubagentCallbackCompleted
-    - SubagentCallbackIncomplete
-    - SubagentCallbackFailed
   agentcli.SubagentClosedReference:
     properties:
       automatic:
@@ -501,8 +468,8 @@ definitions:
         type: integer
       interrupted:
         type: boolean
-      previous_outcome:
-        $ref: '#/definitions/storage.SubagentTurnOutcome'
+      previous_result_status:
+        $ref: '#/definitions/storage.SubagentResultStatus'
       previous_status:
         $ref: '#/definitions/storage.SubagentStatus'
       subagent:
@@ -522,10 +489,6 @@ definitions:
     - SubagentConfirmationExpired
   agentcli.SubagentConfirmationReference:
     properties:
-      child_session_id:
-        type: string
-      child_turn_id:
-        type: string
       confirmation:
         $ref: '#/definitions/agentcli.ConfirmationRequestResponse'
       decision:
@@ -535,6 +498,10 @@ definitions:
       display_name:
         type: string
       subagent_id:
+        type: string
+      subagent_session_id:
+        type: string
+      subagent_turn_id:
         type: string
       type:
         $ref: '#/definitions/agentcli.SubagentConfirmationEventType'
@@ -588,10 +555,6 @@ definitions:
     - SubagentPermissionExpired
   agentcli.SubagentPermissionReference:
     properties:
-      child_session_id:
-        type: string
-      child_turn_id:
-        type: string
       decision:
         $ref: '#/definitions/agentcli.DecisionResponse'
       definition_name:
@@ -602,6 +565,10 @@ definitions:
         $ref: '#/definitions/agentcli.PermissionRequestResponse'
       subagent_id:
         type: string
+      subagent_session_id:
+        type: string
+      subagent_turn_id:
+        type: string
       type:
         $ref: '#/definitions/agentcli.SubagentPermissionEventType'
     type: object
@@ -611,7 +578,7 @@ definitions:
         type: string
       created_at:
         type: string
-      current_turn_id:
+      current_subagent_turn_id:
         type: string
       definition_name:
         type: string
@@ -621,35 +588,68 @@ definitions:
         type: string
       label:
         type: string
-      last_turn_error:
+      last_result_error:
         type: string
-      last_turn_id:
+      last_result_next_step:
         type: string
-      last_turn_next_step:
+      last_result_status:
+        $ref: '#/definitions/storage.SubagentResultStatus'
+      last_result_summary:
         type: string
-      last_turn_outcome:
-        $ref: '#/definitions/storage.SubagentTurnOutcome'
-      last_turn_summary:
+      last_subagent_turn_id:
+        type: string
+      main_agent_session_id:
+        type: string
+      main_agent_turn_id:
         type: string
       model:
-        type: string
-      parent_session_id:
-        type: string
-      parent_turn_id:
         type: string
       provider:
         type: string
       queued_messages:
         type: integer
-      session_id:
-        type: string
       status:
         $ref: '#/definitions/storage.SubagentStatus'
+      subagent_session_id:
+        type: string
       updated_at:
         type: string
       version:
         type: integer
     type: object
+  agentcli.SubagentResultReference:
+    properties:
+      definition_name:
+        type: string
+      display_name:
+        type: string
+      main_agent_session_id:
+        type: string
+      main_agent_turn_id:
+        type: string
+      next_step:
+        type: string
+      status:
+        $ref: '#/definitions/agentcli.SubagentResultStatus'
+      subagent_id:
+        type: string
+      subagent_session_id:
+        type: string
+      subagent_turn_id:
+        type: string
+      summary:
+        type: string
+    type: object
+  agentcli.SubagentResultStatus:
+    enum:
+    - completed
+    - incomplete
+    - failed
+    type: string
+    x-enum-varnames:
+    - SubagentResultCompleted
+    - SubagentResultIncomplete
+    - SubagentResultFailed
   agentcli.SubagentTurnResponse:
     properties:
       subagent:
@@ -909,6 +909,16 @@ definitions:
     - MessageTypeToolCall
     - MessageTypeToolResult
     - MessageTypeCompactionCheckpoint
+  storage.SubagentResultStatus:
+    enum:
+    - completed
+    - incomplete
+    - failed
+    type: string
+    x-enum-varnames:
+    - SubagentResultCompleted
+    - SubagentResultIncomplete
+    - SubagentResultFailed
   storage.SubagentStatus:
     enum:
     - running
@@ -919,16 +929,6 @@ definitions:
     - SubagentStatusRunning
     - SubagentStatusIdle
     - SubagentStatusClosed
-  storage.SubagentTurnOutcome:
-    enum:
-    - completed
-    - incomplete
-    - failed
-    type: string
-    x-enum-varnames:
-    - SubagentTurnCompleted
-    - SubagentTurnIncomplete
-    - SubagentTurnFailed
 info:
   contact:
     name: AgentCLI API support
@@ -962,7 +962,7 @@ paths:
       - application/json
       description: Answers a tool-authored informational Yes/No confirmation. This
         is independent of permission policy.
-      operationId: resolveRootConfirmation
+      operationId: resolveMainAgentConfirmation
       parameters:
       - description: Confirmation request ID
         in: path
@@ -994,7 +994,7 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Resolve a root tool confirmation
+      summary: Resolve a main-agent tool confirmation
       tags:
       - Confirmations
   /v1/permission-mode:
@@ -1041,7 +1041,7 @@ paths:
     post:
       consumes:
       - application/json
-      operationId: resolveRootPermission
+      operationId: resolveMainAgentPermission
       parameters:
       - description: Permission request ID
         in: path
@@ -1073,18 +1073,18 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Resolve a root tool permission
+      summary: Resolve a main-agent tool permission
       tags:
       - Permissions
-  /v1/sessions/{parentSessionID}/subagent-confirmations:
+  /v1/sessions/{mainAgentSessionID}/subagent-confirmations:
     get:
-      description: Returns durable pending child confirmation requests so clients
+      description: Returns durable pending subagent confirmation requests so clients
         can recover after attaching late or reconnecting.
       operationId: listPendingSubagentConfirmations
       parameters:
-      - description: Parent session ID
+      - description: Main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       produces:
@@ -1098,18 +1098,18 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: List pending confirmations for a parent session
+      summary: List pending confirmations for a main agent session
       tags:
       - Confirmations
-  /v1/sessions/{parentSessionID}/subagent-permissions:
+  /v1/sessions/{mainAgentSessionID}/subagent-permissions:
     get:
-      description: Returns durable pending child permission requests so clients can
-        recover after attaching late or reconnecting.
+      description: Returns durable pending subagent permission requests so clients
+        can recover after attaching late or reconnecting.
       operationId: listPendingSubagentPermissions
       parameters:
-      - description: Parent session ID
+      - description: Main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       produces:
@@ -1123,19 +1123,19 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: List pending permissions for a parent session
+      summary: List pending permissions for a main agent session
       tags:
       - Permissions
-  /v1/sessions/{parentSessionID}/subagents:
+  /v1/sessions/{mainAgentSessionID}/subagents:
     get:
       operationId: listSubagents
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
-      - description: Include closed child records
+      - description: Include closed subagent records
         in: query
         name: include_closed
         type: boolean
@@ -1150,7 +1150,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: List subagents owned by a parent session
+      summary: List subagents owned by a main agent session
       tags:
       - Subagents
     post:
@@ -1158,9 +1158,9 @@ paths:
       - application/json
       operationId: createSubagent
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent definition and initial message
@@ -1191,18 +1191,18 @@ paths:
       summary: Create and asynchronously start a subagent
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}:
     delete:
-      description: Destructively closes one child, interrupting active work, dropping
-        queued input, and cancelling outstanding response-scope callback obligations
+      description: Destructively closes one subagent, interrupting active work, dropping
+        queued input, and cancelling outstanding response-scope result obligations
         when necessary, while retaining transcript and completed event history. Bind
         this endpoint to an explicit user action. A successful close also emits subagent_closed
-        on the parent session event stream.
+        on the main agent session event stream.
       operationId: closeSubagent
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1231,9 +1231,9 @@ paths:
     get:
       operationId: getSubagent
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1255,15 +1255,15 @@ paths:
       summary: Read one owned subagent
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions:
     post:
       consumes:
       - application/json
       operationId: resolveSubagentConfirmation
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1304,15 +1304,15 @@ paths:
       summary: Resolve a tool confirmation for an owned subagent
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/messages:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/messages:
     get:
-      description: Reading for UI rendering does not mark child activity as observed
-        by the parent model.
+      description: Reading for UI rendering does not mark subagent activity as observed
+        by the main agent model.
       operationId: listSubagentMessages
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1334,15 +1334,15 @@ paths:
       summary: List an owned subagent transcript
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/permissions/{permissionID}/decisions:
     post:
       consumes:
       - application/json
       operationId: resolveSubagentPermission
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1383,19 +1383,19 @@ paths:
       summary: Resolve a tool permission for an owned subagent
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns:
     post:
       consumes:
       - application/json
-      description: 'Queues the message while the child is running, or starts an idle
-        incomplete/completed/failed child after its latest callback has been consumed.
-        Closed, callback-pending, and outcome-less children return conflict. An immediately
-        started turn can be streamed with Accept: text/event-stream.'
+      description: 'Queues the message while the subagent is running, or starts an
+        idle incomplete/completed/failed subagent after its latest result has been
+        consumed. Closed, result-pending, and result-less subagents return conflict.
+        An immediately started turn can be streamed with Accept: text/event-stream.'
       operationId: startSubagentTurn
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1432,13 +1432,13 @@ paths:
       summary: Continue a subagent conversation
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}:
     get:
       operationId: getSubagentTurn
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1446,7 +1446,7 @@ paths:
         name: subagentID
         required: true
         type: string
-      - description: Child turn ID
+      - description: Subagent turn ID
         in: path
         name: turnID
         required: true
@@ -1465,15 +1465,15 @@ paths:
       summary: Read an owned subagent turn
       tags:
       - Subagents
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/events:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/events:
     get:
-      description: Replays retained child-turn events after the cursor, then continues
+      description: Replays retained subagent-turn events after the cursor, then continues
         with live EventResponse envelopes.
       operationId: streamSubagentTurnEvents
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1481,7 +1481,7 @@ paths:
         name: subagentID
         required: true
         type: string
-      - description: Child turn ID
+      - description: Subagent turn ID
         in: path
         name: turnID
         required: true
@@ -1514,17 +1514,17 @@ paths:
       summary: Stream retained and live subagent turn events
       tags:
       - Event streams
-  /v1/sessions/{parentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt:
+  /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}/interrupt:
     post:
       consumes:
       - application/json
-      description: Only the child turn currently active may be interrupted. The body
-        is optional.
+      description: Only the subagent turn currently active may be interrupted. The
+        body is optional.
       operationId: interruptSubagentTurn
       parameters:
-      - description: Owning parent session ID
+      - description: Owning main agent session ID
         in: path
-        name: parentSessionID
+        name: mainAgentSessionID
         required: true
         type: string
       - description: Subagent ID
@@ -1532,7 +1532,7 @@ paths:
         name: subagentID
         required: true
         type: string
-      - description: Child turn ID
+      - description: Subagent turn ID
         in: path
         name: turnID
         required: true
@@ -1562,9 +1562,9 @@ paths:
       - Subagents
   /v1/sessions/{sessionID}/events:
     get:
-      description: Replays and follows every root turn in a session, including queued
-        lifecycle records, response-scope boundaries, and parent turns created automatically
-        from subagent callbacks. The session cursor is independent from each runtime
+      description: Replays and follows every main-agent turn in a session, including
+        queued lifecycle records, response-scope boundaries, and turns created automatically
+        from subagent results. The session cursor is independent from each runtime
         event sequence.
       operationId: streamSessionEvents
       parameters:
@@ -1628,7 +1628,7 @@ paths:
       description: 'Starts immediately when the session is idle or queues FIFO when
         another turn is active. Send Accept: text/event-stream to stream an admitted
         turn instead of receiving JSON.'
-      operationId: startRootTurn
+      operationId: startMainAgentTurn
       parameters:
       - description: Session ID
         in: path
@@ -1669,12 +1669,12 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Start or queue a root agent turn
+      summary: Start or queue a main-agent turn
       tags:
       - Turns
   /v1/sessions/{sessionID}/turns/{turnID}:
     get:
-      operationId: getRootTurn
+      operationId: getMainAgentTurn
       parameters:
       - description: Session ID
         in: path
@@ -1697,14 +1697,14 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Read root turn status and result
+      summary: Read main-agent turn status and result
       tags:
       - Turns
   /v1/sessions/{sessionID}/turns/{turnID}/events:
     get:
       description: Replays events after the supplied cursor, then continues with live
         events. The SSE event ID is the event sequence.
-      operationId: streamRootTurnEvents
+      operationId: streamMainAgentTurnEvents
       parameters:
       - description: Session ID
         in: path
@@ -1741,7 +1741,7 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Stream retained and live root turn events
+      summary: Stream retained and live main-agent turn events
       tags:
       - Event streams
   /v1/sessions/{sessionID}/turns/{turnID}/interrupt:
@@ -1750,7 +1750,7 @@ paths:
       - application/json
       description: Cancels a queued turn before admission or requests interruption
         of an active turn. The body is optional.
-      operationId: interruptRootTurn
+      operationId: interruptMainAgentTurn
       parameters:
       - description: Session ID
         in: path
@@ -1788,7 +1788,7 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Interrupt a root turn
+      summary: Interrupt a main-agent turn
       tags:
       - Turns
   /v1/subagent-definitions:

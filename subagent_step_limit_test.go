@@ -14,9 +14,9 @@ import (
 
 func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *testing.T) {
 	model := &lateStepLimitOutcomeModel{}
-	child, err := New(
+	subagent, err := New(
 		context.Background(),
-		withChildAgent(),
+		withSubagentAgent(),
 		WithModel(model),
 		WithProviderStepLimit(1),
 		WithTool(testTool("work")),
@@ -24,9 +24,9 @@ func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer child.Close()
+	defer subagent.Close()
 
-	run, err := child.Start(context.Background(), userRequest("child-step-limit"))
+	run, err := subagent.Start(context.Background(), userRequest("subagent-step-limit"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,8 @@ func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *test
 			defaultCompletionRepairLimit,
 		)
 	}
-	if result.Content != "final child answer" || result.Steps != 6 {
-		t.Fatalf("result = %#v, want final child answer after six provider steps", result)
+	if result.Content != "final subagent answer" || result.Steps != 6 {
+		t.Fatalf("result = %#v, want final subagent answer after six provider steps", result)
 	}
 
 	requests := model.Requests()
@@ -53,19 +53,19 @@ func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *test
 	}
 	for index := 1; index < len(requests); index++ {
 		if len(requests[index].Tools) != 1 ||
-			requests[index].Tools[0].Name != toolexecution.SubagentOutcomeToolName {
+			requests[index].Tools[0].Name != toolexecution.SubagentResultToolName {
 			t.Fatalf(
-				"finalization request %d tools = %#v, want only report_subagent_outcome",
+				"finalization request %d tools = %#v, want only report_subagent_result",
 				index,
 				requests[index].Tools,
 			)
 		}
 	}
-	if hasSubagentOutcomeRepairReminder(requests[1]) {
+	if hasSubagentReportRepairReminder(requests[1]) {
 		t.Fatal("initial finalizer must not be counted as an outcome repair")
 	}
 	for index := 2; index <= 4; index++ {
-		if !hasSubagentOutcomeRepairReminder(requests[index]) {
+		if !hasSubagentReportRepairReminder(requests[index]) {
 			t.Fatalf("request %d lacks the outcome repair reminder", index)
 		}
 	}
@@ -96,22 +96,22 @@ Research and deliver.
 		if err == nil ||
 			!strings.Contains(err.Error(), `subagent "researcher"`) ||
 			!strings.Contains(err.Error(), `custom tool "deliver"`) ||
-			!strings.Contains(err.Error(), "supported only by root agents") {
+			!strings.Contains(err.Error(), "supported only by main agents") {
 			t.Fatalf("New() error = %v, want named subagent EndResponseScope rejection", err)
 		}
 	})
 
-	t.Run("defensive child construction", func(t *testing.T) {
+	t.Run("defensive subagent construction", func(t *testing.T) {
 		_, err := New(
 			context.Background(),
-			withChildAgent(),
+			withSubagentAgent(),
 			WithModel(&scriptedModel{}),
 			WithTool(endResponseScopeTestTool("deliver")),
 		)
 		if err == nil ||
 			!strings.Contains(err.Error(), `custom tool "deliver"`) ||
-			!strings.Contains(err.Error(), "supported only by root agents") {
-			t.Fatalf("New() error = %v, want defensive child EndResponseScope rejection", err)
+			!strings.Contains(err.Error(), "supported only by main agents") {
+			t.Fatalf("New() error = %v, want defensive subagent EndResponseScope rejection", err)
 		}
 	})
 }
@@ -156,9 +156,9 @@ func (m *lateStepLimitOutcomeModel) Start(
 		return scriptedStream{result: provider.StreamResult{
 			CompletedTools: []provider.ToolCall{{
 				ID:   "outcome",
-				Name: toolexecution.SubagentOutcomeToolName,
+				Name: toolexecution.SubagentResultToolName,
 				Arguments: map[string]any{
-					"status":  string(toolexecution.SubagentOutcomeCompleted),
+					"status":  string(toolexecution.SubagentReportCompleted),
 					"summary": "completed from existing results",
 				},
 			}},
@@ -166,7 +166,7 @@ func (m *lateStepLimitOutcomeModel) Start(
 		}}, nil
 	case 5:
 		return scriptedStream{result: provider.StreamResult{
-			Content: "final child answer", Finished: true,
+			Content: "final subagent answer", Finished: true,
 		}}, nil
 	default:
 		return scriptedStream{result: provider.StreamResult{

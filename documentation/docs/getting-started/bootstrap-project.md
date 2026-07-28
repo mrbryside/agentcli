@@ -207,8 +207,8 @@ Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
 atomic replacement after both gates succeed. The generated project
 starts in `criticalOnly`, which allows low-risk requests unless an explicit
 policy rule says otherwise. When a subagent permission or confirmation needs a
-decision, the request is surfaced in the parent Terminal session; you do not
-need to open the child view.
+decision, the request is surfaced in the main agent Terminal session; you do not
+need to open the subagent view.
 
 The generated tools use the public explicit schema API: `agentcli.Tool`,
 `agentcli.ToolDefinition`, `agentcli.ToolParameter`, and

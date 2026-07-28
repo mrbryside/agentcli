@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-const subagentCapabilityBoundaryPrompt = "Use only information present in the conversation or obtained through the capabilities registered for this child. Never claim to have accessed a resource, performed an action, or gathered evidence unless the conversation or a tool result supports it. If the delegated task requires an unavailable capability, say so clearly and stop; do not substitute an unrelated skill. You cannot create, inspect, message, wait for, or close subagents, and you cannot delegate to another agent. The parent owns non-destructive subagent orchestration; destructive closure is controlled only by the host application."
+const subagentCapabilityBoundaryPrompt = "Use only information present in the conversation or obtained through capabilities registered for this subagent. Never claim to have accessed a resource, performed an action, or gathered evidence unless a message or tool result supports it. If the assigned task requires an unavailable capability, say so clearly and stop; do not substitute an unrelated skill. You cannot create, inspect, message, wait for, or close other subagents, and you cannot delegate to another agent. The main agent manages subagents; closing a subagent is controlled only by the host application."
 
-const subagentCompletionPrompt = "Before your final assistant answer, you MUST call report_subagent_outcome exactly once. Choose the outcome from the actual state. Report completed only when every required part of the delegated task is resolved; omit next_step and error. Report incomplete when required work, information, confirmation, or a decision remains; include one concrete next_step and omit error. Report failed only when a terminal error prevents the delegated task from continuing; include the actual error, omit next_step, and never invent recovery work. If unsure whether work is resolved, report incomplete. If you attempt to finish without a successful report, the runtime grants a bounded repair loop exposing only report_subagent_outcome; use it only to report the existing outcome and never repeat domain work. Omitting the report after the bounded repairs defaults the callback to incomplete. After the tool succeeds, finish the turn with a concise, self-contained final answer for the parent agent. State the result or conclusion, the evidence that materially supports it, and any unresolved blocker or next step. Never finish with only a progress update, tool status, or promise to report back. Tool calls and intermediate work remain in the child transcript, so do not reproduce their full trace in the final answer."
+const subagentCompletionPrompt = "You are a subagent. The main agent assigned this work and will receive your result. Before your final assistant answer, call report_subagent_result exactly once. Use completed only when every required part is resolved; omit next_step and error. Use incomplete when work, information, confirmation, or a decision remains; include one concrete next_step and omit error. Use failed only when a terminal error prevents continuation; include the actual error and omit next_step. If unsure, use incomplete. If you try to finish without a successful report, only report_subagent_result remains available for a few repair attempts; report the existing result and never repeat domain work. If no valid report succeeds, your result defaults to incomplete. After the tool succeeds, write one concise, self-contained final answer for the main agent with the result, material evidence, and any unresolved next step. Do not reproduce the full tool trace."
 
-func withChildSystemPrompts(project *Project, definition SubagentDefinition) Option {
+func withSubagentSystemPrompts(project *Project, definition SubagentDefinition) Option {
 	return func(configuration *config) error {
 		if project == nil {
 			return errors.New("project is required")
@@ -25,7 +25,7 @@ func withChildSystemPrompts(project *Project, definition SubagentDefinition) Opt
 
 func subagentSystemPrompt(project *Project, definition SubagentDefinition) string {
 	var prompt strings.Builder
-	fmt.Fprintf(&prompt, "You are the configured %q subagent. Complete delegated work independently and return a useful result to the parent agent.", definition.Name)
+	fmt.Fprintf(&prompt, "You are the configured %q subagent. Complete the assigned work independently and return a useful result to the main agent.", definition.Name)
 
 	prompt.WriteString("\n\n# Runtime context\n\n")
 	prompt.WriteString(renderPromptRuntimeContext(project, promptRuntimeContext{

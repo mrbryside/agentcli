@@ -16,7 +16,7 @@ module.exports = {
       items: [
         'agentcli/runs-and-sessions',
         'agentcli/events-and-history',
-        'agentcli/child-views',
+        'agentcli/subagent-views',
         'agentcli/server',
       ],
     },

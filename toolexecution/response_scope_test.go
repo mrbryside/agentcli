@@ -19,7 +19,7 @@ func TestResponseScopeLoggerRecordsLifecycleAndDetails(t *testing.T) {
 	var logs bytes.Buffer
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	coordinator.SetLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	coordinator.FinishTurn("session", "turn")
@@ -40,38 +40,38 @@ func TestResponseScopeLoggerRecordsLifecycleAndDetails(t *testing.T) {
 	}
 }
 
-func TestResponseScopeLimitsFailedRecoveryByChildAndFingerprint(t *testing.T) {
+func TestResponseScopeLimitsFailedRecoveryBySubagentAndFingerprint(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
 
-	allowed, rollback := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #")
+	allowed, rollback := coordinator.ReserveFailedRecovery("session", "root-turn", "subagent-1", "context # exceeded #")
 	if !allowed {
 		t.Fatal("first recovery was rejected")
 	}
-	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #"); allowed {
-		t.Fatal("duplicate child failure recovery was accepted")
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "subagent-1", "context # exceeded #"); allowed {
+		t.Fatal("duplicate subagent failure recovery was accepted")
 	}
-	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "provider unavailable"); !allowed {
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "subagent-1", "provider unavailable"); !allowed {
 		t.Fatal("different failure fingerprint was rejected")
 	}
-	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-2", "context # exceeded #"); !allowed {
-		t.Fatal("same failure on another child was rejected")
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "subagent-2", "context # exceeded #"); !allowed {
+		t.Fatal("same failure on another subagent was rejected")
 	}
 
 	rollback()
-	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #"); !allowed {
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "subagent-1", "context # exceeded #"); !allowed {
 		t.Fatal("rolled-back recovery reservation remained exhausted")
 	}
 }
 
 func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-1")
 
 	var (
 		mu       sync.Mutex
@@ -98,17 +98,17 @@ func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T)
 
 	coordinator.FinishTurn("session", "root-turn")
 	if got := snapshotStrings(&mu, received); len(got) != 0 {
-		t.Fatalf("handler calls after root turn = %v, want none", got)
+		t.Fatalf("handler calls after main-agent turn = %v, want none", got)
 	}
 
-	reservation, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn-1")
+	reservation, err := coordinator.ReserveResultTurn("session", "result-turn", "subagent", "subagent-turn-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reservation.Commit()
-	request := scopeToolRequest("callback-turn", `{"message":"final"}`)
+	request := scopeToolRequest("result-turn", `{"message":"final"}`)
 	request.CompletionBoundary = true
-	callbackOutput, executed, err := coordinator.ExecuteEndResponseScope(
+	resultOutput, executed, err := coordinator.ExecuteEndResponseScope(
 		context.Background(),
 		request,
 		handler,
@@ -116,85 +116,85 @@ func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !executed || string(callbackOutput) != `{"sent":true}` {
-		t.Fatalf("final execution = (%t, %s), want executed handler result", executed, callbackOutput)
+	if !executed || string(resultOutput) != `{"sent":true}` {
+		t.Fatalf("final execution = (%t, %s), want executed handler result", executed, resultOutput)
 	}
 	if got := snapshotStrings(&mu, received); len(got) != 1 || got[0] != `{"message":"final"}` {
 		t.Fatalf("handler calls = %v, want final call once", got)
 	}
-	coordinator.FinishTurn("session", "callback-turn")
-	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay", "child", "child-turn-1"); err == nil {
-		t.Fatal("late callback replay reopened an ended response scope")
+	coordinator.FinishTurn("session", "result-turn")
+	if _, err := coordinator.ReserveResultTurn("session", "late-replay", "subagent", "subagent-turn-1"); err == nil {
+		t.Fatal("late result replay reopened an ended response scope")
 	}
 	if got := snapshotStrings(&mu, received); len(got) != 1 {
 		t.Fatalf("handler calls after late replay = %v, want exactly one", got)
 	}
 
-	if err := coordinator.BeginRootTurn("session", "new-root"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "new-root"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "new-root", "child", "new-dispatch")
+	coordinator.RegisterAssignment("session", "new-root", "subagent", "new-assignment")
 	coordinator.FinishTurn("session", "new-root")
-	if _, err := coordinator.ReserveCallbackTurn("session", "late-replay-with-new-work", "child", "child-turn-1"); err == nil {
+	if _, err := coordinator.ReserveResultTurn("session", "late-replay-with-new-work", "subagent", "subagent-turn-1"); err == nil {
 		t.Fatal("late replay from ended scope consumed newer response-scope work")
 	}
-	newCallback, err := coordinator.ReserveCallbackTurn("session", "new-callback", "child", "child-turn-2")
+	newResult, err := coordinator.ReserveResultTurn("session", "new-result", "subagent", "subagent-turn-2")
 	if err != nil {
-		t.Fatalf("new callback after late replay error = %v", err)
+		t.Fatalf("new result after late replay error = %v", err)
 	}
-	newCallback.Commit()
+	newResult.Commit()
 }
 
-func TestResponseScopeCancelChildDispatchesReleasesPendingCallbackBarrier(t *testing.T) {
+func TestResponseScopeCancelSubagentAssignmentsReleasesPendingResultBarrier(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	rollback := coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-2")
+	rollback := coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-1")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-2")
 	if coordinator.ReadyToEnd("session", "root-turn") {
-		t.Fatal("scope became ready while child callbacks were pending")
+		t.Fatal("scope became ready while subagent results were pending")
 	}
 
-	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 2 {
-		t.Fatalf("cancelled dispatches = %d, want 2", cancelled)
+	if cancelled := coordinator.CancelSubagentAssignments("session", "subagent"); cancelled != 2 {
+		t.Fatalf("cancelled assignments = %d, want 2", cancelled)
 	}
 	if !coordinator.ReadyToEnd("session", "root-turn") {
-		t.Fatal("scope did not become ready after destructive child close cancelled every callback obligation")
+		t.Fatal("scope did not become ready after destructive subagent close cancelled every result obligation")
 	}
-	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 0 {
+	if cancelled := coordinator.CancelSubagentAssignments("session", "subagent"); cancelled != 0 {
 		t.Fatalf("second cancellation = %d, want 0", cancelled)
 	}
 	rollback()
 	if !coordinator.ReadyToEnd("session", "root-turn") {
-		t.Fatal("late dispatch rollback changed the already-cancelled barrier")
+		t.Fatal("late assignment rollback changed the already-cancelled barrier")
 	}
-	if _, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn"); !errors.Is(err, ErrResponseScopeDispatchNotFound) {
-		t.Fatalf("callback after destructive close error = %v, want ErrResponseScopeDispatchNotFound", err)
+	if _, err := coordinator.ReserveResultTurn("session", "result-turn", "subagent", "subagent-turn"); !errors.Is(err, ErrResponseScopeAssignmentNotFound) {
+		t.Fatalf("result after destructive close error = %v, want ErrResponseScopeAssignmentNotFound", err)
 	}
 }
 
-func TestResponseScopeCancelChildDispatchesPreventsReservationRollbackFromRestoringObligation(t *testing.T) {
+func TestResponseScopeCancelSubagentAssignmentsPreventsReservationRollbackFromRestoringObligation(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-1")
 	coordinator.FinishTurn("session", "root-turn")
 
-	reservation, err := coordinator.ReserveCallbackTurn(
+	reservation, err := coordinator.ReserveResultTurn(
 		"session",
-		"rejected-callback-turn",
-		"child",
-		"child-turn",
+		"rejected-result-turn",
+		"subagent",
+		"subagent-turn",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cancelled := coordinator.CancelChildDispatches("session", "child"); cancelled != 0 {
-		t.Fatalf("cancelled queued dispatches = %d, want 0 for reserved callback", cancelled)
+	if cancelled := coordinator.CancelSubagentAssignments("session", "subagent"); cancelled != 0 {
+		t.Fatalf("cancelled queued assignments = %d, want 0 for reserved result", cancelled)
 	}
-	reservation.Rollback("child", "child-turn")
+	reservation.Rollback("subagent", "subagent-turn")
 
 	coordinator.mu.Lock()
 	scope := coordinator.scopes[responseScopeKey{sessionID: "session", scopeID: "root-turn"}]
@@ -202,237 +202,237 @@ func TestResponseScopeCancelChildDispatchesPreventsReservationRollbackFromRestor
 		coordinator.mu.Unlock()
 		t.Fatal("response scope disappeared")
 	}
-	pendingCallbacks := scope.pendingCallbacks
+	pendingResults := scope.pendingResults
 	activeTurns := scope.activeTurns
 	coordinator.mu.Unlock()
-	if pendingCallbacks != 0 {
-		t.Fatalf("reservation rollback restored %d callback obligations after destructive close", pendingCallbacks)
+	if pendingResults != 0 {
+		t.Fatalf("reservation rollback restored %d result obligations after destructive close", pendingResults)
 	}
 	if activeTurns != 0 {
-		t.Fatalf("active turns after rejected callback rollback = %d, want 0", activeTurns)
+		t.Fatalf("active turns after rejected result rollback = %d, want 0", activeTurns)
 	}
-	if _, err := coordinator.ReserveCallbackTurn(
+	if _, err := coordinator.ReserveResultTurn(
 		"session",
-		"retry-callback-turn",
-		"child",
-		"child-turn",
-	); !errors.Is(err, ErrResponseScopeDispatchNotFound) {
-		t.Fatalf("callback retry after close error = %v, want ErrResponseScopeDispatchNotFound", err)
+		"retry-result-turn",
+		"subagent",
+		"subagent-turn",
+	); !errors.Is(err, ErrResponseScopeAssignmentNotFound) {
+		t.Fatalf("result retry after close error = %v, want ErrResponseScopeAssignmentNotFound", err)
 	}
 
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-after-close")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-after-close")
 	coordinator.mu.Lock()
-	pendingCallbacks = scope.pendingCallbacks
+	pendingResults = scope.pendingResults
 	coordinator.mu.Unlock()
-	if pendingCallbacks != 0 {
-		t.Fatalf("dispatch registration recreated %d obligations for a closed child", pendingCallbacks)
+	if pendingResults != 0 {
+		t.Fatalf("assignment registration recreated %d obligations for a closed subagent", pendingResults)
 	}
 }
 
-func TestResponseScopeFollowUpReopensBarrierAndCallbackReplayDoesNotCloseIt(t *testing.T) {
+func TestResponseScopeFollowUpReopensBarrierAndResultReplayDoesNotCloseIt(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-1")
 	coordinator.FinishTurn("session", "root-turn")
 
-	first, err := coordinator.ReserveCallbackTurn("session", "callback-1", "child", "child-turn-1")
+	first, err := coordinator.ReserveResultTurn("session", "result-1", "subagent", "subagent-turn-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	first.Commit()
-	coordinator.RegisterDispatch("session", "callback-1", "child", "follow-up")
+	coordinator.RegisterAssignment("session", "result-1", "subagent", "follow-up")
 
 	calls := 0
 	handler := func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		calls++
 		return json.RawMessage(`{}`), nil
 	}
-	if _, executed, err := executeScopeTool(coordinator, "callback-1", `{"message":"waiting"}`, false, handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "result-1", `{"message":"waiting"}`, false, handler); err != nil {
 		t.Fatal(err)
 	} else if executed {
 		t.Fatal("follow-up-pending call executed")
 	}
-	coordinator.FinishTurn("session", "callback-1")
+	coordinator.FinishTurn("session", "result-1")
 	if calls != 0 {
 		t.Fatalf("handler calls = %d, want none with accepted follow-up pending", calls)
 	}
 
-	replay, err := coordinator.ReserveCallbackTurn("session", "callback-replay", "child", "child-turn-1")
+	replay, err := coordinator.ReserveResultTurn("session", "result-replay", "subagent", "subagent-turn-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	replay.Commit()
-	if _, executed, err := executeScopeTool(coordinator, "callback-replay", `{"message":"replay"}`, false, handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "result-replay", `{"message":"replay"}`, false, handler); err != nil {
 		t.Fatal(err)
 	} else if executed {
-		t.Fatal("callback replay call executed")
+		t.Fatal("result replay call executed")
 	}
-	coordinator.FinishTurn("session", "callback-replay")
+	coordinator.FinishTurn("session", "result-replay")
 	if calls != 0 {
-		t.Fatalf("handler calls = %d, replay closed a newer pending dispatch", calls)
+		t.Fatalf("handler calls = %d, replay closed a newer pending assignment", calls)
 	}
 
-	second, err := coordinator.ReserveCallbackTurn("session", "callback-2", "child", "child-turn-2")
+	second, err := coordinator.ReserveResultTurn("session", "result-2", "subagent", "subagent-turn-2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	second.Commit()
-	if _, executed, err := executeScopeTool(coordinator, "callback-2", `{"message":"done after failed or incomplete callback"}`, true, handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "result-2", `{"message":"done after failed or incomplete result"}`, true, handler); err != nil {
 		t.Fatal(err)
 	} else if !executed {
-		t.Fatal("final callback call was skipped")
+		t.Fatal("final result call was skipped")
 	}
-	coordinator.FinishTurn("session", "callback-2")
+	coordinator.FinishTurn("session", "result-2")
 	if calls != 1 {
-		t.Fatalf("handler calls = %d, want exactly one after terminal callback", calls)
+		t.Fatalf("handler calls = %d, want exactly one after terminal result", calls)
 	}
 }
 
-func TestResponseScopeCallbackReservationRollbackRestoresPendingDispatch(t *testing.T) {
+func TestResponseScopeResultReservationRollbackRestoresPendingAssignment(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch-1")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment-1")
 	coordinator.FinishTurn("session", "root-turn")
 
-	reservation, err := coordinator.ReserveCallbackTurn("session", "rejected-turn", "child", "child-turn")
+	reservation, err := coordinator.ReserveResultTurn("session", "rejected-turn", "subagent", "subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation.Rollback("child", "child-turn")
+	reservation.Rollback("subagent", "subagent-turn")
 
-	retry, err := coordinator.ReserveCallbackTurn("session", "accepted-turn", "child", "child-turn")
+	retry, err := coordinator.ReserveResultTurn("session", "accepted-turn", "subagent", "subagent-turn")
 	if err != nil {
-		t.Fatalf("ReserveCallbackTurn() after rollback error = %v", err)
+		t.Fatalf("ReserveResultTurn() after rollback error = %v", err)
 	}
 	retry.Commit()
 }
 
-func TestResponseScopeCallbackProgressTracksPendingAndReceivedIdentities(t *testing.T) {
+func TestResponseScopeResultProgressTracksPendingAndReceivedIdentities(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
-		SubagentID: "child-a", DefinitionName: "web-summary", DisplayName: "Vale",
-		DispatchID: "dispatch-a", TurnID: "child-turn-a",
+	coordinator.RegisterAssignmentMetadata("session", "root-turn", ResponseScopePendingResult{
+		SubagentID: "subagent-a", DefinitionName: "web-summary", DisplayName: "Vale",
+		AssignmentID: "assignment-a", SubagentTurnID: "subagent-turn-a",
 	})
-	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
-		SubagentID: "child-b", DefinitionName: "web-summary", DisplayName: "Luna",
-		DispatchID: "dispatch-b",
+	coordinator.RegisterAssignmentMetadata("session", "root-turn", ResponseScopePendingResult{
+		SubagentID: "subagent-b", DefinitionName: "web-summary", DisplayName: "Luna",
+		AssignmentID: "assignment-b",
 	})
 
-	first, err := coordinator.ReserveCallbackTurnWithMetadata("session", "callback-a", ResponseScopeReceivedCallback{
-		SubagentID: "child-a", DefinitionName: "web-summary", DisplayName: "Vale",
-		TurnID: "child-turn-a", OutcomeStatus: "completed",
+	first, err := coordinator.ReserveResultTurnWithMetadata("session", "result-a", ResponseScopeDeliveredResult{
+		SubagentID: "subagent-a", DefinitionName: "web-summary", DisplayName: "Vale",
+		SubagentTurnID: "subagent-turn-a", ResultStatus: "completed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstProgress := first.CallbackProgress()
-	if firstProgress.RemainingCallbacks != 1 || firstProgress.AllCallbacksReceived ||
-		len(firstProgress.PendingCallbacks) != 1 || len(firstProgress.ReceivedCallbacks) != 1 {
-		t.Fatalf("first callback progress = %#v", firstProgress)
+	firstProgress := first.ResultProgress()
+	if firstProgress.PendingCount != 1 || firstProgress.AllResultsDelivered ||
+		len(firstProgress.PendingResults) != 1 || len(firstProgress.DeliveredResults) != 1 {
+		t.Fatalf("first result progress = %#v", firstProgress)
 	}
-	if pending := firstProgress.PendingCallbacks[0]; pending.SubagentID != "child-b" ||
+	if pending := firstProgress.PendingResults[0]; pending.SubagentID != "subagent-b" ||
 		pending.DefinitionName != "web-summary" || pending.DisplayName != "Luna" ||
-		pending.DispatchID != "dispatch-b" || pending.TurnID != "" {
-		t.Fatalf("pending callback = %#v", pending)
+		pending.AssignmentID != "assignment-b" || pending.SubagentTurnID != "" {
+		t.Fatalf("pending result = %#v", pending)
 	}
-	if received := firstProgress.ReceivedCallbacks[0]; received.SubagentID != "child-a" ||
-		received.TurnID != "child-turn-a" || received.OutcomeStatus != "completed" ||
-		received.DispatchID != "dispatch-a" {
-		t.Fatalf("received callback = %#v", received)
+	if received := firstProgress.DeliveredResults[0]; received.SubagentID != "subagent-a" ||
+		received.SubagentTurnID != "subagent-turn-a" || received.ResultStatus != "completed" ||
+		received.AssignmentID != "assignment-a" {
+		t.Fatalf("received result = %#v", received)
 	}
 	first.Commit()
 
-	second, err := coordinator.ReserveCallbackTurnWithMetadata("session", "callback-b", ResponseScopeReceivedCallback{
-		SubagentID: "child-b", DefinitionName: "web-summary", DisplayName: "Luna",
-		TurnID: "child-turn-b", OutcomeStatus: "failed",
+	second, err := coordinator.ReserveResultTurnWithMetadata("session", "result-b", ResponseScopeDeliveredResult{
+		SubagentID: "subagent-b", DefinitionName: "web-summary", DisplayName: "Luna",
+		SubagentTurnID: "subagent-turn-b", ResultStatus: "failed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondProgress := second.CallbackProgress()
-	if secondProgress.RemainingCallbacks != 0 || !secondProgress.AllCallbacksReceived ||
-		len(secondProgress.PendingCallbacks) != 0 || len(secondProgress.ReceivedCallbacks) != 2 {
-		t.Fatalf("second callback progress = %#v", secondProgress)
+	secondProgress := second.ResultProgress()
+	if secondProgress.PendingCount != 0 || !secondProgress.AllResultsDelivered ||
+		len(secondProgress.PendingResults) != 0 || len(secondProgress.DeliveredResults) != 2 {
+		t.Fatalf("second result progress = %#v", secondProgress)
 	}
-	if received := secondProgress.ReceivedCallbacks[1]; received.SubagentID != "child-b" ||
-		received.TurnID != "child-turn-b" || received.OutcomeStatus != "failed" ||
-		received.DispatchID != "dispatch-b" {
-		t.Fatalf("second received callback = %#v", received)
+	if received := secondProgress.DeliveredResults[1]; received.SubagentID != "subagent-b" ||
+		received.SubagentTurnID != "subagent-turn-b" || received.ResultStatus != "failed" ||
+		received.AssignmentID != "assignment-b" {
+		t.Fatalf("second received result = %#v", received)
 	}
 	second.Commit()
 }
 
-func TestResponseScopeCallbackProgressRollbackRemovesUnacceptedCallback(t *testing.T) {
+func TestResponseScopeResultProgressRollbackRemovesUnacceptedResult(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatchMetadata("session", "root-turn", ResponseScopePendingCallback{
-		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
-		DispatchID: "dispatch", TurnID: "child-turn",
+	coordinator.RegisterAssignmentMetadata("session", "root-turn", ResponseScopePendingResult{
+		SubagentID: "subagent", DefinitionName: "operator", DisplayName: "Nova",
+		AssignmentID: "assignment", SubagentTurnID: "subagent-turn",
 	})
-	rejected, err := coordinator.ReserveCallbackTurnWithMetadata("session", "rejected", ResponseScopeReceivedCallback{
-		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
-		TurnID: "child-turn", OutcomeStatus: "completed",
+	rejected, err := coordinator.ReserveResultTurnWithMetadata("session", "rejected", ResponseScopeDeliveredResult{
+		SubagentID: "subagent", DefinitionName: "operator", DisplayName: "Nova",
+		SubagentTurnID: "subagent-turn", ResultStatus: "completed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := rejected.CallbackProgress(); len(got.ReceivedCallbacks) != 1 {
+	if got := rejected.ResultProgress(); len(got.DeliveredResults) != 1 {
 		t.Fatalf("reserved progress = %#v", got)
 	}
-	rejected.Rollback("child", "child-turn")
+	rejected.Rollback("subagent", "subagent-turn")
 
-	retry, err := coordinator.ReserveCallbackTurnWithMetadata("session", "accepted", ResponseScopeReceivedCallback{
-		SubagentID: "child", DefinitionName: "operator", DisplayName: "Nova",
-		TurnID: "child-turn", OutcomeStatus: "completed",
+	retry, err := coordinator.ReserveResultTurnWithMetadata("session", "accepted", ResponseScopeDeliveredResult{
+		SubagentID: "subagent", DefinitionName: "operator", DisplayName: "Nova",
+		SubagentTurnID: "subagent-turn", ResultStatus: "completed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	progress := retry.CallbackProgress()
-	if len(progress.ReceivedCallbacks) != 1 || progress.RemainingCallbacks != 0 ||
-		!progress.AllCallbacksReceived {
-		t.Fatalf("retried callback progress = %#v", progress)
+	progress := retry.ResultProgress()
+	if len(progress.DeliveredResults) != 1 || progress.PendingCount != 0 ||
+		!progress.AllResultsDelivered {
+		t.Fatalf("retried result progress = %#v", progress)
 	}
 	retry.Commit()
 }
 
-func TestResponseScopeCleanupRunsBeforeFinalHandlerAndSeesTouchedChildren(t *testing.T) {
+func TestResponseScopeCleanupRunsBeforeFinalHandlerAndSeesTouchedSubagents(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	scopeEvents := coordinator.SubscribeEvents(context.Background())
 	var events []string
-	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, children []string) {
-		events = append(events, "cleanup:"+sessionID+":"+scopeID+":"+strings.Join(children, ","))
+	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, subagentIDs []string) {
+		events = append(events, "cleanup:"+sessionID+":"+scopeID+":"+strings.Join(subagentIDs, ","))
 	})
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
-	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment")
+	result, err := coordinator.ReserveResultTurn("session", "result-turn", "subagent", "subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	callback.Commit()
+	result.Commit()
 	handler := func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		events = append(events, "handler")
 		return json.RawMessage(`{}`), nil
 	}
 	coordinator.FinishTurn("session", "root-turn")
-	if _, executed, err := executeScopeTool(coordinator, "callback-turn", `{}`, true, handler); err != nil {
+	if _, executed, err := executeScopeTool(coordinator, "result-turn", `{}`, true, handler); err != nil {
 		t.Fatal(err)
 	} else if !executed {
 		t.Fatal("final handler was skipped")
 	}
-	coordinator.FinishTurn("session", "callback-turn")
-	if got, want := strings.Join(events, "|"), "cleanup:session:root-turn:child|handler"; got != want {
+	coordinator.FinishTurn("session", "result-turn")
+	if got, want := strings.Join(events, "|"), "cleanup:session:root-turn:subagent|handler"; got != want {
 		t.Fatalf("scope end order = %q, want %q", got, want)
 	}
 	preEnd := <-scopeEvents
@@ -441,11 +441,11 @@ func TestResponseScopeCleanupRunsBeforeFinalHandlerAndSeesTouchedChildren(t *tes
 		t.Fatalf("scope event types = %q, %q; want %q, %q", preEnd.Type, end.Type, PreEndScope, EndScope)
 	}
 	for _, event := range []ScopeEvent{preEnd, end} {
-		if event.SessionID != "session" || event.ScopeID != "root-turn" || event.TriggerTurnID != "callback-turn" {
+		if event.SessionID != "session" || event.ScopeID != "root-turn" || event.TriggerTurnID != "result-turn" {
 			t.Fatalf("scope event correlation = %+v", event)
 		}
-		if got := strings.Join(event.ChildIDs, ","); got != "child" {
-			t.Fatalf("scope event children = %q, want child", got)
+		if got := strings.Join(event.SubagentIDs, ","); got != "subagent" {
+			t.Fatalf("scope event subagentIDs = %q, want subagent", got)
 		}
 		if got := strings.Join(event.ToolNames, ","); got != "report" {
 			t.Fatalf("scope event tools = %q, want report", got)
@@ -467,7 +467,7 @@ func TestScopeEventsBracketCleanupAndEndScopeHandlers(t *testing.T) {
 		close(cleanupStarted)
 		<-releaseCleanup
 	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	go func() {
@@ -524,34 +524,34 @@ func TestScopeEventsBracketCleanupAndEndScopeHandlers(t *testing.T) {
 	}
 }
 
-func TestResponseScopeChildExclusiveRejectsAnotherLiveScopeReference(t *testing.T) {
+func TestResponseScopeSubagentExclusiveRejectsAnotherLiveScopeReference(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	var exclusive bool
-	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, children []string) {
-		exclusive = coordinator.ChildExclusiveToScope(sessionID, scopeID, children[0])
+	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, subagentIDs []string) {
+		exclusive = coordinator.SubagentExclusiveToScope(sessionID, scopeID, subagentIDs[0])
 	})
-	if err := coordinator.BeginRootTurn("session", "first"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "first"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "first", "child", "first-dispatch")
-	if err := coordinator.BeginRootTurn("session", "second"); err != nil {
+	coordinator.RegisterAssignment("session", "first", "subagent", "first-assignment")
+	if err := coordinator.BeginMainAgentTurn("session", "second"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "second", "child", "second-dispatch")
-	firstCallback, err := coordinator.ReserveCallbackTurn("session", "first-callback", "child", "first-child-turn")
+	coordinator.RegisterAssignment("session", "second", "subagent", "second-assignment")
+	firstResult, err := coordinator.ReserveResultTurn("session", "first-result", "subagent", "first-subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCallback.Commit()
-	secondCallback, err := coordinator.ReserveCallbackTurn("session", "second-callback", "child", "second-child-turn")
+	firstResult.Commit()
+	secondResult, err := coordinator.ReserveResultTurn("session", "second-result", "subagent", "second-subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCallback.Commit()
+	secondResult.Commit()
 	coordinator.FinishTurn("session", "first")
-	coordinator.FinishTurn("session", "first-callback")
+	coordinator.FinishTurn("session", "first-result")
 	if exclusive {
-		t.Fatal("child referenced by another live scope was reported exclusive")
+		t.Fatal("subagent referenced by another live scope was reported exclusive")
 	}
 }
 
@@ -560,7 +560,7 @@ func TestResponseScopeCleanupFailureDoesNotSuppressFinalHandler(t *testing.T) {
 	coordinator.SetCleanup(func(context.Context, string, string, []string) {
 		panic("cleanup failed")
 	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -584,7 +584,7 @@ func TestResponseScopeEndEventSurvivesCleanupPanic(t *testing.T) {
 	coordinator.SetCleanup(func(context.Context, string, string, []string) {
 		panic("cleanup failed")
 	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	if _, executed, err := executeScopeTool(coordinator, "turn", `{}`, true, func(context.Context, json.RawMessage) (json.RawMessage, error) {
@@ -600,20 +600,20 @@ func TestResponseScopeEndEventSurvivesCleanupPanic(t *testing.T) {
 	}
 }
 
-func TestResponseScopeRolledBackDispatchIsNotCleanupCandidate(t *testing.T) {
+func TestResponseScopeRolledBackAssignmentIsNotCleanupCandidate(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	var children []string
+	var subagentIDs []string
 	coordinator.SetCleanup(func(_ context.Context, _, _ string, ids []string) {
-		children = append(children, ids...)
+		subagentIDs = append(subagentIDs, ids...)
 	})
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	rollback := coordinator.RegisterDispatch("session", "turn", "child", "dispatch")
+	rollback := coordinator.RegisterAssignment("session", "turn", "subagent", "assignment")
 	rollback()
 	coordinator.FinishTurn("session", "turn")
-	if len(children) != 0 {
-		t.Fatalf("rolled-back dispatch cleanup candidates = %v", children)
+	if len(subagentIDs) != 0 {
+		t.Fatalf("rolled-back assignment cleanup candidates = %v", subagentIDs)
 	}
 }
 
@@ -634,7 +634,7 @@ func TestScopeEventStreamClosesWithCoordinatorContext(t *testing.T) {
 
 func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -683,7 +683,7 @@ func TestExecutorEndResponseScopeSkipsEarlyCallAndExecutesAtCompletionBoundary(t
 
 func TestExecutorEndResponseScopeDoesNotExecuteMultipleInitialToolCalls(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -717,18 +717,18 @@ func TestExecutorEndResponseScopeDoesNotExecuteMultipleInitialToolCalls(t *testi
 	coordinator.FinishTurn("session", "turn")
 }
 
-func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnFirstProviderRound(t *testing.T) {
+func TestExecutorEndResponseScopeResultFinalReportExecutesOnFirstProviderRound(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment")
 	coordinator.FinishTurn("session", "root-turn")
-	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	result, err := coordinator.ReserveResultTurn("session", "result-turn", "subagent", "subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	callback.Commit()
+	result.Commit()
 
 	calls := 0
 	registry := NewRegistry()
@@ -748,26 +748,26 @@ func TestExecutorEndResponseScopeCallbackFinalReportExecutesOnFirstProviderRound
 		t.Fatal(err)
 	}
 
-	initial := scopeToolRequest("callback-turn", `{"message":"premature"}`)
+	initial := scopeToolRequest("result-turn", `{"message":"premature"}`)
 	initial.ProviderStep = 1
 	initialResult := executor.execute(context.Background(), initial)
 	if initialResult.Result.TriggerSatisfied == nil || !*initialResult.Result.TriggerSatisfied ||
 		initialResult.TurnBehavior != agentruntime.ToolTurnEndOnSuccess {
-		t.Fatalf("initial callback report = %+v, want executed end-on-success", initialResult)
+		t.Fatalf("initial result report = %+v, want executed end-on-success", initialResult)
 	}
 	if calls != 1 {
 		t.Fatalf("handler calls = %d, want one", calls)
 	}
-	coordinator.FinishTurn("session", "callback-turn")
+	coordinator.FinishTurn("session", "result-turn")
 }
 
-func TestResponseScopeInlineCallbackStaysPendingUntilRuntimeInputCommit(t *testing.T) {
+func TestResponseScopeInlineResultStaysPendingUntilRuntimeInputCommit(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
-	reservation, err := coordinator.ReserveInlineCallback("session", "root-turn", "child", "child-turn")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment")
+	reservation, err := coordinator.ReserveInlineResult("session", "root-turn", "subagent", "subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,36 +781,36 @@ func TestResponseScopeInlineCallbackStaysPendingUntilRuntimeInputCommit(t *testi
 	coordinator.FinishTurn("session", "root-turn")
 }
 
-func TestResponseScopeToolBudgetIsSharedWithCallbackTurns(t *testing.T) {
+func TestResponseScopeToolBudgetIsSharedWithResultTurns(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "root-turn"); err != nil {
 		t.Fatal(err)
 	}
-	coordinator.RegisterDispatch("session", "root-turn", "child", "dispatch")
+	coordinator.RegisterAssignment("session", "root-turn", "subagent", "assignment")
 	used, allowed, err := coordinator.ReserveToolCall("session", "root-turn", "web_search", 2)
 	if err != nil || !allowed || used != 1 {
 		t.Fatalf("root reservation = used %d allowed %v err %v", used, allowed, err)
 	}
 	coordinator.FinishTurn("session", "root-turn")
-	callback, err := coordinator.ReserveCallbackTurn("session", "callback-turn", "child", "child-turn")
+	result, err := coordinator.ReserveResultTurn("session", "result-turn", "subagent", "subagent-turn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	callback.Commit()
-	used, allowed, err = coordinator.ReserveToolCall("session", "callback-turn", "web_search", 2)
+	result.Commit()
+	used, allowed, err = coordinator.ReserveToolCall("session", "result-turn", "web_search", 2)
 	if err != nil || !allowed || used != 2 {
-		t.Fatalf("callback reservation = used %d allowed %v err %v", used, allowed, err)
+		t.Fatalf("result reservation = used %d allowed %v err %v", used, allowed, err)
 	}
-	used, allowed, err = coordinator.ReserveToolCall("session", "callback-turn", "web_search", 2)
+	used, allowed, err = coordinator.ReserveToolCall("session", "result-turn", "web_search", 2)
 	if err != nil || allowed || used != 2 {
 		t.Fatalf("over-budget reservation = used %d allowed %v err %v", used, allowed, err)
 	}
-	coordinator.FinishTurn("session", "callback-turn")
+	coordinator.FinishTurn("session", "result-turn")
 }
 
 func TestExecutorReturnsControlledSuccessAfterResponseScopeToolBudget(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	handlerCalls := 0
@@ -857,7 +857,7 @@ func TestExecutorReturnsControlledSuccessAfterResponseScopeToolBudget(t *testing
 
 func TestExecutorMarksBudgetSkippedEndResponseScopeTriggerUnsatisfied(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
@@ -898,12 +898,12 @@ func TestExecutorMarksBudgetSkippedEndResponseScopeTriggerUnsatisfied(t *testing
 	coordinator.FinishTurn("session", "turn")
 }
 
-func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *testing.T) {
+func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileResultPending(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
-	if err := coordinator.BeginRootTurn("session", "turn"); err != nil {
+	if err := coordinator.BeginMainAgentTurn("session", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	rollback := coordinator.RegisterDispatch("session", "turn", "child", "dispatch")
+	rollback := coordinator.RegisterAssignment("session", "turn", "subagent", "assignment")
 	calls := 0
 	registry := NewRegistry()
 	if err := registry.Register(Tool{
@@ -926,10 +926,10 @@ func TestExecutorEndResponseScopeSkippedCallEndsTurnWhileCallbackPending(t *test
 		result.TurnBehavior != agentruntime.ToolTurnEndOnSuccess ||
 		result.Result.TriggerSatisfied == nil ||
 		*result.Result.TriggerSatisfied {
-		t.Fatalf("result = %+v, want skipped unsatisfied call that ends only the callback-pending turn", result)
+		t.Fatalf("result = %+v, want skipped unsatisfied call that ends only the result-pending turn", result)
 	}
 	if calls != 0 {
-		t.Fatalf("handler calls = %d, want zero while callback is pending", calls)
+		t.Fatalf("handler calls = %d, want zero while result is pending", calls)
 	}
 	rollback()
 	coordinator.FinishTurn("session", "turn")
@@ -959,8 +959,7 @@ func assertSkippedScopeResult(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode result %s: %v", raw, err)
 	}
-	const instruction = "The tool call was processed successfully, but the tool action was skipped because this end-of-scope tool was called at the wrong time. " +
-		"Treat this result as success and do not retry the tool yourself."
+	const instruction = "The tool call was handled, but the action did not run because the complete final response is not ready. Treat this call as handled and do not retry it yourself. Finish remaining independent work, or stop if requiredsubagent results are still pending."
 	if result.Status != "succeeded" ||
 		result.Action != "skipped" ||
 		result.Executed ||

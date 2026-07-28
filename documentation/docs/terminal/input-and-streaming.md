@@ -21,7 +21,7 @@ state, so streamed output can update without deleting the draft.
 | `Home` / `End` | Move to the start or end of the current draft line. |
 | `Backspace` / `Delete` | Remove text before or after the cursor. |
 | `Ctrl+O` | Expand or collapse all provider reasoning in the active view. |
-| `Esc` | Interrupt the active root or subagent response. |
+| `Esc` | Interrupt the active main-agent or subagent response. |
 | `Ctrl+C` twice | Exit the terminal. The second press must occur within two seconds. |
 
 The editor accepts bracketed paste. Pasting several lines inserts one
@@ -30,7 +30,7 @@ to send the pasted content.
 
 Prompt history is held for the lifetime of the terminal process. Multi-line
 prompts retain their line breaks. The same history is available while viewing
-the root session or a child session; it is not persisted as terminal-editor
+the main-agent session or a subagent session; it is not persisted as terminal-editor
 state across process restarts. Conversation messages remain available through
 message storage independently.
 
@@ -76,15 +76,15 @@ reasoning is intentionally dimmer than the answer:
   compare the possible outcomes
 ```
 
-Press `Ctrl+O` again to collapse it. Root and subagent views use the same
+Press `Ctrl+O` again to collapse it. Main-agent and subagent views use the same
 behavior, and stored reasoning can be restored when a view is reopened.
 
 ## Send input while a response is active
 
-Input remains editable while the current root or child turn is streaming. A
-new root prompt is placed in the root queue and starts after the active turn
-and higher-priority subagent callbacks are handled. Input entered in a child
-view is sent to that child; if it is already running, the message is queued in
-the child's mailbox.
+Input remains editable while the current main-agent or subagent turn is streaming. A
+new main-agent prompt is placed in the main-agent queue and starts after the active turn
+and higher-priority subagent results are handled. Input entered in a subagent
+view is sent to that subagent; if it is already running, the message is queued in
+the subagent's mailbox.
 
 Use `/session` to see whether the selected view is `active` or `idle`.

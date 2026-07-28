@@ -136,7 +136,7 @@ tools:
   - report_discord
 ---
 
-Understand the requested outcome and use the available capabilities deliberately.
+Understand the requested result and use the available capabilities deliberately.
 
 ## Answer or communicate with user
 
@@ -166,7 +166,7 @@ reported. Otherwise omit `skipReport` or set it to false.
 Before each `report_discord` call, silently check the message:
 
 - Keep the complete message at or below 1800 Unicode characters. Summarize
-  aggressively instead of copying a long callback or tool result.
+  aggressively instead of copying a long subagent result or tool result.
 - For ongoing work, use present-tense wording such as "Researching `.agentcli`
   to understand its purpose and usage."
 - Do not say "I started/asked/delegated", "a subagent/researcher is working",
@@ -254,7 +254,7 @@ description: Interview the user to clarify the business requirement before solvi
 
 # Requirements interview
 
-Ask focused questions until the intended outcome, constraints, and success
+Ask focused questions until the intended result, constraints, and success
 criteria are clear. Then summarize the agreed requirements.
 EOF
 
@@ -270,7 +270,7 @@ tools:
 ---
 
 You are a research subagent. Identify the important facts, trade-offs, and
-uncertainties, then give the parent a concise recommendation.
+uncertainties, then give the main agent a concise recommendation.
 EOF
 
 if [ "$go_available" = true ]; then

@@ -7,7 +7,7 @@ sidebar_position: 3
 
 Every `agentcli.Agent` includes the reference terminal client. Use it to test
 project instructions, model behavior, custom tools, permissions,
-confirmations, skills, and child views before connecting another UI. The
+confirmations, skills, and subagent views before connecting another UI. The
 terminal is a playground over the same Agent; it is not a separate runtime or
 the framework UI contract.
 
@@ -91,21 +91,21 @@ go run ./playground/terminal "Explain this repository"
 
 | Command | What it tests |
 | --- | --- |
-| `/new` | Start a fresh root session. |
-| `/session` | Show current root/child identity and streaming state. |
+| `/new` | Start a fresh main-agent session. |
+| `/session` | Show current main-agent/subagent identity and streaming state. |
 | `/skills` | Inspect available skill discovery metadata. |
-| `/agents` | List subagent definitions and child instances. |
-| `/agent REF` | Open a child by ID or friendly display name. |
-| `/agent-status REF` | Read child lifecycle state without a model turn. |
-| `/back` | Return to the root view. |
-| `/close REF` | Destructively close a child, interrupting active work if needed and releasing outstanding callback obligations. |
+| `/agents` | List subagent definitions and subagent instances. |
+| `/agent REF` | Open a subagent by ID or friendly display name. |
+| `/agent-status REF` | Read subagent lifecycle state without a model turn. |
+| `/back` | Return to the main-agent view. |
+| `/close REF` | Destructively close a subagent, interrupting active work if needed and releasing outstanding result obligations. |
 | `/permissions` | List unresolved permission requests. |
 | `/confirmations` | List unresolved confirmations. |
 | `/mode MODE` | Exercise a permission mode. |
 | `/clear` | Redraw the active example view. |
 | `/exit` | Stop the example. |
 
-The Terminal shows one global FIFO approval across root/child permissions and
+The Terminal shows one global FIFO approval across main-agent/subagent permissions and
 confirmations. Answer a visible permission with `1` through `4`, or use
 `/allow ID`, `/allow-session ID`, `/allow-project ID`, or `/deny ID`. Answer a
 visible confirmation with `y` or `n`, or use `/confirm ID` and `/decline ID`.
@@ -113,7 +113,7 @@ visible confirmation with `y` or `n`, or use `/confirm ID` and `/decline ID`.
 See [Custom tools](../tools/custom-tools.md) for the complete explicit schema,
 strict decoder, handler, and result implementation.
 
-Press `Esc` to interrupt an active root or subagent response while leaving the
+Press `Esc` to interrupt an active main-agent or subagent response while leaving the
 playground open. Ctrl+C is reserved for exiting: the first press shows a warning
 and the second press within two seconds exits immediately. `/exit` also returns
 control to the Go caller without closing the Agent.
@@ -123,13 +123,13 @@ and `Enter` to send the complete draft. Bracketed multi-line paste is inserted
 as one draft, so pasted newlines do not create several queued turns.
 Use the Up and Down arrow keys to move through prompts entered during the
 current terminal process. History entries retain their original multi-line
-content and are available while either the root or a child view is selected.
+content and are available while either the main-agent or a subagent view is selected.
 
 Provider reasoning is separate from loading and assistant content. A plain
 spinner is only an activity indicator. When the provider actually emits
 reasoning, the terminal shows a dim, collapsed `> thinking` row. Press `Ctrl+O`
-to expand or collapse every reasoning row in the active root or child view.
-Root and child views share the same Markdown, reasoning, loading, and prompt
+to expand or collapse every reasoning row in the active main-agent or subagent view.
+Main-agent and subagent views share the same Markdown, reasoning, loading, and prompt
 editor behavior while retaining view-isolated output.
 
 The reference terminal keeps assistant Markdown, loading status, and editable
@@ -141,6 +141,6 @@ being duplicated after they exceed the terminal height. Loading indicators use
 their own row, so the spinner never becomes part of the `❯` prompt and text
 being typed remains intact.
 
-For the reusable application design behind root and child screens, see
-[Child views](../agentcli/child-views.md). For an HTTP client implementation,
+For the reusable application design behind main-agent and subagent screens, see
+[Subagent views](../agentcli/subagent-views.md). For an HTTP client implementation,
 see [Build an application with the API](./api-client-integration.md).

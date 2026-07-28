@@ -14,31 +14,35 @@ sends correlated tool requests, waits for tool-result envelopes, and persists re
 results normally start another provider round. The run completes without
 another provider step only when the entire ordered batch succeeded and every
 result has end-turn behavior; any continuing, failed, interrupted, denied, or
-declined result continues so the model can dispatch more work or report the
+declined result continues so the model can request more work or report the
 error. Shared tool channels must be buffered and are caller-owned; the runtime
 never closes them.
 
 Provider rounds are unlimited by default. `WithProviderStepLimit(n)` opts the
-main and child turns into an agentic budget. When that budget is exhausted, the
+main and subagent turns into an agentic budget. When that budget is exhausted, the
 coordinator enters a restricted finalization phase: ordinary work tools
 disappear, required completion tools remain available, and a trusted reminder
-asks the model to finish from existing results. Child finalization also retains
-the framework-owned `report_subagent_outcome`; it is required for every child
-but has no trigger because the child still writes a concise final answer after
+asks the model to finish from existing results. Subagent finalization also retains
+the framework-owned `report_subagent_result`; it is required for every subagent
+but has no trigger because the subagent still writes a concise final answer after
 the report succeeds. A compliant required
 `EndResponseScope` call therefore still executes at the final boundary. If the
 model returns text while a required trigger remains missing, the existing
 completion guard replays its bounded repair with only missing trigger tools;
 it fails rather than silently ending after three no-progress repairs.
-Unauthorized tool calls are stripped and never dispatched. The initial
+When no completion tool is required, the finalizer must summarize existing
+results in text. A permitted completion tool may be followed by one final text
+round; a blank finalizer response receives the deterministic work-limit
+fallback. Finalization never restores ordinary work tools.
+Unauthorized tool calls are stripped and never sent to the executor. The initial
 finalizer, its repair rounds, and any final text round after a successful
 non-terminal completion tool count in `RunResult.Steps`.
 
-Trusted runtime input such as a subagent callback can be queued on an active
+Trusted runtime input such as a subagent result can be queued on an active
 run. The run never changes an in-flight provider request. It drains and
 durably appends queued input immediately before the next provider round, or at
 `AttemptComplete` and then starts a fresh provider round. If the run closes
-before that boundary, injection is rejected so the host can use a callback
+before that boundary, injection is rejected so the host can use a result
 continuation turn instead.
 
 Provider completion without tools first stages its assistant output in `Run`
@@ -55,22 +59,22 @@ behavior is expressed through prompts/reminders and, when explicitly supplied
 by a completion guard, an allowlist. Invalid guard decisions fail the run
 instead of silently weakening the boundary.
 
-Prompt-backed input guards are one-shot model checks before the main provider loop. An allowed verdict enters the ordinary coordinator. A rejected verdict maps to `InputRespond`: the runtime creates a synthetic completed run, persists the original user message and guard-generated assistant response, and emits content/completion events without exposing tools or starting the main model. Callback `InputReject` remains the hard admission path and creates no run or transcript.
+Prompt-backed input guards are one-shot model checks before the main provider loop. An allowed verdict enters the ordinary coordinator. A rejected verdict maps to `InputRespond`: the runtime creates a synthetic completed run, persists the original user message and guard-generated assistant response, and emits content/completion events without exposing tools or starting the main model. Result `InputReject` remains the hard admission path and creates no run or transcript.
 
-`Run` owns one turn's event history, subscriber queues, state, controls, and final result. A terminal event is not externally done until its effects—including transcript persistence—finish; only then do `Done`, `Status`, `Result`, and subscriber closure expose completion. This prevents completion callbacks from racing the final stored assistant message. Interruption cancels the provider, sends a turn-scoped tool interrupt, records synthetic interrupted results where needed, and terminates with `ErrRunInterrupted`. Keep session/turn/call correlation intact across every channel.
+`Run` owns one turn's event history, subscriber queues, state, controls, and final result. A terminal event is not externally done until its effects—including transcript persistence—finish; only then do `Done`, `Status`, `Result`, and subscriber closure expose completion. This prevents completion results from racing the final stored assistant message. Interruption cancels the provider, sends a turn-scoped tool interrupt, records synthetic interrupted results where needed, and terminates with `ErrRunInterrupted`. Keep session/turn/call correlation intact across every channel.
 
-At the Agent facade, one accepted human root turn opens one in-memory response
-scope. Accepted subagent dispatches increment that scope's callback barrier.
-Callbacks first try to reserve an inline runtime input on a compatible active
-turn; otherwise callback continuations reserve and settle the matching
-dispatch. Both remain in the originating scope and may accept follow-up
-dispatches that reopen the barrier.
+At the Agent facade, one accepted human main-agent turn opens one in-memory response
+scope. Accepted subagent assignments increment that scope's result barrier.
+Results first try to reserve an inline runtime input on a compatible active
+turn; otherwise result continuations reserve and settle the matching
+assignment. Both remain in the originating scope and may accept follow-up
+assignments that reopen the barrier.
 The scope starts ending when its last active turn reaches a completion boundary
-with no pending callbacks. It emits `PreEndScope`, then runs cleanup before
+with no pending results. It emits `PreEndScope`, then runs cleanup before
 final `EndResponseScope` handlers:
-completed/failed children touched only by that scope close automatically,
-incomplete or cross-scope children remain open, and successful closes become a
-one-shot trusted reminder reserved for the next human root turn. After all
+completed/failed subagents touched only by that scope close automatically,
+incomplete or cross-scope subagents remain open, and successful closes become a
+one-shot trusted reminder reserved for the next human main-agent turn. After all
 final handlers run and the scope is removed, it emits `EndScope`.
 Successful `EndResponseScope` delivery remains represented by its tool-call and
 tool-result records; the coordinator does not synthesize an assistant message

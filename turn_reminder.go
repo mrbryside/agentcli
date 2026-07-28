@@ -13,11 +13,10 @@ func newTurnContextReminderProvider() agentruntime.ContextReminderProvider {
 		if request.ProviderStep != 0 {
 			return nil, nil
 		}
-		return []agentruntime.ContextReminder{{Content: fmt.Sprintf(`<runtime_turn_boundary>
-state: new_turn
+		return []agentruntime.ContextReminder{{Content: fmt.Sprintf(`<turn_start>
+state: new
 turn_id: %q
-provider_step: 1
-instruction: This reminder appears only on the first provider request of a new runtime turn. Evaluate turn-scoped triggers for the newly delivered user message or runtime event now. Later provider requests without this marker continue this same runtime turn; a tool result or later provider step does not create another load trigger by itself.
-</runtime_turn_boundary>`, html.EscapeString(request.TurnID))}}, nil
+instruction: This is the first model request of a new turn. Evaluate the new user message or delivered subagent result now. Later model requests without <turn_start> belong to this same turn. Tool results do not start another turn.
+</turn_start>`, html.EscapeString(request.TurnID))}}, nil
 	}
 }

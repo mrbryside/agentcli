@@ -61,7 +61,7 @@ Prompt, response, and reasoning payloads are disabled by default. Metadata and
 timing remain available without them. Export happens asynchronously and an
 export failure never changes a model result or runtime event.
 
-The root `Agent` owns one exporter shared by its child agents. Call
+The main `Agent` owns one exporter shared by its subagents. Call
 `Agent.Close()` during graceful shutdown so queued observations are flushed.
 
 For setup and field reference, see [Langfuse](langfuse.md).

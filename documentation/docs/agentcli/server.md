@@ -39,17 +39,17 @@ return agent.RunServer(
 Server options are separate from agent options. The first middleware supplied
 is the outermost Echo middleware.
 
-`WithServerTurnQueueLimit` bounds waiting root turns per session; the active
+`WithServerTurnQueueLimit` bounds waiting main-agent turns per session; the active
 turn is not counted. The default is 64. Other sessions never wait behind this
 session's queue.
 
-`WithServerAutoContinueSubagents` defaults to `true`. A completed child first
-tries to join a compatible active parent at its next provider boundary. If no
-compatible run remains, the server creates a trusted callback turn and
-publishes it through `GET /v1/sessions/{sessionID}/events`. Agent-dispatched
-callbacks remain in their originating response scope in either path. A child
+`WithServerAutoContinueSubagents` defaults to `true`. A completed subagent first
+tries to join a compatible active main agent at its next provider boundary. If no
+compatible run remains, the server creates a trusted result turn and
+publishes it through `GET /v1/sessions/{sessionID}/events`. Results from
+main-agent assignments remain in their originating response scope in either path. A subagent
 created directly through the HTTP API has no originating scope, so its
-fallback callback starts a new root scope. Disable automatic continuation only
+fallback result starts a new response scope. Disable automatic continuation only
 when the embedding application owns both injection and fallback continuation.
 
 ## Embed in an existing process

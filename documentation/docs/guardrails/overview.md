@@ -6,13 +6,13 @@ sidebar_position: 1
 # Guardrails overview
 
 Guardrails add application-owned checks around input, final assistant output,
-and model-requested custom-tool calls. Every layer supports a Go callback.
+and model-requested custom-tool calls. Every layer supports a Go result.
 Input and assistant-output guards also support prompt checks, while custom
 tools can attach a prompt directly to their declaration.
 
 | Boundary | Runs | Rejection behavior |
 | --- | --- | --- |
-| Input callback | After request normalization, before transcript persistence | `InputReject` returns `ErrInputGuardRejected`; no input message or run is created. `InputRespond` creates a completed streamed turn containing the supplied response. |
+| Input result | After request normalization, before transcript persistence | `InputReject` returns `ErrInputGuardRejected`; no input message or run is created. `InputRespond` creates a completed streamed turn containing the supplied response. |
 | Input prompt | After request normalization, before the main model | A rejected verdict becomes a completed streamed turn; the user input and guard response are stored, but the main model and tools are not called. |
 | Assistant output | While the terminal assistant candidate is pending in run memory, before transcript persistence | The candidate is discarded, feedback is added as an ephemeral context reminder, and the provider receives another round. |
 | Custom-tool call | After permission/confirmation admission, before handler execution | The handler is not called; the runtime stores a failed tool result with feedback and starts another provider round. |
@@ -26,7 +26,7 @@ policy needs semantic judgment, but it adds model latency and cost.
 
 Guard configuration and verdicts are fail-closed:
 
-- a callback error or panic fails input start, fails an assistant-output run,
+- a result error or panic fails input start, fails an assistant-output run,
   or becomes a failed tool result at the tool boundary;
 - an unknown action, missing feedback, malformed model JSON, or contradictory
   verdict is rejected;
@@ -34,7 +34,7 @@ Guard configuration and verdicts are fail-closed:
   actions;
 - a rejected input prompt uses only its validated `reason` as the assistant
   response and never forwards the rejected input to the main model;
-- mutable messages and raw JSON passed to callbacks are defensive copies.
+- mutable messages and raw JSON passed to results are defensive copies.
 
 ## Guardrails are not a sandbox
 

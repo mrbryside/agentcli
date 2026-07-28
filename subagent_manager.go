@@ -19,26 +19,26 @@ import (
 )
 
 // subagentManager is intentionally package-private. The later tool and HTTP
-// layers are thin adapters over this owner of child runtimes and the durable
-// parent/child relationship records.
+// layers are thin adapters over this owner of subagent runtimes and the durable
+// main agent/subagent relationship records.
 type subagentManager struct {
-	parent  *Agent
-	store   storage.SubagentStorage
-	project *Project
-	config  config
-	ctx     context.Context
+	mainAgent *Agent
+	store     storage.SubagentStorage
+	project   *Project
+	config    config
+	ctx       context.Context
 
-	mu           sync.RWMutex
-	startMu      sync.Mutex // makes the per-parent open-instance quota atomic.
-	instances    map[string]*managedSubagent
-	closed       bool
-	changed      chan struct{}
-	childFactory func(SubagentDefinition) (*Agent, error)
+	mu              sync.RWMutex
+	startMu         sync.Mutex // makes the per-mainAgent open-instance quota atomic.
+	instances       map[string]*managedSubagent
+	closed          bool
+	changed         chan struct{}
+	subagentFactory func(SubagentDefinition) (*Agent, error)
 
-	callbackMu             sync.Mutex
-	nextCallbackSubscriber uint64
-	callbackSubscribers    map[uint64]*subagentCallbackSubscriber
-	callbacksClosed        bool
+	resultMu             sync.Mutex
+	nextResultSubscriber uint64
+	resultSubscribers    map[uint64]*subagentResultSubscriber
+	resultsClosed        bool
 
 	reminderMu        sync.Mutex
 	pendingAutoClosed map[string][]autoClosedSubagentNotice
@@ -61,32 +61,32 @@ type subagentManager struct {
 }
 
 type managedSubagent struct {
-	// agent is cleared as soon as a child closes. runs intentionally remains:
-	// completed event history is transport state, not a live child runtime.
+	// agent is cleared as soon as a subagent closes. runs intentionally remains:
+	// completed event history is transport state, not a live subagent runtime.
 	agent *Agent
 
-	mu                       sync.Mutex // serializes the one active child turn and its mailbox.
-	run                      *agentruntime.Run
-	runs                     map[string]*agentruntime.Run
-	lastDispatchParentTurnID string
-	lastDispatchKey          string
-	lastStatusParentTurnID   string
-	lastStatusSnapshot       storage.Subagent
+	mu                            sync.Mutex // serializes the one active subagent turn and its mailbox.
+	run                           *agentruntime.Run
+	runs                          map[string]*agentruntime.Run
+	lastAssignmentMainAgentTurnID string
+	lastAssignmentKey             string
+	lastStatusMainAgentTurnID     string
+	lastStatusSnapshot            storage.Subagent
 }
 
 type subagentReadResult = SubagentReadResult
 
-func newSubagentManager(parent *Agent, configuration config) (*subagentManager, error) {
-	if parent == nil || configuration.project == nil || configuration.subagents == nil {
-		return nil, errors.New("subagent manager requires parent, project, and storage")
+func newSubagentManager(mainAgent *Agent, configuration config) (*subagentManager, error) {
+	if mainAgent == nil || configuration.project == nil || configuration.subagents == nil {
+		return nil, errors.New("subagent manager requires mainAgent, project, and storage")
 	}
 	if configuration.maxSubagents <= 0 {
 		return nil, errors.New("subagent maximum must be positive")
 	}
 	return &subagentManager{
-		parent: parent, store: configuration.subagents, project: configuration.project,
-		config: configuration, ctx: parent.context, instances: make(map[string]*managedSubagent),
-		changed: make(chan struct{}), callbackSubscribers: make(map[uint64]*subagentCallbackSubscriber),
+		mainAgent: mainAgent, store: configuration.subagents, project: configuration.project,
+		config: configuration, ctx: mainAgent.context, instances: make(map[string]*managedSubagent),
+		changed: make(chan struct{}), resultSubscribers: make(map[uint64]*subagentResultSubscriber),
 		pendingAutoClosed:       make(map[string][]autoClosedSubagentNotice),
 		turnAutoClosed:          make(map[subagentReminderKey][]autoClosedSubagentNotice),
 		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
@@ -95,31 +95,31 @@ func newSubagentManager(parent *Agent, configuration config) (*subagentManager, 
 	}, nil
 }
 
-// Start creates a separately-addressable child session and begins its first
+// Start creates a separately-addressable subagent session and begins its first
 // turn without waiting for provider completion.
-func (m *subagentManager) Start(ctx context.Context, parentSessionID, parentTurnID, name, message, label string) (storage.Subagent, error) {
-	ctx, definition, message, err := m.prepareStart(ctx, parentSessionID, parentTurnID, name, message)
+func (m *subagentManager) Start(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message, label string) (storage.Subagent, error) {
+	ctx, definition, message, err := m.prepareStart(ctx, mainAgentSessionID, mainAgentTurnID, name, message)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
-	existing, err := m.store.ListByParent(ctx, parentSessionID)
+	existing, err := m.store.ListByMainAgent(ctx, mainAgentSessionID)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return m.startLocked(ctx, parentSessionID, parentTurnID, message, label, definition, existing)
+	return m.startLocked(ctx, mainAgentSessionID, mainAgentTurnID, message, label, definition, existing)
 }
 
-func (m *subagentManager) prepareStart(ctx context.Context, parentSessionID, parentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {
+func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return ctx, SubagentDefinition{}, "", err
 	}
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(parentTurnID) == "" {
-		return ctx, SubagentDefinition{}, "", errors.New("parent session and turn IDs are required")
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(mainAgentTurnID) == "" {
+		return ctx, SubagentDefinition{}, "", errors.New("main agent session and turn IDs are required")
 	}
 	name = strings.TrimSpace(name)
 	message = strings.TrimSpace(message)
@@ -136,12 +136,12 @@ func (m *subagentManager) prepareStart(ctx context.Context, parentSessionID, par
 	return ctx, definition, message, nil
 }
 
-func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, parentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent) (storage.Subagent, error) {
+func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent) (storage.Subagent, error) {
 	// The durable store, rather than the in-memory handle map, is the source
-	// of truth for the per-parent quota.
+	// of truth for the per-main agent quota.
 	open := 0
-	for _, child := range existing {
-		if child.Status != storage.SubagentStatusClosed {
+	for _, subagent := range existing {
+		if subagent.Status != storage.SubagentStatusClosed {
 			open++
 		}
 	}
@@ -167,46 +167,46 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 	}
 	now := time.Now().UTC()
 	record := storage.Subagent{
-		ID: id, DisplayName: displayName, Label: label, ParentSessionID: parentSessionID, ParentTurnID: parentTurnID,
-		SessionID: sessionID, DefinitionName: definition.Name, Provider: definition.Provider, Model: definition.Model,
-		Status: storage.SubagentStatusRunning, CurrentTurnID: turnID, CreatedAt: now, UpdatedAt: now,
+		ID: id, DisplayName: displayName, Label: label, MainAgentSessionID: mainAgentSessionID, MainAgentTurnID: mainAgentTurnID,
+		SubagentSessionID: sessionID, DefinitionName: definition.Name, Provider: definition.Provider, Model: definition.Model,
+		Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: turnID, CreatedAt: now, UpdatedAt: now,
 	}
 	record, err = m.store.Create(ctx, record)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	rollbackDispatch := m.parent.responseScopes.RegisterDispatchMetadata(
-		parentSessionID,
-		parentTurnID,
-		toolexecution.ResponseScopePendingCallback{
+	rollbackAssignment := m.mainAgent.responseScopes.RegisterAssignmentMetadata(
+		mainAgentSessionID,
+		mainAgentTurnID,
+		toolexecution.ResponseScopePendingResult{
 			SubagentID:     id,
 			DefinitionName: definition.Name,
 			DisplayName:    displayName,
-			DispatchID:     turnID,
-			TurnID:         turnID,
+			AssignmentID:   turnID,
+			SubagentTurnID: turnID,
 		},
 	)
-	dispatchStarted := false
+	assignmentStarted := false
 	defer func() {
-		if !dispatchStarted {
-			rollbackDispatch()
+		if !assignmentStarted {
+			rollbackAssignment()
 		}
 	}()
 
-	child, err := m.createChild(definition)
+	subagent, err := m.createSubagent(definition)
 	if err != nil {
 		_, _ = m.store.Close(context.Background(), id)
-		return storage.Subagent{}, fmt.Errorf("create child agent: %w", err)
+		return storage.Subagent{}, fmt.Errorf("create subagent agent: %w", err)
 	}
 	instance := &managedSubagent{
-		agent: child, runs: make(map[string]*agentruntime.Run),
-		lastDispatchParentTurnID: parentTurnID,
-		lastDispatchKey:          subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, message),
+		agent: subagent, runs: make(map[string]*agentruntime.Run),
+		lastAssignmentMainAgentTurnID: mainAgentTurnID,
+		lastAssignmentKey:             subagentMessageIdempotencyKey(mainAgentSessionID, mainAgentTurnID, id, message),
 	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		_ = child.Close()
+		_ = subagent.Close()
 		_, _ = m.store.Close(context.Background(), id)
 		return storage.Subagent{}, ErrClosed
 	}
@@ -218,38 +218,38 @@ func (m *subagentManager) startLocked(ctx context.Context, parentSessionID, pare
 	instance.mu.Unlock()
 	if err != nil {
 		m.removeInstance(id)
-		_ = child.Close()
+		_ = subagent.Close()
 		_, _ = m.store.Close(context.Background(), id)
 		return storage.Subagent{}, err
 	}
-	dispatchStarted = true
+	assignmentStarted = true
 	m.signalChanged()
-	return m.getOwned(ctx, parentSessionID, id)
+	return m.getOwned(ctx, mainAgentSessionID, id)
 }
 
-func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, error) {
-	if m.childFactory != nil {
-		return m.childFactory(definition)
+func (m *subagentManager) createSubagent(definition SubagentDefinition) (*Agent, error) {
+	if m.subagentFactory != nil {
+		return m.subagentFactory(definition)
 	}
 	model, err := m.project.ModelFor(definition.Provider, definition.Model)
 	if err != nil {
 		return nil, err
 	}
-	childProject := m.project.withSkills(definition.Skills)
+	subagentProject := m.project.withSkills(definition.Skills)
 	options := []Option{
-		withChildAgent(),
-		withChildProject(childProject),
+		withSubagentAgent(),
+		withSubagentProject(subagentProject),
 		withSharedLangfuse(m.config.langfuse),
 		withSharedLogger(m.config.logger),
 		WithModel(model),
-		withChildSystemPrompts(childProject, definition),
+		withSubagentSystemPrompts(subagentProject, definition),
 		WithMessageStorage(m.config.messages),
 		WithPermissionStorage(m.config.permissions),
 		WithConfirmationStorage(m.config.confirmations),
 		WithPermissionPolicy(m.config.permissionPolicy),
-		WithPermissionMode(m.parent.PermissionMode()),
+		WithPermissionMode(m.mainAgent.PermissionMode()),
 		// Interactive permission and confirmation requests are escalated to
-		// the parent session instead of requiring a child-session UI.
+		// the main agent session instead of requiring a subagent-session UI.
 		WithNonInteractive(m.config.nonInteractive),
 		WithToolWorkers(m.config.toolWorkers),
 		WithChannelBuffer(m.config.channelBuffer),
@@ -297,10 +297,10 @@ func (project *Project) withSkills(names []string) *Project {
 	return &clone
 }
 
-// withChildProject retains the project material a worker needs without
-// deciding how that material is presented to the provider. A child has no
+// withSubagentProject retains the project material a worker needs without
+// deciding how that material is presented to the provider. A subagent has no
 // manager and consequently no recursive management tools.
-func withChildProject(project *Project) Option {
+func withSubagentProject(project *Project) Option {
 	return func(configuration *config) error {
 		if project == nil {
 			return errors.New("project is required")
@@ -313,12 +313,12 @@ func withChildProject(project *Project) Option {
 	}
 }
 
-// List returns only records owned by the requested parent session.
-func (m *subagentManager) List(ctx context.Context, parentSessionID string, includeClosed bool) ([]storage.Subagent, error) {
-	if strings.TrimSpace(parentSessionID) == "" {
-		return nil, errors.New("parent session ID is required")
+// List returns only records owned by the requested main agent session.
+func (m *subagentManager) List(ctx context.Context, mainAgentSessionID string, includeClosed bool) ([]storage.Subagent, error) {
+	if strings.TrimSpace(mainAgentSessionID) == "" {
+		return nil, errors.New("main agent session ID is required")
 	}
-	records, err := m.store.ListByParent(nonNilContext(ctx), parentSessionID)
+	records, err := m.store.ListByMainAgent(nonNilContext(ctx), mainAgentSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -336,14 +336,14 @@ func (m *subagentManager) List(ctx context.Context, parentSessionID string, incl
 
 // Read returns only the latest final assistant answer after a cursor and
 // advances the durable observation cursor across all inspected activity. An
-// omitted cursor resumes from the child's stored cursor instead of replaying
+// omitted cursor resumes from the subagent's stored cursor instead of replaying
 // its full transcript.
-func (m *subagentManager) Read(ctx context.Context, parentSessionID, id, afterMessageID string) (subagentReadResult, error) {
-	record, err := m.getOwned(nonNilContext(ctx), parentSessionID, id)
+func (m *subagentManager) Read(ctx context.Context, mainAgentSessionID, id, afterMessageID string) (subagentReadResult, error) {
+	record, err := m.getOwned(nonNilContext(ctx), mainAgentSessionID, id)
 	if err != nil {
 		return subagentReadResult{}, err
 	}
-	messages, err := m.parent.ListMessages(nonNilContext(ctx), record.SessionID)
+	messages, err := m.mainAgent.ListMessages(nonNilContext(ctx), record.SubagentSessionID)
 	if err != nil {
 		return subagentReadResult{}, err
 	}
@@ -361,14 +361,14 @@ func (m *subagentManager) Read(ctx context.Context, parentSessionID, id, afterMe
 			}
 		}
 		if !found {
-			return subagentReadResult{}, fmt.Errorf("child message cursor %q was not found", cursor)
+			return subagentReadResult{}, fmt.Errorf("subagent message cursor %q was not found", cursor)
 		}
 	}
 	delta := messages[start:]
-	result := subagentReadResult{Subagent: record, NextMessageID: cursor}
+	result := subagentReadResult{Subagent: record, LastMessageID: cursor}
 	for index := len(delta) - 1; index >= 0; index-- {
 		message := delta[index]
-		if message.Type == agentruntime.MessageTypeAssistant && (record.LastTurnID == "" || message.TurnID == record.LastTurnID) {
+		if message.Type == agentruntime.MessageTypeAssistant && (record.LastSubagentTurnID == "" || message.TurnID == record.LastSubagentTurnID) {
 			answer := storage.CloneMessage(message)
 			result.FinalAnswer = &answer
 			break
@@ -381,19 +381,19 @@ func (m *subagentManager) Read(ctx context.Context, parentSessionID, id, afterMe
 			return subagentReadResult{}, observeErr
 		}
 		result.Subagent = observed
-		result.NextMessageID = last.ID
+		result.LastMessageID = last.ID
 		m.signalChanged()
 	}
 	return result, nil
 }
 
-// Wait blocks until an owned child has unread transcript activity or its
+// Wait blocks until an owned subagent has unread transcript activity or its
 // storage version advances beyond a caller's cursor. Cancelling ctx cancels
-// only this wait; it never interrupts the child.
-func (m *subagentManager) Wait(ctx context.Context, parentSessionID string, ids []string, after map[string]uint64) ([]storage.Subagent, error) {
+// only this wait; it never interrupts the subagent.
+func (m *subagentManager) Wait(ctx context.Context, mainAgentSessionID string, ids []string, after map[string]uint64) ([]storage.Subagent, error) {
 	ctx = nonNilContext(ctx)
 	for _, id := range ids {
-		if _, err := m.getOwned(ctx, parentSessionID, id); err != nil {
+		if _, err := m.getOwned(ctx, mainAgentSessionID, id); err != nil {
 			return nil, err
 		}
 	}
@@ -401,11 +401,11 @@ func (m *subagentManager) Wait(ctx context.Context, parentSessionID string, ids 
 		// Before taking a state snapshot, unread output is immediately useful
 		// to the caller. Once it is all observed, the snapshot makes later
 		// close/idle/running transitions wake this wait too.
-		unread, err := m.changedSince(ctx, parentSessionID, ids, nil)
+		unread, err := m.changedSince(ctx, mainAgentSessionID, ids, nil)
 		if err != nil || len(unread) != 0 {
 			return unread, err
 		}
-		records, err := m.List(ctx, parentSessionID, true)
+		records, err := m.List(ctx, mainAgentSessionID, true)
 		if err != nil {
 			return nil, err
 		}
@@ -421,7 +421,7 @@ func (m *subagentManager) Wait(ctx context.Context, parentSessionID string, ids 
 		after = cursor
 	}
 	for {
-		changed, err := m.changedSince(ctx, parentSessionID, ids, after)
+		changed, err := m.changedSince(ctx, mainAgentSessionID, ids, after)
 		if err != nil || len(changed) != 0 {
 			return changed, err
 		}
@@ -444,10 +444,10 @@ func (m *subagentManager) Wait(ctx context.Context, parentSessionID string, ids 
 // called. Provider chunks, tool progress, and the delegated user message do
 // not complete the wait. If an explicit target is already idle or closed, its
 // completed state is returned immediately. With no IDs, all currently running
-// children become targets.
-func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, parentSessionID string, ids []string) ([]storage.Subagent, error) {
+// subagents become targets.
+func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, mainAgentSessionID string, ids []string) ([]storage.Subagent, error) {
 	ctx = nonNilContext(ctx)
-	records, err := m.List(ctx, parentSessionID, true)
+	records, err := m.List(ctx, mainAgentSessionID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -472,11 +472,11 @@ func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, parentSessi
 		if !found {
 			return nil, storage.ErrSubagentNotFound
 		}
-		if record.Status != storage.SubagentStatusRunning || record.CurrentTurnID == "" {
+		if record.Status != storage.SubagentStatusRunning || record.CurrentSubagentTurnID == "" {
 			ready = append(ready, record)
 			continue
 		}
-		targetTurns[id] = record.CurrentTurnID
+		targetTurns[id] = record.CurrentSubagentTurnID
 	}
 	if len(ready) != 0 {
 		return ready, nil
@@ -492,11 +492,11 @@ func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, parentSessi
 		}
 		ready = ready[:0]
 		for id, turnID := range targetTurns {
-			record, getErr := m.getOwned(ctx, parentSessionID, id)
+			record, getErr := m.getOwned(ctx, mainAgentSessionID, id)
 			if getErr != nil {
 				return nil, getErr
 			}
-			if record.Status == storage.SubagentStatusClosed || record.LastTurnID == turnID {
+			if record.Status == storage.SubagentStatusClosed || record.LastSubagentTurnID == turnID {
 				ready = append(ready, record)
 			}
 		}
@@ -512,8 +512,8 @@ func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, parentSessi
 	}
 }
 
-func (m *subagentManager) changedSince(ctx context.Context, parentSessionID string, ids []string, after map[string]uint64) ([]storage.Subagent, error) {
-	records, err := m.List(ctx, parentSessionID, true)
+func (m *subagentManager) changedSince(ctx context.Context, mainAgentSessionID string, ids []string, after map[string]uint64) ([]storage.Subagent, error) {
+	records, err := m.List(ctx, mainAgentSessionID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +532,7 @@ func (m *subagentManager) changedSince(ctx context.Context, parentSessionID stri
 			changed = append(changed, record)
 			continue
 		}
-		messages, listErr := m.parent.ListMessages(ctx, record.SessionID)
+		messages, listErr := m.mainAgent.ListMessages(ctx, record.SubagentSessionID)
 		if listErr != nil {
 			return nil, listErr
 		}
@@ -543,15 +543,15 @@ func (m *subagentManager) changedSince(ctx context.Context, parentSessionID stri
 	return changed, nil
 }
 
-// Send delivers direct application/UI work without parent-turn deduplication.
-// Model-facing calls use SendFromParentTurn so retries cannot multiply work.
-func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content string) (storage.Subagent, error) {
+// Send delivers direct application/UI work without main agent-turn deduplication.
+// Model-facing calls use SendFromMainAgentTurn so retries cannot multiply work.
+func (m *subagentManager) Send(ctx context.Context, mainAgentSessionID, id, content string) (storage.Subagent, error) {
 	ctx = nonNilContext(ctx)
 	content = normalizeSubagentMessage(content)
 	if content == "" {
 		return storage.Subagent{}, errors.New("subagent message is required")
 	}
-	record, err := m.getOwned(ctx, parentSessionID, id)
+	record, err := m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
@@ -564,9 +564,9 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	}
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
-	// Refresh under the per-child turn gate so a monitor cannot race a
+	// Refresh under the per-subagent turn gate so a monitor cannot race a
 	// completion into an accidental concurrent turn.
-	record, err = m.getOwned(ctx, parentSessionID, id)
+	record, err = m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
@@ -579,16 +579,16 @@ func (m *subagentManager) Send(ctx context.Context, parentSessionID, id, content
 	return m.sendLocked(ctx, instance, record, content)
 }
 
-// StatusFromParentTurn returns at most one fresh lifecycle snapshot for a
-// child in a parent turn. Later calls in the same turn receive the original
+// StatusFromMainAgentTurn returns at most one fresh lifecycle snapshot for a
+// subagent in a main agent turn. Later calls in the same turn receive the original
 // snapshot so model-facing status checks cannot become polling.
-func (m *subagentManager) StatusFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id string) (toolexecution.SubagentStatusSnapshot, error) {
+func (m *subagentManager) StatusFromMainAgentTurn(ctx context.Context, mainAgentSessionID, mainAgentTurnID, id string) (toolexecution.SubagentStatusSnapshot, error) {
 	ctx = nonNilContext(ctx)
-	parentTurnID = strings.TrimSpace(parentTurnID)
-	if parentTurnID == "" {
-		return toolexecution.SubagentStatusSnapshot{}, errors.New("parent turn ID is required")
+	mainAgentTurnID = strings.TrimSpace(mainAgentTurnID)
+	if mainAgentTurnID == "" {
+		return toolexecution.SubagentStatusSnapshot{}, errors.New("main agent turn ID is required")
 	}
-	if _, err := m.getOwned(ctx, parentSessionID, id); err != nil {
+	if _, err := m.getOwned(ctx, mainAgentSessionID, id); err != nil {
 		return toolexecution.SubagentStatusSnapshot{}, err
 	}
 	instance, err := m.instance(id)
@@ -597,35 +597,35 @@ func (m *subagentManager) StatusFromParentTurn(ctx context.Context, parentSessio
 	}
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
-	if instance.lastStatusParentTurnID == parentTurnID {
+	if instance.lastStatusMainAgentTurnID == mainAgentTurnID {
 		return toolexecution.SubagentStatusSnapshot{Subagent: storage.CloneSubagent(instance.lastStatusSnapshot), Repeated: true}, nil
 	}
-	record, err := m.getOwned(ctx, parentSessionID, id)
+	record, err := m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return toolexecution.SubagentStatusSnapshot{}, err
 	}
-	instance.lastStatusParentTurnID = parentTurnID
+	instance.lastStatusMainAgentTurnID = mainAgentTurnID
 	instance.lastStatusSnapshot = storage.CloneSubagent(record)
 	return toolexecution.SubagentStatusSnapshot{Subagent: record}, nil
 }
 
-// SendFromParentTurn accepts at most one dispatch from a parent turn to one
-// child. Exact retries return duplicate; changed retries return already_sent,
+// SendFromMainAgentTurn accepts at most one assignment from a main agent turn to one
+// subagent. Exact retries return duplicate; changed retries return already_sent,
 // and both decisions precede lifecycle admission. A pending authoritative
-// callback, including any running child turn, is also a controlled non-error
+// result, including any running subagent turn, is also a controlled non-error
 // result so the model can wait without chasing or queuing work. None of these
 // cases adds work.
-func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionID, parentTurnID, id, content string) (toolexecution.SubagentSendResult, error) {
+func (m *subagentManager) SendFromMainAgentTurn(ctx context.Context, mainAgentSessionID, mainAgentTurnID, id, content string) (toolexecution.SubagentSendResult, error) {
 	ctx = nonNilContext(ctx)
-	parentTurnID = strings.TrimSpace(parentTurnID)
+	mainAgentTurnID = strings.TrimSpace(mainAgentTurnID)
 	content = normalizeSubagentMessage(content)
-	if parentTurnID == "" {
-		return toolexecution.SubagentSendResult{}, errors.New("parent turn ID is required")
+	if mainAgentTurnID == "" {
+		return toolexecution.SubagentSendResult{}, errors.New("main agent turn ID is required")
 	}
 	if content == "" {
 		return toolexecution.SubagentSendResult{}, errors.New("subagent message is required")
 	}
-	record, err := m.getOwned(ctx, parentSessionID, id)
+	record, err := m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return toolexecution.SubagentSendResult{}, err
 	}
@@ -635,15 +635,15 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	}
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
-	record, err = m.getOwned(ctx, parentSessionID, id)
+	record, err = m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return toolexecution.SubagentSendResult{}, err
 	}
-	key := subagentMessageIdempotencyKey(parentSessionID, parentTurnID, id, content)
-	if instance.lastDispatchParentTurnID == parentTurnID {
+	key := subagentMessageIdempotencyKey(mainAgentSessionID, mainAgentTurnID, id, content)
+	if instance.lastAssignmentMainAgentTurnID == mainAgentTurnID {
 		action := toolexecution.SubagentSendAlreadySent
 		deduplicated := false
-		if instance.lastDispatchKey == key {
+		if instance.lastAssignmentKey == key {
 			action = toolexecution.SubagentSendDuplicate
 			deduplicated = true
 		}
@@ -657,32 +657,32 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	}
 	if record.Status == storage.SubagentStatusRunning {
 		return toolexecution.SubagentSendResult{
-			Action: toolexecution.SubagentSendCallbackPending, Subagent: record,
+			Action: toolexecution.SubagentSendResultPending, Subagent: record,
 			IdempotencyKey: key, Accepted: false,
 		}, nil
 	}
 	if err := m.validateSubagentSend(ctx, record); err != nil {
-		if errors.Is(err, storage.ErrSubagentCallbackPending) {
+		if errors.Is(err, storage.ErrSubagentResultPending) {
 			return toolexecution.SubagentSendResult{
-				Action: toolexecution.SubagentSendCallbackPending, Subagent: record,
+				Action: toolexecution.SubagentSendResultPending, Subagent: record,
 				IdempotencyKey: key, Accepted: false,
 			}, nil
 		}
 		if errors.Is(err, storage.ErrSubagentCompleted) {
 			return toolexecution.SubagentSendResult{
-				Action: toolexecution.SubagentSendChildCompleted, Subagent: record,
+				Action: toolexecution.SubagentSendCompleted, Subagent: record,
 				IdempotencyKey: key, Accepted: false,
 			}, nil
 		}
 		return toolexecution.SubagentSendResult{}, err
 	}
 	rollbackRecovery := func() {}
-	if record.LastTurnOutcome == storage.SubagentTurnFailed {
-		allowed, rollback := m.parent.responseScopes.ReserveFailedRecovery(
-			parentSessionID,
-			parentTurnID,
+	if record.LastResultStatus == storage.SubagentResultFailed {
+		allowed, rollback := m.mainAgent.responseScopes.ReserveFailedRecovery(
+			mainAgentSessionID,
+			mainAgentTurnID,
 			record.ID,
-			subagentFailureFingerprint(record.LastTurnError),
+			subagentFailureFingerprint(record.LastResultError),
 		)
 		if !allowed {
 			return toolexecution.SubagentSendResult{
@@ -696,24 +696,24 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	if record.Status == storage.SubagentStatusRunning {
 		action = toolexecution.SubagentSendQueued
 	}
-	rollbackDispatch := m.parent.responseScopes.RegisterDispatchMetadata(
-		parentSessionID,
-		parentTurnID,
-		toolexecution.ResponseScopePendingCallback{
+	rollbackAssignment := m.mainAgent.responseScopes.RegisterAssignmentMetadata(
+		mainAgentSessionID,
+		mainAgentTurnID,
+		toolexecution.ResponseScopePendingResult{
 			SubagentID:     id,
 			DefinitionName: record.DefinitionName,
 			DisplayName:    record.DisplayName,
-			DispatchID:     key,
+			AssignmentID:   key,
 		},
 	)
 	updated, err := m.sendLocked(ctx, instance, record, content)
 	if err != nil {
-		rollbackDispatch()
+		rollbackAssignment()
 		rollbackRecovery()
 		return toolexecution.SubagentSendResult{}, err
 	}
-	instance.lastDispatchParentTurnID = parentTurnID
-	instance.lastDispatchKey = key
+	instance.lastAssignmentMainAgentTurnID = mainAgentTurnID
+	instance.lastAssignmentKey = key
 	return toolexecution.SubagentSendResult{
 		Action: action, Subagent: updated, IdempotencyKey: key,
 		Accepted: true,
@@ -743,16 +743,16 @@ func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubag
 		return storage.Subagent{}, err
 	}
 	if err := m.startTurnLocked(instance, updated, turnID, content); err != nil {
-		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentTurnFailed, "", "")
+		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
 		return storage.Subagent{}, err
 	}
 	m.signalChanged()
-	return m.getOwned(ctx, record.ParentSessionID, record.ID)
+	return m.getOwned(ctx, record.MainAgentSessionID, record.ID)
 }
 
 // validateSubagentSend allows running work to accept ordered mailbox input.
-// An idle incomplete or failed child may resume only after the parent consumed
-// that outcome's callback. Completed children are never reused.
+// An idle incomplete or failed subagent may resume only after the main agent consumed
+// that result's result. Completed subagents are never reused.
 func (m *subagentManager) validateSubagentSend(ctx context.Context, record storage.Subagent) error {
 	if record.Status == storage.SubagentStatusRunning {
 		return nil
@@ -760,16 +760,16 @@ func (m *subagentManager) validateSubagentSend(ctx context.Context, record stora
 	if record.Status == storage.SubagentStatusClosed {
 		return storage.ErrSubagentClosed
 	}
-	switch record.LastTurnOutcome {
-	case storage.SubagentTurnIncomplete, storage.SubagentTurnFailed:
-		return m.validateLatestSubagentCallbackObserved(ctx, record)
-	case storage.SubagentTurnCompleted:
-		if err := m.validateLatestSubagentCallbackObserved(ctx, record); err != nil {
+	switch record.LastResultStatus {
+	case storage.SubagentResultIncomplete, storage.SubagentResultFailed:
+		return m.validateLatestSubagentResultObserved(ctx, record)
+	case storage.SubagentResultCompleted:
+		if err := m.validateLatestSubagentResultObserved(ctx, record); err != nil {
 			return err
 		}
 		return storage.ErrSubagentCompleted
 	default:
-		return storage.ErrSubagentOutcomeUnavailable
+		return storage.ErrSubagentReportUnavailable
 	}
 }
 
@@ -799,19 +799,19 @@ func subagentFailureFingerprint(value string) string {
 	return fingerprint
 }
 
-func subagentMessageIdempotencyKey(parentSessionID, parentTurnID, subagentID, content string) string {
+func subagentMessageIdempotencyKey(mainAgentSessionID, mainAgentTurnID, subagentID, content string) string {
 	payload := strings.Join([]string{
-		"subagent-message-v1", parentSessionID, parentTurnID, subagentID,
+		"subagent-message-v1", mainAgentSessionID, mainAgentTurnID, subagentID,
 		normalizeSubagentMessage(content),
 	}, "\x00")
 	digest := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(digest[:])
 }
 
-// Interrupt stops only the current child turn. The child instance remains
+// Interrupt stops only the current subagent turn. The subagent instance remains
 // idle and can accept another Send after the terminal event is recorded.
-func (m *subagentManager) Interrupt(ctx context.Context, parentSessionID, id, reason string) error {
-	if _, err := m.getOwned(nonNilContext(ctx), parentSessionID, id); err != nil {
+func (m *subagentManager) Interrupt(ctx context.Context, mainAgentSessionID, id, reason string) error {
+	if _, err := m.getOwned(nonNilContext(ctx), mainAgentSessionID, id); err != nil {
 		return err
 	}
 	instance, err := m.instance(id)
@@ -820,42 +820,42 @@ func (m *subagentManager) Interrupt(ctx context.Context, parentSessionID, id, re
 	}
 	instance.mu.Lock()
 	run := instance.run
-	child := instance.agent
+	subagent := instance.agent
 	instance.mu.Unlock()
-	if child == nil || run == nil || run.Done() {
+	if subagent == nil || run == nil || run.Done() {
 		return nil
 	}
 	return run.Interrupt(nonNilContext(ctx), reason)
 }
 
-// watchParentRun propagates an interrupted parent turn only to children that
+// watchMainAgentRun propagates an interrupted main agent turn only to subagents that
 // were created by that exact tool chain. It intentionally does not react to a
-// normal parent completion: delegated work may outlive the tool invocation.
-func (m *subagentManager) watchParentRun(run *agentruntime.Run) {
+// normal main agent completion: delegated work may outlive the tool invocation.
+func (m *subagentManager) watchMainAgentRun(run *agentruntime.Run) {
 	if run == nil {
 		return
 	}
 	go func() {
-		if parentRunInterrupted(run.Events()) {
-			m.interruptParentTurn(run.SessionID(), run.TurnID())
+		if mainAgentRunInterrupted(run.Events()) {
+			m.interruptMainAgentTurn(run.SessionID(), run.TurnID())
 			return
 		}
 		subscription := run.Subscribe(m.ctx)
 		for event := range subscription.Events {
 			if event.Type == agentruntime.AgentInterrupted {
-				m.interruptParentTurn(run.SessionID(), run.TurnID())
+				m.interruptMainAgentTurn(run.SessionID(), run.TurnID())
 				return
 			}
 		}
 		// A fast interruption can happen between the retained snapshot and
 		// subscription registration; the final retained check closes that gap.
-		if parentRunInterrupted(run.Events()) {
-			m.interruptParentTurn(run.SessionID(), run.TurnID())
+		if mainAgentRunInterrupted(run.Events()) {
+			m.interruptMainAgentTurn(run.SessionID(), run.TurnID())
 		}
 	}()
 }
 
-func parentRunInterrupted(events []agentruntime.AgentEvent) bool {
+func mainAgentRunInterrupted(events []agentruntime.AgentEvent) bool {
 	for _, event := range events {
 		if event.Type == agentruntime.AgentInterrupted {
 			return true
@@ -864,13 +864,13 @@ func parentRunInterrupted(events []agentruntime.AgentEvent) bool {
 	return false
 }
 
-func (m *subagentManager) interruptParentTurn(parentSessionID, parentTurnID string) {
-	records, err := m.store.ListByParent(context.Background(), parentSessionID)
+func (m *subagentManager) interruptMainAgentTurn(mainAgentSessionID, mainAgentTurnID string) {
+	records, err := m.store.ListByMainAgent(context.Background(), mainAgentSessionID)
 	if err != nil {
 		return
 	}
 	for _, record := range records {
-		if record.ParentTurnID != parentTurnID || record.Status != storage.SubagentStatusRunning {
+		if record.MainAgentTurnID != mainAgentTurnID || record.Status != storage.SubagentStatusRunning {
 			continue
 		}
 		// Use the run directly so this internal lifecycle propagation cannot be
@@ -883,27 +883,27 @@ func (m *subagentManager) interruptParentTurn(parentSessionID, parentTurnID stri
 		run := instance.run
 		instance.mu.Unlock()
 		if run != nil && !run.Done() {
-			_ = run.Interrupt(context.Background(), "parent turn interrupted")
+			_ = run.Interrupt(context.Background(), "main agent turn interrupted")
 		}
 	}
 }
 
-// autoCloseScopeSubagents releases completed and failed children touched by a
-// quiescent response scope. Incomplete children stay open for future follow-up.
-func (m *subagentManager) autoCloseScopeSubagents(ctx context.Context, parentSessionID, scopeID string, ids []string) {
+// autoCloseScopeSubagents releases completed and failed subagents touched by a
+// quiescent response scope. Incomplete subagents stay open for future follow-up.
+func (m *subagentManager) autoCloseScopeSubagents(ctx context.Context, mainAgentSessionID, scopeID string, ids []string) {
 	ids = append([]string(nil), ids...)
 	sort.Strings(ids)
 	for _, id := range ids {
-		closed, ok := m.autoCloseScopeSubagent(nonNilContext(ctx), parentSessionID, scopeID, id)
+		closed, ok := m.autoCloseScopeSubagent(nonNilContext(ctx), mainAgentSessionID, scopeID, id)
 		if ok {
 			m.recordAutoClosedSubagent(closed)
 		}
 	}
 }
 
-func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSessionID, scopeID, id string) (storage.Subagent, bool) {
+func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, mainAgentSessionID, scopeID, id string) (storage.Subagent, bool) {
 	ctx = nonNilContext(ctx)
-	record, err := m.getOwned(ctx, parentSessionID, id)
+	record, err := m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return storage.Subagent{}, false
 	}
@@ -915,17 +915,17 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		if err := m.validateSubagentClose(ctx, record); err != nil {
 			return storage.Subagent{}, false
 		}
-		if !m.parent.responseScopes.ChildExclusiveToScope(parentSessionID, scopeID, id) {
+		if !m.mainAgent.responseScopes.SubagentExclusiveToScope(mainAgentSessionID, scopeID, id) {
 			return storage.Subagent{}, false
 		}
 		closed, closeErr := m.store.Close(ctx, id)
 		if closeErr == nil {
 			m.signalChanged()
 			m.publishSystemEvent(SystemEvent{
-				Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: scopeID,
+				Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID, MainAgentTurnID: scopeID,
 				SubagentClosed: &SubagentClosedEvent{
 					Subagent: closed, PreviousStatus: record.Status,
-					PreviousOutcome: record.LastTurnOutcome, Automatic: true,
+					PreviousResultStatus: record.LastResultStatus, Automatic: true,
 				},
 			})
 			return closed, true
@@ -933,7 +933,7 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		return storage.Subagent{}, false
 	}
 	instance.mu.Lock()
-	record, err = m.getOwned(ctx, parentSessionID, id)
+	record, err = m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		instance.mu.Unlock()
 		return storage.Subagent{}, false
@@ -946,7 +946,7 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		instance.mu.Unlock()
 		return storage.Subagent{}, false
 	}
-	if !m.parent.responseScopes.ChildExclusiveToScope(parentSessionID, scopeID, id) {
+	if !m.mainAgent.responseScopes.SubagentExclusiveToScope(mainAgentSessionID, scopeID, id) {
 		instance.mu.Unlock()
 		return storage.Subagent{}, false
 	}
@@ -955,28 +955,28 @@ func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, parentSess
 		instance.mu.Unlock()
 		return storage.Subagent{}, false
 	}
-	child := instance.agent
+	subagent := instance.agent
 	instance.agent = nil
 	instance.mu.Unlock()
-	if child != nil {
-		_ = child.Close()
+	if subagent != nil {
+		_ = subagent.Close()
 	}
 	m.signalChanged()
 	m.publishSystemEvent(SystemEvent{
-		Type: SystemSubagentClosed, SessionID: parentSessionID, TurnID: scopeID,
+		Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID, MainAgentTurnID: scopeID,
 		SubagentClosed: &SubagentClosedEvent{
 			Subagent: closed, PreviousStatus: record.Status,
-			PreviousOutcome: record.LastTurnOutcome, Automatic: true,
+			PreviousResultStatus: record.LastResultStatus, Automatic: true,
 		},
 	})
 	return closed, true
 }
 
-// CloseSubagent destructively closes one owned child for an application-owned
+// CloseSubagent destructively closes one owned subagent for an application-owned
 // caller. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
-func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id string) (toolexecution.SubagentCloseResult, error) {
+func (m *subagentManager) CloseSubagent(ctx context.Context, mainAgentSessionID, id string) (toolexecution.SubagentCloseResult, error) {
 	ctx = nonNilContext(ctx)
-	record, err := m.getOwned(ctx, parentSessionID, id)
+	record, err := m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		return toolexecution.SubagentCloseResult{}, err
 	}
@@ -994,22 +994,22 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		}
 		m.signalChanged()
 		result := toolexecution.SubagentCloseResult{
-			Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
+			Subagent: closed, PreviousStatus: record.Status, PreviousResultStatus: record.LastResultStatus,
 			DroppedMessages: len(record.Pending),
 		}
-		m.parent.responseScopes.CancelChildDispatches(parentSessionID, id)
+		m.mainAgent.responseScopes.CancelSubagentAssignments(mainAgentSessionID, id)
 		m.publishSystemEvent(SystemEvent{
-			Type: SystemSubagentClosed, SessionID: parentSessionID,
+			Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID,
 			SubagentClosed: &SubagentClosedEvent{
 				Subagent: closed, PreviousStatus: result.PreviousStatus,
-				PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
+				PreviousResultStatus: result.PreviousResultStatus, DroppedMessages: result.DroppedMessages,
 			},
 		})
 		return result, nil
 	}
 
 	instance.mu.Lock()
-	record, err = m.getOwned(ctx, parentSessionID, id)
+	record, err = m.getOwned(ctx, mainAgentSessionID, id)
 	if err != nil {
 		instance.mu.Unlock()
 		return toolexecution.SubagentCloseResult{}, err
@@ -1019,7 +1019,7 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 		return toolexecution.SubagentCloseResult{}, storage.ErrSubagentClosed
 	}
 	run := instance.run
-	child := instance.agent
+	subagent := instance.agent
 	closed, err := m.store.Close(ctx, id)
 	if err != nil {
 		instance.mu.Unlock()
@@ -1032,20 +1032,20 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 	if interrupted {
 		_ = run.Interrupt(context.Background(), "subagent closed by explicit user request")
 	}
-	if child != nil {
-		_ = child.Close()
+	if subagent != nil {
+		_ = subagent.Close()
 	}
 	m.signalChanged()
 	result := toolexecution.SubagentCloseResult{
-		Subagent: closed, PreviousStatus: record.Status, PreviousOutcome: record.LastTurnOutcome,
+		Subagent: closed, PreviousStatus: record.Status, PreviousResultStatus: record.LastResultStatus,
 		DroppedMessages: len(record.Pending), Interrupted: interrupted,
 	}
-	m.parent.responseScopes.CancelChildDispatches(parentSessionID, id)
+	m.mainAgent.responseScopes.CancelSubagentAssignments(mainAgentSessionID, id)
 	m.publishSystemEvent(SystemEvent{
-		Type: SystemSubagentClosed, SessionID: parentSessionID,
+		Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID,
 		SubagentClosed: &SubagentClosedEvent{
 			Subagent: closed, PreviousStatus: result.PreviousStatus,
-			PreviousOutcome: result.PreviousOutcome, DroppedMessages: result.DroppedMessages,
+			PreviousResultStatus: result.PreviousResultStatus, DroppedMessages: result.DroppedMessages,
 			Interrupted: result.Interrupted,
 		},
 	})
@@ -1054,38 +1054,38 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, parentSessionID, id
 
 // validateSubagentClose makes close a cleanup-only operation. An idle state
 // alone is insufficient: incomplete work must remain available for follow-up,
-// while completed and failed outcomes must reach a parent callback consumer
-// before the child can disappear from the active set.
+// while completed and failed results must reach a main agent result consumer
+// before the subagent can disappear from the active set.
 func (m *subagentManager) validateSubagentClose(ctx context.Context, record storage.Subagent) error {
-	switch record.LastTurnOutcome {
-	case storage.SubagentTurnCompleted, storage.SubagentTurnFailed:
-		return m.validateLatestSubagentCallbackObserved(ctx, record)
-	case storage.SubagentTurnIncomplete:
+	switch record.LastResultStatus {
+	case storage.SubagentResultCompleted, storage.SubagentResultFailed:
+		return m.validateLatestSubagentResultObserved(ctx, record)
+	case storage.SubagentResultIncomplete:
 		return storage.ErrSubagentIncomplete
 	default:
-		return storage.ErrSubagentOutcomeUnavailable
+		return storage.ErrSubagentReportUnavailable
 	}
 }
 
-func (m *subagentManager) validateLatestSubagentCallbackObserved(ctx context.Context, record storage.Subagent) error {
-	messages, err := m.parent.ListMessages(nonNilContext(ctx), record.SessionID)
+func (m *subagentManager) validateLatestSubagentResultObserved(ctx context.Context, record storage.Subagent) error {
+	messages, err := m.mainAgent.ListMessages(nonNilContext(ctx), record.SubagentSessionID)
 	if err != nil {
-		return fmt.Errorf("read child callback cursor: %w", err)
+		return fmt.Errorf("read subagent result cursor: %w", err)
 	}
 	if len(messages) == 0 {
-		return storage.ErrSubagentCallbackPending
+		return storage.ErrSubagentResultPending
 	}
 	latest := messages[len(messages)-1]
 	if record.ObservedMessageID != latest.ID || record.ObservedVersion < uint64(len(messages)) {
-		return storage.ErrSubagentCallbackPending
+		return storage.ErrSubagentResultPending
 	}
 	return nil
 }
 
-// Run returns the retained child run for nested SSE backfill and live
-// subscription. It deliberately remains parent-ownership checked.
-func (m *subagentManager) Run(ctx context.Context, parentSessionID, id, turnID string) (*agentruntime.Run, error) {
-	if _, err := m.getOwned(nonNilContext(ctx), parentSessionID, id); err != nil {
+// Run returns the retained subagent run for nested SSE backfill and live
+// subscription. It deliberately remains main agent-ownership checked.
+func (m *subagentManager) Run(ctx context.Context, mainAgentSessionID, id, turnID string) (*agentruntime.Run, error) {
+	if _, err := m.getOwned(nonNilContext(ctx), mainAgentSessionID, id); err != nil {
 		return nil, err
 	}
 	instance, err := m.instance(id)
@@ -1109,19 +1109,19 @@ func (m *subagentManager) startTurnLocked(instance *managedSubagent, record stor
 		return storage.ErrSubagentClosed
 	}
 	run, subscription, err := instance.agent.StartSubscribed(m.ctx, agentruntime.Request{
-		SessionID: record.SessionID, TurnID: turnID,
+		SessionID: record.SubagentSessionID, TurnID: turnID,
 		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: content},
 	})
 	if err != nil {
-		return fmt.Errorf("start child turn: %w", err)
+		return fmt.Errorf("start subagent turn: %w", err)
 	}
 	// Runtime.StartSubscribed fences RunStarted, not the subsequent append of
 	// its initial user message. A manager Start has a stronger, useful
 	// contract: once it returns, Read can immediately render the delegated
 	// input. Wait only for that local storage commit; provider completion is
 	// deliberately not part of this boundary.
-	if err := m.waitForInitialInput(record.SessionID, turnID, run); err != nil {
-		_ = run.Interrupt(context.Background(), "initial child input was not committed")
+	if err := m.waitForInitialInput(record.SubagentSessionID, turnID, run); err != nil {
+		_ = run.Interrupt(context.Background(), "initial subagent input was not committed")
 		return err
 	}
 	instance.run = run
@@ -1138,7 +1138,7 @@ func (m *subagentManager) waitForInitialInput(sessionID, turnID string, run *age
 	for {
 		messages, err := m.config.messages.List(m.ctx, sessionID)
 		if err != nil {
-			return fmt.Errorf("observe initial child input: %w", err)
+			return fmt.Errorf("observe initial subagent input: %w", err)
 		}
 		for _, message := range messages {
 			if message.TurnID == turnID && message.Type == agentruntime.MessageTypeUser {
@@ -1147,15 +1147,15 @@ func (m *subagentManager) waitForInitialInput(sessionID, turnID string, run *age
 		}
 		if run.Done() {
 			if _, err := run.Result(); err != nil {
-				return fmt.Errorf("initial child input was not committed: %w", err)
+				return fmt.Errorf("initial subagent input was not committed: %w", err)
 			}
-			return errors.New("initial child input was not committed")
+			return errors.New("initial subagent input was not committed")
 		}
 		select {
 		case <-m.ctx.Done():
 			return ErrClosed
 		case <-deadline.C:
-			return errors.New("timed out waiting for initial child input")
+			return errors.New("timed out waiting for initial subagent input")
 		case <-ticker.C:
 		}
 	}
@@ -1184,44 +1184,44 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	if _, runErr := run.Result(); runErr != nil {
 		lastTurnError = runErr.Error()
 	}
-	messages, messagesErr := m.config.messages.List(context.Background(), record.SessionID)
+	messages, messagesErr := m.config.messages.List(context.Background(), record.SubagentSessionID)
 	if messagesErr != nil && lastTurnError == "" {
-		lastTurnError = "read completed child output: " + messagesErr.Error()
+		lastTurnError = "read completed subagent output: " + messagesErr.Error()
 	}
-	lastOutcome := storage.SubagentTurnIncomplete
-	lastSummary := "Child turn ended without an explicit outcome report."
+	lastResultStatus := storage.SubagentResultIncomplete
+	lastSummary := "Subagent turn ended without a successful result report."
 	lastNextStep := "Review the final answer and send one focused follow-up if required."
 	if run.StepLimitFinalized() {
-		lastSummary = "Child reached its provider-step limit and returned a text-only final summary."
+		lastSummary = "Subagent reached its provider-step limit and returned a text-only final summary."
 		lastNextStep = "Review the summary and send one focused follow-up for any remaining work."
 	} else if run.CompletionRepairCount() > 0 {
-		lastSummary = "Child turn ended without an explicit outcome report after bounded repair attempts."
+		lastSummary = "Subagent turn ended without a successful result report after bounded repair attempts."
 	}
 	if lastTurnError != "" {
-		lastOutcome = storage.SubagentTurnFailed
+		lastResultStatus = storage.SubagentResultFailed
 		lastSummary = ""
 		lastNextStep = ""
-	} else if reported, ok := reportedSubagentOutcome(run.TurnID(), messages); ok {
+	} else if reported, ok := reportedSubagentReport(run.TurnID(), messages); ok {
 		lastSummary = reported.Summary
 		lastNextStep = reported.NextStep
 		switch reported.Status {
-		case toolexecution.SubagentOutcomeCompleted:
-			lastOutcome = storage.SubagentTurnCompleted
+		case toolexecution.SubagentReportCompleted:
+			lastResultStatus = storage.SubagentResultCompleted
 			lastNextStep = ""
-		case toolexecution.SubagentOutcomeFailed:
-			lastOutcome = storage.SubagentTurnFailed
+		case toolexecution.SubagentReportFailed:
+			lastResultStatus = storage.SubagentResultFailed
 			lastTurnError = reported.Error
 			lastNextStep = ""
 		}
 	}
-	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError, lastOutcome, lastSummary, lastNextStep)
+	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError, lastResultStatus, lastSummary, lastNextStep)
 	if err != nil {
 		return
 	}
 	instance.run = nil
 	m.signalChanged()
-	callback := callbackFromMessages(completed, messages)
-	m.publishCallback(callback)
+	result := subagentResultFromMessages(completed, messages)
+	m.publishResult(result)
 	// One completion owns the dequeue/start transition, so mailbox order is
 	// preserved even when Send races completion.
 	afterDequeue, next, err := m.store.Dequeue(context.Background(), id)
@@ -1238,7 +1238,7 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 		return
 	}
 	if err := m.startTurnLocked(instance, running, turnID, next.Content); err != nil {
-		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentTurnFailed, "", "")
+		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
 	}
 	m.signalChanged()
 }
@@ -1253,10 +1253,10 @@ func (m *subagentManager) setPermissionMode(ctx context.Context, mode permission
 	var first error
 	for _, instance := range instances {
 		instance.mu.Lock()
-		child := instance.agent
+		subagent := instance.agent
 		instance.mu.Unlock()
-		if child != nil {
-			if err := child.SetPermissionMode(nonNilContext(ctx), mode); err != nil && !errors.Is(err, ErrClosed) && first == nil {
+		if subagent != nil {
+			if err := subagent.SetPermissionMode(nonNilContext(ctx), mode); err != nil && !errors.Is(err, ErrClosed) && first == nil {
 				first = err
 			}
 		}
@@ -1265,9 +1265,9 @@ func (m *subagentManager) setPermissionMode(ctx context.Context, mode permission
 }
 
 // transition retries optimistic updates that race a Read observation. The
-// lifecycle decision is still serialized by the child instance lock; this
+// lifecycle decision is still serialized by the subagent instance lock; this
 // retry solely accommodates the intentionally independent read cursor.
-func (m *subagentManager) transition(ctx context.Context, id string, status storage.SubagentStatus, currentTurnID, lastTurnID, lastTurnError string, lastTurnOutcome storage.SubagentTurnOutcome, lastTurnSummary, lastTurnNextStep string) (storage.Subagent, error) {
+func (m *subagentManager) transition(ctx context.Context, id string, status storage.SubagentStatus, currentTurnID, lastTurnID, lastTurnError string, lastResultStatus storage.SubagentResultStatus, lastTurnSummary, lastTurnNextStep string) (storage.Subagent, error) {
 	for attempts := 0; attempts < 8; attempts++ {
 		record, found, err := m.store.Get(ctx, id)
 		if err != nil {
@@ -1281,19 +1281,19 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 		}
 		last := lastTurnID
 		turnError := lastTurnError
-		outcome := lastTurnOutcome
+		resultStatus := lastResultStatus
 		summary := lastTurnSummary
 		nextStep := lastTurnNextStep
 		if last == "" {
-			last = record.LastTurnID
-			turnError = record.LastTurnError
-			outcome = record.LastTurnOutcome
-			summary = record.LastTurnSummary
-			nextStep = record.LastTurnNextStep
+			last = record.LastSubagentTurnID
+			turnError = record.LastResultError
+			resultStatus = record.LastResultStatus
+			summary = record.LastResultSummary
+			nextStep = record.LastResultNextStep
 		}
 		updated, err := m.store.Update(ctx, id, record.Version, storage.SubagentUpdate{
-			Status: status, CurrentTurnID: currentTurnID, LastTurnID: last, LastTurnError: turnError,
-			LastTurnOutcome: outcome, LastTurnSummary: summary, LastTurnNextStep: nextStep,
+			Status: status, CurrentSubagentTurnID: currentTurnID, LastSubagentTurnID: last, LastResultError: turnError,
+			LastResultStatus: resultStatus, LastResultSummary: summary, LastResultNextStep: nextStep,
 		})
 		if !errors.Is(err, storage.ErrSubagentVersionConflict) {
 			return updated, err
@@ -1302,10 +1302,10 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 	return storage.Subagent{}, storage.ErrSubagentVersionConflict
 }
 
-// Close closes every live child before the root executor is cancelled. This
-// order prevents a parent tool wait from being stranded on a child executor.
+// Close closes every live subagent before the main-agent executor is cancelled. This
+// order prevents a main agent tool wait from being stranded on a subagent executor.
 func (m *subagentManager) Close() error {
-	m.closeCallbacks()
+	m.closeResults()
 	m.closeConfirmations()
 	m.closePermissions()
 	m.closeSystemEvents()
@@ -1325,8 +1325,8 @@ func (m *subagentManager) Close() error {
 		if _, err := m.store.Close(context.Background(), id); err != nil && !errors.Is(err, storage.ErrSubagentNotFound) && first == nil {
 			first = err
 		}
-		if child := instance.releaseAgent(); child != nil {
-			if err := child.Close(); err != nil && first == nil {
+		if subagent := instance.releaseAgent(); subagent != nil {
+			if err := subagent.Close(); err != nil && first == nil {
 				first = err
 			}
 		}
@@ -1335,15 +1335,15 @@ func (m *subagentManager) Close() error {
 	return first
 }
 
-func (m *subagentManager) getOwned(ctx context.Context, parentSessionID, id string) (storage.Subagent, error) {
-	if strings.TrimSpace(parentSessionID) == "" || strings.TrimSpace(id) == "" {
+func (m *subagentManager) getOwned(ctx context.Context, mainAgentSessionID, id string) (storage.Subagent, error) {
+	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(id) == "" {
 		return storage.Subagent{}, storage.ErrSubagentNotFound
 	}
 	record, found, err := m.store.Get(ctx, id)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	if !found || record.ParentSessionID != parentSessionID {
+	if !found || record.MainAgentSessionID != mainAgentSessionID {
 		return storage.Subagent{}, storage.ErrSubagentNotFound
 	}
 	return record, nil
@@ -1368,9 +1368,9 @@ func (m *subagentManager) removeInstance(id string) {
 func (instance *managedSubagent) releaseAgent() *Agent {
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
-	child := instance.agent
+	subagent := instance.agent
 	instance.agent = nil
-	return child
+	return subagent
 }
 
 func (m *subagentManager) ensureOpen() error {

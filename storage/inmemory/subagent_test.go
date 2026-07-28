@@ -11,12 +11,12 @@ import (
 	"github.com/mrbryside/agentcli/storage"
 )
 
-func TestSubagentStorageCreateGetAndListByParent(t *testing.T) {
+func TestSubagentStorageCreateGetAndListByMainAgent(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()
-	first := inMemorySubagent("subagent_a", "parent_a", time.Date(2026, time.July, 20, 0, 0, 0, 0, time.UTC))
-	second := inMemorySubagent("subagent_b", "parent_a", first.CreatedAt.Add(time.Second))
-	other := inMemorySubagent("subagent_c", "parent_b", first.CreatedAt)
+	first := inMemorySubagent("subagent_a", "mainAgent_a", time.Date(2026, time.July, 20, 0, 0, 0, 0, time.UTC))
+	second := inMemorySubagent("subagent_b", "mainAgent_a", first.CreatedAt.Add(time.Second))
+	other := inMemorySubagent("subagent_c", "mainAgent_b", first.CreatedAt)
 	for _, record := range []storage.Subagent{second, other, first} {
 		if _, err := store.Create(context.Background(), record); err != nil {
 			t.Fatalf("Create(%s): %v", record.ID, err)
@@ -27,22 +27,22 @@ func TestSubagentStorageCreateGetAndListByParent(t *testing.T) {
 	if err != nil || !ok || got.ID != first.ID || got.Version != 1 {
 		t.Fatalf("Get = (%#v, %t, %v), want stored record, true, nil", got, ok, err)
 	}
-	list, err := store.ListByParent(context.Background(), "parent_a")
+	list, err := store.ListByMainAgent(context.Background(), "mainAgent_a")
 	if err != nil {
-		t.Fatalf("ListByParent: %v", err)
+		t.Fatalf("ListByMainAgent: %v", err)
 	}
 	if ids := subagentIDs(list); !equalStrings(ids, []string{"subagent_a", "subagent_b"}) {
 		t.Fatalf("list IDs = %v, want stable creation order", ids)
 	}
-	if list, err := store.ListByParent(context.Background(), "missing"); err != nil || len(list) != 0 {
-		t.Fatalf("ListByParent missing = (%v, %v), want empty, nil", list, err)
+	if list, err := store.ListByMainAgent(context.Background(), "missing"); err != nil || len(list) != 0 {
+		t.Fatalf("ListByMainAgent missing = (%v, %v), want empty, nil", list, err)
 	}
 }
 
 func TestSubagentStorageRejectsDuplicateIDsAndReturnsCopies(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()
-	record := inMemorySubagent("subagent_a", "parent_a", time.Now())
+	record := inMemorySubagent("subagent_a", "mainAgent_a", time.Now())
 	if _, err := store.Create(context.Background(), record); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -64,15 +64,15 @@ func TestSubagentStorageRejectsDuplicateIDsAndReturnsCopies(t *testing.T) {
 func TestSubagentStorageUpdateUsesVersionCompareAndPreservesOwnership(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()
-	record := inMemorySubagent("subagent_a", "parent_a", time.Now())
+	record := inMemorySubagent("subagent_a", "mainAgent_a", time.Now())
 	created, err := store.Create(context.Background(), record)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	updated, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{
-		Status: storage.SubagentStatusRunning, CurrentTurnID: "turn_2", LastTurnID: "turn_2", LastTurnError: "provider failed", LastTurnOutcome: storage.SubagentTurnFailed,
+		Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: "turn_2", LastSubagentTurnID: "turn_2", LastResultError: "provider failed", LastResultStatus: storage.SubagentResultFailed,
 	})
-	if err != nil || updated.Status != storage.SubagentStatusRunning || updated.LastTurnError != "provider failed" || updated.Version != created.Version+1 {
+	if err != nil || updated.Status != storage.SubagentStatusRunning || updated.LastResultError != "provider failed" || updated.Version != created.Version+1 {
 		t.Fatalf("Update = (%#v, %v)", updated, err)
 	}
 	if _, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{Status: storage.SubagentStatusIdle}); !errors.Is(err, storage.ErrSubagentVersionConflict) {
@@ -86,7 +86,7 @@ func TestSubagentStorageUpdateUsesVersionCompareAndPreservesOwnership(t *testing
 func TestSubagentStorageMailboxIsFIFOAndCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()
-	record := inMemorySubagent("subagent_a", "parent_a", time.Now())
+	record := inMemorySubagent("subagent_a", "mainAgent_a", time.Now())
 	created, err := store.Create(context.Background(), record)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -125,7 +125,7 @@ func TestSubagentStorageMailboxIsFIFOAndCloseIsIdempotent(t *testing.T) {
 func TestSubagentStorageObserveAndContextCancellation(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()
-	record := inMemorySubagent("subagent_a", "parent_a", time.Now())
+	record := inMemorySubagent("subagent_a", "mainAgent_a", time.Now())
 	if _, err := store.Create(context.Background(), record); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -147,35 +147,35 @@ func TestSubagentStorageObserveAndContextCancellation(t *testing.T) {
 	}
 }
 
-func TestSubagentStorageConcurrentIndependentParents(t *testing.T) {
+func TestSubagentStorageConcurrentIndependentMainAgents(t *testing.T) {
 	store := NewSubagentStorage()
-	const parents, perParent = 4, 50
+	const mainAgents, perMainAgent = 4, 50
 	var group sync.WaitGroup
-	for parent := 0; parent < parents; parent++ {
+	for mainAgent := 0; mainAgent < mainAgents; mainAgent++ {
 		group.Add(1)
-		go func(parent int) {
+		go func(mainAgent int) {
 			defer group.Done()
-			parentID := fmt.Sprintf("parent_%d", parent)
-			for index := 0; index < perParent; index++ {
-				id := fmt.Sprintf("subagent_%d_%03d", parent, index)
-				if _, err := store.Create(context.Background(), inMemorySubagent(id, parentID, time.Now())); err != nil {
+			mainAgentID := fmt.Sprintf("mainAgent_%d", mainAgent)
+			for index := 0; index < perMainAgent; index++ {
+				id := fmt.Sprintf("subagent_%d_%03d", mainAgent, index)
+				if _, err := store.Create(context.Background(), inMemorySubagent(id, mainAgentID, time.Now())); err != nil {
 					t.Errorf("Create(%s): %v", id, err)
 				}
 			}
-		}(parent)
+		}(mainAgent)
 	}
 	group.Wait()
-	for parent := 0; parent < parents; parent++ {
-		list, err := store.ListByParent(context.Background(), fmt.Sprintf("parent_%d", parent))
-		if err != nil || len(list) != perParent {
-			t.Fatalf("parent %d list = %d, %v; want %d", parent, len(list), err, perParent)
+	for mainAgent := 0; mainAgent < mainAgents; mainAgent++ {
+		list, err := store.ListByMainAgent(context.Background(), fmt.Sprintf("mainAgent_%d", mainAgent))
+		if err != nil || len(list) != perMainAgent {
+			t.Fatalf("mainAgent %d list = %d, %v; want %d", mainAgent, len(list), err, perMainAgent)
 		}
 	}
 }
 
-func inMemorySubagent(id, parentID string, created time.Time) storage.Subagent {
+func inMemorySubagent(id, mainAgentID string, created time.Time) storage.Subagent {
 	return storage.Subagent{
-		ID: id, DisplayName: "Mira", ParentSessionID: parentID, ParentTurnID: "parent_turn", SessionID: id + "_session",
+		ID: id, DisplayName: "Mira", MainAgentSessionID: mainAgentID, MainAgentTurnID: "mainAgent_turn", SubagentSessionID: id + "_session",
 		DefinitionName: "researcher", Provider: "openai", Model: "gpt-test", Status: storage.SubagentStatusIdle,
 		Pending:   []storage.SubagentQueuedMessage{{ID: "queued", Content: "queued", CreatedAt: created}},
 		CreatedAt: created, UpdatedAt: created,

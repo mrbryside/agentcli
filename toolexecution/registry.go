@@ -37,7 +37,7 @@ type Tool struct {
 	Trigger          ToolTrigger
 	EndTurnOnSuccess bool
 	// ResponseScopeCallLimit is a hard cumulative invocation budget shared by
-	// the root turn and every callback turn in one response scope. Zero means
+	// the main-agent turn and every result turn in one response scope. Zero means
 	// unlimited.
 	ResponseScopeCallLimit int
 	ToolCallGuard          agentruntime.ToolCallGuard
@@ -54,7 +54,7 @@ type Tool struct {
 // actions and risk.
 type PermissionDescriptor func(json.RawMessage) (permission.Description, error)
 
-// PermissionPolicyDescriptor is an optional admission callback that receives
+// PermissionPolicyDescriptor is an optional admission result that receives
 // the immutable policy snapshot captured when a request enters the executor.
 // Tool.Permission remains supported for custom tools that do not need policy
 // dependent classification.
@@ -339,31 +339,28 @@ func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTu
 	switch trigger {
 	case EndTurn:
 		parts = append(parts,
-			"Runtime trigger (end_turn): Call this tool when the current turn is ready to finish. "+
-				"It is required before the turn can complete, and its handler runs immediately when called.",
+			"Call this tool once when the current turn is ready to finish. "+
+				"It must succeed before the turn can end, and its action runs immediately.",
 		)
 	case EndResponseScope:
 		parts = append(parts,
-			"Runtime behavior (end_response_scope): This is a final-response tool. "+
-				"Call it only after all other work is complete and you are ready to finish the response. "+
-				"If called earlier, the tool action is skipped and the result is still treated as success. "+
-				"Do not retry it yourself; continue the remaining work until the runtime requests the final call.",
+			"This tool sends the complete final response. Call it only after all other work "+
+				"and required subagent results are ready. If called too early, the result has "+
+				"executed=false and explains what to do next. Treat that call as handled and do not retry it yourself.",
 		)
 	}
 	if endTurnOnSuccess && trigger == EndResponseScope {
 		parts = append(parts,
-			"Runtime turn behavior (end_on_success): A successful final-boundary execution ends the current turn. "+
-				"An earlier skipped call ends the turn only while the response scope is waiting for callbacks or other active turns; "+
-				"when the scope is otherwise quiescent, the skipped call continues the current turn so remaining work can finish.",
+			"When this final-response action executes successfully, the current turn ends. "+
+				"An early call may also end the current turn while required subagent results are pending.",
 		)
 	} else if endTurnOnSuccess {
 		parts = append(parts,
-			"Runtime turn behavior (end_on_success): When this tool's result succeeds and every result in the same tool batch "+
-				"succeeds, the current turn ends.",
+			"When this tool and every tool in the same batch succeed, the current turn ends.",
 		)
 	} else if trigger != "" {
 		parts = append(parts,
-			"Runtime turn behavior: This trigger does not end the current turn automatically after a successful call.",
+			"A successful call does not end the current turn automatically.",
 		)
 	}
 	return strings.Join(parts, "\n\n")

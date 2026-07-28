@@ -629,12 +629,12 @@ func TestRuntimeStepLimitUsesOneTextOnlyFinalizationRound(t *testing.T) {
 	}
 	foundReminder := false
 	for _, reminder := range providerRequests[1].ContextReminders {
-		if strings.Contains(reminder.Content, `<provider_step_limit state="finalization">`) {
+		if strings.Contains(reminder.Content, `<work_limit_reached>`) {
 			foundReminder = true
 		}
 	}
 	if !foundReminder {
-		t.Fatalf("finalization reminders = %#v, want provider-step reminder", providerRequests[1].ContextReminders)
+		t.Fatalf("finalization reminders = %#v, want work-limit reminder", providerRequests[1].ContextReminders)
 	}
 }
 

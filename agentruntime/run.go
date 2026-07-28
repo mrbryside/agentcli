@@ -122,10 +122,10 @@ type runtimeMessageInjection struct {
 }
 
 const (
-	stepLimitFinalizationReminder = `<provider_step_limit state="finalization">
-The configured provider-step limit has been reached. Agentic work is over. Only required completion tools may be available. Finish from existing results: call every required completion tool that is available, otherwise respond with a concise, self-contained text summary of completed work, confirmed verification, unresolved blockers, and remaining tasks. Do not claim unconfirmed actions or attempt unavailable tools.
-</provider_step_limit>`
-	stepLimitFinalizationFallback = "The provider-step limit was reached, but the model did not return the required text-only summary. Review the completed tool results and continue the remaining work in a new turn."
+	stepLimitFinalizationReminder = `<work_limit_reached>
+No more work tools are available in this turn. Finish from existing results. Call each available required completion tool; if none is available, write a concise summary of completed work, confirmed verification, unresolved blockers, and remaining tasks. Do not claim unconfirmed actions or request unavailable tools.
+</work_limit_reached>`
+	stepLimitFinalizationFallback = "The work limit was reached, but the model did not return the required text summary. Review the completed tool results and continue the remaining work in a new turn."
 	// One initial finalizer, the existing three bounded completion repairs,
 	// and one final text round when a non-terminal completion tool succeeds on
 	// the last repair.

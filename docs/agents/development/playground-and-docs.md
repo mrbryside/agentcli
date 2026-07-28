@@ -21,9 +21,9 @@ shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
 
 The playground also inherits framework-owned subagent management tools from
 `LoadProject`; it has no local copy of their schemas or orchestration prompt.
-Consequently the Terminal automatically uses the callback contract:
-start/send/force-close return control to the parent, and accepted start/send
-work resumes through a later callback after the current parent turn finishes.
+Consequently the Terminal automatically uses the result contract:
+start/send/force-close return control to the main agent, and accepted start/send
+work resumes through a later result after the current main agent turn finishes.
 
 User documentation lives in `documentation/docs`. HTTP annotations live in root `swagger.go` and the root server handlers; `documentation/package.json` drives Swaggo generation from the module-root `agentcli` package, Redocly validation/rendering, and the Docusaurus build. Generated OpenAPI/Redoc files are tracked, so regenerate them when API annotations or response models change.
 

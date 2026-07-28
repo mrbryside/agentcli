@@ -42,7 +42,7 @@ for event := range subscription.Events {
 ```
 
 Persist `lastCursor` for the exact `(sessionID, turnID)` view. Do not share one
-cursor across sessions or child views.
+cursor across sessions or subagent views.
 
 ## Important event types
 
@@ -75,7 +75,7 @@ disabled. The HTTP message endpoints identify those records with
 boundary fields; treat them as opaque internal runtime state.
 
 See [Context compaction](../capabilities/context-compaction.md) for the exact
-event ordering, provider-request projection, and child-session scoping.
+event ordering, provider-request projection, and subagent-session scoping.
 
 ## Provider events
 
@@ -100,6 +100,6 @@ envelope represents every event variant.
 ## UI ownership
 
 Maintain one render buffer and streaming flag per session/turn view. Switching
-to a child session should render only that child's retained messages and live
+to a subagent session should render only that subagent's retained messages and live
 events. A background stream continues through its own subscription even while
 another view is visible.

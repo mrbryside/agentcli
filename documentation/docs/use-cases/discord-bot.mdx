@@ -199,16 +199,16 @@ func NewTool(discord messageSender) agentcli.Tool {
 This follows the same delivery contract as the `report_discord` tool in the
 reference Discord agent:
 
-- `EndResponseScope` skips a tool-first call only on the initial human root
-  turn, plus calls made while the scope is busy. A callback continuation may
+- `EndResponseScope` skips a tool-first call only on the initial human
+  main-agent turn, plus calls made while the scope is busy. A subagent-result continuation may
   deliver on provider step one when it is the final active turn.
 - `EndTurnOnSuccess` stops the model after final delivery, or yields an
-  intermediate turn when callbacks still keep the response scope open.
+  intermediate turn when subagent results still keep the response scope open.
 - The durable tool call and successful result preserve what was delivered;
   the runtime does not append a duplicate assistant message.
 
 An early call—including calling `report_discord` as the first tool—does not
-send to Discord. With no callback or other active turn pending, it cannot end
+send to Discord. With no subagent result or other active turn pending, it cannot end
 the turn and ordinary work remains available. It returns:
 
 ```json
@@ -222,8 +222,8 @@ the turn and ordinary work remains available. It returns:
 ```
 
 The runtime does not guess whether the message sounds final. It rejects every
-`report_discord` call emitted in the human root turn's first provider round, so
-a tool-first progress message cannot end the turn. Callback continuations are
+`report_discord` call emitted in the human main-agent turn's first provider
+round, so a tool-first progress message cannot end the turn. Subagent-result continuations are
 already past that first-action boundary and can deliver on provider step one.
 A normal completion attempt can also open a restricted repair round. Early
 arguments are never staged or delivered later.
@@ -462,7 +462,7 @@ Run the combined bot:
 go run ./cmd/embedded
 ```
 
-The `busy` map mirrors agentcli's direct-call rule: one active root turn per
+The `busy` map mirrors agentcli's direct-call rule: one active main-agent turn per
 session. Different Discord channels still run concurrently.
 
 </TabItem>
@@ -819,10 +819,10 @@ running a public bot, add the pieces required by your product:
   thread ID for one conversation per thread.
 - **SSE reconnect:** store the last event ID and reconnect with
   `Last-Event-ID`. Fetch the turn status if a stream ends unexpectedly.
-- **Automatic subagent callbacks:** API clients should follow the
+- **Automatic subagent results:** API clients should follow the
   [session-wide event stream](../api/sse-events.md#session-stream), not only one
   turn URL. Embedded clients should consume and continue
-  `SubscribeSubagentCallbacks`.
+  `SubscribeSubagentResults`.
 - **Permissions and confirmations:** render requests from events and post
   explicit decisions. Never infer approval from a Discord reaction or timeout.
 - **Progress:** use provider, tool, compaction, `pre_end_scope`, and

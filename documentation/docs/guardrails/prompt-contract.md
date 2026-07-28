@@ -47,7 +47,7 @@ Every prompt check is a separate provider request:
 Input and assistant-output prompt guards can use independent project provider
 profiles through `WithInputGuardProvider` and `WithOutputGuardProvider`.
 Each tool-call prompt guard can set `ToolCallGuardModel` to one
-`GuardModelConfig`; omitting the config uses the Agent model. Use a callback
+`GuardModelConfig`; omitting the config uses the Agent model. Use a result
 guard when a tool needs a non-model policy service.
 
 ## Operational guidance

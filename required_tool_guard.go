@@ -74,19 +74,19 @@ func completionGuardWithRequiredTools(
 		}
 
 		instruction := fmt.Sprintf(
-			"This turn cannot finish until every required trigger tool has succeeded. "+
+			"This turn cannot finish until every required completion tool has succeeded. "+
 				"Call all of these tools now, in the same response, using the completed work to construct their arguments: %s. "+
-				"Do not emit a user-facing assistant message before the trigger tool call. "+
+				"Do not emit a user-facing assistant message before these tool calls. "+
 				"Do not repeat prior work or any already-successful tool call. "+
-				"This is repair attempt %d of %d; keep calling the required tool on the next repair if this attempt does not produce a successful result.",
+				"This is correction attempt %d of %d. If a call is invalid, use the next attempt only to correct it.",
 			strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
 		)
 		if scopeReady && containsAnyString(missing, requiredAtResponseScopeEnd) {
 			instruction = fmt.Sprintf(
-				"The response scope is ready to end. Call these required end-response-scope tools now with the final completed response: %s. "+
-					"The runtime skipped any earlier calls and they did not satisfy this final trigger. "+
+				"The complete final response is ready. Call these required final-response tools now: %s. "+
+					"Any earlier calls were too early and did not run. "+
 					"Do not repeat prior work or emit a user-facing assistant message before the tool call. "+
-					"This is repair attempt %d of %d.",
+					"This is correction attempt %d of %d.",
 				strings.Join(missing, ", "), progressAttempts, defaultCompletionRepairLimit,
 			)
 		}

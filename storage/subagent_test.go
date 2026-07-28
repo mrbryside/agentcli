@@ -14,29 +14,29 @@ func TestValidateSubagent(t *testing.T) {
 	}{
 		{"missing ID", func(s *Subagent) { s.ID = "" }},
 		{"missing display name", func(s *Subagent) { s.DisplayName = "" }},
-		{"missing parent session", func(s *Subagent) { s.ParentSessionID = "" }},
-		{"missing parent turn", func(s *Subagent) { s.ParentTurnID = "" }},
-		{"missing child session", func(s *Subagent) { s.SessionID = "" }},
+		{"missing mainAgent session", func(s *Subagent) { s.MainAgentSessionID = "" }},
+		{"missing mainAgent turn", func(s *Subagent) { s.MainAgentTurnID = "" }},
+		{"missing subagent session", func(s *Subagent) { s.SubagentSessionID = "" }},
 		{"missing definition", func(s *Subagent) { s.DefinitionName = "" }},
 		{"missing provider", func(s *Subagent) { s.Provider = "" }},
 		{"missing model", func(s *Subagent) { s.Model = "" }},
 		{"invalid status", func(s *Subagent) { s.Status = "unknown" }},
-		{"running without current turn", func(s *Subagent) { s.Status, s.CurrentTurnID = SubagentStatusRunning, "" }},
+		{"running without current turn", func(s *Subagent) { s.Status, s.CurrentSubagentTurnID = SubagentStatusRunning, "" }},
 		{"closed without closed timestamp", func(s *Subagent) { s.Status, s.ClosedAt = SubagentStatusClosed, nil }},
-		{"closed with current turn", func(s *Subagent) { s.Status, s.CurrentTurnID = SubagentStatusClosed, "turn_1" }},
+		{"closed with current turn", func(s *Subagent) { s.Status, s.CurrentSubagentTurnID = SubagentStatusClosed, "turn_1" }},
 		{"queued message missing ID", func(s *Subagent) { s.Pending[0].ID = "" }},
 		{"queued message missing content", func(s *Subagent) { s.Pending[0].Content = "" }},
 		{"queued message missing timestamp", func(s *Subagent) { s.Pending[0].CreatedAt = time.Time{} }},
 		{"outcome without turn", func(s *Subagent) {
-			s.LastTurnID, s.LastTurnOutcome, s.LastTurnSummary = "", SubagentTurnCompleted, "done"
+			s.LastSubagentTurnID, s.LastResultStatus, s.LastResultSummary = "", SubagentResultCompleted, "done"
 		}},
-		{"completed without summary", func(s *Subagent) { s.LastTurnOutcome = SubagentTurnCompleted }},
+		{"completed without summary", func(s *Subagent) { s.LastResultStatus = SubagentResultCompleted }},
 		{"completed with next step", func(s *Subagent) {
-			s.LastTurnOutcome, s.LastTurnSummary, s.LastTurnNextStep = SubagentTurnCompleted, "done", "more"
+			s.LastResultStatus, s.LastResultSummary, s.LastResultNextStep = SubagentResultCompleted, "done", "more"
 		}},
-		{"incomplete without next step", func(s *Subagent) { s.LastTurnOutcome, s.LastTurnSummary = SubagentTurnIncomplete, "partial" }},
-		{"failed without error", func(s *Subagent) { s.LastTurnOutcome = SubagentTurnFailed }},
-		{"error without failed outcome", func(s *Subagent) { s.LastTurnError = "boom" }},
+		{"incomplete without next step", func(s *Subagent) { s.LastResultStatus, s.LastResultSummary = SubagentResultIncomplete, "partial" }},
+		{"failed without error", func(s *Subagent) { s.LastResultStatus = SubagentResultFailed }},
+		{"error without failed outcome", func(s *Subagent) { s.LastResultError = "boom" }},
 	}
 
 	if err := ValidateSubagent(valid); err != nil {
@@ -82,9 +82,9 @@ func TestCloneSubagentsDoesNotShareRecords(t *testing.T) {
 func testSubagent() Subagent {
 	now := time.Date(2026, time.July, 20, 0, 0, 0, 0, time.UTC)
 	return Subagent{
-		ID: "subagent_1", DisplayName: "Mira", Label: "research", ParentSessionID: "parent_1", ParentTurnID: "turn_parent_1",
-		SessionID: "child_1", DefinitionName: "researcher", Provider: "openai", Model: "gpt-test",
-		Status: SubagentStatusIdle, LastTurnID: "turn_child_1", Version: 3,
+		ID: "subagent_1", DisplayName: "Mira", Label: "research", MainAgentSessionID: "mainAgent_1", MainAgentTurnID: "turn_mainAgent_1",
+		SubagentSessionID: "subagent_1", DefinitionName: "researcher", Provider: "openai", Model: "gpt-test",
+		Status: SubagentStatusIdle, LastSubagentTurnID: "turn_subagent_1", Version: 3,
 		Pending:           []SubagentQueuedMessage{{ID: "queued_1", Content: "continue", CreatedAt: now}},
 		ObservedMessageID: "message_1", ObservedVersion: 2, CreatedAt: now, UpdatedAt: now,
 	}
