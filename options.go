@@ -46,6 +46,7 @@ type config struct {
 	skillReload             SkillReloadPolicy
 	subagents               storage.SubagentStorage
 	maxProviderSteps        int
+	taskForegroundWait      time.Duration
 	maxSubagents            int
 	subagentAgent           bool
 	contextReminderProvider agentruntime.ContextReminderProvider
@@ -378,6 +379,18 @@ func WithProviderStepLimit(maximum int) Option {
 			return errors.New("provider step limit must be positive")
 		}
 		configuration.maxProviderSteps = maximum
+		return nil
+	}
+}
+
+// WithTaskForegroundWait promotes a foreground task to background execution
+// after the duration. Zero leaves foreground tasks unbounded by the framework.
+func WithTaskForegroundWait(wait time.Duration) Option {
+	return func(configuration *config) error {
+		if wait < 0 {
+			return errors.New("task foreground wait cannot be negative")
+		}
+		configuration.taskForegroundWait = wait
 		return nil
 	}
 }

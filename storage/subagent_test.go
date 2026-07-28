@@ -37,6 +37,12 @@ func TestValidateSubagent(t *testing.T) {
 		{"incomplete without next step", func(s *Subagent) { s.LastResultStatus, s.LastResultSummary = SubagentResultIncomplete, "partial" }},
 		{"failed without error", func(s *Subagent) { s.LastResultStatus = SubagentResultFailed }},
 		{"error without failed outcome", func(s *Subagent) { s.LastResultError = "boom" }},
+		{"delivery without assignment ID", func(s *Subagent) {
+			s.ActiveTaskDelivery = &TaskDelivery{MainAgentTurnID: "turn_delivery"}
+		}},
+		{"delivery without main agent turn ID", func(s *Subagent) {
+			s.ActiveTaskDelivery = &TaskDelivery{AssignmentID: "assignment_1"}
+		}},
 	}
 
 	if err := ValidateSubagent(valid); err != nil {
@@ -57,15 +63,20 @@ func TestCloneSubagentDoesNotSharePendingMessagesOrTimestamps(t *testing.T) {
 	record := testSubagent()
 	closed := record.CreatedAt.Add(time.Minute)
 	record.ClosedAt = &closed
+	record.ActiveTaskDelivery = &TaskDelivery{MainAgentTurnID: "turn_delivery", AssignmentID: "assignment_1"}
 	clone := CloneSubagent(record)
 	clone.Pending[0].Content = "changed"
 	*clone.ClosedAt = clone.ClosedAt.Add(time.Hour)
+	clone.ActiveTaskDelivery.AssignmentID = "assignment_2"
 
 	if record.Pending[0].Content != "continue" {
 		t.Fatalf("pending content = %q, want continue", record.Pending[0].Content)
 	}
 	if record.ClosedAt.Equal(*clone.ClosedAt) {
 		t.Fatal("closed timestamp shares pointer")
+	}
+	if record.ActiveTaskDelivery.AssignmentID != "assignment_1" {
+		t.Fatalf("delivery assignment ID = %q, want assignment_1", record.ActiveTaskDelivery.AssignmentID)
 	}
 }
 

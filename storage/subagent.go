@@ -33,6 +33,14 @@ type SubagentQueuedMessage struct {
 	CreatedAt time.Time
 }
 
+// TaskDelivery identifies the main-agent turn and assignment that should
+// receive a later task result. It is separate from Subagent.MainAgentTurnID,
+// which always records the turn that originally created the subagent session.
+type TaskDelivery struct {
+	MainAgentTurnID string
+	AssignmentID    string
+}
+
 // Subagent is provider-neutral state for one subagent instance. Subagent
 // transcript messages remain in MessageStorage under SubagentSessionID.
 type Subagent struct {
@@ -53,6 +61,7 @@ type Subagent struct {
 	LastResultStatus      SubagentResultStatus
 	LastResultSummary     string
 	LastResultNextStep    string
+	ActiveTaskDelivery    *TaskDelivery
 	Version               uint64
 
 	Pending []SubagentQueuedMessage
@@ -75,6 +84,7 @@ type SubagentUpdate struct {
 	LastResultStatus      SubagentResultStatus
 	LastResultSummary     string
 	LastResultNextStep    string
+	ActiveTaskDelivery    *TaskDelivery
 }
 
 // SubagentStorage persists main-agent-to-subagent session relationships independently of
@@ -223,6 +233,24 @@ func ValidateSubagent(subagent Subagent) error {
 	default:
 		return invalidSubagent("unknown last result status %q", subagent.LastResultStatus)
 	}
+	if err := ValidateTaskDelivery(subagent.ActiveTaskDelivery); err != nil {
+		return invalidSubagent("active task delivery: %v", err)
+	}
+	return nil
+}
+
+// ValidateTaskDelivery verifies an optional identity for later task-result
+// delivery. Both identifiers are required whenever a delivery is present.
+func ValidateTaskDelivery(delivery *TaskDelivery) error {
+	if delivery == nil {
+		return nil
+	}
+	if delivery.MainAgentTurnID == "" {
+		return errors.New("main agent turn ID is required")
+	}
+	if delivery.AssignmentID == "" {
+		return errors.New("assignment ID is required")
+	}
 	return nil
 }
 
@@ -250,7 +278,17 @@ func CloneSubagent(subagent Subagent) Subagent {
 		closedAt := *subagent.ClosedAt
 		clone.ClosedAt = &closedAt
 	}
+	clone.ActiveTaskDelivery = CloneTaskDelivery(subagent.ActiveTaskDelivery)
 	return clone
+}
+
+// CloneTaskDelivery returns a defensive copy of an optional task delivery.
+func CloneTaskDelivery(delivery *TaskDelivery) *TaskDelivery {
+	if delivery == nil {
+		return nil
+	}
+	clone := *delivery
+	return &clone
 }
 
 // CloneSubagents returns defensive copies of subagent records.

@@ -83,6 +83,46 @@ func TestSubagentStorageUpdateUsesVersionCompareAndPreservesOwnership(t *testing
 	}
 }
 
+func TestSubagentStorageUpdateReplacesActiveTaskDelivery(t *testing.T) {
+	t.Parallel()
+	store := NewSubagentStorage()
+	record := inMemorySubagent("subagent_a", "mainAgent_a", time.Now())
+	created, err := store.Create(context.Background(), record)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	first := storage.TaskDelivery{MainAgentTurnID: "mainAgent_turn_2", AssignmentID: "assignment_1"}
+	updated, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{
+		Status:             storage.SubagentStatusIdle,
+		ActiveTaskDelivery: &first,
+	})
+	if err != nil {
+		t.Fatalf("Update first delivery: %v", err)
+	}
+	second := storage.TaskDelivery{MainAgentTurnID: "mainAgent_turn_3", AssignmentID: "assignment_2"}
+	updated, err = store.Update(context.Background(), record.ID, updated.Version, storage.SubagentUpdate{
+		Status:             storage.SubagentStatusIdle,
+		ActiveTaskDelivery: &second,
+	})
+	if err != nil {
+		t.Fatalf("Update replacement delivery: %v", err)
+	}
+	if updated.MainAgentTurnID != "mainAgent_turn" {
+		t.Fatalf("original MainAgentTurnID = %q, want mainAgent_turn", updated.MainAgentTurnID)
+	}
+	if updated.ActiveTaskDelivery == nil || updated.ActiveTaskDelivery.MainAgentTurnID != "mainAgent_turn_3" || updated.ActiveTaskDelivery.AssignmentID != "assignment_2" {
+		t.Fatalf("active delivery = %#v, want replacement", updated.ActiveTaskDelivery)
+	}
+	second.AssignmentID = "mutated"
+	got, ok, err := store.Get(context.Background(), record.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get = (%#v, %t, %v)", got, ok, err)
+	}
+	if got.ActiveTaskDelivery == nil || got.ActiveTaskDelivery.AssignmentID != "assignment_2" {
+		t.Fatalf("stored active delivery = %#v, want defensive replacement copy", got.ActiveTaskDelivery)
+	}
+}
+
 func TestSubagentStorageMailboxIsFIFOAndCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 	store := NewSubagentStorage()

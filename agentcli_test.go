@@ -27,6 +27,7 @@ func TestNewValidatesRequiredAndNumericOptions(t *testing.T) {
 		{name: "zero channel buffer", options: []Option{WithModel(&scriptedModel{}), WithChannelBuffer(0)}},
 		{name: "zero workers", options: []Option{WithModel(&scriptedModel{}), WithToolWorkers(0)}},
 		{name: "zero provider steps", options: []Option{WithModel(&scriptedModel{}), WithProviderStepLimit(0)}},
+		{name: "negative task foreground wait", options: []Option{WithModel(&scriptedModel{}), WithTaskForegroundWait(-time.Second)}},
 		{name: "empty project root", options: []Option{WithModel(&scriptedModel{}), WithProjectRoot("")}},
 		{name: "unknown permission mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionMode("unknown")}},
 		{name: "unknown policy mode", options: []Option{WithModel(&scriptedModel{}), WithPermissionPolicy(permission.Policy{Mode: "unknown"})}},
@@ -53,6 +54,33 @@ func TestProviderStepLimitOptionIsOptIn(t *testing.T) {
 	}
 	if configuration.maxProviderSteps != 7 {
 		t.Fatalf("provider step limit = %d, want 7", configuration.maxProviderSteps)
+	}
+}
+
+func TestTaskTypesAndForegroundWaitOption(t *testing.T) {
+	if got := []TaskState{TaskStateRunning, TaskStateCompleted, TaskStateIncomplete, TaskStateError}; !slices.Equal(got, []TaskState{"running", "completed", "incomplete", "error"}) {
+		t.Fatalf("task states = %v", got)
+	}
+	result := TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done", Error: ""}
+	if result.TaskID != "task_1" || result.AgentName != "researcher" || result.State != TaskStateCompleted || result.Output != "done" || result.Error != "" {
+		t.Fatalf("TaskResult = %#v", result)
+	}
+
+	configuration := defaultConfig(t.TempDir())
+	if configuration.taskForegroundWait != 0 {
+		t.Fatalf("default foreground wait = %v, want disabled zero", configuration.taskForegroundWait)
+	}
+	if err := WithTaskForegroundWait(0)(&configuration); err != nil {
+		t.Fatalf("WithTaskForegroundWait(0): %v", err)
+	}
+	if configuration.taskForegroundWait != 0 {
+		t.Fatalf("zero foreground wait = %v, want disabled zero", configuration.taskForegroundWait)
+	}
+	if err := WithTaskForegroundWait(7 * time.Second)(&configuration); err != nil {
+		t.Fatalf("WithTaskForegroundWait(positive): %v", err)
+	}
+	if configuration.taskForegroundWait != 7*time.Second {
+		t.Fatalf("foreground wait = %v, want 7s", configuration.taskForegroundWait)
 	}
 }
 

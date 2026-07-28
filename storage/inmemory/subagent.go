@@ -118,6 +118,7 @@ func (s *SubagentStorage) Update(ctx context.Context, id string, expectedVersion
 	record.LastResultStatus = update.LastResultStatus
 	record.LastResultSummary = update.LastResultSummary
 	record.LastResultNextStep = update.LastResultNextStep
+	record.ActiveTaskDelivery = storage.CloneTaskDelivery(update.ActiveTaskDelivery)
 	record.UpdatedAt = nextSubagentTimestamp(record)
 	record.Version++
 	if err := storage.ValidateSubagent(record); err != nil {
