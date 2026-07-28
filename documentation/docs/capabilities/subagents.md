@@ -27,11 +27,18 @@ tools:
   - read
 ---
 
-Investigate the assignment and return a self-contained final answer.
+Investigate the relevant evidence, distinguish findings from inference, and
+make the practical trade-offs clear.
 ```
 
 `name`, `description`, `provider`, and `model` are required. Project loading
 validates names, providers, skills, and tool allowlists.
+
+The Markdown body is the agent's domain role, not a transport contract. Put
+specialized methods, evidence standards, and output quality criteria there.
+The framework separately supplies tool boundaries, no-nesting rules, safe
+missing-input behavior, and the final delivery contract. If `result` is
+configured, the framework also supplies its exact JSON response shape.
 
 ## Main-agent task tool
 
@@ -39,6 +46,24 @@ The main model receives one framework tool, `task`; child agents never receive
 it, so task nesting is denied. The removed model-facing names are
 `start_subagent`, `send_subagent_message`, `report_subagent_result`, polling,
 callbacks, and client-owned result continuation.
+
+Application prompts should stay domain-focused. They can name a configured
+agent, require independent or dependent work, or ask to continue the same
+agent conversation without repeating the fields and lifecycle below. The
+framework system prompt translates that language into the task protocol.
+
+| Instruction owner | What belongs there |
+| --- | --- |
+| `MAIN.md` and skills | Product/domain policy: when a named specialist is required, which work is independent or sequential, constraints, and the desired outcome. |
+| Main-agent framework prompt | `task` selection, new-versus-resume fields, foreground/background behavior, parallel batching, saved-ID continuation, and result interpretation. |
+| Concrete `task.prompt` | The current assignment plus all context the child needs for that turn. |
+| Subagent definition body | The specialist role, methods, evidence bar, and domain-specific quality criteria. |
+| Subagent framework prompt | Capability boundaries, secret safety, no task nesting, one final response, missing-input behavior, and optional result-contract formatting. |
+
+Do not copy tool schemas, `task_id` rules, polling rules, or generic
+final-answer boilerplate into application-owned prompts. Keeping these
+concerns separate lets framework contract changes apply to existing projects
+without requiring prompt rewrites.
 
 For a new task, provide `agent`, `description`, and `prompt`:
 

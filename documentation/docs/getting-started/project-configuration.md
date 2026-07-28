@@ -16,6 +16,13 @@ Child agents cannot invoke `task`. At a provider step limit they receive a
 text-only finalization and return `incomplete`; `report_subagent_result` is
 removed.
 
+These protocol details are framework-owned. `MAIN.md`, skills, and subagent
+definition bodies express domain policy and role behavior without duplicating
+task fields, batching rules, resume mechanics, or generic delivery wording.
+The framework translates instructions such as “use researcher,” “run these
+checks independently,” “review after research,” or “continue the same
+researcher conversation” into valid task calls.
+
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
 the config's compaction/provider mappings, `MAIN.md`, and every subagent
@@ -293,6 +300,12 @@ clear self-contained result.
 none of that capability. An explicit empty list is rejected to avoid confusing
 "configured empty" state.
 
+Keep the Markdown body application-specific. It may require a configured agent,
+parallel or sequential domain work, or continuation of the same agent
+conversation. It should not teach the model the `task` JSON fields,
+foreground/background lifecycle, polling prohibition, or result parsing; the
+framework prompt owns those rules.
+
 Listing a custom tool does not create its handler. The Go application must also
 register that exact name with `agentcli.WithTool`; otherwise
 `agentcli.New` returns an error such as:
@@ -309,16 +322,28 @@ researcher intentionally exposes `glob` and `read`, not `edit` or
 
 ## Project instructions
 
-Project loading creates exactly two system messages:
+Project loading builds these ordered main-agent system-message layers:
 
-1. One framework message containing runtime rules, environment/model context,
-   and discovery-only skill/subagent catalogs.
-2. One main-agent instruction message containing the body of `MAIN.md`.
+1. One core framework message containing runtime rules and environment/model
+   context.
+2. When skills exist, one framework-owned skill discovery and loading message.
+3. When subagents exist, one framework-owned task orchestration message and
+   discovery-only task-agent catalog.
+4. One application-owned main-agent instruction message containing the body of
+   `MAIN.md`.
 
-Root `AGENTS.md` is not loaded. Neither system message is persisted in
-conversation storage; both are rebuilt for provider calls from the loaded
-project snapshot. Subagents use the same separation, with their definition
-body as the second system message.
+Root `AGENTS.md` is not loaded. These messages are not persisted in
+conversation storage; they are rebuilt for provider calls from the loaded
+project snapshot. A subagent receives a framework message containing runtime,
+capability, safety, skill-discovery, delivery, and optional result-format rules,
+followed by a separate application-owned assignment-role message containing
+its definition body.
+
+This separation is a contract boundary. Application instructions define
+domain intent and quality; framework messages define protocol mechanics and
+delivery semantics. A task assignment can therefore contain only the concrete
+goal, method, context, and expected result while the child still receives the
+framework delivery contract.
 
 ## Programmatic overrides
 

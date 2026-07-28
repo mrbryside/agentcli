@@ -140,7 +140,8 @@ the runtime suppresses duplicate bodies for recent matching calls.
 
 ## Prompt placement
 
-The catalog stays in the grouped framework system message. Loaded skill bodies
-are tool results in conversation history. Consequently, a provider request may
-still contain a previous skill body as history, but the runtime avoids creating
-a new duplicate result until the refresh policy says it is stale.
+The catalog stays in its framework-owned `# Skills` system message, separate
+from the application-owned `MAIN.md` message. Loaded skill bodies are tool
+results in conversation history. Consequently, a provider request may still
+contain a previous skill body as history, but the runtime avoids creating a new
+duplicate result until the refresh policy says it is stale.

@@ -19,12 +19,38 @@ func TestInstallerMainPromptKeepsUserFacingOutputInsideTriggerTool(t *testing.T)
 		"Never write that text first and call the tool afterward",
 		"Keep the complete message at or below 1800 Unicode characters",
 		"Summarize",
-		"Use `task` when focused research or a separate investigation would help",
-		"same tool-call batch",
 		"For completed work, report the findings directly",
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("installer MAIN.md prompt does not contain %q", required)
+		}
+	}
+}
+
+func TestInstallerProjectPromptsDoNotDuplicateFrameworkTaskContract(t *testing.T) {
+	content, err := os.ReadFile("init/install.sh")
+	if err != nil {
+		t.Fatalf("read installer: %v", err)
+	}
+	installer := string(content)
+	for _, forbidden := range []string{
+		"Use `task` when",
+		"runs in the foreground by default",
+		"same tool-call batch",
+		"recorded `task_id`",
+		"give the main agent a concise recommendation",
+	} {
+		if strings.Contains(installer, forbidden) {
+			t.Fatalf("installer project prompt duplicates framework contract %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"Investigate the important facts, trade-offs, and uncertainties.",
+		"Prioritize\ntraceable evidence",
+		"distinguish findings from inference",
+	} {
+		if !strings.Contains(installer, required) {
+			t.Fatalf("installer researcher role does not contain %q", required)
 		}
 	}
 }

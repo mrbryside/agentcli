@@ -19,11 +19,13 @@ Terminal formats those binary values as `120k` and `65k`, so the opening banner
 shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
 `playground/terminal`, not in the reusable `agentcli` package.
 
-The playground also inherits framework-owned subagent management tools from
-`LoadProject`; it has no local copy of their schemas or orchestration prompt.
-Consequently the Terminal automatically uses the result contract:
-start/send/force-close return control to the main agent, and accepted start/send
-work resumes through a later result after the current main agent turn finishes.
+The playground inherits the single framework-owned main-agent `task` tool from
+`LoadProject`; it has no local copy of its schema or orchestration prompt.
+Foreground work returns its terminal `TaskResult` in the same tool call.
+Background or foreground-wait-promoted work is delivered exactly once by
+`Agent`, either at a compatible provider boundary or in an Agent-owned
+continuation turn. Terminal subagent view/status/message/interrupt/close
+commands remain host controls and are not model tools.
 
 User documentation lives in `documentation/docs`. HTTP annotations live in root `swagger.go` and the root server handlers; `documentation/package.json` drives Swaggo generation from the module-root `agentcli` package, Redocly validation/rendering, and the Docusaurus build. Generated OpenAPI/Redoc files are tracked, so regenerate them when API annotations or response models change.
 

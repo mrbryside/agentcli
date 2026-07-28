@@ -62,8 +62,10 @@ Each accepted subagent assignment increments the originating response scope's
 removes one assignment from the queue, decrements `pendingResults`, and creates
 an active result continuation. Under the same coordinator lock, it records
 the received subagent identity and result status and snapshots all remaining pending
-assignments. That `result_progress` snapshot is injected inside the trusted
-result runtime message.
+assignments. That progress snapshot is internal response-scope accounting, not
+provider context. The trusted `<task_result>` message contains only `task_id`,
+`agent`, `state`, `output`, and `error`; result-contract metadata and
+response-scope progress remain application/runtime-only.
 
 Explicit close makes result cancellation terminal for that subagent:
 

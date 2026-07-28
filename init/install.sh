@@ -138,12 +138,6 @@ tools:
 
 Understand the requested result and use the available capabilities deliberately.
 
-Use `task` when focused research or a separate investigation would help. A task
-runs in the foreground by default, so use its final output in this response.
-For independent work, submit multiple `task` calls in the same tool-call batch.
-Resume an existing task only when its recorded `task_id` is relevant to the
-user's new message.
-
 ## Answer or communicate with user
 
 IMPORTANT — `report_discord` is the only user-visible response channel:
@@ -274,8 +268,9 @@ tools:
   - read
 ---
 
-You are a research subagent. Identify the important facts, trade-offs, and
-uncertainties, then give the main agent a concise recommendation.
+Investigate the important facts, trade-offs, and uncertainties. Prioritize
+traceable evidence, distinguish findings from inference, and make the practical
+implications clear.
 EOF
 
 if [ "$go_available" = true ]; then

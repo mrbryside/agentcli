@@ -21,6 +21,10 @@ failure honestly. Never claim more than the complete result confirms.`
 
 const mainAgentSubagentToolPrompt = `Use task for focused work that a configured agent can do better than the main agent.
 
+Application instructions may name a configured agent or describe parallel,
+sequential, or continuing work in domain language without repeating this
+protocol. Translate those instructions into the task calls described here.
+
 For a new task, provide agent, description, and prompt. Foreground is the
 default: the task's final output returns in the same tool call. When several
 assignments are independent, put their task calls in the same tool batch so

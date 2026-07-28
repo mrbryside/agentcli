@@ -51,6 +51,27 @@ work materially benefits from a configured subagent; an applicable instruction
 or explicit user request may require delegation independently. Topic overlap
 alone and discovery-only questions do not trigger a subagent.
 
+Application `MAIN.md`, skills, and subagent role prompts may stay in domain
+language without repeating the task protocol. Naming a configured agent,
+requesting parallel or sequential work, or asking to continue the same agent
+conversation is translated through the framework prompt into the task calls
+below.
+
+Prompt ownership is deliberately split:
+
+| Owner | Contract |
+| --- | --- |
+| `MAIN.md` and skills | Domain policy: when a specialist is required, dependency/ordering requirements, constraints, and desired outcomes. |
+| Main task framework prompt | Agent selection, new/resume fields, batching, foreground/background behavior, saved-ID continuation, missing-input handoff, and task-result reading. |
+| Per-call `prompt` | Concrete work and the context required for this child turn. |
+| Subagent definition body | Domain role, method, evidence standards, and quality criteria. |
+| Subagent framework prompt | Tool/evidence boundaries, secret safety, no nesting, generic final delivery, missing-input behavior, and optional exact result JSON. |
+
+Do not duplicate task schemas, polling/lifecycle mechanics, or generic
+final-answer boilerplate in project-owned prompts. Framework rules still apply
+when an application instruction or task assignment contains only domain
+language.
+
 Subagent permission and Yes/No confirmation questions bubble up to the main agent
 session. The manager converts retained subagent admission lifecycle facts into
 main agent-addressed events with main agent, subagent, session, turn, call, and decision

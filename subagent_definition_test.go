@@ -320,6 +320,8 @@ func TestSubagentSystemPromptsKeepAssignmentSeparateFromFramework(t *testing.T) 
 		"<name>testing-go</name>",
 		"# Delivery contract",
 		subagentCompletionPrompt,
+		"Assignment instructions may describe only the domain goal",
+		"this delivery contract still applies",
 		"do not guess or take the action",
 		"one exact question for the user",
 		"same task can receive the user's answer later",

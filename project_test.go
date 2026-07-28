@@ -226,6 +226,9 @@ Return evidence and limits.
 	prompt := strings.Join(project.SystemPrompts(), "\n")
 	for _, expected := range []string{
 		"Use task for focused work",
+		"Application instructions may name a configured agent",
+		"parallel,\nsequential, or continuing work in domain language",
+		"Translate those instructions into the task calls",
 		"Foreground is the\ndefault",
 		"same tool batch",
 		"run in parallel",

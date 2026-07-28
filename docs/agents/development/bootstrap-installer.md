@@ -43,6 +43,14 @@ The generated `report_discord` tool selects that profile with
 `replace-guard-model`. The starter includes `MAIN.md`, an interview skill, and
 a researcher subagent.
 
+Generated prompt ownership follows the runtime contract boundary. `MAIN.md`
+contains application intent and the `report_discord` user-delivery policy; it
+does not copy `task` fields, batching, foreground/background, or resume rules.
+The researcher body contains only its domain method and evidence quality bar;
+it does not copy the framework's generic final-response or missing-input
+contract. Keep generated project prompts this way so framework prompt changes
+apply without synchronized starter-template rewrites.
+
 `init/templates/tool_read.go`, `init/templates/tool_glob.go`,
 `init/templates/tool_edit.go`, and `init/templates/tool_report_discord.go` are
 downloaded separately and become the matching files in the generated module.

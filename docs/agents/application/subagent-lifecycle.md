@@ -42,9 +42,12 @@ the original assignment if the run closes before acceptance.
 Assignment registration retains the subagent definition, display name, assignment ID,
 and subagent turn ID when available. Result reservation atomically records the
 received subagent turn and result status alongside the remaining pending assignments.
-The reservation exposes this snapshot as `result_progress` for the trusted
-runtime message. Rollback removes the received entry before restoring the
-pending obligation.
+The reservation can expose this internal snapshot through `ResultProgress` for
+runtime accounting and tests. It is not provider context. The trusted
+`<task_result>` message contains only `task_id`, `agent`, `state`, `output`, and
+`error`; result-contract metadata and response-scope progress remain
+application/runtime-only. Rollback removes the received entry before restoring
+the pending obligation.
 
 `CancelSubagentAssignments` records a terminal cancellation marker for the
 session/subagent pair and deletes every queued, unreserved assignment. Each deleted

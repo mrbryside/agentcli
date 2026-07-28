@@ -46,6 +46,15 @@ The installer never asks for, writes, or loads provider credentials.
 `${API_KEY}` and `${GUARDRAILS_API_KEY}` in the generated configuration are
 resolved only from the process environment.
 
+The generated prompts demonstrate the framework/application contract boundary.
+`MAIN.md` contains the application's domain and user-delivery policy, but does
+not repeat `task` fields, foreground/background behavior, parallel batching,
+or resume rules. The researcher definition contains research methods and an
+evidence bar, but does not restate the generic child final-answer contract.
+AgentCLI injects both protocol layers separately at runtime, so generated
+projects inherit future framework contract fixes without copying them into
+project prompts.
+
 The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
 available, it resolves `github.com/mrbryside/agentcli@latest` directly from Git
 and then runs `go mod tidy`, so the generated project uses the newest published

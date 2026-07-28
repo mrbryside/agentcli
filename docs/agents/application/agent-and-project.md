@@ -30,13 +30,21 @@ assignment of an `EndResponseScope` tool.
 
 Provider requests keep the framework prompt and the `MAIN.md` body (or subagent
 definition body) in separate ordered system messages. Main-agent projects
-insert a framework-owned skill-discovery system message when skills are configured, then
-a subagent system message when subagents are configured, before `MAIN.md`. The
-subagent message owns the focused tool-result protocol, the complete
-orchestration rules, and the available-subagent catalog. Capability
-instructions are therefore contiguous and not duplicated in the general
-framework prompt. Root `AGENTS.md` is not loaded. Prompt material is rebuilt
-from the project snapshot rather than persisted in conversation history.
+start with the core runtime/context framework message, then insert a
+framework-owned skill-discovery message when skills are configured and a task
+orchestration/catalog message when subagents are configured, before `MAIN.md`.
+The task message owns new-versus-resume fields, foreground/background behavior,
+parallel batching, continuation, and result interpretation. `MAIN.md` and
+skills may require named, parallel, sequential, or continuing domain work
+without restating that protocol.
+
+A subagent receives one framework message containing runtime context,
+capability and secret boundaries, optional skill discovery, the generic
+delivery contract, and any exact result format. Its definition body follows in
+a separate `# Assignment role` message and can stay limited to domain role,
+method, and quality criteria. Root `AGENTS.md` is not loaded. Prompt material
+is rebuilt from the project snapshot rather than persisted in conversation
+history.
 
 Provider profiles may contain optional exact-name entries under `models`.
 These entries are overrides, not an allowlist: `MAIN.md` and subagents may
