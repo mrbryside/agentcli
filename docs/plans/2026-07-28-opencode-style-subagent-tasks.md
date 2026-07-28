@@ -329,24 +329,24 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `server_subagents_test.go`
 - Modify: `server_types_test.go`
 
-- [ ] Add failing server tests asserting startup has no
+- [x] Add failing server tests asserting startup has no
   `WithServerAutoContinueSubagents` option or client result pump.
-- [ ] Add failing SSE tests for one background task completion, reconnect from
+- [x] Add failing SSE tests for one background task completion, reconnect from
   a cursor, and no duplicate synthetic `subagent_result` turn.
-- [ ] Add failing endpoint tests proving existing `/subagents` routes still
+- [x] Add failing endpoint tests proving existing `/subagents` routes still
   enforce ownership and manage persisted sessions only.
-- [ ] Run `rtk go test . -run 'TestServer'`; expect FAIL.
-- [ ] Remove `autoContinueSubagents`, `continueSubagentResults`,
+- [x] Run `rtk go test . -run 'TestServer'`; expect FAIL.
+- [x] Remove `autoContinueSubagents`, `continueSubagentResults`,
   `serverTurn.result`, `ServerTurnSourceSubagentResult`, and
   `SubagentResultReference`.
-- [ ] Let ordinary run events and `SystemTaskCompleted` surface task lifecycle;
+- [x] Let ordinary run events and `SystemTaskCompleted` surface task lifecycle;
   do not start a server-owned main-agent continuation.
-- [ ] Retain `/subagents` create/read/messages/interrupt/close routes and label
+- [x] Retain `/subagents` create/read/messages/interrupt/close routes and label
   their response types as host session-management data.
-- [ ] Update SSE cloning/serialization for `SystemTaskCompleted` metadata without
+- [x] Update SSE cloning/serialization for `SystemTaskCompleted` metadata without
   putting it in provider messages.
-- [ ] Run focused server tests; expect PASS.
-- [ ] Commit with message
+- [x] Run focused server tests; expect PASS.
+- [x] Commit with message
   `refactor(server): rely on runtime task delivery`.
 
 ## Task 8: Simplify Terminal, playground, and generated starter surfaces
@@ -368,23 +368,23 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `.agentcli/agent/researcher/researcher.md`
 - Modify: `README.md`
 
-- [ ] Rewrite Terminal stubs/tests to remove result subscriptions,
+- [x] Rewrite Terminal stubs/tests to remove result subscriptions,
   `runResultTurn`, and deferred client continuations.
-- [ ] Add a failing Terminal test proving a foreground task remains within the
+- [x] Add a failing Terminal test proving a foreground task remains within the
   current main turn and background completion is handled by `Agent`.
-- [ ] Add failing command tests proving `/agents`, `/agent`, `/agent-status`, and
+- [x] Add failing command tests proving `/agents`, `/agent`, `/agent-status`, and
   `/close` still navigate/manage subagent sessions.
-- [ ] Run focused Terminal tests; expect FAIL.
-- [ ] Remove old result-pump methods from `terminalAgent` and Terminal startup/
+- [x] Run focused Terminal tests; expect FAIL.
+- [x] Remove old result-pump methods from `terminalAgent` and Terminal startup/
   shutdown; retain permission, confirmation, scope, and system-event monitors.
-- [ ] Update progress labels to show `task` without exposing task protocol fields
+- [x] Update progress labels to show `task` without exposing task protocol fields
   or waiting narration.
-- [ ] Update the playground and starter `MAIN.md`/researcher template to show one
+- [x] Update the playground and starter `MAIN.md`/researcher template to show one
   foreground `task` and multiple same-batch tasks for independent work.
-- [ ] Remove callback/report wording from the Discord report-tool template while
+- [x] Remove callback/report wording from the Discord report-tool template while
   preserving its final response and secret-safety behavior.
-- [ ] Run Terminal, playground, init, and template tests; expect PASS.
-- [ ] Commit with message
+- [x] Run Terminal, playground, init, and template tests; expect PASS.
+- [x] Commit with message
   `refactor(terminal): adopt task-managed subagents`.
 
 ## Task 9: Simplify project prompts, discovery, and validation
@@ -402,24 +402,24 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `required_skills_test.go`
 - Modify: `main_definition.go`
 
-- [ ] Add failing prompt snapshots/assertions requiring the words and fields
+- [x] Add failing prompt snapshots/assertions requiring the words and fields
   `task`, foreground default, same-batch parallel tasks, and explicit
   `task_id` resume.
-- [ ] Add failing negative assertions for `callback`, `continue_main_agent`,
+- [x] Add failing negative assertions for `callback`, `continue_main_agent`,
   `accepted`, `result_progress`, `report_subagent_result`,
   `send_subagent_message`, polling, and simulated waiting.
-- [ ] Add failing project validation tests proving a subagent cannot list
+- [x] Add failing project validation tests proving a subagent cannot list
   `task` or any main-only `EndResponseScope` tool.
-- [ ] Run focused project/prompt tests; expect FAIL.
-- [ ] Replace `mainAgentSubagentToolPrompt` and `subagentDiscoveryPrompt` with
+- [x] Run focused project/prompt tests; expect FAIL.
+- [x] Replace `mainAgentSubagentToolPrompt` and `subagentDiscoveryPrompt` with
   short task selection/parallel/resume guidance.
-- [ ] Render only permission-allowed agent names and descriptions into task
+- [x] Render the project's validated agent names and descriptions into task
   discovery; keep tool/skill filtering and required-skill checks unchanged.
-- [ ] Keep subagent prompts focused on domain assignment and final output;
+- [x] Keep subagent prompts focused on domain assignment and final output;
   result-contract instructions are generated only for definitions declaring a
   contract.
-- [ ] Run focused prompt/project/skill tests; expect PASS.
-- [ ] Commit with message
+- [x] Run focused prompt/project/skill tests; expect PASS.
+- [x] Commit with message
   `refactor(prompt): describe subagents as tasks`.
 
 ## Task 10: Add end-to-end harness regressions for the observed failures

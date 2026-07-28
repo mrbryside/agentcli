@@ -66,13 +66,14 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	if !strings.Contains(prompts[0], "# Tool-result discipline") ||
 		!strings.Contains(prompts[0], "Read the complete result") ||
-		!strings.Contains(prompts[0], "The outer status only says whether the tool call was handled") ||
+		!strings.Contains(prompts[0], "task_id") ||
+		!strings.Contains(prompts[0], "state") ||
 		!strings.Contains(prompts[0], "Never claim more than the complete result confirms") {
 		t.Fatalf("main tool-result discipline prompt = %q", prompts[0])
 	}
-	if !strings.Contains(prompts[0], "required subagent results are still pending") ||
-		!strings.Contains(prompts[0], "stop without a progress message") {
-		t.Fatalf("main response prompt conflicts with asynchronous waiting: %q", prompts[0])
+	if !strings.Contains(prompts[0], "Give the user a clear, self-contained answer") ||
+		strings.Contains(prompts[0], "required subagent results are still pending") {
+		t.Fatalf("main response prompt = %q", prompts[0])
 	}
 	if !strings.Contains(prompts[1], "Do not load a skill merely to list or describe available skills") {
 		t.Fatalf("skill discovery prompt does not prevent listing from loading a skill: %q", prompts[1])
@@ -189,6 +190,93 @@ func TestLoadProjectDoesNotReadRootAgentsMarkdown(t *testing.T) {
 	}
 	if got := len(project.SystemPrompts()); got != 3 {
 		t.Fatalf("system prompts = %d, want framework, skills, and MAIN.md instructions", got)
+	}
+}
+
+func TestProjectTaskPromptSelectsForegroundParallelAndResumeWork(t *testing.T) {
+	root := projectFixture(t)
+	writeSubagentDefinition(t, root, "researcher", `---
+name: researcher
+description: Research current information from reliable sources.
+provider: openai
+model: gpt-test
+---
+Return evidence and limits.
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := strings.Join(project.SystemPrompts(), "\n")
+	for _, expected := range []string{
+		"Use task for focused work",
+		"Foreground is the\ndefault",
+		"same tool batch",
+		"run in parallel",
+		"task_id",
+		"<available_task_agents>",
+		"<name>researcher</name>",
+		"<description>Research current information from reliable sources.</description>",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("task prompt missing %q: %q", expected, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"callback", "continue_main_agent", "accepted", "result_progress",
+		"report_subagent_result", "send_subagent_message", "polling",
+		"simulated waiting",
+	} {
+		if strings.Contains(strings.ToLower(prompt), forbidden) {
+			t.Fatalf("task prompt contains retired protocol term %q: %q", forbidden, prompt)
+		}
+	}
+}
+
+func TestLoadProjectRejectsSubagentListingMainOnlyTaskTool(t *testing.T) {
+	root := projectFixture(t)
+	writeSubagentDefinition(t, root, "researcher", `---
+name: researcher
+description: Research current information.
+provider: openai
+model: gpt-test
+tools: [task]
+---
+Return evidence.
+`)
+	if _, err := LoadProject(root); err == nil ||
+		!strings.Contains(err.Error(), `subagent "researcher" cannot list main-agent task tool "task"`) {
+		t.Fatalf("LoadProject() error = %v", err)
+	}
+}
+
+func TestProjectRejectsSubagentListingEndResponseScopeTool(t *testing.T) {
+	root := projectFixture(t)
+	writeSubagentDefinition(t, root, "researcher", `---
+name: researcher
+description: Research current information.
+provider: openai
+model: gpt-test
+tools: [deliver]
+---
+Return evidence.
+`)
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(
+		context.Background(),
+		WithProject(project),
+		WithModel(&scriptedModel{}),
+		WithTool(toolexecution.Tool{
+			Definition: agentruntime.ToolDefinition{Name: "deliver", InputSchema: agentruntime.ToolSchema{Type: "object"}},
+			Handler:    func(context.Context, json.RawMessage) (json.RawMessage, error) { return json.RawMessage(`{}`), nil },
+			Trigger:    toolexecution.EndResponseScope,
+		}),
+	)
+	if err == nil || !strings.Contains(err.Error(), `subagent "researcher"`) || !strings.Contains(err.Error(), "EndResponseScope") {
+		t.Fatalf("New() error = %v", err)
 	}
 }
 
@@ -1018,6 +1106,7 @@ func TestMainDefinitionRejectsUnknownSkillsAndDuplicateTools(t *testing.T) {
 	}{
 		{name: "unknown skill", fields: "skills: [missing]", want: `skill "missing" is not available`},
 		{name: "duplicate tool", fields: "tools: [search, search]", want: `duplicate tool "search"`},
+		{name: "framework task tool", fields: "tools: [task]", want: "task is a framework tool"},
 		{name: "explicit empty skills", fields: "skills: []", want: `remove skills when no skills are allowed`},
 		{name: "explicit empty tools", fields: "tools: []", want: `remove tools when no tools are allowed`},
 	} {

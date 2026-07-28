@@ -104,6 +104,11 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)
 		}
 	}
+	for _, obsolete := range []string{"polling", "simulated waiting"} {
+		if strings.Contains(strings.ToLower(tool.Definition.Description), obsolete) {
+			t.Fatalf("task description contains obsolete term %q: %q", obsolete, tool.Definition.Description)
+		}
+	}
 	if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil {
 		t.Fatalf("task must be a normal foreground tool: %#v", tool)
 	}

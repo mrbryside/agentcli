@@ -25,6 +25,11 @@ func parseMainDefinition(path string, contents []byte) (AgentDefinition, error) 
 	if err != nil {
 		return AgentDefinition{}, err
 	}
+	for _, toolName := range metadata.Tools {
+		if toolName == TaskToolName {
+			return AgentDefinition{}, fmt.Errorf("main agent %s: task is a framework tool and must not be listed in tools", path)
+		}
+	}
 	return AgentDefinition{
 		Name: "main", Provider: metadata.Provider, Model: metadata.Model,
 		Skills: metadata.Skills, Tools: metadata.Tools, Instructions: instructions, Path: path,

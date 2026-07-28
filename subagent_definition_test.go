@@ -80,13 +80,11 @@ Use sources and explain uncertainty.
 		t.Fatalf("framework prompt still contains capability discovery material: %q", framework)
 	}
 	if !strings.Contains(subagents, "# Subagents") ||
-		!strings.Contains(subagents, "## IMPORTANT: Tool-result protocol") ||
-		!strings.Contains(subagents, "accepted=true means work started") ||
-		!strings.Contains(subagents, "accepted=false means no new work started") ||
-		!strings.Contains(subagents, "main_agent_action=stop_and_wait") ||
-		!strings.Contains(subagents, "completion comes only in a later") ||
-		!strings.Contains(subagents, "start_subagent always creates a new instance") {
-		t.Fatalf("subagent tool-result protocol = %q", subagents)
+		!strings.Contains(subagents, "Use task for focused work") ||
+		!strings.Contains(subagents, "Foreground is the\ndefault") ||
+		!strings.Contains(subagents, "same tool batch") ||
+		!strings.Contains(subagents, "task_id") {
+		t.Fatalf("task prompt = %q", subagents)
 	}
 	if mainInstructions != "# Main agent instructions\n\nCoordinate work and communicate the outcome clearly." {
 		t.Fatalf("MAIN.md system prompt = %q", mainInstructions)
@@ -94,36 +92,17 @@ Use sources and explain uncertainty.
 	if !strings.Contains(skills, "# Skills") || !strings.Contains(skills, "<available_skills>") || !strings.Contains(skills, "<name>testing-go</name>") {
 		t.Fatalf("skill prompt does not contain skill catalog: %q", skills)
 	}
-	if !strings.Contains(subagents, "<available_subagents>") || !strings.Contains(subagents, "<name>researcher</name>") || !strings.Contains(subagents, "<model>gpt-review</model>") || !strings.Contains(subagents, "<skill>testing-go</skill>") || !strings.Contains(subagents, "<tool>search</tool>") {
+	if !strings.Contains(subagents, "<available_task_agents>") || !strings.Contains(subagents, "<name>researcher</name>") || !strings.Contains(subagents, "<description>Research alternatives and trade-offs.</description>") {
 		t.Fatalf("subagent catalog = %q", subagents)
 	}
 	for _, expected := range []string{
-		"<subagent_orchestration_rules>",
-		"## Choose",
-		"user explicitly",
-		"Otherwise answer",
-		"active_subagents lists existing instances",
-		"## Assign",
-		"Prefer one subagent at a time",
-		"are independent and parallel work is useful",
-		"different companies, regions, or years",
-		"continue_main_agent",
-		"False does not disable",
-		"## Read tool results",
-		"accepted=true means the assignment started",
-		"accepted=false means no new work started",
-		"result_pending",
-		"subagent_completed",
-		"recovery_exhausted",
-		"## Read delivered results",
-		"<subagent_result>",
-		"result_progress.pending_results",
-		"result_progress.delivered_results",
-		"Process each delivered result once",
-		"pending_count",
-		"stop without another tool call or assistant message",
-		"## Safety",
-		"</subagent_orchestration_rules>",
+		"Foreground",
+		"same tool batch",
+		"different companies, regions, years, or sources",
+		"task_id",
+		"background",
+		"<available_task_agents>",
+		"</available_task_agents>",
 	} {
 		if !strings.Contains(subagents, expected) {
 			t.Fatalf("catalog does not contain subagent rule %q: %q", expected, subagents)
@@ -133,11 +112,17 @@ Use sources and explain uncertainty.
 		t.Fatalf("removed destructive tool still appears in the model system prompt: %q", subagents)
 	}
 	for _, obsolete := range []string{
-		"callback", "parent", "child", "dispatch", "continue_after_dispatch",
-		"report_subagent_outcome", "completion_result", "turn_action",
+		"callback", "continue_main_agent", "accepted", "result_progress",
+		"report_subagent_result", "send_subagent_message", "polling",
+		"simulated waiting",
 	} {
 		if strings.Contains(strings.ToLower(subagents), obsolete) {
 			t.Fatalf("subagent prompt contains obsolete model-facing term %q: %q", obsolete, subagents)
+		}
+	}
+	for _, unavailable := range []string{"<model>", "<skill>", "<tool>", "Use sources and explain uncertainty."} {
+		if strings.Contains(subagents, unavailable) {
+			t.Fatalf("subagent catalog exposes implementation detail %q: %q", unavailable, subagents)
 		}
 	}
 	if strings.Contains(subagents, "Use sources and explain uncertainty.") {
@@ -351,6 +336,40 @@ func TestSubagentSystemPromptsKeepAssignmentSeparateFromFramework(t *testing.T) 
 	}
 	if strings.Contains(strings.Join(configuration.systemPrompts, "\n"), "Always explain failures clearly.") {
 		t.Fatalf("AGENTS.md was included in subagent system prompts: %#v", configuration.systemPrompts)
+	}
+}
+
+func TestSubagentResultContractPromptIsOptInAndExact(t *testing.T) {
+	project, err := LoadProject(projectFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := subagentSystemPrompt(project, SubagentDefinition{Name: "reader", Provider: "openai", Model: "gpt-test"})
+	if strings.Contains(plain, "# Final response format") || strings.Contains(plain, "exactly one JSON object") {
+		t.Fatalf("plain subagent unexpectedly received result contract prompt: %q", plain)
+	}
+
+	definition := SubagentDefinition{
+		Name: "operator", Provider: "openai", Model: "gpt-test",
+		Result: &AgentResultContract{
+			MessageField: "message",
+			Metadata: map[string]AgentResultMetadataField{
+				"requires_requester_reply": {Type: "boolean", Required: true},
+				"source":                   {Type: "string"},
+			},
+		},
+	}
+	prompt := subagentSystemPrompt(project, definition)
+	for _, expected := range []string{
+		"# Final response format",
+		"Return exactly one JSON object",
+		`"message": required string`,
+		`"requires_requester_reply": required boolean`,
+		`"source": optional string`,
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("result contract prompt missing %q: %q", expected, prompt)
+		}
 	}
 }
 

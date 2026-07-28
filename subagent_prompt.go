@@ -3,10 +3,11 @@ package agentcli
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
-const subagentCapabilityBoundaryPrompt = "Use only information present in the conversation or obtained through capabilities registered for this subagent. Never claim to have accessed a resource, performed an action, or gathered evidence unless a message or tool result supports it. If the assigned task requires an unavailable capability, say so clearly and stop; do not substitute an unrelated skill. You cannot create, inspect, message, wait for, or close other subagents, and you cannot delegate to another agent. The main agent manages subagents; closing a subagent is controlled only by the host application."
+const subagentCapabilityBoundaryPrompt = "Use only information present in the conversation or obtained through capabilities registered for this subagent. Never claim to have accessed a resource, performed an action, or gathered evidence unless a message or tool result supports it. If the assigned task requires an unavailable capability, say so clearly and stop; do not substitute an unrelated skill. You cannot use task or manage other agent sessions, and you cannot delegate to another agent."
 
 const subagentCompletionPrompt = "After completing the assigned work, respond once with a concise, self-contained final answer. Include the result, material evidence, and any important limitation or next step. Do not reproduce the full tool trace."
 
@@ -46,5 +47,33 @@ func subagentSystemPrompt(project *Project, definition SubagentDefinition) strin
 
 	prompt.WriteString("\n\n# Delivery contract\n\n")
 	prompt.WriteString(subagentCompletionPrompt)
+	if resultContractPrompt := subagentResultContractPrompt(definition); resultContractPrompt != "" {
+		prompt.WriteString("\n\n# Final response format\n\n")
+		prompt.WriteString(resultContractPrompt)
+	}
+	return prompt.String()
+}
+
+func subagentResultContractPrompt(definition SubagentDefinition) string {
+	contract := definition.Result
+	if contract == nil {
+		return ""
+	}
+	var prompt strings.Builder
+	prompt.WriteString("Return exactly one JSON object and no Markdown or surrounding text. Use only these fields:\n\n")
+	fmt.Fprintf(&prompt, "- %q: required string containing the user-facing final answer.\n", contract.MessageField)
+	metadataNames := make([]string, 0, len(contract.Metadata))
+	for name := range contract.Metadata {
+		metadataNames = append(metadataNames, name)
+	}
+	sort.Strings(metadataNames)
+	for _, name := range metadataNames {
+		field := contract.Metadata[name]
+		requirement := "optional"
+		if field.Required {
+			requirement = "required"
+		}
+		fmt.Fprintf(&prompt, "- %q: %s %s metadata field.\n", name, requirement, field.Type)
+	}
 	return prompt.String()
 }

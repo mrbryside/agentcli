@@ -261,6 +261,9 @@ func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProjectTaskAgents(subagents); err != nil {
+		return nil, err
+	}
 	config.Providers[providerName] = providerConfig
 	project := &Project{
 		root: absoluteRoot, main: mainDefinition, config: config,
@@ -496,8 +499,8 @@ func (project *Project) SystemPrompts() []string {
 	if len(project.subagents) != 0 {
 		prompts = append(prompts,
 			"# Subagents\n\n"+
-				"## IMPORTANT: Tool-result protocol\n\n"+mainAgentSubagentToolPrompt+
-				"\n\n## Orchestration rules and available subagents\n\n"+project.subagentDiscoveryPrompt(),
+				mainAgentSubagentToolPrompt+
+				"\n\n"+project.subagentDiscoveryPrompt(),
 		)
 	}
 	if instructions := strings.TrimSpace(project.main.Instructions); instructions != "" {
@@ -508,91 +511,26 @@ func (project *Project) SystemPrompts() []string {
 
 func (project *Project) subagentDiscoveryPrompt() string {
 	var prompt strings.Builder
-	prompt.WriteString(`The configured subagent types are listed in available_subagents.
+	prompt.WriteString(`Choose a configured task agent whose description directly matches focused work that benefits from specialization or isolation. Otherwise answer directly. The task tool accepts exactly the agents below.
 
-<subagent_orchestration_rules>
-## Choose
-
-Use a subagent when an applicable instruction requires one, the user explicitly
-asks for one, or one description directly matches focused work that benefits
-from specialization, isolation, or parallel execution. Otherwise answer
-directly. A related topic alone is not enough.
-
-available_subagents lists types. active_subagents lists existing instances.
-Use the type name with start_subagent. Use an instance id with
-send_subagent_message. Speak to the user with display_name, not the id.
-
-## Assign
-
-start_subagent always creates a new instance for one focused assignment.
-send_subagent_message continues one idle incomplete or failed instance after
-its latest result was delivered. Never send to running or completed work.
-
-Prefer one subagent at a time. Start several together only when their assignments
-are independent and parallel work is useful. This includes comparisons and
-separable parts such as different companies, regions, or years.
-
-Both subagent tools require continue_main_agent:
-
-- false when no independent main-agent work remains; the main agent stops and receives
-  the result automatically later;
-- true only for specific independent work already planned before the call.
-
-Several starts in one tool batch must use the same value. False does not disable
-parallel work.
-
-## Read tool results
-
-accepted=true means the assignment started, not that it finished. Completion is
-authoritative only in a later <subagent_result>. Always follow main_agent_action and
-instruction.
-
-accepted=false means no new work started. Do not retry when action is duplicate,
-already_sent, result_pending, subagent_completed, or recovery_exhausted. The
-instruction says whether to wait, deliver an existing result, or report a
-terminal failure.
-
-## Read delivered results
-
-A <subagent_result> contains status, summary, final_answer, next_step, error, and
-result_progress:
-
-- completed: use final_answer or summary;
-- incomplete: use next_step for one focused follow-up or user question;
-- failed: use error and recover only when concrete recovery work remains.
-
-result_progress.pending_results lists assignments whose results have not
-arrived. result_progress.delivered_results lists results already delivered for
-the current user response. Process each delivered result once.
-
-When pending_count is greater than zero, do not finish work that depends on
-those results. Continue only previously planned independent work. If none
-remains, stop without another tool call or assistant message. When pending_count
-is zero, combine the delivered results once and decide the final response or
-next focused step.
-
-## Safety
-
-Never poll, invent work to simulate waiting, repeat delegated work, or claim an
-action that a complete result does not confirm. Never reveal secrets from a
-subagent result.
-</subagent_orchestration_rules>
-
-<available_subagents>
+<available_task_agents>
 `)
 	for _, definition := range project.Subagents() {
-		fmt.Fprintf(&prompt, "  <subagent>\n    <name>%s</name>\n    <description>%s</description>\n    <provider>%s</provider>\n    <model>%s</model>\n    <skills>", html.EscapeString(definition.Name), html.EscapeString(definition.Description), html.EscapeString(definition.Provider), html.EscapeString(definition.Model))
-		for _, skillName := range definition.Skills {
-			fmt.Fprintf(&prompt, "<skill>%s</skill>", html.EscapeString(skillName))
-		}
-		prompt.WriteString("</skills>\n    <tools>")
-		for _, toolName := range definition.Tools {
-			fmt.Fprintf(&prompt, "<tool>%s</tool>", html.EscapeString(toolName))
-		}
-		prompt.WriteString("</tools>\n  </subagent>\n")
+		fmt.Fprintf(&prompt, "  <task_agent>\n    <name>%s</name>\n    <description>%s</description>\n  </task_agent>\n", html.EscapeString(definition.Name), html.EscapeString(definition.Description))
 	}
-	prompt.WriteString("</available_subagents>")
+	prompt.WriteString("</available_task_agents>")
 	return prompt.String()
+}
+
+func validateProjectTaskAgents(definitions map[string]SubagentDefinition) error {
+	for _, definition := range definitions {
+		for _, toolName := range definition.Tools {
+			if toolName == toolexecution.TaskToolName {
+				return fmt.Errorf("subagent %q cannot list main-agent task tool %q", definition.Name, toolName)
+			}
+		}
+	}
+	return nil
 }
 
 func (project *Project) skillDiscoveryPrompt() string {
