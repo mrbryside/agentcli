@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,7 @@ type Run struct {
 	outputGuardRetries        int
 	outputGuardReminder       []ContextReminder
 	pendingAssistant          *Message
+	stepLimitFinalizing       bool
 	runtimeInputs             []runtimeMessageInjection
 	completionToolsRestricted bool
 	completionToolAllowlist   []string
@@ -118,6 +120,13 @@ type runtimeMessageInjection struct {
 	accepted func()
 	result   chan error
 }
+
+const (
+	stepLimitFinalizationReminder = `<provider_step_limit state="finalization">
+The configured provider-step limit has been reached. This is the only finalization round and no tools are available. Respond with a concise, self-contained text summary of the work completed, confirmed results and verification, unresolved blockers, and recommended remaining tasks. Do not claim unconfirmed actions and do not attempt any tool call.
+</provider_step_limit>`
+	stepLimitFinalizationFallback = "The provider-step limit was reached, but the model did not return the required text-only summary. Review the completed tool results and continue the remaining work in a new turn."
+)
 
 func newRun(sessionID, turnID string) *Run {
 	return &Run{
@@ -493,6 +502,10 @@ func (r *Run) runLoop(ctx context.Context, runtime *Runtime, initial Message, in
 				r.setProviderEvents(nil)
 				continue
 			}
+			if r.suppressTextOnlyFinalizationEvent(event) {
+				continue
+			}
+			event = r.enforceTextOnlyFinalization(event)
 			if !r.processEvent(ctx, runtime, AgentEvent{Type: ProviderEventReceived, ProviderEvent: event}) {
 				return
 			}
@@ -728,8 +741,13 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		return err
 	}
 	steps := r.providerSteps()
-	if steps >= runtime.maxSteps {
-		return ErrMaxSteps
+	finalizing := r.StepLimitFinalized()
+	if runtime.maxSteps > 0 && steps >= runtime.maxSteps {
+		if finalizing {
+			return ErrMaxSteps
+		}
+		r.beginStepLimitFinalization()
+		finalizing = true
 	}
 	messages, err := runtime.messages.List(ctx, r.sessionID)
 	if err != nil {
@@ -746,10 +764,16 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 			return fmt.Errorf("resolve context reminders: %w", err)
 		}
 	}
-	reminders = append(reminders, r.takeCompletionReminder()...)
-	reminders = append(reminders, r.takeOutputGuardReminder()...)
+	if finalizing {
+		reminders = append(reminders, ContextReminder{Content: stepLimitFinalizationReminder})
+	} else {
+		reminders = append(reminders, r.takeCompletionReminder()...)
+		reminders = append(reminders, r.takeOutputGuardReminder()...)
+	}
 	tools := cloneToolDefinitions(runtime.tools)
-	if restricted, allowlist := r.completionToolRestriction(); restricted {
+	if finalizing {
+		tools = nil
+	} else if restricted, allowlist := r.completionToolRestriction(); restricted {
 		if allowlist != nil {
 			tools = filterCompletionTools(tools, allowlist)
 		}
@@ -763,22 +787,12 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		Messages:         storage.CloneMessages(messages),
 		Tools:            tools,
 	}
+	baseRequest := request.Clone()
+	compacted := false
 	if runtime.compactor != nil {
-		result, compactErr := runtime.compactor.PrepareWithHooks(ctx, CompactionInput{Request: request, MainModelMetadata: runtime.mainModelMetadata}, CompactionHooks{Started: func() {
-			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionStarted})
-		}})
-		if compactErr != nil {
-			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: compactErr})
-			return fmt.Errorf("prepare compaction: %w", compactErr)
-		}
-		request = result.Request
-		if result.Compacted {
-			checkpoint := Message{Type: storage.MessageTypeCompactionCheckpoint, CompactionCheckpoint: result.Checkpoint}
-			if err := r.appendMessages(ctx, runtime, []Message{checkpoint}); err != nil {
-				r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: err})
-				return fmt.Errorf("persist compaction checkpoint: %w", err)
-			}
-			r.processEvent(ctx, runtime, AgentEvent{Type: CompactionCompleted})
+		request, compacted, err = r.prepareCompaction(ctx, runtime, baseRequest, false)
+		if err != nil {
+			return err
 		}
 	} else {
 		var projectErr error
@@ -791,6 +805,15 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	r.cancelProvider()
 	providerCtx, cancel := context.WithCancel(ctx)
 	stream, err := runtime.model.Start(providerCtx, request)
+	if err != nil && runtime.compactor != nil && !compacted && errors.Is(err, ErrContextWindowExceeded) {
+		cancel()
+		request, compacted, err = r.prepareCompaction(ctx, runtime, baseRequest, true)
+		if err != nil {
+			return fmt.Errorf("force compaction after context-window rejection: %w", err)
+		}
+		providerCtx, cancel = context.WithCancel(ctx)
+		stream, err = runtime.model.Start(providerCtx, request)
+	}
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start provider: %w", err)
@@ -809,7 +832,40 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	return nil
 }
 
+func (r *Run) prepareCompaction(ctx context.Context, runtime *Runtime, request ModelRequest, force bool) (ModelRequest, bool, error) {
+	result, err := runtime.compactor.PrepareWithHooks(ctx, CompactionInput{
+		Request: request, MainModelMetadata: runtime.mainModelMetadata, Force: force,
+	}, CompactionHooks{Started: func() {
+		r.processEvent(ctx, runtime, AgentEvent{Type: CompactionStarted})
+	}})
+	if err != nil {
+		r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: err})
+		return ModelRequest{}, false, fmt.Errorf("prepare compaction: %w", err)
+	}
+	if force && !result.Compacted {
+		err = ErrCompactionStillTooLarge
+		r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: err})
+		return ModelRequest{}, false, fmt.Errorf("prepare compaction: %w", err)
+	}
+	if !result.Compacted {
+		return result.Request, false, nil
+	}
+	checkpoint := Message{Type: storage.MessageTypeCompactionCheckpoint, CompactionCheckpoint: result.Checkpoint}
+	if err := r.appendMessages(ctx, runtime, []Message{checkpoint}); err != nil {
+		r.processEvent(ctx, runtime, AgentEvent{Type: CompactionFailed, Error: err})
+		return ModelRequest{}, false, fmt.Errorf("persist compaction checkpoint: %w", err)
+	}
+	r.processEvent(ctx, runtime, AgentEvent{Type: CompactionCompleted})
+	return result.Request, true, nil
+}
+
 func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
+	if r.StepLimitFinalized() {
+		if !r.commitPendingAssistant(ctx, runtime) {
+			return false
+		}
+		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
+	}
 	injected, err := r.appendRuntimeInputs(ctx, runtime)
 	if err != nil {
 		return r.fail(ctx, runtime, err)
@@ -915,6 +971,58 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 		return r.fail(ctx, runtime, err)
 	}
 	return true
+}
+
+// StepLimitFinalized reports whether this run used its one tools-disabled
+// provider round after exhausting the configured agentic step budget.
+func (r *Run) StepLimitFinalized() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.stepLimitFinalizing
+}
+
+func (r *Run) beginStepLimitFinalization() {
+	r.mu.Lock()
+	r.stepLimitFinalizing = true
+	r.mu.Unlock()
+}
+
+func (r *Run) suppressTextOnlyFinalizationEvent(event provider.StreamEvent) bool {
+	if !r.StepLimitFinalized() {
+		return false
+	}
+	switch event.Type {
+	case provider.ToolCallStarted, provider.ToolArgumentsReceived, provider.ToolCallCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Run) enforceTextOnlyFinalization(event provider.StreamEvent) provider.StreamEvent {
+	if !r.StepLimitFinalized() || event.Type != provider.StreamCompleted {
+		return event
+	}
+	result, ok := terminalProviderResult(event)
+	if !ok {
+		return event
+	}
+	if result.Content == "" {
+		result.Content = event.Content
+	}
+	if result.Reasoning == "" {
+		result.Reasoning = event.Reasoning
+	}
+	if len(result.CompletedTools) == 0 && strings.TrimSpace(result.Content) != "" {
+		return event
+	}
+	result.CompletedTools = nil
+	if strings.TrimSpace(result.Content) == "" {
+		result.Content = stepLimitFinalizationFallback
+	}
+	event.Payload = provider.StreamCompletedPayload{Result: result}
+	event.Tool = nil
+	return event
 }
 
 func (r *Run) setPendingAssistant(message Message) {

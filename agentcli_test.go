@@ -43,6 +43,31 @@ func TestNewValidatesRequiredAndNumericOptions(t *testing.T) {
 	}
 }
 
+func TestProviderStepLimitOptionsFollowApplicationOrder(t *testing.T) {
+	configuration := defaultConfig(t.TempDir())
+	if configuration.disableProviderStepLimit {
+		t.Fatal("default provider step limit is disabled")
+	}
+	if err := WithProviderStepLimitEnabled(false)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if !configuration.disableProviderStepLimit {
+		t.Fatal("provider step limit was not disabled")
+	}
+	if err := WithMaxProviderSteps(7)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.disableProviderStepLimit || configuration.maxProviderSteps != 7 {
+		t.Fatalf("max-step option did not re-enable configured limit: %#v", configuration)
+	}
+	if err := WithProviderStepLimitEnabled(false)(&configuration); err != nil {
+		t.Fatal(err)
+	}
+	if !configuration.disableProviderStepLimit || configuration.maxProviderSteps != 7 {
+		t.Fatalf("later disable option did not preserve configured maximum: %#v", configuration)
+	}
+}
+
 func TestNewRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mrbryside/agentcli/agentruntime"
+	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
@@ -121,9 +123,15 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("start_subagent does not advertise its asynchronous default: %#v", tool.Definition)
 		}
 		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
-			if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil || strings.Contains(schema, `"finish_turn"`) {
+			if tool.Trigger != "" || tool.EndTurnOnSuccess || strings.Contains(schema, `"finish_turn"`) {
 				t.Fatalf("subagent operation %q must not use static terminal behavior or legacy finish_turn: %#v", tool.Definition.Name, tool)
 			}
+		}
+		if tool.Definition.Name == StartSubagentToolName && tool.resultTurnBehavior != nil {
+			t.Fatalf("start_subagent unexpectedly has dynamic terminal behavior")
+		}
+		if tool.Definition.Name == SendSubagentMessageToolName && tool.resultTurnBehavior == nil {
+			t.Fatalf("send_subagent_message must resolve terminal behavior from its result")
 		}
 		if tool.Definition.Name == StartSubagentToolName && (!strings.Contains(tool.Definition.Description, "Every successful call creates a separately addressed child") || !strings.Contains(tool.Definition.Description, "never reuses or continues an existing child") || !strings.Contains(tool.Definition.Description, "use send_subagent_message") || strings.Contains(schema, `"new_instance"`)) {
 			t.Fatalf("start_subagent does not enforce create-only routing: %#v", tool.Definition)
@@ -194,7 +202,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			!strings.Contains(tool.Definition.Description, "not for waiting, status checks, polling") ||
 			!strings.Contains(tool.Definition.Description, "duplicate instructions") ||
 			!strings.Contains(tool.Definition.Description, "accepted=false with duplicate, already_sent, or callback_pending") ||
-			!strings.Contains(tool.Definition.Description, "inspect accepted, action, callback_action, must_wait_for_callback, and instruction")) {
+			!strings.Contains(tool.Definition.Description, "inspect accepted, action, callback_action, must_wait_for_callback, turn_action, and instruction")) {
 			t.Fatalf("send_subagent_message does not align continuation triggers and result handling: %q", tool.Definition.Description)
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName {
@@ -202,6 +210,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				"ID of an idle incomplete or failed child whose latest callback was already received and consumed",
 				"Never use a running, completed, or closed child",
 				"Do not send unrelated new work, status checks, reminders",
+				`"continue_after_dispatch"`,
+				`"required":["subagent_id","message","continue_after_dispatch"]`,
+				"duplicate, already_sent, or callback_pending result ends the successful batch",
 			} {
 				if !strings.Contains(schema, expected) {
 					t.Fatalf("send_subagent_message schema does not contain idle-only rule %q: %s", expected, schema)
@@ -213,11 +224,16 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName {
 			for _, expected := range []string{
-				"work already planned before dispatch",
-				"outside the delegated task",
+				"explicitly choose continue_after_dispatch",
+				"accepted result then ends the current successful tool batch automatically",
+				"Set it to true only",
+				"already planned",
+				"outside this child's task",
 				"independent of its callback",
-				"end the turn immediately without assistant content or another tool call",
-				"do not narrate waiting",
+				"successful tool batch ends automatically regardless of continue_after_dispatch",
+				"recovery_exhausted",
+				"continue to report the terminal failure",
+				"Never narrate waiting",
 				"response or delivery tool",
 			} {
 				if !strings.Contains(tool.Definition.Description, expected) {
@@ -243,8 +259,91 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 
 func TestSubagentToolTurnBehavior(t *testing.T) {
 	for _, tool := range NewSubagentToolBridge().Tools() {
-		if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil {
-			t.Fatalf("%s static terminal behavior = (trigger=%q, end_on_success=%t, dynamic=%v), want handler-controlled behavior", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess, tool.resultTurnBehavior != nil)
+		if tool.Trigger != "" || tool.EndTurnOnSuccess {
+			t.Fatalf("%s static terminal behavior = (trigger=%q, end_on_success=%t)", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess)
+		}
+		if tool.Definition.Name == StartSubagentToolName && tool.resultTurnBehavior != nil {
+			t.Fatalf("start_subagent dynamic terminal behavior is set")
+		}
+		if tool.Definition.Name == SendSubagentMessageToolName && tool.resultTurnBehavior == nil {
+			t.Fatalf("send_subagent_message dynamic terminal behavior is not set")
 		}
 	}
+
+	tests := []struct {
+		name      string
+		arguments string
+		output    string
+		want      agentruntime.ToolTurnBehavior
+	}{
+		{"accepted wait", `{"continue_after_dispatch":false}`, `{"accepted":true,"action":"started"}`, agentruntime.ToolTurnEndOnSuccess},
+		{"accepted continue", `{"continue_after_dispatch":true}`, `{"accepted":true,"action":"started"}`, agentruntime.ToolTurnContinue},
+		{"duplicate always waits", `{"continue_after_dispatch":true}`, `{"accepted":false,"action":"duplicate"}`, agentruntime.ToolTurnEndOnSuccess},
+		{"already sent always waits", `{"continue_after_dispatch":false}`, `{"accepted":false,"action":"already_sent"}`, agentruntime.ToolTurnEndOnSuccess},
+		{"callback pending always waits", `{"continue_after_dispatch":true}`, `{"accepted":false,"action":"callback_pending"}`, agentruntime.ToolTurnEndOnSuccess},
+		{"completed continues", `{"continue_after_dispatch":false}`, `{"accepted":false,"action":"child_completed"}`, agentruntime.ToolTurnContinue},
+		{"recovery exhausted continues", `{"continue_after_dispatch":false}`, `{"accepted":false,"action":"recovery_exhausted"}`, agentruntime.ToolTurnContinue},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := sendSubagentMessageTurnBehavior(json.RawMessage(test.arguments), json.RawMessage(test.output))
+			if got != test.want {
+				t.Fatalf("turn behavior = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSendSubagentMessageRecoveryExhaustedResultReportsTerminalFailure(t *testing.T) {
+	bridge := NewSubagentToolBridge()
+	bridge.Bind(staticSubagentController{send: SubagentSendResult{
+		Action: SubagentSendRecoveryExhausted,
+		Subagent: storage.Subagent{
+			ID: "child", DisplayName: "Aster", DefinitionName: "researcher", Status: storage.SubagentStatusIdle,
+		},
+	}})
+	var sendTool Tool
+	for _, tool := range bridge.Tools() {
+		if tool.Definition.Name == SendSubagentMessageToolName {
+			sendTool = tool
+			break
+		}
+	}
+	ctx := WithInvocation(context.Background(), Invocation{
+		SessionID: "parent", TurnID: "callback-turn", CallID: "send", ToolName: SendSubagentMessageToolName,
+	})
+	output, err := sendTool.Handler(ctx, json.RawMessage(`{"subagent_id":"child","message":"retry","continue_after_dispatch":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result sendSubagentMessageToolOutput
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != SubagentSendRecoveryExhausted || result.Accepted || result.Callback != "none" ||
+		result.MustWait || result.TurnAction != "continue_to_report_terminal_failure" ||
+		!strings.Contains(result.Instruction, "Report the terminal failure") ||
+		!strings.Contains(result.Instruction, "do not retry") {
+		t.Fatalf("recovery_exhausted output = %s", output)
+	}
+}
+
+type staticSubagentController struct {
+	send SubagentSendResult
+}
+
+func (controller staticSubagentController) Start(context.Context, string, string, string, string, string) (storage.Subagent, error) {
+	return storage.Subagent{}, nil
+}
+
+func (controller staticSubagentController) List(context.Context, string, bool) ([]storage.Subagent, error) {
+	return nil, nil
+}
+
+func (controller staticSubagentController) StatusFromParentTurn(context.Context, string, string, string) (SubagentStatusSnapshot, error) {
+	return SubagentStatusSnapshot{}, nil
+}
+
+func (controller staticSubagentController) SendFromParentTurn(context.Context, string, string, string, string) (SubagentSendResult, error) {
+	return controller.send, nil
 }

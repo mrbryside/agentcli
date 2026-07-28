@@ -68,6 +68,8 @@ Common options:
 | `WithPermissionStorage` | Replace permission/grant storage. |
 | `WithConfirmationStorage` | Replace confirmation storage. |
 | `WithSubagentStorage` | Replace child relationship storage. |
+| `WithMaxProviderSteps` | Set the agentic provider-round budget; exhaustion gets one additional tools-disabled text finalizer. |
+| `WithProviderStepLimitEnabled` | Enable or disable the provider-round ceiling for main and child turns. |
 | `WithMaxSubagents` | Bound open children per parent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |

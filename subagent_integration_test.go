@@ -168,8 +168,8 @@ func TestSubagentIntegrationFastCallbackDoesNotTriggerSpeculativeParentAnswer(t 
 	parentModel.releaseSecondRound()
 	waitRun(t, parentRun)
 
-	if got := parentModel.requestCount(); got != 3 {
-		t.Fatalf("parent provider requests = %d, want start, send result continuation, and normal completion", got)
+	if got := parentModel.requestCount(); got != 2 {
+		t.Fatalf("parent provider requests = %d, want start and the repeated-send round to end without another provider step", got)
 	}
 	messages, err := agent.ListMessages(context.Background(), "parent")
 	if err != nil {
@@ -1141,7 +1141,7 @@ func (m *integrationPendingCallbackParentModel) Start(ctx context.Context, reque
 			return nil, errors.New("start_subagent result did not contain a child ID")
 		}
 		call := provider.ToolCall{ID: "send", Name: SendSubagentMessageToolName, Arguments: map[string]any{
-			"subagent_id": childID, "message": "ask again",
+			"subagent_id": childID, "message": "ask again", "continue_after_dispatch": true,
 		}}
 		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{call}, Finished: true}}, nil
 	}

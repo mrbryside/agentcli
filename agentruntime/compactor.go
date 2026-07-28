@@ -39,6 +39,9 @@ const (
 type CompactionInput struct {
 	Request           ModelRequest
 	MainModelMetadata ModelMetadata
+	// Force requests a new checkpoint even when the estimator says the request
+	// fits. It is used after a provider reports ErrContextWindowExceeded.
+	Force bool
 }
 
 // CompactionResult contains the request to send to the main model. Checkpoint
@@ -109,7 +112,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	if err != nil {
 		return CompactionResult{}, fmt.Errorf("estimate request: %w", err)
 	}
-	if estimate.Tokens <= budgets.usableInput() {
+	if estimate.Tokens <= budgets.usableInput() && !input.Force {
 		return CompactionResult{Request: request, Estimate: estimate}, nil
 	}
 	if isNil(c.Model) {
@@ -139,7 +142,7 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	// all usable input left after the estimator charges system prompts,
 	// reminders, tool schemas, the summary placeholder, and the safety margin.
 	selectionTemplate := request.Clone()
-	selectionTemplate.Messages = []Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(strings.Repeat("m", budgets.summary*4))}}
+	selectionTemplate.Messages = []Message{{Type: MessageTypeSystem, Content: compactedSummaryPrompt(strings.Repeat("m", budgets.summary*genericCharactersPerToken))}}
 	tail := selectRecentTail(selectionTemplate, units, budgets.input, budgets.safety, estimator)
 	if len(tail) == 0 {
 		// A single active turn can contain many completed tool rounds and exceed
@@ -155,6 +158,16 @@ func (c Compactor) prepare(ctx context.Context, input CompactionInput, hooks Com
 	}
 	if len(tail) == 0 {
 		return CompactionResult{}, ErrCompactionStillTooLarge
+	}
+	if input.Force && len(tail) == len(base) {
+		// The provider has authoritative evidence that the request does not fit,
+		// even though the estimator admitted it. Retain only the newest complete
+		// conversation unit so at least one older unit is summarized. Never
+		// split a tool-call/result unit.
+		if len(units) < 2 {
+			return CompactionResult{}, ErrCompactionStillTooLarge
+		}
+		tail = storage.CloneMessages(units[len(units)-1])
 	}
 	head := base[:len(base)-len(tail)]
 	if len(head) == 0 && previous == nil {
@@ -483,7 +496,7 @@ func (c Compactor) summarize(ctx context.Context, sessionID, turnID, previous, h
 	if terminal.Content == "" {
 		terminal.Content = content.String()
 	}
-	return strings.TrimSpace(truncateText(terminal.Content, summaryBudget*4)), nil
+	return strings.TrimSpace(truncateText(terminal.Content, summaryBudget*genericCharactersPerToken)), nil
 }
 
 func compactionHistoryChunks(messages []Message, budget int) ([]string, error) {
@@ -525,7 +538,7 @@ func compactionHistoryChunks(messages []Message, budget int) ([]string, error) {
 // message record must fit or compaction fails without a checkpoint.
 func serializeHistory(messages []Message, budget int) (string, error) {
 	var builder strings.Builder
-	limit := max(1, budget*4)
+	limit := max(1, budget*genericCharactersPerToken)
 	for _, message := range messages {
 		copy := storage.CloneMessage(message)
 		if copy.ToolResult != nil && len(copy.ToolResult.Output) > max(64, limit/8) {

@@ -158,9 +158,11 @@ defaults are 122,880 context tokens and 66,560 output tokens, displayed as
 
 The default `GenericContextEstimator` works across providers and estimates all
 generic request surfaces conservatively, including multilingual text and tool
-schemas. A main model implementing `ContextEstimatorProvider` is selected
-automatically per runtime. Applications can still force an estimator across
-root and child agents:
+schemas. It uses a three-ASCII-bytes-per-token baseline so JSON, code, and
+denser tokenizers compact before the common four-byte approximation would. A
+main model implementing `ContextEstimatorProvider` is selected automatically
+per runtime. Applications can still force an estimator across root and child
+agents:
 
 ```go
 agent, err := agentcli.New(ctx,
@@ -168,6 +170,12 @@ agent, err := agentcli.New(ctx,
     agentcli.WithContextEstimator(providerEstimator),
 )
 ```
+
+Model adapters can wrap `agentruntime.ErrContextWindowExceeded` when a
+provider rejects an oversized request. With compaction enabled, the runtime
+then force-compacts the transcript and retries that provider round once. This
+fallback is provider-neutral; only the adapter translates its provider error
+into the shared signal.
 
 For a custom adapter that cannot use compaction-scoped config or discovery,
 construct it with `openai.Config.MetadataResolver`, then override the

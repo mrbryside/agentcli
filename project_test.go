@@ -3,7 +3,6 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -754,11 +753,13 @@ providers:
 		t.Fatal(err)
 	}
 	waitRun(t, run)
-	if _, err := run.Result(); !errors.Is(err, ErrMaxSteps) {
-		t.Fatalf("run error = %v, want ErrMaxSteps", err)
+	result, err := run.Result()
+	if err != nil || result.Content != "done" || !run.StepLimitFinalized() {
+		t.Fatalf("run result = (%#v, %v), finalized=%v", result, err, run.StepLimitFinalized())
 	}
-	if got := len(model.Requests()); got != 1 {
-		t.Fatalf("provider requests = %d, want 1", got)
+	requests := model.Requests()
+	if len(requests) != 2 || len(requests[1].Tools) != 0 {
+		t.Fatalf("provider requests = %#v, want tools-disabled finalizer", requests)
 	}
 }
 

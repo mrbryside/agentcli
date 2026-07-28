@@ -17,16 +17,22 @@ Before every start_subagent call, choose its required continue_after_dispatch va
 - Set continue_after_dispatch=true only when specific work was already planned before dispatch, is outside the delegated task, is independent of its callback, and must run immediately in the current turn. This value is a commitment to perform that work, not permission to invent work or narrate waiting.
 - When calling start_subagent multiple times in one tool batch, use the same value on every call. Set every call to false when the parent should only wait after the batch. Set every call to true when the parent must continue independent work after the batch. Never mix values; any false call that returns a pending callback ends the entire successful tool batch.
 
+Before every send_subagent_message call, also choose its required continue_after_dispatch value:
+- Set continue_after_dispatch=false when no already-planned parent work outside that child's task must run immediately after dispatch. An accepted result ends the current successful tool batch automatically to wait for the callback.
+- Set continue_after_dispatch=true only when specific independent parent work was already planned and must continue immediately. This never permits another message to the same child while its callback is pending.
+- duplicate, already_sent, and callback_pending end the current successful tool batch automatically regardless of the chosen value. recovery_exhausted does not end the turn; report the terminal failure without another recovery attempt.
+
 Apply this state machine after every start_subagent or send_subagent_message result:
 
-1. accepted=true means exactly one dispatch was accepted and its authoritative callback is pending; it never means the child finished. Do not retry, resend, poll, inspect status, redo the delegated work, or start an alternate child for the same work. For start_subagent, obey the chosen continue_after_dispatch behavior. For send_subagent_message, apply the post-dispatch turn policy below.
-2. For send_subagent_message, accepted=false with callback_action=automatic_existing, or an action of duplicate, already_sent, or callback_pending, means no new dispatch occurred and the existing callback will arrive automatically. Never retry with changed wording, another task, or another child to force acceptance. Apply the post-dispatch turn policy below.
+1. accepted=true means exactly one dispatch was accepted and its authoritative callback is pending; it never means the child finished. Do not retry, resend, poll, inspect status, redo the delegated work, or start an alternate child for the same work. Obey the chosen continue_after_dispatch behavior.
+2. For send_subagent_message, accepted=false with callback_action=automatic_existing, or an action of duplicate, already_sent, or callback_pending, means no new dispatch occurred and the existing callback will arrive automatically. Never retry with changed wording, another task, or another child to force acceptance. The current successful tool batch ends automatically.
 3. For send_subagent_message, action=child_completed with accepted=false and callback_action=none means the completed child cannot be reused. Deliver its result. Start a new child only if genuinely new work independently requires delegation.
-4. Only a later completed, incomplete, or failed callback is an authoritative child outcome. Read and use that callback before deciding whether more delegation is necessary.
+4. For send_subagent_message, action=recovery_exhausted with accepted=false and callback_action=none means the same failed child and normalized failure already received one recovery dispatch in this response. Report the terminal failure and do not retry equivalent recovery work.
+5. Only a later completed, incomplete, or failed callback is an authoritative child outcome. Read and use that callback before deciding whether more delegation is necessary.
 
 Post-dispatch turn policy:
-- Continue only work that was already planned before dispatch and is both independent of the pending callback and outside the delegated task. It must not inspect, verify, repeat, extend, summarize, or otherwise depend on that task or its result.
-- If no such work remains, end the current turn immediately without generating assistant content and without making another tool call. Do not narrate progress or waiting, call a response or delivery tool, or invent work merely to keep the turn active. The callback will resume the work automatically.`
+- With continue_after_dispatch=true, continue only work that was already planned before dispatch and is both independent of the pending callback and outside the delegated task. It must not inspect, verify, repeat, extend, summarize, or otherwise depend on that task or its result.
+- With continue_after_dispatch=false, the successful tool batch ends automatically. Do not narrate progress or waiting, call a response or delivery tool, or invent work merely to keep the turn active. The callback will resume the work automatically.`
 
 const mainAgentResponsePrompt = "Give the user a clear, self-contained answer when a response is due. Do not emit progress-only content when an applicable asynchronous workflow requires ending the current turn without assistant content. Finish with the result, important verification, and any unresolved issue."
 

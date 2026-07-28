@@ -5,6 +5,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -110,9 +111,31 @@ func (a *Adapter) Start(ctx context.Context, request agentruntime.ModelRequest) 
 		Reasoning:   cloneBool(a.config.Reasoning),
 	})
 	if err != nil {
+		if isContextWindowExceeded(err) {
+			err = fmt.Errorf("%w: %w", agentruntime.ErrContextWindowExceeded, err)
+		}
 		return nil, fmt.Errorf("start OpenAI stream: %w", err)
 	}
 	return stream, nil
+}
+
+func isContextWindowExceeded(err error) bool {
+	var apiError *sdkopenai.APIError
+	if !errors.As(err, &apiError) {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(fmt.Sprint(apiError.Code)))
+	if code == "context_length_exceeded" || code == "context_window_exceeded" {
+		return true
+	}
+	if apiError.HTTPStatusCode != 400 {
+		return false
+	}
+	message := strings.ToLower(apiError.Message)
+	return strings.Contains(message, "context") &&
+		(strings.Contains(message, "exceed") ||
+			strings.Contains(message, "maximum") ||
+			strings.Contains(message, "too long"))
 }
 
 func cloneBool(value *bool) *bool {

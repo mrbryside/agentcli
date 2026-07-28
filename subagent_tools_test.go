@@ -224,11 +224,12 @@ func TestSendSubagentMessageToolOnlyTargetsIdleChildAfterCallback(t *testing.T) 
 		Instruction string `json:"instruction"`
 		Callback    string `json:"callback_action"`
 		MustWait    bool   `json:"must_wait_for_callback"`
+		TurnAction  string `json:"turn_action"`
 	}
 	send := func(turnID, callID, message string) sendResult {
 		t.Helper()
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{SessionID: "parent", TurnID: turnID, CallID: callID, ToolName: SendSubagentMessageToolName})
-		arguments, err := json.Marshal(map[string]string{"subagent_id": started.ID, "message": message})
+		arguments, err := json.Marshal(map[string]any{"subagent_id": started.ID, "message": message, "continue_after_dispatch": true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -242,13 +243,13 @@ func TestSendSubagentMessageToolOnlyTargetsIdleChildAfterCallback(t *testing.T) 
 		}
 		return result
 	}
-	if duplicate := send("turn-1", "duplicate", " work "); duplicate.Action != toolexecution.SubagentSendDuplicate || duplicate.Accepted || !duplicate.Deduplicated || duplicate.Subagent.QueuedMessages != 0 {
+	if duplicate := send("turn-1", "duplicate", " work "); duplicate.Action != toolexecution.SubagentSendDuplicate || duplicate.Accepted || !duplicate.Deduplicated || duplicate.Subagent.QueuedMessages != 0 || duplicate.TurnAction != "end_turn_wait_for_callback" {
 		t.Fatalf("duplicate = %#v", duplicate)
 	}
-	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || !isPassiveCallbackInstruction(changed.Instruction) {
+	if changed := send("turn-1", "changed", "wait for the result"); changed.Action != toolexecution.SubagentSendAlreadySent || changed.Accepted || changed.Deduplicated || changed.Subagent.QueuedMessages != 0 || changed.TurnAction != "end_turn_wait_for_callback" || !isEndedCallbackInstruction(changed.Instruction) {
 		t.Fatalf("changed repeat = %#v", changed)
 	}
-	if pending := send("turn-2", "pending", "next task"); pending.Action != toolexecution.SubagentSendCallbackPending || pending.Accepted || pending.Deduplicated || pending.Subagent.QueuedMessages != 0 || pending.Callback != "automatic_existing" || !pending.MustWait || !isPassiveCallbackInstruction(pending.Instruction) {
+	if pending := send("turn-2", "pending", "next task"); pending.Action != toolexecution.SubagentSendCallbackPending || pending.Accepted || pending.Deduplicated || pending.Subagent.QueuedMessages != 0 || pending.Callback != "automatic_existing" || !pending.MustWait || pending.TurnAction != "end_turn_wait_for_callback" || !isEndedCallbackInstruction(pending.Instruction) {
 		t.Fatalf("next turn = %#v", pending)
 	}
 }
@@ -276,7 +277,7 @@ func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *test
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 			SessionID: "parent", TurnID: turnID, CallID: "send", ToolName: SendSubagentMessageToolName,
 		})
-		arguments, err := json.Marshal(map[string]any{"subagent_id": record.ID, "message": "too early"})
+		arguments, err := json.Marshal(map[string]any{"subagent_id": record.ID, "message": "too early", "continue_after_dispatch": true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -285,17 +286,17 @@ func TestSendSubagentMessageToolReturnsCallbackPendingAsControlledResult(t *test
 			t.Fatalf("callback_pending returned tool error: %v", err)
 		}
 		var result struct {
-			Action       toolexecution.SubagentSendAction `json:"action"`
-			Accepted     bool                             `json:"accepted"`
-			Callback     string                           `json:"callback_action"`
-			MustWait     bool                             `json:"must_wait_for_callback"`
-			TurnBehavior string                           `json:"turn_behavior"`
-			Instruction  string                           `json:"instruction"`
+			Action      toolexecution.SubagentSendAction `json:"action"`
+			Accepted    bool                             `json:"accepted"`
+			Callback    string                           `json:"callback_action"`
+			MustWait    bool                             `json:"must_wait_for_callback"`
+			TurnAction  string                           `json:"turn_action"`
+			Instruction string                           `json:"instruction"`
 		}
 		if err := json.Unmarshal(output, &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "automatic_existing" || !result.MustWait || strings.Contains(string(output), `"finish_turn"`) || !isPassiveCallbackInstruction(result.Instruction) {
+		if result.Action != toolexecution.SubagentSendCallbackPending || result.Accepted || result.Callback != "automatic_existing" || !result.MustWait || result.TurnAction != "end_turn_wait_for_callback" || strings.Contains(string(output), `"finish_turn"`) || !isEndedCallbackInstruction(result.Instruction) {
 			t.Fatalf("callback_pending result = %s", output)
 		}
 		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
@@ -330,7 +331,7 @@ func TestSendSubagentMessageToolRejectsCompletedChildReuse(t *testing.T) {
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
 		SessionID: "parent", TurnID: "follow-up-turn", CallID: "send", ToolName: SendSubagentMessageToolName,
 	})
-	arguments, err := json.Marshal(map[string]any{"subagent_id": record.ID, "message": "unrelated next task"})
+	arguments, err := json.Marshal(map[string]any{"subagent_id": record.ID, "message": "unrelated next task", "continue_after_dispatch": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,12 +344,14 @@ func TestSendSubagentMessageToolRejectsCompletedChildReuse(t *testing.T) {
 		Accepted    bool                             `json:"accepted"`
 		Callback    string                           `json:"callback_action"`
 		MustWait    bool                             `json:"must_wait_for_callback"`
+		TurnAction  string                           `json:"turn_action"`
 		Instruction string                           `json:"instruction"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.Action != toolexecution.SubagentSendChildCompleted || result.Accepted || result.Callback != "none" || result.MustWait ||
+		result.TurnAction != "continue_to_deliver_completed_result" ||
 		!strings.Contains(result.Instruction, "must not be reused") || !strings.Contains(result.Instruction, "Deliver its completed result") {
 		t.Fatalf("completed-child result = %s", output)
 	}
@@ -389,7 +392,7 @@ func TestSubagentToolsRejectRemovedFinishTurnOption(t *testing.T) {
 	}{
 		{"start background", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","continue_after_dispatch":true,"background":false}`)},
 		{"start finish", StartSubagentToolName, json.RawMessage(`{"name":"researcher","message":"summarize README","continue_after_dispatch":true,"finish_turn":true}`)},
-		{"send finish", SendSubagentMessageToolName, json.RawMessage(`{"subagent_id":"child","message":"continue","finish_turn":true}`)},
+		{"send finish", SendSubagentMessageToolName, json.RawMessage(`{"subagent_id":"child","message":"continue","continue_after_dispatch":true,"finish_turn":true}`)},
 	}
 	for _, test := range tests {
 		ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
@@ -411,6 +414,22 @@ func TestStartSubagentRequiresExplicitContinueAfterDispatchChoice(t *testing.T) 
 		StartSubagentToolName,
 		ctx,
 		json.RawMessage(`{"name":"researcher","message":"work"}`),
+	)
+	if err == nil || !strings.Contains(err.Error(), "continue_after_dispatch is required") {
+		t.Fatalf("missing continue_after_dispatch error = %v", err)
+	}
+}
+
+func TestSendSubagentMessageRequiresExplicitContinueAfterDispatchChoice(t *testing.T) {
+	bridge := toolexecution.NewSubagentToolBridge()
+	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+		SessionID: "parent", TurnID: "parent-turn", CallID: "send", ToolName: SendSubagentMessageToolName,
+	})
+	_, err := callSubagentTool(
+		bridge,
+		SendSubagentMessageToolName,
+		ctx,
+		json.RawMessage(`{"subagent_id":"child","message":"continue"}`),
 	)
 	if err == nil || !strings.Contains(err.Error(), "continue_after_dispatch is required") {
 		t.Fatalf("missing continue_after_dispatch error = %v", err)
@@ -462,13 +481,12 @@ func callSubagentTool(bridge *toolexecution.SubagentToolBridge, name string, ctx
 	return nil, errors.New("subagent built-in is unavailable")
 }
 
-func isPassiveCallbackInstruction(instruction string) bool {
+func isEndedCallbackInstruction(instruction string) bool {
 	for _, expected := range []string{
-		"result will arrive automatically later",
-		"work already planned before dispatch",
-		"outside the delegated task",
-		"independent of its callback",
-		"end the turn immediately without assistant content or another tool call",
+		"No new work was dispatched",
+		"existing result will arrive automatically later",
+		"successful tool batch will end automatically",
+		"Do not retry, call another tool, or generate assistant content",
 	} {
 		if !strings.Contains(instruction, expected) {
 			return false

@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -94,6 +95,25 @@ func TestGenericContextEstimatorConservativelyCountsMultilingualText(t *testing.
 				t.Fatalf("content estimate = %d tokens, want at least %d per-rune floor for %q", contentTokens, floor, text)
 			}
 		})
+	}
+}
+
+func TestGenericContextEstimatorConservativelyCountsStructuredASCII(t *testing.T) {
+	text := strings.Repeat(`{"tool_result":"abcdefghijklmnopqrstuvwxyz"}`, 1_000)
+	estimate, err := (GenericContextEstimator{}).Estimate(ModelRequest{
+		Messages: []Message{{Type: MessageTypeToolResult, ToolResult: &ToolResult{
+			CallID: "call", Name: "tool", Status: ToolResultSucceeded, Output: []byte(text),
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	minimum := (len(text) + genericCharactersPerToken - 1) / genericCharactersPerToken
+	if estimate.Tokens < minimum {
+		t.Fatalf("estimate = %d; want at least %d for %d structured ASCII bytes", estimate.Tokens, minimum, len(text))
+	}
+	if genericCharactersPerToken != 3 {
+		t.Fatalf("generic ASCII divisor = %d; want conservative provider-neutral divisor 3", genericCharactersPerToken)
 	}
 }
 

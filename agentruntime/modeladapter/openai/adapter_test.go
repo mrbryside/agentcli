@@ -26,6 +26,51 @@ func TestAdapterModelIdentity(t *testing.T) {
 	}
 }
 
+func TestIsContextWindowExceeded(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "standard code",
+			err:  &sdkopenai.APIError{HTTPStatusCode: 400, Code: "context_length_exceeded", Message: "maximum context length exceeded"},
+			want: true,
+		},
+		{
+			name: "compatible provider message",
+			err:  &sdkopenai.APIError{HTTPStatusCode: 400, Message: "request exceeds the available context size"},
+			want: true,
+		},
+		{
+			name: "unrelated bad request",
+			err:  &sdkopenai.APIError{HTTPStatusCode: 400, Message: "invalid tool schema"},
+		},
+		{
+			name: "non API error",
+			err:  errors.New("context deadline exceeded"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isContextWindowExceeded(test.err); got != test.want {
+				t.Fatalf("isContextWindowExceeded(%v) = %t; want %t", test.err, got, test.want)
+			}
+		})
+	}
+}
+
+func TestAdapterMarksContextWindowRejectionForRuntimeRetry(t *testing.T) {
+	fake := &fakeProvider{streamErr: &sdkopenai.APIError{
+		HTTPStatusCode: 400,
+		Message:        "request exceeds the available context size",
+	}}
+	adapter := New(fake, Config{Model: "compatible-model"})
+	_, err := adapter.Start(context.Background(), agentruntime.ModelRequest{})
+	if !errors.Is(err, agentruntime.ErrContextWindowExceeded) {
+		t.Fatalf("Start() error = %v; want ErrContextWindowExceeded", err)
+	}
+}
+
 func TestAdapterModelMetadata(t *testing.T) {
 	t.Run("known aliases", func(t *testing.T) {
 		for _, test := range []struct {
@@ -441,11 +486,15 @@ func TestAdapterPlacesContextRemindersWithoutMutatingTranscript(t *testing.T) {
 type fakeProvider struct {
 	requests    []provideropenai.Request
 	streamCalls int
+	streamErr   error
 }
 
 func (p *fakeProvider) Stream(_ context.Context, request provideropenai.Request) (provider.ChunkStream[sdkopenai.ChatCompletionStreamResponse], error) {
 	p.streamCalls++
 	p.requests = append(p.requests, request)
+	if p.streamErr != nil {
+		return nil, p.streamErr
+	}
 	return eofChunkStream{}, nil
 }
 

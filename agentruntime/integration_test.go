@@ -324,17 +324,27 @@ func TestIntegrationFailurePaths(t *testing.T) {
 	})
 
 	t.Run("maximum steps", func(t *testing.T) {
-		fixture := newIntegrationSSEFixture(t, integrationToolCallStream(integrationToolCall{ID: "call_steps", Name: "steps", Arguments: `{}`}))
+		fixture := newIntegrationSSEFixture(t,
+			integrationToolCallStream(integrationToolCall{ID: "call_steps", Name: "steps", Arguments: `{}`}),
+			integrationContentStream("step limit summary"),
+		)
 		registry := toolexecution.NewRegistry()
 		registerBarrierTool(t, registry, "steps", releasedIntegrationBarrier(), `{"ok":true}`)
 		runtime, _, _ := newIntegrationRuntimeWithConfig(t, fixture, registry, 1, inmemory.NewMessageStorage(), 1)
 		run := startIntegrationRun(t, runtime, "session-max-steps", "turn-max-steps", "max steps")
 		events := collectIntegrationRunEvents(t, run)
-		if _, err := run.Result(); !errors.Is(err, ErrMaxSteps) {
-			t.Fatalf("max steps Result error = %v, want ErrMaxSteps", err)
+		result, err := run.Result()
+		if err != nil || result.Content != "step limit summary" || result.Steps != 2 || !run.StepLimitFinalized() {
+			t.Fatalf("max steps Result = (%#v, %v), finalized=%v", result, err, run.StepLimitFinalized())
 		}
-		if !containsIntegrationEvent(events, RunFailed) || fixture.RequestCount() != 1 {
+		if containsIntegrationEvent(events, RunFailed) || !containsIntegrationEvent(events, RunCompleted) || fixture.RequestCount() != 2 {
 			t.Fatalf("max steps events=%#v providerRequests=%d", events, fixture.RequestCount())
+		}
+		if tools, ok := fixture.Request(1)["tools"]; ok && tools != nil {
+			values, valid := tools.([]any)
+			if !valid || len(values) != 0 {
+				t.Fatalf("finalization request tools = %#v, want none", tools)
+			}
 		}
 	})
 

@@ -84,7 +84,7 @@ A repair is never retried indefinitely.
 ## Asynchronous lifecycle
 
 `start_subagent` and `send_subagent_message` return immediately after routing
-work. Every `start_subagent` call requires a `continue_after_dispatch` choice:
+work. Every dispatch call requires a `continue_after_dispatch` choice:
 
 - Set it to `false` when the parent has no already-planned work outside the
   delegated task that must run immediately. A result with a pending callback
@@ -99,14 +99,19 @@ all `false` to wait after the batch, or all `true` to continue independent
 parent work. Mixing values is invalid because any `false` call that returns a
 pending callback ends the successful batch.
 
-`send_subagent_message` returns control to the parent and applies the passive
-post-dispatch policy: continue only qualifying already-planned independent
-work; otherwise make no more tool calls or assistant content. The parent must
-not narrate waiting, call a response or delivery tool, invent work, retry, redo
-delegated work, or poll. Accepted results use
+For `send_subagent_message`, `false` ends an accepted successful tool batch to
+wait, while `true` returns control only for qualifying already-planned
+independent work. Duplicate, already-sent, and callback-pending results end the
+successful batch regardless of that choice because they create no new work and
+the existing callback is already pending. The parent must not narrate waiting,
+call a response or delivery tool, invent work, retry, redo delegated work, or
+poll. Accepted results use
 `callback_action: automatic` and `must_wait_for_callback: true`. Duplicate,
 already-sent, and callback-pending results use
 `callback_action: automatic_existing` because they create no new callback.
+`recovery_exhausted` uses `callback_action: none` and returns control so the
+parent can report that the same normalized child failure already consumed its
+single recovery dispatch for this response scope.
 The child turn outcome arrives through a separate callback containing:
 
 - parent and child identity;

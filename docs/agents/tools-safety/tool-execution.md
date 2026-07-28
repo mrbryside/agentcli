@@ -50,9 +50,13 @@ triggers. Framework `start_subagent` requires a
 `continue_after_dispatch` choice. False asks the handler to end a successful
 pending-callback batch; true returns control for already-planned independent
 parent work. Every parallel start in one batch uses the same value.
-`send_subagent_message` returns control and uses the passive post-dispatch
-policy. The callback joins a compatible active parent at its next provider
-boundary or falls back to a continuation turn.
+`send_subagent_message` also requires `continue_after_dispatch`: false ends an
+accepted successful batch and true returns control for already-planned
+independent work. Duplicate, already-sent, and callback-pending results end the
+successful batch regardless of the value. A `recovery_exhausted` result
+continues so the parent can report the terminal failure. The callback joins a
+compatible active parent at its next provider boundary or falls back to a
+continuation turn.
 Destructive child close is application-owned and is not registered in the
 model tool catalog.
 

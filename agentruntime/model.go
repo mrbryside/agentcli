@@ -2,10 +2,17 @@ package agentruntime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/mrbryside/agentcli/provider"
 	"github.com/mrbryside/agentcli/storage"
 )
+
+// ErrContextWindowExceeded marks a provider rejection caused by the complete
+// request exceeding the selected model's context window. Model adapters should
+// wrap this sentinel when they can identify that condition so the runtime can
+// force one provider-neutral compaction retry.
+var ErrContextWindowExceeded = errors.New("model context window exceeded")
 
 // ModelRequest is the provider-neutral input for one provider stream round.
 type ModelRequest struct {

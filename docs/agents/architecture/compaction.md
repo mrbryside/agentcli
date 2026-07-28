@@ -30,9 +30,18 @@ can reduce the tail further.
 `ContextEstimator` is replaceable. By default the runtime asks the main model's
 optional `ContextEstimatorProvider` capability, which makes root and child
 agents select the estimator for their actual provider. `GenericContextEstimator`
-is the deterministic conservative fallback for non-ASCII text, tools, schemas,
-reminders, and message framing. `agentcli.WithContextEstimator` remains an
-explicit application-wide override.
+is the deterministic conservative fallback. It charges ASCII at three bytes
+per token to leave headroom for JSON, code, and tokenizers that are denser than
+the common four-byte approximation, while charging every non-ASCII UTF-8 byte.
+It also includes tools, schemas, reminders, and message framing.
+`agentcli.WithContextEstimator` remains an explicit application-wide override.
+
+If a model adapter identifies a provider rejection as
+`ErrContextWindowExceeded`, the runtime force-compacts once and retries that
+provider round once. Forced compaction is provider-neutral: it retains the
+newest complete conversation unit, summarizes older legal units, and never
+splits a tool-call/result batch. Adapters translate provider-specific errors
+into the shared sentinel; the compactor contains no provider-name checks.
 
 ## Summary and checkpoint creation
 
@@ -91,6 +100,8 @@ A new compaction emits `compaction_started` immediately before the summarizer,
 persists the checkpoint, then emits `compaction_completed` before the main
 provider starts. Preparation, summarizer, or persistence errors emit
 `compaction_failed`, fail the run, and prevent that main-provider round.
+The same event sequence is emitted for a forced compaction retry after a
+context-window rejection.
 
 No compaction event is emitted when the request already fits or when a resumed
 session only projects an existing checkpoint. Project-created child agents

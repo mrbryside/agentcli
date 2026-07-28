@@ -40,6 +40,32 @@ func TestResponseScopeLoggerRecordsLifecycleAndDetails(t *testing.T) {
 	}
 }
 
+func TestResponseScopeLimitsFailedRecoveryByChildAndFingerprint(t *testing.T) {
+	coordinator := NewResponseScopeCoordinator(context.Background())
+	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+
+	allowed, rollback := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #")
+	if !allowed {
+		t.Fatal("first recovery was rejected")
+	}
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #"); allowed {
+		t.Fatal("duplicate child failure recovery was accepted")
+	}
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "provider unavailable"); !allowed {
+		t.Fatal("different failure fingerprint was rejected")
+	}
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-2", "context # exceeded #"); !allowed {
+		t.Fatal("same failure on another child was rejected")
+	}
+
+	rollback()
+	if allowed, _ := coordinator.ReserveFailedRecovery("session", "root-turn", "child-1", "context # exceeded #"); !allowed {
+		t.Fatal("rolled-back recovery reservation remained exhausted")
+	}
+}
+
 func TestResponseScopeSkipsEarlyCallAndExecutesOnlyAtFinalBoundary(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	if err := coordinator.BeginRootTurn("session", "root-turn"); err != nil {

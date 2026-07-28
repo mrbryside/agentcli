@@ -550,7 +550,7 @@ func TestRuntimeLoopWaitsForEveryToolResultInProviderOrder(t *testing.T) {
 	}
 }
 
-func TestRuntimeLoopFailsForProviderStorageMalformedResultAndMaxSteps(t *testing.T) {
+func TestRuntimeLoopFailsForProviderStorageAndMalformedResult(t *testing.T) {
 	tests := []struct {
 		name  string
 		model *scriptedRuntimeModel
@@ -575,13 +575,6 @@ func TestRuntimeLoopFailsForProviderStorageMalformedResultAndMaxSteps(t *testing
 				results <- ToolResultEnvelope{SessionID: request.SessionID, TurnID: request.TurnID, Result: ToolResult{CallID: "call", Name: "tool"}}
 			}, want: storage.ErrInvalidMessage,
 		},
-		{
-			name: "maximum steps", model: &scriptedRuntimeModel{streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{CompletedTools: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: map[string]any{}}}}}}}}}}, store: inmemory.NewMessageStorage(), steps: 1,
-			after: func(t *testing.T, requests <-chan ToolRequest, results chan<- ToolResultEnvelope) {
-				request := receiveToolRequest(t, requests)
-				results <- successfulEnvelope(request.SessionID, request.TurnID, "call", "tool", `null`)
-			}, want: ErrMaxSteps,
-		},
 	}
 
 	for _, test := range tests {
@@ -602,6 +595,127 @@ func TestRuntimeLoopFailsForProviderStorageMalformedResultAndMaxSteps(t *testing
 				t.Fatalf("Result() error = %v, want %v", err, test.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeStepLimitUsesOneTextOnlyFinalizationRound(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{ID: "call", Name: "tool", Arguments: map[string]any{}}},
+			Finished:       true,
+		}}}}},
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Content: "completed work summary"}}},
+	}}
+	runtime, requests, results := newLoopRuntime(t, model, inmemory.NewMessageStorage(), 1)
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "step-limit", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := receiveToolRequest(t, requests)
+	results <- successfulEnvelope(request.SessionID, request.TurnID, request.Call.CallID, request.Call.Name, `{"ok":true}`)
+	events := collectRuntimeEvents(t, run)
+	result, err := run.Result()
+	if err != nil || !result.Finished || result.Content != "completed work summary" || result.Steps != 2 {
+		t.Fatalf("Result() = (%#v, %v), want successful two-round finalization", result, err)
+	}
+	if !run.StepLimitFinalized() || countEvent(events, RunFailed) != 0 || countEvent(events, RunCompleted) != 1 {
+		t.Fatalf("finalization state/events = %v/%#v", run.StepLimitFinalized(), events)
+	}
+	providerRequests := model.Requests()
+	if len(providerRequests) != 2 || len(providerRequests[1].Tools) != 0 {
+		t.Fatalf("provider requests = %#v, want tools-disabled finalizer", providerRequests)
+	}
+	foundReminder := false
+	for _, reminder := range providerRequests[1].ContextReminders {
+		if strings.Contains(reminder.Content, `<provider_step_limit state="finalization">`) {
+			foundReminder = true
+		}
+	}
+	if !foundReminder {
+		t.Fatalf("finalization reminders = %#v, want provider-step reminder", providerRequests[1].ContextReminders)
+	}
+}
+
+func TestRuntimeStepLimitFinalizerCannotDispatchTools(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{ID: "allowed", Name: "tool", Arguments: map[string]any{}}},
+			Finished:       true,
+		}}}}},
+		scriptedStream{events: []provider.StreamEvent{
+			{Type: provider.ToolCallStarted, Tool: &provider.ToolEvent{ID: "blocked", Name: "tool"}},
+			{Type: provider.ToolArgumentsReceived, Tool: &provider.ToolEvent{ID: "blocked", Arguments: `{}`}},
+			{Type: provider.ToolCallCompleted, Tool: &provider.ToolEvent{ID: "blocked", Name: "tool"}},
+			{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				CompletedTools: []provider.ToolCall{{ID: "blocked", Name: "tool", Arguments: map[string]any{}}},
+				Finished:       true,
+			}}},
+		}},
+	}}
+	runtime, requests, results := newLoopRuntime(t, model, inmemory.NewMessageStorage(), 1)
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "step-limit-tool", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := receiveToolRequest(t, requests)
+	results <- successfulEnvelope(request.SessionID, request.TurnID, request.Call.CallID, request.Call.Name, `{"ok":true}`)
+	collectRuntimeEvents(t, run)
+	result, err := run.Result()
+	if err != nil || result.Content != stepLimitFinalizationFallback || len(result.ToolResults) != 1 {
+		t.Fatalf("Result() = (%#v, %v), want deterministic text fallback and one tool result", result, err)
+	}
+	for _, event := range run.Events() {
+		if event.Type == ProviderEventReceived && event.ProviderEvent.Tool != nil {
+			t.Fatalf("finalizer exposed tool event %#v", event.ProviderEvent)
+		}
+	}
+	select {
+	case unexpected := <-requests:
+		t.Fatalf("finalizer dispatched tool request %#v", unexpected)
+	default:
+	}
+}
+
+func TestRuntimeCanDisableProviderStepLimit(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{ID: "first", Name: "tool", Arguments: map[string]any{}}}, Finished: true,
+		}}}}},
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			CompletedTools: []provider.ToolCall{{ID: "second", Name: "tool", Arguments: map[string]any{}}}, Finished: true,
+		}}}}},
+		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+			Content: "done", Finished: true,
+		}}}}},
+	}}
+	requests := make(chan ToolRequest, 8)
+	results := make(chan ToolResultEnvelope, 8)
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: inmemory.NewMessageStorage(),
+		ToolRequests: requests, ToolResults: results, ToolInterrupts: make(chan ToolInterrupt, 8),
+		IDGenerator: incrementingRuntimeIDs{}, MaxSteps: 1, DisableStepLimit: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "no-step-limit", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		request := receiveToolRequest(t, requests)
+		results <- successfulEnvelope(request.SessionID, request.TurnID, request.Call.CallID, request.Call.Name, `{"ok":true}`)
+	}
+	collectRuntimeEvents(t, run)
+	result, err := run.Result()
+	if err != nil || result.Content != "done" || result.Steps != 3 || run.StepLimitFinalized() {
+		t.Fatalf("Result() = (%#v, %v), finalized=%v", result, err, run.StepLimitFinalized())
 	}
 }
 

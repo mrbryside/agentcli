@@ -63,6 +63,7 @@ type responseScope struct {
 	pendingInputs     int
 	receivedCallbacks []*ResponseScopeReceivedCallback
 	children          map[string]int
+	failedRecoveries  map[string]struct{}
 	toolCalls         map[string]int
 	endScopeCompleted map[string]struct{}
 	endScopeExecuting map[string]struct{}
@@ -214,6 +215,7 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		state:             responseScopeOpen,
 		activeTurns:       1,
 		children:          make(map[string]int),
+		failedRecoveries:  make(map[string]struct{}),
 		toolCalls:         make(map[string]int),
 		endScopeCompleted: make(map[string]struct{}),
 		endScopeExecuting: make(map[string]struct{}),
@@ -229,6 +231,48 @@ func (c *ResponseScopeCoordinator) BeginRootTurn(sessionID, turnID string) error
 		)
 	}
 	return nil
+}
+
+// ReserveFailedRecovery allows one recovery dispatch for the same child and
+// normalized failure within a live response scope. The returned rollback
+// releases the reservation when dispatch admission fails. Calls outside a
+// tracked response scope remain allowed because no scope lifecycle exists to
+// own a budget.
+func (c *ResponseScopeCoordinator) ReserveFailedRecovery(sessionID, parentTurnID, childID, failureFingerprint string) (bool, func()) {
+	if c == nil || sessionID == "" || parentTurnID == "" || childID == "" || failureFingerprint == "" {
+		return true, func() {}
+	}
+	turn := responseTurnKey{sessionID: sessionID, turnID: parentTurnID}
+	key := childID + "\x00" + failureFingerprint
+
+	c.mu.Lock()
+	scopeKey, found := c.turns[turn]
+	if !found {
+		c.mu.Unlock()
+		return true, func() {}
+	}
+	scope := c.scopes[scopeKey]
+	if scope == nil || scope.state != responseScopeOpen {
+		c.mu.Unlock()
+		return false, func() {}
+	}
+	if _, exhausted := scope.failedRecoveries[key]; exhausted {
+		c.mu.Unlock()
+		return false, func() {}
+	}
+	scope.failedRecoveries[key] = struct{}{}
+	c.mu.Unlock()
+
+	var once sync.Once
+	return true, func() {
+		once.Do(func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if current := c.scopes[scopeKey]; current != nil {
+				delete(current.failedRecoveries, key)
+			}
+		})
+	}
 }
 
 // RollbackRootTurn removes a root scope whose runtime turn was not accepted.

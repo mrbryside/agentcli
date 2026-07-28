@@ -261,7 +261,9 @@ func (m *subagentManager) createChild(definition SubagentDefinition) (*Agent, er
 	if m.config.contextEstimator != nil {
 		options = append(options, WithContextEstimator(m.config.contextEstimator))
 	}
-	if m.config.maxProviderSteps > 0 {
+	if m.config.disableProviderStepLimit {
+		options = append(options, WithProviderStepLimitEnabled(false))
+	} else if m.config.maxProviderSteps > 0 {
 		options = append(options, WithMaxProviderSteps(m.config.maxProviderSteps))
 	}
 	for _, tool := range filterSubagentTools(definition, m.config.tools) {
@@ -676,6 +678,22 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 		}
 		return toolexecution.SubagentSendResult{}, err
 	}
+	rollbackRecovery := func() {}
+	if record.LastTurnOutcome == storage.SubagentTurnFailed {
+		allowed, rollback := m.parent.responseScopes.ReserveFailedRecovery(
+			parentSessionID,
+			parentTurnID,
+			record.ID,
+			subagentFailureFingerprint(record.LastTurnError),
+		)
+		if !allowed {
+			return toolexecution.SubagentSendResult{
+				Action: toolexecution.SubagentSendRecoveryExhausted, Subagent: record,
+				IdempotencyKey: key, Accepted: false,
+			}, nil
+		}
+		rollbackRecovery = rollback
+	}
 	action := toolexecution.SubagentSendStarted
 	if record.Status == storage.SubagentStatusRunning {
 		action = toolexecution.SubagentSendQueued
@@ -693,6 +711,7 @@ func (m *subagentManager) SendFromParentTurn(ctx context.Context, parentSessionI
 	updated, err := m.sendLocked(ctx, instance, record, content)
 	if err != nil {
 		rollbackDispatch()
+		rollbackRecovery()
 		return toolexecution.SubagentSendResult{}, err
 	}
 	instance.lastDispatchParentTurnID = parentTurnID
@@ -758,6 +777,28 @@ func (m *subagentManager) validateSubagentSend(ctx context.Context, record stora
 
 func normalizeSubagentMessage(content string) string {
 	return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+}
+
+func subagentFailureFingerprint(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var normalized strings.Builder
+	inDigits := false
+	for _, character := range value {
+		if character >= '0' && character <= '9' {
+			if !inDigits {
+				normalized.WriteByte('#')
+				inDigits = true
+			}
+			continue
+		}
+		inDigits = false
+		normalized.WriteRune(character)
+	}
+	fingerprint := strings.Join(strings.Fields(normalized.String()), " ")
+	if fingerprint == "" {
+		return "failed"
+	}
+	return fingerprint
 }
 
 func subagentMessageIdempotencyKey(parentSessionID, parentTurnID, subagentID, content string) string {
@@ -1152,7 +1193,10 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	lastOutcome := storage.SubagentTurnIncomplete
 	lastSummary := "Child turn ended without an explicit outcome report."
 	lastNextStep := "Review the final answer and send one focused follow-up if required."
-	if run.CompletionRepairCount() > 0 {
+	if run.StepLimitFinalized() {
+		lastSummary = "Child reached its provider-step limit and returned a text-only final summary."
+		lastNextStep = "Review the summary and send one focused follow-up for any remaining work."
+	} else if run.CompletionRepairCount() > 0 {
 		lastSummary = "Child turn ended without an explicit outcome report after bounded repair attempts."
 	}
 	if lastTurnError != "" {

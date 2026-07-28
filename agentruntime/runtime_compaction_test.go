@@ -19,6 +19,7 @@ type runtimeCompactionModel struct {
 	requests    []ModelRequest
 	streams     []ModelStream
 	startErr    error
+	startErrors []error
 }
 
 type runtimeEstimatorModel struct {
@@ -38,6 +39,13 @@ func (m *runtimeCompactionModel) Start(_ context.Context, request ModelRequest) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, request.Clone())
+	if len(m.startErrors) != 0 {
+		err := m.startErrors[0]
+		m.startErrors = m.startErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if m.startErr != nil {
 		return nil, m.startErr
 	}
@@ -156,6 +164,115 @@ func TestRuntimeCompactionUsesMainModelContextEstimator(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("main model context estimator was not used")
+	}
+}
+
+func TestRuntimeForceCompactsAndRetriesOnceAfterContextWindowRejection(t *testing.T) {
+	messages := inmemory.NewMessageStorage()
+	if err := messages.Append(context.Background(), storage.Message{
+		ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: "older context",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	main := &runtimeEstimatorModel{
+		runtimeCompactionModel: &runtimeCompactionModel{
+			metadata:    ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+			startErrors: []error{ErrContextWindowExceeded},
+			streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{
+				Type: provider.StreamCompleted,
+				Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+					Content: "done", Finished: true,
+				}},
+			}}}},
+		},
+		estimator: ContextEstimatorFunc(func(ModelRequest) (ContextEstimate, error) {
+			return ContextEstimate{Tokens: 1}, nil
+		}),
+	}
+	summarizer := &runtimeCompactionModel{
+		metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+		streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "# Objective\nforced retry", Finished: true,
+			}},
+		}}}},
+	}
+	runtime, err := New(context.Background(), Config{
+		Model: main, Messages: messages, Compactor: &Compactor{Model: summarizer},
+		ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "new request"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, run)
+	if countEvent(events, CompactionStarted) != 1 || countEvent(events, CompactionCompleted) != 1 || countEvent(events, CompactionFailed) != 0 {
+		t.Fatalf("unexpected forced compaction events: %#v", events)
+	}
+	if len(main.requests) != 2 {
+		t.Fatalf("main requests = %d; want rejected request plus one retry", len(main.requests))
+	}
+	if len(summarizer.requests) != 1 {
+		t.Fatalf("summarizer requests = %d; want 1", len(summarizer.requests))
+	}
+	if len(main.requests[1].Messages) == 0 || main.requests[1].Messages[0].Type != MessageTypeSystem {
+		t.Fatalf("retry request was not compacted: %#v", main.requests[1])
+	}
+}
+
+func TestRuntimeForceCompactionRetriesProviderOnlyOnce(t *testing.T) {
+	messages := inmemory.NewMessageStorage()
+	if err := messages.Append(context.Background(), storage.Message{
+		ID: "old", SessionID: "session", TurnID: "old-turn", Type: storage.MessageTypeUser, Content: "older context",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	main := &runtimeEstimatorModel{
+		runtimeCompactionModel: &runtimeCompactionModel{
+			metadata:    ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+			startErrors: []error{ErrContextWindowExceeded, ErrContextWindowExceeded},
+		},
+		estimator: ContextEstimatorFunc(func(ModelRequest) (ContextEstimate, error) {
+			return ContextEstimate{Tokens: 1}, nil
+		}),
+	}
+	summarizer := &runtimeCompactionModel{
+		metadata: ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512},
+		streams: []ModelStream{scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "# Objective\nforced retry", Finished: true,
+			}},
+		}}}},
+	}
+	runtime, err := New(context.Background(), Config{
+		Model: main, Messages: messages, Compactor: &Compactor{Model: summarizer},
+		ToolRequests: make(chan ToolRequest, 1), ToolResults: make(chan ToolResultEnvelope, 1), ToolInterrupts: make(chan ToolInterrupt, 1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "session", TurnID: "turn", Message: Message{Type: MessageTypeUser, Content: "new request"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, run)
+	if countEvent(events, RunFailed) != 1 {
+		t.Fatalf("events = %#v; want one terminal failure", events)
+	}
+	if len(main.requests) != 2 {
+		t.Fatalf("main requests = %d; want initial request plus exactly one retry", len(main.requests))
+	}
+	if len(summarizer.requests) != 1 {
+		t.Fatalf("summarizer requests = %d; want exactly one forced compaction", len(summarizer.requests))
 	}
 }
 

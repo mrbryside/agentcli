@@ -59,9 +59,11 @@ when the call returns a pending callback and the complete tool batch succeeds.
 True returns control to the parent model for already-planned work outside the
 delegated task that is independent of the callback. Every parallel start in one
 batch must use the same value: all false to wait, or all true to continue.
-`send_subagent_message` returns control and uses the passive post-dispatch
-policy. Destructive close is application-owned and absent from the model
-catalog. An accepted dispatch returns an acknowledgement with
+`send_subagent_message` also requires `continue_after_dispatch`: false ends an
+accepted successful batch to wait, while true returns control only for
+already-planned independent work. Duplicate, already-sent, and callback-pending
+results end the successful batch regardless of that value. Destructive close is
+application-owned and absent from the model catalog. An accepted dispatch returns an acknowledgement with
 `callback_action=automatic`. The parent must not narrate waiting, call a
 response or delivery tool, invent work, retry, redo delegated work, or poll. If
 a compatible parent run is still active,
@@ -70,6 +72,9 @@ boundary; it never interrupts a live provider stream or tool handler.
 Otherwise `ContinueSubagentCallbackSubscribed` starts a continuation turn.
 Duplicate, already-sent, and callback-pending outcomes use
 `callback_action=automatic_existing`; they create no new pending callback.
+`recovery_exhausted` returns control with no callback so the parent can report
+the terminal failure; the same normalized failure receives at most one recovery
+dispatch per child in one response scope.
 Every successful `start_subagent` call creates a new separately addressed
 child; it never reuses or continues an existing child. A completed, incomplete,
 or failed outcome carries structured summary/next-step fields, terminal error,

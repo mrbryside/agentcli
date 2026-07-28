@@ -25,6 +25,31 @@ func TestCompactorPrepareBelowThresholdIsNoop(t *testing.T) {
 	}
 }
 
+func TestCompactorForceCreatesCheckpointBelowEstimatedThreshold(t *testing.T) {
+	old := compactionMessage("old", MessageTypeUser, "older context")
+	latest := compactionMessage("latest", MessageTypeUser, "current request")
+	model := &compactionModel{content: "forced memory"}
+	result, err := (Compactor{Model: model, Estimator: ContextEstimatorFunc(func(ModelRequest) (ContextEstimate, error) {
+		return ContextEstimate{Tokens: 1}, nil
+	})}).Prepare(context.Background(), CompactionInput{
+		Request: compactionRequest(old, latest),
+		MainModelMetadata: ModelMetadata{
+			ContextWindowTokens: 4096,
+			MaxOutputTokens:     512,
+		},
+		Force: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || result.Checkpoint == nil || result.Checkpoint.Summary != "forced memory" {
+		t.Fatalf("forced compaction result = %#v", result)
+	}
+	if len(result.Request.Messages) != 2 || result.Request.Messages[1].ID != "latest" {
+		t.Fatalf("forced projection = %#v", result.Request.Messages)
+	}
+}
+
 func TestDeriveCompactionBudgetsUsesDynamicTailReserves(t *testing.T) {
 	metadata := ModelMetadata{
 		ContextWindowTokens: 122880,
@@ -342,8 +367,12 @@ func TestCompactorPlaceholderCountsAgainstDynamicAvailableBudget(t *testing.T) {
 	if !result.Compacted || len(result.Request.Messages) != 2 || result.Request.Messages[1].ID != "latest" {
 		t.Fatalf("result = %#v", result)
 	}
-	if !strings.Contains(model.request.Messages[0].Content, "middle-user") || !strings.Contains(model.request.Messages[0].Content, "middle-assistant") {
-		t.Fatalf("oversized excluded tail was not summarized: %q", model.request.Messages[0].Content)
+	var summarized strings.Builder
+	for _, request := range model.requests {
+		summarized.WriteString(request.Messages[0].Content)
+	}
+	if !strings.Contains(summarized.String(), "middle-user") || !strings.Contains(summarized.String(), "middle-assistant") {
+		t.Fatalf("oversized excluded tail was not summarized across chunks: %q", summarized.String())
 	}
 }
 

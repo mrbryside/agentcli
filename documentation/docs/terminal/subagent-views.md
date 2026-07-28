@@ -89,10 +89,12 @@ tool contract directly; they do not maintain a separate schema. Model-facing
 successful pending-callback batch without another provider step; true returns
 control for only already-planned parent work outside the delegated task that
 is independent of the callback. Parallel starts use the same value throughout
-their batch. `send_subagent_message` returns control and applies the passive
-post-dispatch policy. A callback joins a compatible active parent at its next
-provider boundary or resumes the root in a continuation turn. Destructive
-close remains a Terminal/application command and is not exposed to the model.
+their batch. `send_subagent_message` uses the same required choice: false ends an accepted
+successful batch, while true continues only qualifying independent work.
+Duplicate, already-sent, and callback-pending results end the batch regardless
+of that value. A callback joins a compatible active parent at its next provider
+boundary or resumes the root in a continuation turn. Destructive close remains
+a Terminal/application command and is not exposed to the model.
 
 ## Close a child
 

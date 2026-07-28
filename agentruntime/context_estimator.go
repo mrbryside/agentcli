@@ -50,9 +50,10 @@ func (function ContextEstimatorFunc) Estimate(request ModelRequest) (ContextEsti
 }
 
 // GenericContextEstimator is a deterministic, provider-neutral estimator.
-// It charges ASCII at a four-characters-per-token approximation while charging
+// It charges ASCII at a three-characters-per-token approximation while charging
 // every non-ASCII UTF-8 byte as a token. This deliberately overestimates
-// multilingual text, where a byte-only four-to-one approximation could
+// structured text such as JSON and code as well as multilingual text, where a
+// byte-only approximation could
 // otherwise undercount Thai, CJK, and emoji. Fixed framing costs cover message
 // and tool protocol structures. Its zero value is ready to use.
 // Provider-specific implementations can replace it when exact sizing is
@@ -60,7 +61,7 @@ func (function ContextEstimatorFunc) Estimate(request ModelRequest) (ContextEsti
 type GenericContextEstimator struct{}
 
 const (
-	genericCharactersPerToken = 4
+	genericCharactersPerToken = 3
 	genericMessageOverhead    = 4
 	genericPromptOverhead     = 4
 	genericReminderOverhead   = 8

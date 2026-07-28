@@ -18,6 +18,16 @@ declined result continues so the model can dispatch more work or report the
 error. Shared tool channels must be buffered and are caller-owned; the runtime
 never closes them.
 
+Provider rounds are bounded by default. When the configured agentic budget is
+exhausted, the coordinator starts exactly one additional finalization request
+with no tool definitions and a trusted instruction to summarize completed
+work, verification, blockers, and remaining tasks as text. Tool calls returned
+despite that boundary are stripped and never dispatched; missing text becomes
+a deterministic fallback. This finalizer bypasses output/completion repair
+loops and completes the run, so `RunResult.Steps` may be one greater than
+`max_provider_steps`. Disabling the step limit removes both the ceiling and
+this finalizer.
+
 Trusted runtime input such as a subagent callback can be queued on an active
 run. The run never changes an in-flight provider request. It drains and
 durably appends queued input immediately before the next provider round, or at

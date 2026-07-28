@@ -13,6 +13,14 @@ non-ASCII UTF-8 bytes conservatively for multilingual text. Provider-specific
 adapters may provide a more exact estimator without exposing SDK types in
 runtime.
 
+When an adapter can identify a context-window rejection, it wraps
+`agentruntime.ErrContextWindowExceeded`. The runtime may then force one
+provider-neutral compaction and retry once. The OpenAI-compatible adapter
+recognizes standard context-length codes and conservative HTTP 400 message
+shapes used by compatible gateways. Other adapters should normalize their own
+structured error into the same sentinel rather than adding provider checks to
+the runtime.
+
 The OpenAI-compatible adapter can resolve known aliases for directly
 constructed adapters. Explicit limits belong to exact-name model entries under
 each provider profile and apply only when that name is selected. Without them,

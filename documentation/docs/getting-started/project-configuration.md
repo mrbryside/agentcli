@@ -123,11 +123,15 @@ entry is added to its requests. Selecting `qwen-model-id` sends only
 `chat_template_kwargs.enable_thinking: false`. Selecting any other model name
 still works and receives neither override.
 
-`max_provider_steps` limits the provider rounds each main or child turn may
-consume. A positive value replaces the runtime default of 20; omitting it or
-setting it to `0` keeps that default. Negative values are rejected. The Go
-option `WithMaxProviderSteps` can override the project value when constructing
-an Agent.
+`max_provider_steps` sets the agentic provider-round budget for each main or
+child turn. A positive value replaces the default of 20, while omitting it or
+setting it to `0` keeps that default. Once the budget is exhausted, the runtime
+makes exactly one additional provider request with no tools so the model can
+return a final text summary; that finalizer is included in `RunResult.Steps`.
+It cannot dispatch tools and does not run completion or output-guard repairs.
+Negative values are rejected. The Go option `WithMaxProviderSteps` can override
+the project value, while `WithProviderStepLimitEnabled(false)` disables the
+ceiling programmatically. There is no YAML switch for disabling it.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.

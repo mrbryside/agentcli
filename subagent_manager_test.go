@@ -186,6 +186,69 @@ func TestSubagentManagerDoesNotReuseCompletedChild(t *testing.T) {
 	}
 }
 
+func TestSubagentManagerLimitsRepeatedFailedRecoveryWithinResponseScope(t *testing.T) {
+	manager := newTestSubagentManager(t, subagentFailModel{err: errors.New("request 133409 tokens exceeds context limit 131072")}, 1)
+	defer manager.Close()
+	callbacks := manager.subscribeCallbacks(context.Background())
+	if err := manager.parent.responseScopes.BeginRootTurn("parent", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Start(context.Background(), "parent", "root-turn", "researcher", "inspect project", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstCallback := waitTestSubagentCallback(t, callbacks)
+	if firstCallback.Status != SubagentCallbackFailed {
+		t.Fatalf("first callback status = %q, want failed", firstCallback.Status)
+	}
+	observeTestSubagentCallback(t, manager, firstCallback)
+	firstReservation, err := manager.parent.responseScopes.ReserveCallbackTurn(
+		"parent", "callback-1", record.ID, firstCallback.TurnID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstReservation.Commit()
+
+	firstRecovery, err := manager.SendFromParentTurn(context.Background(), "parent", "callback-1", record.ID, "retry after compacting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRecovery.Action != toolexecution.SubagentSendStarted || !firstRecovery.Accepted {
+		t.Fatalf("first recovery = %#v", firstRecovery)
+	}
+
+	secondCallback := waitTestSubagentCallback(t, callbacks)
+	if secondCallback.Status != SubagentCallbackFailed {
+		t.Fatalf("second callback status = %q, want failed", secondCallback.Status)
+	}
+	observeTestSubagentCallback(t, manager, secondCallback)
+	secondReservation, err := manager.parent.responseScopes.ReserveCallbackTurn(
+		"parent", "callback-2", record.ID, secondCallback.TurnID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReservation.Commit()
+
+	exhausted, err := manager.SendFromParentTurn(context.Background(), "parent", "callback-2", record.ID, "retry once more")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exhausted.Action != toolexecution.SubagentSendRecoveryExhausted || exhausted.Accepted {
+		t.Fatalf("repeated recovery = %#v", exhausted)
+	}
+}
+
+func TestSubagentFailureFingerprintNormalizesChangingCounts(t *testing.T) {
+	first := subagentFailureFingerprint("Request 133409 tokens exceeds context limit 131072")
+	second := subagentFailureFingerprint(" request 133670 tokens exceeds context limit 131072 ")
+	if first != second || first != "request # tokens exceeds context limit #" {
+		t.Fatalf("fingerprints = (%q, %q)", first, second)
+	}
+}
+
 func TestSubagentManagerStartAlwaysCreatesNewChild(t *testing.T) {
 	t.Run("same definition creates separately addressed child", func(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
@@ -741,6 +804,17 @@ func observeTestSubagentCallback(t *testing.T, manager *subagentManager, callbac
 	t.Helper()
 	if err := manager.observeCallback(context.Background(), callback); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func waitTestSubagentCallback(t *testing.T, callbacks <-chan SubagentCallback) SubagentCallback {
+	t.Helper()
+	select {
+	case callback := <-callbacks:
+		return callback
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for child callback")
+		return SubagentCallback{}
 	}
 }
 
