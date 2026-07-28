@@ -147,22 +147,13 @@ func subagentReminderProvider(manager *subagentManager) agentruntime.ContextRemi
 		var content strings.Builder
 		content.WriteString("<active_subagents>\n")
 		for _, record := range records {
-			unread, err := unreadSubagentMessages(ctx, manager, record.SubagentSessionID, record.ObservedMessageID)
-			if err != nil {
-				return nil, err
-			}
 			content.WriteString("  <subagent>\n")
 			fmt.Fprintf(&content, "    <subagent_id>%s</subagent_id>\n", html.EscapeString(record.ID))
-			fmt.Fprintf(&content, "    <display_name>%s</display_name>\n", html.EscapeString(record.DisplayName))
 			fmt.Fprintf(&content, "    <definition_name>%s</definition_name>\n", html.EscapeString(record.DefinitionName))
 			fmt.Fprintf(&content, "    <lifecycle_status>%s</lifecycle_status>\n", html.EscapeString(string(record.Status)))
-			resultPending := record.Status == storage.SubagentStatusIdle && unread > 0
-			if resultPending {
-				content.WriteString("    <result_delivery>pending</result_delivery>\n")
-			}
 			content.WriteString("  </subagent>\n")
 		}
-		content.WriteString("  <result_policy>A listed subagent may have a pending result. Never poll or inspect it to simulate waiting. Continue only specific independent main-agent work already planned before the assignment. If none remains, stop without assistant content or another tool call. The result arrives automatically as <subagent_result>. Use send_subagent_message only after a delivered incomplete or failed result needs one focused follow-up. Completed and failed subagents close automatically after the user response; incomplete subagents remain available.</result_policy>\n")
+		content.WriteString("  <instruction>Each subagent_id identifies a resumable task. A running task is still working; an idle task can receive a focused follow-up. Do not inspect, poll, or call a tool merely to wait for a task. Continue only independent work that is already planned.</instruction>\n")
 		content.WriteString("</active_subagents>")
 		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
 		if request.TurnID != "" {

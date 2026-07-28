@@ -147,32 +147,32 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `subagent_reminder.go`
 - Modify: `subagent_reminder_test.go`
 
-- [ ] Add failing manager tests for a new foreground task that blocks until the
+- [x] Add failing manager tests for a new foreground task that blocks until the
   child run finishes and returns its last non-empty final assistant response.
-- [ ] Add failing tests proving two foreground executions can occupy separate
+- [x] Add failing tests proving two foreground executions can occupy separate
   manager instances without mailbox/result-continuation state.
-- [ ] Add failing resume tests: same main session succeeds and keeps transcript;
+- [x] Add failing resume tests: same main session succeeds and keeps transcript;
   another main session fails; running/closed/unknown task IDs fail; supplying a
   new agent with `task_id` fails.
-- [ ] Add failing cancellation coverage proving parent tool-context cancellation
+- [x] Add failing cancellation coverage proving parent tool-context cancellation
   interrupts the child run and returns `TaskStateError`.
-- [ ] Run `rtk go test . -run 'TestSubagentManager.*Task'`; expect FAIL.
-- [ ] Add internal `TaskRequest` and
+- [x] Run `rtk go test . -run 'TestSubagentManager.*Task'`; expect FAIL.
+- [x] Add internal `TaskRequest` and
   `subagentManager.ExecuteTask(ctx, request)`; pseudocode:
   `task_id empty -> create`; `task_id set -> owner-check + idle-check`; start
   child turn; wait for `Run.Result`; parse final result contract; derive state.
-- [ ] Reuse `createSubagent`, `startTurnLocked`, permission/confirmation
+- [x] Reuse `createSubagent`, `startTurnLocked`, permission/confirmation
   forwarding, skills, tool allowlists, storage transcript, and Langfuse model
   wrapping; do not register response-scope assignment metadata for foreground.
-- [ ] Preserve the original `MainAgentTurnID`; write `ActiveTaskDelivery` only
+- [x] Preserve the original `MainAgentTurnID`; write `ActiveTaskDelivery` only
   for an execution that will deliver later.
-- [ ] Stop auto-closing completed task sessions at response-scope end so a valid
+- [x] Stop auto-closing completed task sessions at response-scope end so a valid
   `task_id` remains resumable; keep explicit host close and interruption.
-- [ ] Simplify `subagent_reminder.go` to show only resumable task identity and
+- [x] Simplify `subagent_reminder.go` to show only resumable task identity and
   current running/idle state; remove result payloads and retry instructions.
-- [ ] Run focused manager/result/reminder tests; expect PASS.
-- [ ] Run `rtk go test -race . -run 'TestSubagentManager.*Task'`; expect PASS.
-- [ ] Commit with message
+- [x] Run focused manager/result/reminder tests; expect PASS.
+- [x] Run `rtk go test -race . -run 'TestSubagentManager.*Task'`; expect PASS.
+- [x] Commit with message
   `feat(task): execute foreground subagent tasks`.
 
 ## Task 4: Replace main-model subagent tools with one `task` tool

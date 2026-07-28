@@ -39,6 +39,27 @@ type SubagentResult struct {
 	MessageCount       uint64
 }
 
+// taskResultFromFinalOutput converts a completed child turn into the compact
+// task protocol result. A result contract is validated once here; an invalid
+// final response is a task error rather than a repair loop or a second child
+// turn.
+func taskResultFromFinalOutput(taskID string, definition SubagentDefinition, output string, incomplete bool) TaskResult {
+	result := TaskResult{TaskID: taskID, AgentName: definition.Name}
+	final, err := parseTaskFinalResult(definition, output)
+	if err != nil {
+		result.State = TaskStateError
+		result.Error = err.Error()
+		return result
+	}
+	result.Output = final.Output
+	if incomplete {
+		result.State = TaskStateIncomplete
+	} else {
+		result.State = TaskStateCompleted
+	}
+	return result
+}
+
 // RuntimeMessage converts the result into trusted provider-neutral input
 // for a new main agent turn. It is deliberately not represented as a human user
 // message or as a late result for an already-resolved tool call. A supplied

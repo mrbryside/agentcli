@@ -32,13 +32,13 @@ func TestSubagentReminderIsSessionScopedEscapedAndEphemeral(t *testing.T) {
 		t.Fatalf("reminders = %#v", reminders)
 	}
 	content := reminders[0].Content
-	if !strings.Contains(content, "<active_subagents>") || !strings.Contains(content, first.ID) || !strings.Contains(content, "<display_name>"+first.DisplayName+"</display_name>") || strings.Contains(content, second.ID) {
+	if !strings.Contains(content, "<active_subagents>") || !strings.Contains(content, first.ID) || !strings.Contains(content, "<definition_name>researcher</definition_name>") || strings.Contains(content, second.ID) {
 		t.Fatalf("session-scoped reminder = %q", content)
 	}
 	if strings.Contains(content, "<subagent answer>") || strings.Contains(content, "<label>") {
 		t.Fatalf("reminder leaked subagent content or label: %q", content)
 	}
-	for _, hidden := range []string{"<unread_messages>", "<queued_messages>", "<last_turn_", "<completion_result>"} {
+	for _, hidden := range []string{"<display_name>", "<unread_messages>", "<queued_messages>", "<last_turn_", "<completion_result>", "<result_delivery>"} {
 		if strings.Contains(content, hidden) {
 			t.Fatalf("reminder exposes obsolete lifecycle field %q: %q", hidden, content)
 		}
@@ -94,8 +94,8 @@ func TestSubagentReminderIsStableWithinOneMainAgentTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(next) != 1 || !strings.Contains(next[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(next[0].Content, "<last_turn_") {
-		t.Fatalf("next-turn reminder does not expose pending result safely: %#v", next)
+	if len(next) != 1 || !strings.Contains(next[0].Content, "<lifecycle_status>idle</lifecycle_status>") || strings.Contains(next[0].Content, "<last_turn_") || strings.Contains(next[0].Content, "<result_delivery>") {
+		t.Fatalf("next-turn reminder does not expose resumable task state safely: %#v", next)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestAutoClosedSubagentReminderAppearsOnceOnReservedHumanTurn(t *testing.T) 
 	}
 }
 
-func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
+func TestSubagentReminderShowsOnlyResumableTaskState(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
@@ -158,8 +158,8 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") || !strings.Contains(reminders[0].Content, "A listed subagent may have a pending result") || !strings.Contains(reminders[0].Content, "independent main-agent work") || !strings.Contains(reminders[0].Content, "stop without assistant content or another tool call") || !strings.Contains(reminders[0].Content, "Never poll or inspect it to simulate waiting") {
-		t.Fatalf("completion reminder = %#v", reminders)
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, record.ID) || !strings.Contains(reminders[0].Content, "<lifecycle_status>idle</lifecycle_status>") || strings.Contains(reminders[0].Content, "<last_turn_") || strings.Contains(reminders[0].Content, "<result_delivery>") || !strings.Contains(reminders[0].Content, "Do not inspect, poll, or call a tool merely to wait") {
+		t.Fatalf("task reminder = %#v", reminders)
 	}
 	if _, err := manager.Read(context.Background(), "mainAgent", record.ID, ""); err != nil {
 		t.Fatal(err)
@@ -168,12 +168,12 @@ func TestSubagentReminderMarksUnreportedUnreadWorkAsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || strings.Contains(reminders[0].Content, "<result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
-		t.Fatalf("observed completion reminder = %#v", reminders)
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, record.ID) || strings.Contains(reminders[0].Content, "<result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
+		t.Fatalf("observed task reminder = %#v", reminders)
 	}
 }
 
-func TestSubagentReminderMarksFailedUnreadWorkAsFailed(t *testing.T) {
+func TestSubagentReminderShowsFailedTaskAsIdleWithoutPayload(t *testing.T) {
 	manager := newTestSubagentManager(t, subagentFailModel{err: context.DeadlineExceeded}, 1)
 	defer manager.Close()
 	record, err := manager.Start(context.Background(), "mainAgent", "mainAgent-turn", "researcher", "work", "")
@@ -185,8 +185,8 @@ func TestSubagentReminderMarksFailedUnreadWorkAsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<result_delivery>pending</result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
-		t.Fatalf("failed completion reminder = %#v", reminders)
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, record.ID) || !strings.Contains(reminders[0].Content, "<lifecycle_status>idle</lifecycle_status>") || strings.Contains(reminders[0].Content, "<result_delivery>") || strings.Contains(reminders[0].Content, "<last_turn_") {
+		t.Fatalf("failed task reminder = %#v", reminders)
 	}
 }
 

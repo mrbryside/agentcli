@@ -111,3 +111,27 @@ func TestSubagentResultRuntimeMessageIncludesResultProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskResultFromFinalOutputUsesContractAndRuntimeState(t *testing.T) {
+	definition := SubagentDefinition{
+		Name: "operator",
+		Result: &AgentResultContract{
+			MessageField: "message",
+			Metadata: map[string]AgentResultMetadataField{
+				"requires_reply": {Type: "boolean", Required: true},
+			},
+		},
+	}
+	completed := taskResultFromFinalOutput("task-1", definition, `{"message":"Done","requires_reply":false}`, false)
+	if completed.TaskID != "task-1" || completed.AgentName != "operator" || completed.State != TaskStateCompleted || completed.Output != "Done" || completed.Error != "" {
+		t.Fatalf("completed task result = %#v", completed)
+	}
+	incomplete := taskResultFromFinalOutput("task-1", definition, `{"message":"Need more","requires_reply":true}`, true)
+	if incomplete.State != TaskStateIncomplete || incomplete.Output != "Need more" {
+		t.Fatalf("incomplete task result = %#v", incomplete)
+	}
+	invalid := taskResultFromFinalOutput("task-1", definition, `{"requires_reply":true}`, false)
+	if invalid.State != TaskStateError || !strings.Contains(invalid.Error, "message") {
+		t.Fatalf("invalid task result = %#v", invalid)
+	}
+}

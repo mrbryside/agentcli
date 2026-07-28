@@ -108,7 +108,259 @@ func (m *subagentManager) Start(ctx context.Context, mainAgentSessionID, mainAge
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	return m.startLocked(ctx, mainAgentSessionID, mainAgentTurnID, message, label, definition, existing)
+	return m.startLocked(ctx, mainAgentSessionID, mainAgentTurnID, message, label, definition, existing, true)
+}
+
+// TaskRequest is the manager-owned form of one model-facing task request.
+// It deliberately carries the calling main-agent turn identity because task
+// ownership is scoped to the main-agent session, while a task ID remains
+// resumable across later turns in that same session.
+type TaskRequest struct {
+	MainAgentSessionID string
+	MainAgentTurnID    string
+	TaskID             string
+	AgentName          string
+	Description        string
+	Prompt             string
+	Background         bool
+}
+
+// ExecuteTask starts a new subagent task or resumes an idle task owned by the
+// same main-agent session. Foreground execution is intentionally synchronous:
+// it returns the child's final response to the invoking tool call and creates
+// no response-scope result obligation. Background delivery is added separately
+// once the task tool is the only model-facing protocol.
+func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) (TaskResult, error) {
+	ctx = nonNilContext(ctx)
+	request.MainAgentSessionID = strings.TrimSpace(request.MainAgentSessionID)
+	request.MainAgentTurnID = strings.TrimSpace(request.MainAgentTurnID)
+	request.TaskID = strings.TrimSpace(request.TaskID)
+	request.AgentName = strings.TrimSpace(request.AgentName)
+	request.Description = strings.TrimSpace(request.Description)
+	request.Prompt = normalizeSubagentMessage(request.Prompt)
+	if request.MainAgentSessionID == "" || request.MainAgentTurnID == "" {
+		return TaskResult{}, errors.New("main agent session and turn IDs are required")
+	}
+	if request.Prompt == "" {
+		return TaskResult{}, errors.New("task prompt is required")
+	}
+	if request.Background {
+		return TaskResult{}, errors.New("background tasks are not enabled")
+	}
+
+	var (
+		record     storage.Subagent
+		definition SubagentDefinition
+		run        *agentruntime.Run
+		err        error
+	)
+	if request.TaskID == "" {
+		if request.AgentName == "" {
+			return TaskResult{}, errors.New("task agent is required for a new task")
+		}
+		if request.Description == "" {
+			return TaskResult{}, errors.New("task description is required for a new task")
+		}
+		record, definition, run, err = m.startForegroundTask(ctx, request)
+	} else {
+		if request.AgentName != "" {
+			return TaskResult{}, errors.New("task agent cannot be supplied when resuming a task")
+		}
+		if request.Description != "" {
+			return TaskResult{}, errors.New("task description cannot be supplied when resuming a task")
+		}
+		record, definition, run, err = m.resumeForegroundTask(ctx, request)
+	}
+	if err != nil {
+		return TaskResult{}, err
+	}
+	return m.waitForTask(ctx, record, definition, run)
+}
+
+func (m *subagentManager) startForegroundTask(ctx context.Context, request TaskRequest) (storage.Subagent, SubagentDefinition, *agentruntime.Run, error) {
+	if err := m.ensureOpen(); err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	definition, found := m.project.subagents[request.AgentName]
+	if !found {
+		return storage.Subagent{}, SubagentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", request.AgentName)
+	}
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+	existing, err := m.store.ListByMainAgent(ctx, request.MainAgentSessionID)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	record, err := m.startLocked(ctx, request.MainAgentSessionID, request.MainAgentTurnID, request.Prompt, request.Description, definition, existing, false)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	instance, err := m.instance(record.ID)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	instance.mu.Lock()
+	run := taskRunForRecord(instance, record)
+	instance.mu.Unlock()
+	if run == nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, errors.New("started task has no active run")
+	}
+	return record, definition, run, nil
+}
+
+func (m *subagentManager) resumeForegroundTask(ctx context.Context, request TaskRequest) (storage.Subagent, SubagentDefinition, *agentruntime.Run, error) {
+	record, err := m.getOwned(ctx, request.MainAgentSessionID, request.TaskID)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentClosed
+	}
+	if record.Status == storage.SubagentStatusRunning {
+		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentRunning
+	}
+	definition, found := m.project.subagents[record.DefinitionName]
+	if !found {
+		return storage.Subagent{}, SubagentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", record.DefinitionName)
+	}
+	instance, err := m.instance(record.ID)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+	record, err = m.getOwned(ctx, request.MainAgentSessionID, request.TaskID)
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	if record.Status == storage.SubagentStatusClosed {
+		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentClosed
+	}
+	if record.Status == storage.SubagentStatusRunning {
+		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentRunning
+	}
+	turnID, err := newSubagentID("turn_")
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	running, err := m.transition(ctx, record.ID, storage.SubagentStatusRunning, turnID, "", "", "", "", "")
+	if err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	if err := m.startTurnLocked(instance, running, turnID, request.Prompt); err != nil {
+		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
+	run := instance.runs[turnID]
+	if run == nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, errors.New("resumed task has no active run")
+	}
+	m.signalChanged()
+	return running, definition, run, nil
+}
+
+// taskRunForRecord reads the retained run for the task's current (or just
+// completed) turn. monitor clears instance.run once it has folded terminal
+// lifecycle state, but intentionally retains instance.runs for transcript and
+// SSE history, so the latter is the stable foreground handoff identity.
+// The caller holds instance.mu.
+func taskRunForRecord(instance *managedSubagent, record storage.Subagent) *agentruntime.Run {
+	turnID := record.CurrentSubagentTurnID
+	if turnID == "" {
+		turnID = record.LastSubagentTurnID
+	}
+	if turnID == "" {
+		return nil
+	}
+	return instance.runs[turnID]
+}
+
+func (m *subagentManager) waitForTask(ctx context.Context, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
+	result := TaskResult{TaskID: record.ID, AgentName: definition.Name}
+	subscription := run.Subscribe(context.Background())
+	events := subscription.Events
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for !run.Done() {
+		select {
+		case _, open := <-events:
+			// Subscriptions close after the terminal event is published, while
+			// Run.Done additionally waits for all durable side effects. Keep
+			// waiting for that stronger fence instead of treating the small gap
+			// as a missing task result.
+			if !open {
+				events = nil
+			}
+		case <-ticker.C:
+		case <-ctx.Done():
+			_ = run.Interrupt(context.Background(), "task request cancelled")
+			result.State = TaskStateError
+			result.Error = ctx.Err().Error()
+			return result, nil
+		}
+	}
+	runResult, err := run.Result()
+	if err != nil {
+		result.State = TaskStateError
+		result.Error = err.Error()
+		return result, nil
+	}
+	if err := m.waitForTaskLifecycle(ctx, record); err != nil {
+		result.State = TaskStateError
+		result.Error = err.Error()
+		return result, nil
+	}
+	output, err := m.lastTaskAssistantOutput(record.SubagentSessionID, run.TurnID(), runResult.Content)
+	if err != nil {
+		result.State = TaskStateError
+		result.Error = err.Error()
+		return result, nil
+	}
+	return taskResultFromFinalOutput(record.ID, definition, output, run.StepLimitFinalized()), nil
+}
+
+// waitForTaskLifecycle fences the manager's monitor after a child Run reports
+// completion. Run.Result guarantees provider and transcript effects, while the
+// monitor owns the durable running-to-idle transition used by a later resume.
+func (m *subagentManager) waitForTaskLifecycle(ctx context.Context, record storage.Subagent) error {
+	for {
+		latest, err := m.getOwned(ctx, record.MainAgentSessionID, record.ID)
+		if err != nil {
+			return err
+		}
+		if latest.Status != storage.SubagentStatusRunning {
+			return nil
+		}
+		m.mu.RLock()
+		notify := m.changed
+		closed := m.closed
+		m.mu.RUnlock()
+		if closed {
+			return ErrClosed
+		}
+		select {
+		case <-notify:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (m *subagentManager) lastTaskAssistantOutput(sessionID, turnID, fallback string) (string, error) {
+	messages, err := m.mainAgent.ListMessages(context.Background(), sessionID)
+	if err != nil {
+		return "", fmt.Errorf("read task final assistant response: %w", err)
+	}
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.TurnID == turnID && message.Type == agentruntime.MessageTypeAssistant && strings.TrimSpace(message.Content) != "" {
+			return message.Content, nil
+		}
+	}
+	if strings.TrimSpace(fallback) == "" {
+		return "", errors.New("task returned no final assistant response")
+	}
+	return fallback, nil
 }
 
 func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {
@@ -136,7 +388,7 @@ func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, 
 	return ctx, definition, message, nil
 }
 
-func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent) (storage.Subagent, error) {
+func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent, registerScopeAssignment bool) (storage.Subagent, error) {
 	// The durable store, rather than the in-memory handle map, is the source
 	// of truth for the per-main agent quota.
 	open := 0
@@ -175,17 +427,20 @@ func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, m
 	if err != nil {
 		return storage.Subagent{}, err
 	}
-	rollbackAssignment := m.mainAgent.responseScopes.RegisterAssignmentMetadata(
-		mainAgentSessionID,
-		mainAgentTurnID,
-		toolexecution.ResponseScopePendingResult{
-			SubagentID:     id,
-			DefinitionName: definition.Name,
-			DisplayName:    displayName,
-			AssignmentID:   turnID,
-			SubagentTurnID: turnID,
-		},
-	)
+	rollbackAssignment := func() {}
+	if registerScopeAssignment {
+		rollbackAssignment = m.mainAgent.responseScopes.RegisterAssignmentMetadata(
+			mainAgentSessionID,
+			mainAgentTurnID,
+			toolexecution.ResponseScopePendingResult{
+				SubagentID:     id,
+				DefinitionName: definition.Name,
+				DisplayName:    displayName,
+				AssignmentID:   turnID,
+				SubagentTurnID: turnID,
+			},
+		)
+	}
 	assignmentStarted := false
 	defer func() {
 		if !assignmentStarted {
@@ -224,7 +479,11 @@ func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, m
 	}
 	assignmentStarted = true
 	m.signalChanged()
-	return m.getOwned(ctx, mainAgentSessionID, id)
+	// Once a child turn has started, return its durable identity even if the
+	// caller's waiting context was cancelled at the same instant. The caller can
+	// then interrupt the task and receive a TaskStateError instead of losing the
+	// task ID behind a context error.
+	return m.getOwned(context.Background(), mainAgentSessionID, id)
 }
 
 func (m *subagentManager) createSubagent(definition SubagentDefinition) (*Agent, error) {
