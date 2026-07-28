@@ -134,7 +134,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	mainAgentHasSubagents := configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent
 	if mainAgentHasSubagents {
 		for _, tool := range configuration.tools {
-			if toolexecution.IsSubagentToolName(tool.Definition.Name) || tool.Definition.Name == toolexecution.SubagentResultToolName {
+			if toolexecution.IsSubagentToolName(tool.Definition.Name) {
 				return nil, fmt.Errorf("custom tool %q conflicts with reserved subagent tool", tool.Definition.Name)
 			}
 		}
@@ -160,9 +160,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			configuration.messages,
 			configuration.skillReload,
 		).Tool())
-	}
-	if configuration.subagentAgent {
-		registeredTools = append(registeredTools, toolexecution.NewSubagentReportTool())
 	}
 	for _, tool := range registeredTools {
 		if err := registry.Register(tool); err != nil {
@@ -249,10 +246,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		newTurnContextReminderProvider(),
 		configuration.contextReminderProvider,
 	)
-	var completionGuard agentruntime.CompletionGuard
-	if configuration.subagentAgent {
-		completionGuard = subagentReportCompletionGuard
-	}
 	requiredAtTurnEnd := make([]string, 0)
 	requiredAtResponseScopeEnd := make([]string, 0)
 	for _, tool := range registeredTools {
@@ -266,13 +259,11 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	stepLimitFinalizationTools := append([]string(nil), requiredAtTurnEnd...)
 	stepLimitFinalizationTools = append(stepLimitFinalizationTools, requiredAtResponseScopeEnd...)
 	if configuration.subagentAgent {
-		// report_subagent_result is required for every subagent but deliberately
-		// has no trigger because the subagent still owes the main agent a concise
-		// final assistant answer after the report succeeds.
-		stepLimitFinalizationTools = append(stepLimitFinalizationTools, toolexecution.SubagentResultToolName)
+		// A subagent reaches its step limit with a text-only final response.
+		stepLimitFinalizationTools = nil
 	}
-	completionGuard = completionGuardWithRequiredTools(
-		completionGuard,
+	completionGuard := completionGuardWithRequiredTools(
+		nil,
 		requiredAtTurnEnd,
 		requiredAtResponseScopeEnd,
 		agent.responseScopes.ReadyToEnd,

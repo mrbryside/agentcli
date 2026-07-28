@@ -401,8 +401,8 @@ func TestSubagentManagerIdleSendWaitsForLatestResultObservation(t *testing.T) {
 		t.Fatal("timed out waiting for subagent result")
 	}
 	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	if result.Status != SubagentResultIncomplete {
-		t.Fatalf("result status = %q, want incomplete", result.Status)
+	if result.Status != SubagentResultCompleted {
+		t.Fatalf("result status = %q, want completed", result.Status)
 	}
 	if _, err := manager.Send(context.Background(), "mainAgent", record.ID, "follow up"); !errors.Is(err, storage.ErrSubagentResultPending) {
 		t.Fatalf("direct send before result observation error = %v", err)
@@ -426,8 +426,8 @@ func TestSubagentManagerIdleSendWaitsForLatestResultObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sent.Action != toolexecution.SubagentSendStarted || !sent.Accepted || sent.Subagent.Status != storage.SubagentStatusRunning {
-		t.Fatalf("send after result observation = %#v", sent)
+	if sent.Action != toolexecution.SubagentSendCompleted || sent.Accepted || sent.Subagent.Status != storage.SubagentStatusIdle {
+		t.Fatalf("completed result cannot resume = %#v", sent)
 	}
 }
 
@@ -694,7 +694,7 @@ func TestSubagentManagerPublishesCompactSuccessAndFailureResults(t *testing.T) {
 		model.releases <- struct{}{}
 		select {
 		case result := <-results:
-			if result.SubagentID != record.ID || result.DisplayName != record.DisplayName || result.Status != SubagentResultIncomplete || result.Error != "" || result.FinalAnswer == nil || result.FinalAnswer.Content != "done" || result.LastMessageID == "" {
+			if result.SubagentID != record.ID || result.DisplayName != record.DisplayName || result.Status != SubagentResultCompleted || result.Error != "" || result.FinalAnswer == nil || result.FinalAnswer.Content != "done" || result.LastMessageID == "" {
 				t.Fatalf("result = %#v", result)
 			}
 			message := result.RuntimeMessage()
@@ -799,7 +799,7 @@ func TestSubagentManagerReadOwnershipWaitAndClose(t *testing.T) {
 	}
 }
 
-func TestResponseScopeAutoClosesCompletedAndFailedButRetainsIncomplete(t *testing.T) {
+func TestResponseScopeAutoClosesCompletedAndFailedSubagents(t *testing.T) {
 	tests := []struct {
 		name        string
 		model       agentruntime.Model
@@ -809,7 +809,6 @@ func TestResponseScopeAutoClosesCompletedAndFailedButRetainsIncomplete(t *testin
 		wantOutcome storage.SubagentResultStatus
 	}{
 		{name: "completed", model: &subagentGateModel{releases: make(chan struct{})}, complete: true, wantStatus: storage.SubagentStatusClosed, wantOutcome: storage.SubagentResultCompleted},
-		{name: "incomplete", model: &subagentGateModel{releases: make(chan struct{})}, wantStatus: storage.SubagentStatusIdle, wantOutcome: storage.SubagentResultIncomplete},
 		{name: "failed", model: subagentFailModel{err: errors.New("provider failed")}, wantStatus: storage.SubagentStatusClosed, wantOutcome: storage.SubagentResultFailed},
 	}
 	for index := range tests {
@@ -1168,33 +1167,7 @@ func (m *subagentGateModel) Start(_ context.Context, request agentruntime.ModelR
 	m.mu.Lock()
 	m.requests = append(m.requests, request)
 	m.mu.Unlock()
-	if hasSubagentReportRepairReminder(request) {
-		return scriptedStream{result: provider.StreamResult{
-			CompletedTools: []provider.ToolCall{{
-				ID:   "outcome-repair",
-				Name: toolexecution.SubagentResultToolName,
-				Arguments: map[string]any{
-					"status":    string(toolexecution.SubagentReportIncomplete),
-					"summary":   "Test subagent needs follow-up.",
-					"next_step": "Continue the test.",
-				},
-			}},
-			Finished: true,
-		}}, nil
-	}
-	if _, found := reportedSubagentReport(request.TurnID, request.Messages); found {
-		return scriptedStream{result: provider.StreamResult{Content: "done", Finished: true}}, nil
-	}
 	return subagentGateStream{release: m.releases}, nil
-}
-
-func hasSubagentReportRepairReminder(request agentruntime.ModelRequest) bool {
-	for _, reminder := range request.ContextReminders {
-		if strings.Contains(reminder.Content, "tried to finish without a successful report_subagent_result") {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *subagentGateModel) Requests() []agentruntime.ModelRequest {

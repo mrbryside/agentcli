@@ -9,11 +9,10 @@ import (
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/provider"
-	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *testing.T) {
-	model := &lateStepLimitOutcomeModel{}
+func TestSubagentStepLimitFinalizerReturnsPartialTextWithoutTools(t *testing.T) {
+	model := &lateStepLimitFinalTextModel{}
 	subagent, err := New(
 		context.Background(),
 		withSubagentAgent(),
@@ -35,39 +34,26 @@ func TestSubagentStepLimitFinalizerRepairsOutcomeAndLeavesFinalTextRound(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !run.StepLimitFinalized() || run.CompletionRepairCount() != defaultCompletionRepairLimit {
-		t.Fatalf(
-			"finalized/repairs = %v/%d, want true/%d",
-			run.StepLimitFinalized(),
-			run.CompletionRepairCount(),
-			defaultCompletionRepairLimit,
-		)
+	if !run.StepLimitFinalized() || run.CompletionRepairCount() != 0 {
+		t.Fatalf("finalized/repairs = %v/%d, want true/0", run.StepLimitFinalized(), run.CompletionRepairCount())
 	}
-	if result.Content != "final subagent answer" || result.Steps != 6 {
-		t.Fatalf("result = %#v, want final subagent answer after six provider steps", result)
+	if result.Content != "partial final answer" || result.Steps != 2 {
+		t.Fatalf("result = %#v, want partial final answer after two provider steps", result)
+	}
+	task := taskResultFromFinalOutput("task-1", SubagentDefinition{Name: "researcher"}, result.Content, run.StepLimitFinalized())
+	if task.State != TaskStateIncomplete || task.Output != "partial final answer" {
+		t.Fatalf("task result = %#v, want incomplete partial output", task)
 	}
 
 	requests := model.Requests()
-	if len(requests) != 6 {
-		t.Fatalf("provider requests = %d, want agentic, finalizer, three repairs, and final text", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want agentic and text-only finalizer", len(requests))
 	}
-	for index := 1; index < len(requests); index++ {
-		if len(requests[index].Tools) != 1 ||
-			requests[index].Tools[0].Name != toolexecution.SubagentResultToolName {
-			t.Fatalf(
-				"finalization request %d tools = %#v, want only report_subagent_result",
-				index,
-				requests[index].Tools,
-			)
-		}
+	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != "work" {
+		t.Fatalf("agentic request tools = %#v, want work only", requests[0].Tools)
 	}
-	if hasSubagentReportRepairReminder(requests[1]) {
-		t.Fatal("initial finalizer must not be counted as an outcome repair")
-	}
-	for index := 2; index <= 4; index++ {
-		if !hasSubagentReportRepairReminder(requests[index]) {
-			t.Fatalf("request %d lacks the outcome repair reminder", index)
-		}
+	if len(requests[1].Tools) != 0 {
+		t.Fatalf("finalization request tools = %#v, want none", requests[1].Tools)
 	}
 }
 
@@ -130,12 +116,12 @@ func endResponseScopeTestTool(name string) Tool {
 	}
 }
 
-type lateStepLimitOutcomeModel struct {
+type lateStepLimitFinalTextModel struct {
 	mu       sync.Mutex
 	requests []agentruntime.ModelRequest
 }
 
-func (m *lateStepLimitOutcomeModel) Start(
+func (m *lateStepLimitFinalTextModel) Start(
 	_ context.Context,
 	request agentruntime.ModelRequest,
 ) (agentruntime.ModelStream, error) {
@@ -152,30 +138,16 @@ func (m *lateStepLimitOutcomeModel) Start(
 			}},
 			Finished: true,
 		}}, nil
-	case 4:
+	case 1:
 		return scriptedStream{result: provider.StreamResult{
-			CompletedTools: []provider.ToolCall{{
-				ID:   "outcome",
-				Name: toolexecution.SubagentResultToolName,
-				Arguments: map[string]any{
-					"status":  string(toolexecution.SubagentReportCompleted),
-					"summary": "completed from existing results",
-				},
-			}},
-			Finished: true,
-		}}, nil
-	case 5:
-		return scriptedStream{result: provider.StreamResult{
-			Content: "final subagent answer", Finished: true,
+			Content: "partial final answer", Finished: true,
 		}}, nil
 	default:
-		return scriptedStream{result: provider.StreamResult{
-			Content: "forgot the outcome report", Finished: true,
-		}}, nil
+		return scriptedStream{result: provider.StreamResult{Content: "unexpected", Finished: true}}, nil
 	}
 }
 
-func (m *lateStepLimitOutcomeModel) Requests() []agentruntime.ModelRequest {
+func (m *lateStepLimitFinalTextModel) Requests() []agentruntime.ModelRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]agentruntime.ModelRequest(nil), m.requests...)

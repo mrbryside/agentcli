@@ -1447,31 +1447,27 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	if messagesErr != nil && lastTurnError == "" {
 		lastTurnError = "read completed subagent output: " + messagesErr.Error()
 	}
-	lastResultStatus := storage.SubagentResultIncomplete
-	lastSummary := "Subagent turn ended without a successful result report."
-	lastNextStep := "Review the final answer and send one focused follow-up if required."
+	lastResultStatus := storage.SubagentResultCompleted
+	lastSummary := ""
+	lastNextStep := ""
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.TurnID == run.TurnID() && message.Type == agentruntime.MessageTypeAssistant && strings.TrimSpace(message.Content) != "" {
+			lastSummary = message.Content
+			break
+		}
+	}
 	if run.StepLimitFinalized() {
-		lastSummary = "Subagent reached its provider-step limit and returned a text-only final summary."
+		lastResultStatus = storage.SubagentResultIncomplete
+		if lastSummary == "" {
+			lastSummary = "Subagent reached its provider-step limit without final text."
+		}
 		lastNextStep = "Review the summary and send one focused follow-up for any remaining work."
-	} else if run.CompletionRepairCount() > 0 {
-		lastSummary = "Subagent turn ended without a successful result report after bounded repair attempts."
 	}
 	if lastTurnError != "" {
 		lastResultStatus = storage.SubagentResultFailed
 		lastSummary = ""
 		lastNextStep = ""
-	} else if reported, ok := reportedSubagentReport(run.TurnID(), messages); ok {
-		lastSummary = reported.Summary
-		lastNextStep = reported.NextStep
-		switch reported.Status {
-		case toolexecution.SubagentReportCompleted:
-			lastResultStatus = storage.SubagentResultCompleted
-			lastNextStep = ""
-		case toolexecution.SubagentReportFailed:
-			lastResultStatus = storage.SubagentResultFailed
-			lastTurnError = reported.Error
-			lastNextStep = ""
-		}
 	}
 	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError, lastResultStatus, lastSummary, lastNextStep)
 	if err != nil {

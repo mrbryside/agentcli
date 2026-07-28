@@ -19,9 +19,9 @@ const (
 	SubagentResultFailed     SubagentResultStatus = "failed"
 )
 
-// SubagentResult is the compact, live-only report signal emitted for a
-// subagent turn. The subagent transcript remains available through ListMessages;
-// this value carries the semantic report, final assistant answer, and error.
+// SubagentResult is the compact, live-only signal emitted for a subagent turn.
+// The subagent transcript remains available through ListMessages; this value
+// carries the final assistant answer and any runtime error.
 type SubagentResult struct {
 	MainAgentSessionID string
 	MainAgentTurnID    string
@@ -228,20 +228,6 @@ func subagentResultFromMessages(record storage.Subagent, messages []agentruntime
 		Error:              record.LastResultError,
 		MessageCount:       uint64(len(messages)),
 	}
-	if status != SubagentResultFailed && record.LastResultStatus == "" {
-		if report, found := reportedSubagentReport(record.LastSubagentTurnID, messages); found {
-			result.Summary = report.Summary
-			result.NextStep = report.NextStep
-			switch report.Status {
-			case toolexecution.SubagentReportCompleted:
-				result.Status = SubagentResultCompleted
-			case toolexecution.SubagentReportFailed:
-				result.Status = SubagentResultFailed
-				result.Error = report.Error
-				result.NextStep = ""
-			}
-		}
-	}
 	if len(messages) != 0 {
 		result.LastMessageID = messages[len(messages)-1].ID
 	}
@@ -254,27 +240,6 @@ func subagentResultFromMessages(record storage.Subagent, messages []agentruntime
 		}
 	}
 	return result
-}
-
-func reportedSubagentReport(turnID string, messages []agentruntime.Message) (toolexecution.SubagentReport, bool) {
-	var reported toolexecution.SubagentReport
-	found := false
-	for _, message := range messages {
-		if message.TurnID != turnID || message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil {
-			continue
-		}
-		result := message.ToolResult
-		if result.Name != toolexecution.SubagentResultToolName || result.Status != agentruntime.ToolResultSucceeded {
-			continue
-		}
-		report, err := toolexecution.ParseSubagentReport(result.Output)
-		if err != nil {
-			continue
-		}
-		reported = report
-		found = true
-	}
-	return reported, found
 }
 
 // observeSubagentResult advances the fallback read/reminder cursor only after a

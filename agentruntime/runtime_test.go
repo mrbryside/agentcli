@@ -668,6 +668,9 @@ func TestRuntimeStepLimitFinalizerCannotDispatchTools(t *testing.T) {
 	if err != nil || result.Content != stepLimitFinalizationFallback || len(result.ToolResults) != 1 {
 		t.Fatalf("Result() = (%#v, %v), want deterministic text fallback and one tool result", result, err)
 	}
+	if requests := model.Requests(); len(requests) != 2 || len(requests[1].Tools) != 0 {
+		t.Fatalf("provider requests = %#v, want one text-only finalization request", requests)
+	}
 	for _, event := range run.Events() {
 		if event.Type == ProviderEventReceived && event.ProviderEvent.Tool != nil {
 			t.Fatalf("finalizer exposed tool event %#v", event.ProviderEvent)

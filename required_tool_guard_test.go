@@ -67,6 +67,33 @@ func TestRequiredRawToolRepairsOneMissingTriggerToolCall(t *testing.T) {
 	}
 }
 
+func TestSubagentNeverRegistersCompletionReportTool(t *testing.T) {
+	model := &scriptedModel{}
+	subagent, err := New(
+		context.Background(),
+		withSubagentAgent(),
+		WithModel(model),
+		WithTool(testTool("work")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subagent.Close()
+
+	run, err := subagent.Start(context.Background(), userRequest("final text only"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	requests := model.Requests()
+	if len(requests) != 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != "work" {
+		t.Fatalf("subagent tools = %#v, want work only", requests)
+	}
+}
+
 func TestEndResponseScopeAutomaticallyRequiresAndExecutesTriggerAtBoundary(t *testing.T) {
 	model := &requiredTriggerToolModel{}
 	delivered := make(chan struct{}, 1)

@@ -1,7 +1,6 @@
 package agentcli
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/mrbryside/agentcli/toolexecution"
 )
 
-func TestSubagentResultRequiresExplicitCompletedOutcome(t *testing.T) {
+func TestSubagentResultUsesStoredRuntimeStateAndFinalText(t *testing.T) {
 	record := storage.Subagent{
 		ID: "subagent", DisplayName: "Fern", DefinitionName: "operator",
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "mainAgent-turn",
@@ -18,59 +17,20 @@ func TestSubagentResultRequiresExplicitCompletedOutcome(t *testing.T) {
 	}
 	answer := agentruntime.Message{ID: "answer", TurnID: "subagent-turn", Type: agentruntime.MessageTypeAssistant, Content: "Final answer"}
 
-	t.Run("missing report defaults incomplete", func(t *testing.T) {
+	t.Run("completed turn retains final answer", func(t *testing.T) {
+		record.LastResultStatus = storage.SubagentResultCompleted
 		result := subagentResultFromMessages(record, []agentruntime.Message{answer})
-		if result.Status != SubagentResultIncomplete || result.FinalAnswer == nil {
+		if result.Status != SubagentResultCompleted || result.FinalAnswer == nil || result.FinalAnswer.Content != "Final answer" {
 			t.Fatalf("result = %#v", result)
 		}
 	})
 
-	t.Run("completed report is authoritative", func(t *testing.T) {
-		output, err := json.Marshal(toolexecution.SubagentReport{Status: toolexecution.SubagentReportCompleted, Summary: "Transfer is fully resolved."})
-		if err != nil {
-			t.Fatal(err)
-		}
-		report := agentruntime.Message{
-			ID: "result", TurnID: "subagent-turn", Type: agentruntime.MessageTypeToolResult,
-			ToolResult: &agentruntime.ToolResult{CallID: "report", Name: toolexecution.SubagentResultToolName, Status: agentruntime.ToolResultSucceeded, Output: output},
-		}
-		result := subagentResultFromMessages(record, []agentruntime.Message{report, answer})
-		if result.Status != SubagentResultCompleted || result.Summary != "Transfer is fully resolved." || result.NextStep != "" {
-			t.Fatalf("result = %#v", result)
-		}
-	})
-
-	t.Run("incomplete report carries next step", func(t *testing.T) {
-		output, err := json.Marshal(toolexecution.SubagentReport{Status: toolexecution.SubagentReportIncomplete, Summary: "Recipient is ambiguous.", NextStep: "Ask which account to use."})
-		if err != nil {
-			t.Fatal(err)
-		}
-		report := agentruntime.Message{
-			ID: "result", TurnID: "subagent-turn", Type: agentruntime.MessageTypeToolResult,
-			ToolResult: &agentruntime.ToolResult{CallID: "report", Name: toolexecution.SubagentResultToolName, Status: agentruntime.ToolResultSucceeded, Output: output},
-		}
-		result := subagentResultFromMessages(record, []agentruntime.Message{report, answer})
-		if result.Status != SubagentResultIncomplete || result.Summary != "Recipient is ambiguous." || result.NextStep != "Ask which account to use." {
-			t.Fatalf("result = %#v", result)
-		}
-	})
-
-	t.Run("failed report carries actual error without next step", func(t *testing.T) {
-		output, err := json.Marshal(toolexecution.SubagentReport{
-			Status:  toolexecution.SubagentReportFailed,
-			Summary: "The operation cannot continue.",
-			Error:   "Discord API is unavailable.",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		report := agentruntime.Message{
-			ID: "result", TurnID: "subagent-turn", Type: agentruntime.MessageTypeToolResult,
-			ToolResult: &agentruntime.ToolResult{CallID: "report", Name: toolexecution.SubagentResultToolName, Status: agentruntime.ToolResultSucceeded, Output: output},
-		}
-		result := subagentResultFromMessages(record, []agentruntime.Message{report, answer})
-		if result.Status != SubagentResultFailed || result.Summary != "The operation cannot continue." ||
-			result.Error != "Discord API is unavailable." || result.NextStep != "" {
+	t.Run("runtime error is failed", func(t *testing.T) {
+		failed := record
+		failed.LastResultStatus = storage.SubagentResultFailed
+		failed.LastResultError = "Discord API is unavailable."
+		result := subagentResultFromMessages(failed, []agentruntime.Message{answer})
+		if result.Status != SubagentResultFailed || result.Error != "Discord API is unavailable." || result.FinalAnswer == nil {
 			t.Fatalf("result = %#v", result)
 		}
 	})

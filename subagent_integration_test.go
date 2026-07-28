@@ -15,7 +15,6 @@ import (
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/provider"
 	"github.com/mrbryside/agentcli/storage"
-	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *testing.T) {
@@ -146,15 +145,11 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	response = integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("mainAgent", created.ID)+"/turns", `{"message":"HTTP follow-up"}`)
-	if response.StatusCode != http.StatusAccepted {
+	if response.StatusCode != http.StatusConflict {
 		defer response.Body.Close()
-		t.Fatalf("send HTTP subagent status = %d", response.StatusCode)
+		t.Fatalf("completed HTTP subagent send status = %d", response.StatusCode)
 	}
 	response.Body.Close()
-	subagentModel.waitRequests(t, 2)
-	subagentModel.release()
-	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
-	observeTestSubagentResult(t, agent.subagents, markTestSubagentCompleted(t, agent.subagents, created.ID))
 
 	response = integrationJSONRequest(t, http.MethodDelete, httpServer.URL+subagentPath("mainAgent", created.ID), "")
 	if response.StatusCode != http.StatusOK {
@@ -173,7 +168,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	if got := integrationResponseUserContents(history.Messages); len(got) != 2 || got[0] != "from HTTP" || got[1] != "HTTP follow-up" {
+	if got := integrationResponseUserContents(history.Messages); len(got) != 1 || got[0] != "from HTTP" {
 		t.Fatalf("HTTP subagent history = %#v", history)
 	}
 
@@ -222,11 +217,10 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 }
 
 type integrationSubagentModel struct {
-	mu        sync.Mutex
-	requests  []agentruntime.ModelRequest
-	releaseC  chan struct{}
-	content   string
-	repairing bool
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+	releaseC chan struct{}
+	content  string
 }
 
 func newIntegrationSubagentModel(content string) *integrationSubagentModel {
@@ -236,22 +230,7 @@ func newIntegrationSubagentModel(content string) *integrationSubagentModel {
 func (m *integrationSubagentModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	m.mu.Lock()
 	m.requests = append(m.requests, request)
-	if hasSubagentReportRepairReminder(request) {
-		m.repairing = true
-	}
-	repairing := m.repairing
 	m.mu.Unlock()
-	if hasSubagentReportRepairReminder(request) {
-		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
-			ID: "outcome-repair", Name: toolexecution.SubagentResultToolName,
-			Arguments: map[string]any{"status": string(toolexecution.SubagentReportIncomplete), "summary": m.content, "next_step": "Continue with more information."},
-		}}, Finished: true}}, nil
-	}
-	if repairing {
-		if _, found := reportedSubagentReport(request.TurnID, request.Messages); found {
-			return scriptedStream{result: provider.StreamResult{Content: m.content, Finished: true}}, nil
-		}
-	}
 	return integrationSubagentStream{releaseC: m.releaseC, content: m.content}, nil
 }
 

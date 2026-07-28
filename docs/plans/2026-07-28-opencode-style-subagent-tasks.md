@@ -236,28 +236,28 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `required_tool_guard_test.go`
 - Modify: `agentruntime/runtime_test.go`
 
-- [ ] Rewrite `subagent_step_limit_test.go` first: after one allowed agentic
+- [x] Rewrite `subagent_step_limit_test.go` first: after one allowed agentic
   provider round, the next request has zero tools and returns partial final
   text as `TaskStateIncomplete`.
-- [ ] Add a regression in `required_tool_guard_test.go` proving
+- [x] Add a regression in `required_tool_guard_test.go` proving
   `report_subagent_result` is never registered or requested.
-- [ ] Add a runtime regression where the provider attempts a tool call during
+- [x] Add a runtime regression where the provider attempts a tool call during
   finalization; assert it is suppressed and the deterministic text fallback is
   used once.
-- [ ] Run the focused step-limit/guard/runtime tests; expect FAIL.
-- [ ] Remove `NewSubagentReportTool`, `SubagentReport`, its completion guard, and
+- [x] Run the focused step-limit/guard/runtime tests; expect FAIL.
+- [x] Remove `NewSubagentReportTool`, `SubagentReport`, its completion guard, and
   `StepLimitFinalizationTools` injection from subagent assembly in `agent.go`.
-- [ ] Shorten `subagentCompletionPrompt` to require one self-contained final
+- [x] Shorten `subagentCompletionPrompt` to require one self-contained final
   response after domain work; do not mention reporting, status, parent, callback,
   or another final round.
-- [ ] Keep validation rejecting application `EndResponseScope` tools for
+- [x] Keep validation rejecting application `EndResponseScope` tools for
   subagents.
-- [ ] Reuse the existing no-completion-tool runtime path:
+- [x] Reuse the existing no-completion-tool runtime path:
   `tools=[]`, text-only finalization, one deterministic fallback; do not add a
   task-specific repair loop.
-- [ ] Run focused tests; expect PASS.
-- [ ] Run `rtk go test ./agentruntime ./toolexecution .`; expect PASS.
-- [ ] Commit with message
+- [x] Run focused tests; expect PASS.
+- [x] Run `rtk go test ./agentruntime ./toolexecution .`; expect PASS.
+- [x] Commit with message
   `refactor(task): use final text as subagent result`.
 
 ## Task 6: Add background execution, promotion, and exact-once delivery

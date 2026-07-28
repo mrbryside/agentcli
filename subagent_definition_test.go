@@ -364,8 +364,8 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 		skills    []string
 		wantTools int
 	}{
-		{name: "selected skill", skills: []string{"testing-go"}, wantTools: 2},
-		{name: "no skills", wantTools: 1},
+		{name: "selected skill", skills: []string{"testing-go"}, wantTools: 1},
+		{name: "no skills", wantTools: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := &scriptedModel{}
@@ -392,13 +392,10 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			if len(requests[0].SystemPrompts) != 2 {
 				t.Fatalf("provider system prompts = %#v", requests[0].SystemPrompts)
 			}
-			if requests[0].Tools[len(requests[0].Tools)-1].Name != toolexecution.SubagentResultToolName {
-				t.Fatalf("subagent outcome tool = %#v", requests[0].Tools)
-			}
 			if len(test.skills) != 0 && requests[0].Tools[0].Name != SkillLoaderToolName {
 				t.Fatalf("provider tools = %#v", requests[0].Tools)
 			}
-			assertOutcomeRepairRequest(t, requests)
+			assertSubagentTextOnlyRequests(t, requests)
 		})
 	}
 }
@@ -445,7 +442,7 @@ Use the registered search tool.
 	}
 	waitRun(t, run)
 	requests := model.Requests()
-	if len(requests) < 1 || len(requests[0].Tools) != 2 || requests[0].Tools[0].Name != "search" || requests[0].Tools[1].Name != toolexecution.SubagentResultToolName {
+	if len(requests) < 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != "search" {
 		t.Fatalf("subagent provider tools = %#v", requests)
 	}
 	for _, tool := range requests[0].Tools {
@@ -453,20 +450,19 @@ Use the registered search tool.
 			t.Fatalf("subagent received mainAgent-only management tool %q", tool.Name)
 		}
 	}
-	assertOutcomeRepairRequest(t, requests)
+	assertSubagentTextOnlyRequests(t, requests)
 }
 
-func assertOutcomeRepairRequest(t *testing.T, requests []agentruntime.ModelRequest) {
+func assertSubagentTextOnlyRequests(t *testing.T, requests []agentruntime.ModelRequest) {
 	t.Helper()
-	if len(requests) != defaultCompletionRepairLimit+1 {
-		t.Fatalf("provider requests = %d, want initial request and %d repairs: %#v", len(requests), defaultCompletionRepairLimit, requests)
+	if len(requests) != 1 {
+		t.Fatalf("provider requests = %d, want one final-text request: %#v", len(requests), requests)
 	}
-	for index, repair := range requests[1:] {
-		if len(repair.Tools) != 1 || repair.Tools[0].Name != toolexecution.SubagentResultToolName {
-			t.Fatalf("repair %d tools = %#v, want only outcome tool", index+1, repair.Tools)
-		}
-		if !hasSubagentReportRepairReminder(repair) {
-			t.Fatalf("repair %d reminders = %#v", index+1, repair.ContextReminders)
+	for _, request := range requests {
+		for _, tool := range request.Tools {
+			if tool.Name == "report_subagent_result" {
+				t.Fatalf("retired completion tool is registered: %#v", request.Tools)
+			}
 		}
 	}
 }
