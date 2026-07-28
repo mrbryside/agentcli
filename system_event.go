@@ -14,6 +14,9 @@ const (
 	// SystemSubagentClosed reports one successful explicit or automatic subagent
 	// close.
 	SystemSubagentClosed SystemEventType = "subagent_closed"
+	// SystemTaskCompleted reports one terminal task result and any validated
+	// application-only metadata from its final-result contract.
+	SystemTaskCompleted SystemEventType = "task_completed"
 )
 
 // SystemEvent is one main-agent-session system fact. Payload fields are selected
@@ -24,6 +27,18 @@ type SystemEvent struct {
 	MainAgentSessionID string
 	MainAgentTurnID    string
 	SubagentClosed     *SubagentClosedEvent
+	TaskCompleted      *TaskCompletedEvent
+}
+
+// TaskCompletedEvent describes one completed, incomplete, or errored task.
+// Metadata is application-only and is never added to provider context.
+type TaskCompletedEvent struct {
+	TaskID            string
+	SubagentSessionID string
+	SubagentTurnID    string
+	AgentName         string
+	State             TaskState
+	Metadata          map[string]any
 }
 
 // SubagentClosedEvent describes the subagent state removed by one successful
@@ -137,6 +152,26 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 				"interrupted", closed.Interrupted,
 				"automatic", closed.Automatic,
 			)
+		case SystemTaskCompleted:
+			if event.TaskCompleted == nil {
+				m.config.logger.Warn("agent system event missing payload",
+					"event_type", event.Type,
+					"main_agent_session_id", event.MainAgentSessionID,
+					"main_agent_turn_id", event.MainAgentTurnID,
+				)
+				break
+			}
+			completed := event.TaskCompleted
+			m.config.logger.Info("task completed",
+				"event_type", event.Type,
+				"main_agent_session_id", event.MainAgentSessionID,
+				"main_agent_turn_id", event.MainAgentTurnID,
+				"task_id", completed.TaskID,
+				"subagent_session_id", completed.SubagentSessionID,
+				"subagent_turn_id", completed.SubagentTurnID,
+				"agent_name", completed.AgentName,
+				"state", completed.State,
+			)
 		default:
 			m.config.logger.Debug("agent system event",
 				"event_type", event.Type,
@@ -181,6 +216,11 @@ func cloneSystemEvent(event SystemEvent) SystemEvent {
 		subagentClosed := *event.SubagentClosed
 		subagentClosed.Subagent = storage.CloneSubagent(event.SubagentClosed.Subagent)
 		clone.SubagentClosed = &subagentClosed
+	}
+	if event.TaskCompleted != nil {
+		taskCompleted := *event.TaskCompleted
+		taskCompleted.Metadata = cloneTaskMetadata(event.TaskCompleted.Metadata)
+		clone.TaskCompleted = &taskCompleted
 	}
 	return clone
 }

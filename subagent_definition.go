@@ -19,6 +19,7 @@ type AgentDefinition struct {
 	Model        string
 	Skills       []string
 	Tools        []string
+	Result       *AgentResultContract
 	Instructions string
 	Path         string
 }
@@ -73,12 +74,13 @@ func parseSubagentDefinition(path string, contents []byte) (SubagentDefinition, 
 
 func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinition, error) {
 	var metadata struct {
-		Name        string   `yaml:"name"`
-		Description string   `yaml:"description"`
-		Provider    string   `yaml:"provider"`
-		Model       string   `yaml:"model"`
-		Skills      []string `yaml:"skills"`
-		Tools       []string `yaml:"tools"`
+		Name        string               `yaml:"name"`
+		Description string               `yaml:"description"`
+		Provider    string               `yaml:"provider"`
+		Model       string               `yaml:"model"`
+		Skills      []string             `yaml:"skills"`
+		Tools       []string             `yaml:"tools"`
+		Result      *AgentResultContract `yaml:"result"`
 	}
 	instructions, err := parseDefinitionDocument(kind, path, contents, &metadata)
 	if err != nil {
@@ -89,6 +91,10 @@ func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinitio
 	metadata.Provider = strings.TrimSpace(metadata.Provider)
 	metadata.Model = strings.TrimSpace(metadata.Model)
 	metadata.Skills, metadata.Tools, err = normalizeDefinitionCapabilities(kind, path, metadata.Skills, metadata.Tools)
+	if err != nil {
+		return SubagentDefinition{}, err
+	}
+	metadata.Result, err = normalizeAgentResultContract(kind, path, metadata.Result)
 	if err != nil {
 		return SubagentDefinition{}, err
 	}
@@ -106,7 +112,7 @@ func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinitio
 	}
 	return SubagentDefinition{
 		Name: metadata.Name, Description: metadata.Description, Provider: metadata.Provider,
-		Model: metadata.Model, Skills: metadata.Skills, Tools: metadata.Tools, Instructions: instructions, Path: path,
+		Model: metadata.Model, Skills: metadata.Skills, Tools: metadata.Tools, Result: metadata.Result, Instructions: instructions, Path: path,
 	}, nil
 }
 
@@ -184,5 +190,6 @@ func cloneSubagentDefinition(definition SubagentDefinition) SubagentDefinition {
 	clone := definition
 	clone.Skills = append([]string{}, definition.Skills...)
 	clone.Tools = append([]string{}, definition.Tools...)
+	clone.Result = cloneAgentResultContract(definition.Result)
 	return clone
 }

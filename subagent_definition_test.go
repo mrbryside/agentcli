@@ -3,10 +3,12 @@ package agentcli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -143,6 +145,59 @@ Use sources and explain uncertainty.
 	}
 	if strings.Contains(strings.Join(prompts, "\n"), "Always explain failures clearly.") {
 		t.Fatalf("AGENTS.md was included in main system prompts: %#v", prompts)
+	}
+}
+
+func TestParseSubagentDefinitionNormalizesResultContract(t *testing.T) {
+	definition, err := parseSubagentDefinition("researcher.md", []byte(`---
+name: researcher
+description: Research project files.
+provider: openai
+model: gpt-test
+result:
+  message_field: " message "
+  metadata:
+    " requires_requester_reply ":
+      type: " boolean "
+      required: true
+    source:
+      type: string
+---
+Return one final response.
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Result == nil {
+		t.Fatal("result contract = nil")
+	}
+	if definition.Result.MessageField != "message" {
+		t.Fatalf("message field = %q", definition.Result.MessageField)
+	}
+	if got, want := definition.Result.Metadata, map[string]AgentResultMetadataField{
+		"requires_requester_reply": {Type: "boolean", Required: true},
+		"source":                   {Type: "string"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("metadata = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseSubagentDefinitionRejectsInvalidResultContracts(t *testing.T) {
+	base := "---\nname: researcher\ndescription: Research project files.\nprovider: openai\nmodel: gpt-test\n%s---\nReturn one final response.\n"
+	for _, test := range []struct {
+		name   string
+		result string
+	}{
+		{name: "empty message field", result: "result:\n  message_field: '   '\n"},
+		{name: "metadata conflicts with message", result: "result:\n  message_field: message\n  metadata:\n    message:\n      type: string\n"},
+		{name: "unsupported metadata type", result: "result:\n  message_field: message\n  metadata:\n    count:\n      type: number\n"},
+		{name: "empty metadata field", result: "result:\n  message_field: message\n  metadata:\n    '   ':\n      type: boolean\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := parseSubagentDefinition("researcher.md", []byte(fmt.Sprintf(base, test.result))); err == nil {
+				t.Fatal("invalid result contract unexpectedly loaded")
+			}
+		})
 	}
 }
 

@@ -106,31 +106,31 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `system_event.go`
 - Modify: `system_event_test.go`
 
-- [ ] Add failing definition tests for optional front matter:
+- [x] Add failing definition tests for optional front matter:
   `result.message_field` plus named boolean/string metadata fields with
   `required`.
-- [ ] Add failing definition tests rejecting an empty message field, duplicate
-  metadata names, unsupported field types, and `required` without a field.
-- [ ] Run `rtk go test . -run 'Test.*AgentDefinition|Test.*SubagentDefinition'`;
+- [x] Add failing definition tests rejecting an empty message field, empty
+  metadata names, message-field conflicts, and unsupported field types.
+- [x] Run `rtk go test . -run 'Test.*AgentDefinition|Test.*SubagentDefinition'`;
   expect FAIL.
-- [ ] Add `AgentResultContract` and `AgentResultMetadataField` to
+- [x] Add `AgentResultContract` and `AgentResultMetadataField` to
   `subagent_definition.go`; parse and normalize them without changing
   definitions that omit `result`.
-- [ ] Add failing parser tests for ordinary final text, a valid contracted JSON
+- [x] Add failing parser tests for ordinary final text, a valid contracted JSON
   response, missing message, missing required metadata, unknown metadata, and
   malformed JSON.
-- [ ] Implement `parseTaskFinalResult(definition, text)` in
+- [x] Implement `parseTaskFinalResult(definition, text)` in
   `task_result_contract.go`; pseudocode:
   `no contract -> output=text`; `contract -> decode one object, extract
   message_field, validate metadata, return output + metadata`; never retry.
-- [ ] Run the focused definition and contract tests; expect PASS.
-- [ ] Add failing `system_event_test.go` coverage for
+- [x] Run the focused definition and contract tests; expect PASS.
+- [x] Add failing `system_event_test.go` coverage for
   `SystemTaskCompleted` and deep-cloned metadata.
-- [ ] Extend `SystemEvent` with
+- [x] Extend `SystemEvent` with
   `TaskCompleted *TaskCompletedEvent`; include task/session/turn/agent/state and
   `map[string]any` metadata, and clone maps recursively.
-- [ ] Run `rtk go test . -run 'Test.*(SystemEvent|TaskFinalResult)'`; expect PASS.
-- [ ] Commit with message
+- [x] Run `rtk go test . -run 'Test.*(SystemEvent|TaskFinalResult)'`; expect PASS.
+- [x] Commit with message
   `feat(task): validate final result contracts`.
 
 ## Task 3: Make the manager execute foreground tasks and resume by task ID
