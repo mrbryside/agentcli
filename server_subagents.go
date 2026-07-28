@@ -13,9 +13,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// subagentRoutes intentionally remain nested under their owning main agent
-// session. A subagent ID alone is never enough authority to access a transcript,
-// retained run, or permission request.
+// subagentRoutes are host session-management endpoints. They intentionally
+// remain nested under their owning main-agent session: a subagent ID alone is
+// never enough authority to access a transcript, retained run, or permission
+// request. They do not expose the main model's task protocol.
 func (server *Server) subagentRoutes() {
 	server.echo.GET("/v1/subagent-definitions", server.listSubagentDefinitions)
 	server.echo.POST("/v1/sessions/:mainAgentSessionID/subagents", server.createSubagent)
@@ -51,7 +52,7 @@ func (server *Server) listSubagentDefinitions(c echo.Context) error {
 }
 
 // createSubagent godoc
-// @Summary Create and asynchronously start a subagent
+// @Summary Create and asynchronously start a host-managed subagent session
 // @ID createSubagent
 // @Tags Subagents
 // @Accept json
@@ -93,7 +94,7 @@ func (server *Server) createSubagent(c echo.Context) error {
 }
 
 // listSubagents godoc
-// @Summary List subagents owned by a main agent session
+// @Summary List host-managed subagent sessions owned by a main agent session
 // @ID listSubagents
 // @Tags Subagents
 // @Produce json
@@ -116,7 +117,7 @@ func (server *Server) listSubagents(c echo.Context) error {
 }
 
 // getSubagent godoc
-// @Summary Read one owned subagent
+// @Summary Read one host-managed subagent session
 // @ID getSubagent
 // @Tags Subagents
 // @Produce json
@@ -158,9 +159,9 @@ func (server *Server) closeSubagent(c echo.Context) error {
 }
 
 // sendSubagentTurn godoc
-// @Summary Continue a subagent conversation
+// @Summary Continue a host-managed subagent conversation
 // @ID startSubagentTurn
-// @Description Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent after its latest result has been consumed. Closed, result-pending, and result-less subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
+// @Description Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
 // @Tags Subagents
 // @Accept json
 // @Produce json

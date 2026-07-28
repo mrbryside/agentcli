@@ -152,51 +152,39 @@ func TestServerSubagentSendQueuesTurn(t *testing.T) {
 	}
 }
 
-func TestServerAutomaticallyContinuesSubagentResultAndPublishesItToSessionEvents(t *testing.T) {
-	subagentModel := &subagentGateModel{releases: make(chan struct{}, 1)}
-	agent, serverURL := newTestSubagentHTTPServer(t, subagentModel)
-	created := createHTTPSubagent(t, serverURL, "mainAgent-result", `{"name":"researcher","message":"inspect this"}`)
-	if err := subagentModel.waitStarts(1); err != nil {
-		t.Fatal(err)
-	}
-
-	subagentModel.releases <- struct{}{}
-	events := getSessionEventsUntil(t, serverURL+"/v1/sessions/mainAgent-result/events", "", func(event SessionEventResponse) bool {
-		return event.Source == ServerTurnSourceSubagentResult && event.RuntimeEvent != nil && event.RuntimeEvent.Type == agentruntime.RunCompleted
+func TestServerPublishesTaskCompletionWithoutSyntheticResultTurn(t *testing.T) {
+	agent, serverURL := newTestSubagentHTTPServer(t, &subagentGateModel{releases: make(chan struct{})})
+	metadata := map[string]any{"requires_requester_reply": true}
+	agent.subagents.publishSystemEvent(SystemEvent{
+		Type:               SystemTaskCompleted,
+		MainAgentSessionID: "mainAgent-result",
+		MainAgentTurnID:    "root-turn",
+		TaskCompleted: &TaskCompletedEvent{
+			TaskID: "task-1", SubagentSessionID: "subagent-session",
+			SubagentTurnID: "subagent-turn", AgentName: "researcher",
+			State: TaskStateCompleted, Metadata: metadata,
+		},
 	})
-	var resultTurnID string
-	for _, event := range events {
-		if event.Source != ServerTurnSourceSubagentResult {
-			continue
-		}
-		resultTurnID = event.TurnID
-		if event.SubagentResult == nil ||
-			event.SubagentResult.MainAgentSessionID != "mainAgent-result" ||
-			event.SubagentResult.MainAgentTurnID != created.MainAgentTurnID ||
-			event.SubagentResult.SubagentID != created.ID ||
-			event.SubagentResult.SubagentTurnID != created.CurrentSubagentTurnID {
-			t.Fatalf("result activity = %#v", event)
-		}
+	metadata["requires_requester_reply"] = false
+
+	events := getSessionEventsUntil(t, serverURL+"/v1/sessions/mainAgent-result/events", "", func(event SessionEventResponse) bool {
+		return event.Type == SessionActivityTaskCompleted
+	})
+	completed := events[len(events)-1]
+	if completed.Source != ServerTurnSourceTask || completed.TurnID != "root-turn" || completed.TaskCompleted == nil ||
+		completed.TaskCompleted.TaskID != "task-1" || completed.TaskCompleted.AgentName != "researcher" ||
+		completed.TaskCompleted.Metadata["requires_requester_reply"] != true {
+		t.Fatalf("task completion session event = %#v", completed)
 	}
-	if resultTurnID == "" {
-		t.Fatalf("result turn was not published: %#v", events)
+	for _, event := range events {
+		if event.Type == SessionActivityTurnEvent || event.Type == SessionActivityTurnAdmitted {
+			t.Fatalf("task completion created a synthetic server turn: %#v", events)
+		}
 	}
 
-	var turn TurnResponse
-	getJSON(t, serverURL+turnPath("mainAgent-result", resultTurnID), &turn)
-	if turn.Status != agentruntime.RunStatusDone || turn.Result == nil {
-		t.Fatalf("result turn = %#v", turn)
-	}
-	messages, err := agent.ListMessages(context.Background(), "mainAgent-result")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(messages) != 2 || messages[0].Type != agentruntime.MessageTypeRuntimeEvent || messages[1].Type != agentruntime.MessageTypeAssistant {
-		t.Fatalf("result mainAgent transcript = %#v", messages)
-	}
-	record, found, err := agent.subagents.store.Get(context.Background(), created.ID)
-	if err != nil || !found || record.ObservedMessageID == "" {
-		t.Fatalf("observed subagent = %#v found=%v err=%v", record, found, err)
+	reconnected := getSessionEventsFor(t, serverURL+"/v1/sessions/mainAgent-result/events", jsonNumber(completed.Cursor), 50*time.Millisecond)
+	if len(reconnected) != 0 {
+		t.Fatalf("reconnect after task completion = %#v", reconnected)
 	}
 }
 

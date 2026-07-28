@@ -24,31 +24,19 @@ const (
 type ServerOption func(*serverConfig) error
 
 type serverConfig struct {
-	address               string
-	requestLimit          int64
-	heartbeat             time.Duration
-	turnQueue             int
-	autoContinueSubagents bool
-	middleware            []echo.MiddlewareFunc
+	address      string
+	requestLimit int64
+	heartbeat    time.Duration
+	turnQueue    int
+	middleware   []echo.MiddlewareFunc
 }
 
 func defaultServerConfig() serverConfig {
 	return serverConfig{
-		address:               defaultServerAddress,
-		requestLimit:          defaultServerRequestLimit,
-		heartbeat:             defaultServerHeartbeat,
-		turnQueue:             defaultServerTurnQueue,
-		autoContinueSubagents: true,
-	}
-}
-
-// WithServerAutoContinueSubagents controls whether completed subagent turns
-// automatically become trusted main-agent result turns. It defaults to true so
-// HTTP clients receive the same behavior as the reference terminal.
-func WithServerAutoContinueSubagents(enabled bool) ServerOption {
-	return func(config *serverConfig) error {
-		config.autoContinueSubagents = enabled
-		return nil
+		address:      defaultServerAddress,
+		requestLimit: defaultServerRequestLimit,
+		heartbeat:    defaultServerHeartbeat,
+		turnQueue:    defaultServerTurnQueue,
 	}
 }
 
@@ -189,9 +177,6 @@ func NewServer(agent *Agent, options ...ServerOption) (*Server, error) {
 		<-serverContext.Done()
 		server.sessionEvents.close()
 	}()
-	if config.autoContinueSubagents {
-		go server.continueSubagentResults()
-	}
 	subagentConfirmations := agent.SubscribeSubagentConfirmations(serverContext)
 	go server.forwardSubagentConfirmations(subagentConfirmations)
 	subagentPermissions := agent.SubscribeSubagentPermissions(serverContext)

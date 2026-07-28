@@ -91,7 +91,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	mainAgentModel := &scriptedModel{}
 	subagentModel := newIntegrationSubagentModel("subagent complete")
 	agent := newIntegrationSubagentAgent(t, mainAgentModel, map[string]*integrationSubagentModel{"researcher": subagentModel})
-	server, err := NewServer(agent, WithServerHeartbeat(time.Millisecond), WithServerAutoContinueSubagents(false))
+	server, err := NewServer(agent, WithServerHeartbeat(time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
 	}

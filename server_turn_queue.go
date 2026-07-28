@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
-	"github.com/mrbryside/agentcli/toolexecution"
 )
 
 var (
@@ -23,7 +22,6 @@ type serverTurn struct {
 	mu                sync.RWMutex
 	request           agentruntime.Request
 	source            ServerTurnSource
-	result            *SubagentResult
 	ready             chan struct{}
 	runtimeEventsDone chan struct{}
 	once              sync.Once
@@ -32,9 +30,9 @@ type serverTurn struct {
 	err               error
 }
 
-func newServerTurn(request agentruntime.Request, source ServerTurnSource, result *SubagentResult) *serverTurn {
+func newServerTurn(request agentruntime.Request, source ServerTurnSource) *serverTurn {
 	return &serverTurn{
-		request: request, source: source, result: result,
+		request: request, source: source,
 		ready: make(chan struct{}), runtimeEventsDone: make(chan struct{}),
 	}
 }
@@ -68,10 +66,6 @@ func (turn *serverTurn) wait(ctx context.Context) (*agentruntime.Run, error) {
 }
 
 func (server *Server) submitTurn(ctx context.Context, request agentruntime.Request) (*serverTurn, bool, error) {
-	return server.submitTurnWithSource(ctx, request, ServerTurnSourceUser, nil, false)
-}
-
-func (server *Server) submitTurnWithSource(ctx context.Context, request agentruntime.Request, source ServerTurnSource, result *SubagentResult, priority bool) (*serverTurn, bool, error) {
 	if request.TurnID == "" {
 		turnID, err := newSubagentID("turn_")
 		if err != nil {
@@ -87,10 +81,7 @@ func (server *Server) submitTurnWithSource(ctx context.Context, request agentrun
 		return nil, false, agentruntime.ErrTurnExists
 	}
 
-	if source == "" {
-		source = ServerTurnSourceUser
-	}
-	turn := newServerTurn(request, source, result)
+	turn := newServerTurn(request, ServerTurnSourceUser)
 	key := serverRunKey{sessionID: request.SessionID, turnID: request.TurnID}
 	server.runsMu.Lock()
 	if _, found := server.turns[key]; found {
@@ -99,20 +90,13 @@ func (server *Server) submitTurnWithSource(ctx context.Context, request agentrun
 	}
 	if server.activeTurns[request.SessionID] != nil {
 		pending := server.pendingTurns[request.SessionID]
-		if !priority && len(pending) >= server.config.turnQueue {
+		if len(pending) >= server.config.turnQueue {
 			server.runsMu.Unlock()
 			return nil, false, errServerTurnQueueFull
 		}
 		server.turns[key] = turn
-		if priority {
-			server.pendingTurns[request.SessionID] = append([]*serverTurn{turn}, pending...)
-		} else {
-			server.pendingTurns[request.SessionID] = append(pending, turn)
-		}
-		queuePosition := 1
-		if !priority {
-			queuePosition = len(pending) + 1
-		}
+		server.pendingTurns[request.SessionID] = append(pending, turn)
+		queuePosition := len(pending) + 1
 		server.runsMu.Unlock()
 		server.sessionEvents.publish(newSessionLifecycleEvent(turn, SessionActivityTurnQueued, queuePosition, ""))
 		return turn, true, nil
@@ -129,31 +113,7 @@ func (server *Server) submitTurnWithSource(ctx context.Context, request agentrun
 }
 
 func (server *Server) startAcceptedTurn(turn *serverTurn) error {
-	var (
-		run *agentruntime.Run
-		err error
-	)
-	if turn.result == nil {
-		run, err = server.agent.Start(server.context, turn.request)
-	} else {
-		run, _, err = server.agent.continueSubagentResultSubscribed(
-			server.context,
-			*turn.result,
-			turn.request.TurnID,
-		)
-		if errors.Is(err, toolexecution.ErrResponseScopeAssignmentNotFound) {
-			// A subagent created directly through the HTTP API has no originating
-			// main-agent response scope. Preserve its useful automatic result by
-			// treating the continuation as a new main-agent scope.
-			run, err = server.agent.Start(server.context, turn.request)
-			if err == nil && server.agent.subagents != nil {
-				_ = server.agent.subagents.observeSubagentResult(
-					context.WithoutCancel(server.context),
-					*turn.result,
-				)
-			}
-		}
-	}
+	run, err := server.agent.Start(server.context, turn.request)
 	turn.resolve(run, err)
 	if err != nil {
 		server.sessionEvents.publish(newSessionLifecycleEvent(turn, SessionActivityTurnRejected, 0, err.Error()))

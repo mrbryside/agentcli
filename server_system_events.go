@@ -10,6 +10,17 @@ func (server *Server) forwardSystemEvents(events <-chan SystemEvent) {
 				return
 			}
 			switch event.Type {
+			case SystemTaskCompleted:
+				if event.TaskCompleted == nil {
+					continue
+				}
+				server.sessionEvents.publish(SessionEventResponse{
+					Type:          SessionActivityTaskCompleted,
+					Source:        ServerTurnSourceTask,
+					SessionID:     event.MainAgentSessionID,
+					TurnID:        event.MainAgentTurnID,
+					TaskCompleted: newTaskCompletedReference(*event.TaskCompleted),
+				})
 			case SystemSubagentClosed:
 				if event.SubagentClosed == nil {
 					continue
@@ -23,6 +34,17 @@ func (server *Server) forwardSystemEvents(events <-chan SystemEvent) {
 				})
 			}
 		}
+	}
+}
+
+func newTaskCompletedReference(event TaskCompletedEvent) *TaskCompletedReference {
+	return &TaskCompletedReference{
+		TaskID:            event.TaskID,
+		SubagentSessionID: event.SubagentSessionID,
+		SubagentTurnID:    event.SubagentTurnID,
+		AgentName:         event.AgentName,
+		State:             event.State,
+		Metadata:          cloneTaskMetadata(event.Metadata),
 	}
 }
 

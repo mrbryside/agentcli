@@ -61,9 +61,10 @@ func (hub *sessionEventHub) publish(event SessionEventResponse) {
 	state := hub.stateLocked(event.SessionID)
 	state.nextCursor++
 	event.Cursor = state.nextCursor
+	event = cloneSessionEventResponse(event)
 	state.events = append(state.events, event)
 	for _, subscriber := range state.subscribers {
-		subscriber.queue = append(subscriber.queue, event)
+		subscriber.queue = append(subscriber.queue, cloneSessionEventResponse(event))
 		select {
 		case subscriber.notify <- struct{}{}:
 		default:
@@ -85,7 +86,7 @@ func (hub *sessionEventHub) subscribe(ctx context.Context, sessionID string, aft
 	}
 	for _, event := range state.events {
 		if event.Cursor > after {
-			subscriber.queue = append(subscriber.queue, event)
+			subscriber.queue = append(subscriber.queue, cloneSessionEventResponse(event))
 		}
 	}
 	subscriber.closed = hub.closed
@@ -114,7 +115,7 @@ func (hub *sessionEventHub) deliver(ctx context.Context, sessionID string, id ui
 			subscriber.queue = subscriber.queue[1:]
 			hub.mu.Unlock()
 			select {
-			case subscriber.channel <- event:
+			case subscriber.channel <- cloneSessionEventResponse(event):
 			case <-ctx.Done():
 				return
 			}
@@ -131,6 +132,16 @@ func (hub *sessionEventHub) deliver(ctx context.Context, sessionID string, id ui
 			return
 		}
 	}
+}
+
+func cloneSessionEventResponse(event SessionEventResponse) SessionEventResponse {
+	clone := event
+	if event.TaskCompleted != nil {
+		completed := *event.TaskCompleted
+		completed.Metadata = cloneTaskMetadata(event.TaskCompleted.Metadata)
+		clone.TaskCompleted = &completed
+	}
+	return clone
 }
 
 func (hub *sessionEventHub) close() {
@@ -157,7 +168,7 @@ func (hub *sessionEventHub) close() {
 // streamSessionEvents godoc
 // @Summary Stream retained and live session activity
 // @ID streamSessionEvents
-// @Description Replays and follows every main-agent turn in a session, including queued lifecycle records, response-scope boundaries, and turns created automatically from subagent results. The session cursor is independent from each runtime event sequence.
+// @Description Replays and follows main-agent lifecycle records, response-scope boundaries, and application-visible task completion metadata. The session cursor is independent from each runtime event sequence.
 // @Tags Event streams
 // @Produce text/event-stream
 // @Param sessionID path string true "Session ID"
@@ -250,20 +261,6 @@ func newSessionLifecycleEvent(turn *serverTurn, eventType SessionActivityType, q
 		TurnURL:       turnPath(turn.request.SessionID, turn.request.TurnID),
 		EventsURL:     turnPath(turn.request.SessionID, turn.request.TurnID) + "/events",
 		Error:         eventError,
-	}
-	if turn.result != nil {
-		response.SubagentResult = &SubagentResultReference{
-			MainAgentSessionID: turn.result.MainAgentSessionID,
-			MainAgentTurnID:    turn.result.MainAgentTurnID,
-			SubagentID:         turn.result.SubagentID,
-			DisplayName:        turn.result.DisplayName,
-			DefinitionName:     turn.result.DefinitionName,
-			SubagentSessionID:  turn.result.SubagentSessionID,
-			SubagentTurnID:     turn.result.SubagentTurnID,
-			Status:             turn.result.Status,
-			Summary:            turn.result.Summary,
-			NextStep:           turn.result.NextStep,
-		}
 	}
 	return response
 }

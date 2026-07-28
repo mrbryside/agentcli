@@ -15,12 +15,14 @@ import (
 // single-session runtime admits an accepted turn.
 const RunStatusQueued agentruntime.RunStatus = "queued"
 
-// ServerTurnSource explains why the HTTP server created a main-agent turn.
+// ServerTurnSource identifies the source of one session event. Main-agent
+// turns use user; task and host-management events are published without
+// creating another main-agent turn.
 type ServerTurnSource string
 
 const (
 	ServerTurnSourceUser                 ServerTurnSource = "user"
-	ServerTurnSourceSubagentResult       ServerTurnSource = "subagent_result"
+	ServerTurnSourceTask                 ServerTurnSource = "task"
 	ServerTurnSourceSubagentConfirmation ServerTurnSource = "subagent_confirmation"
 	ServerTurnSourceSubagentPermission   ServerTurnSource = "subagent_permission"
 	ServerTurnSourceSubagentLifecycle    ServerTurnSource = "subagent_lifecycle"
@@ -41,6 +43,7 @@ const (
 	SessionActivitySubagentConfirmation SessionActivityType = "subagent_confirmation"
 	SessionActivitySubagentPermission   SessionActivityType = "subagent_permission"
 	SessionActivitySubagentClosed       SessionActivityType = "subagent_closed"
+	SessionActivityTaskCompleted        SessionActivityType = "task_completed"
 )
 
 // StartTurnRequest is the JSON body accepted by POST /v1/sessions/{id}/turns.
@@ -69,19 +72,16 @@ type TurnResponse struct {
 	Error         string                 `json:"error,omitempty"`
 }
 
-// SubagentResultReference identifies the subagent completion that caused an
-// automatic main agent continuation without duplicating its answer.
-type SubagentResultReference struct {
-	MainAgentSessionID string               `json:"main_agent_session_id"`
-	MainAgentTurnID    string               `json:"main_agent_turn_id"`
-	SubagentID         string               `json:"subagent_id"`
-	DisplayName        string               `json:"display_name,omitempty"`
-	DefinitionName     string               `json:"definition_name"`
-	SubagentSessionID  string               `json:"subagent_session_id"`
-	SubagentTurnID     string               `json:"subagent_turn_id"`
-	Status             SubagentResultStatus `json:"status"`
-	Summary            string               `json:"summary,omitempty"`
-	NextStep           string               `json:"next_step,omitempty"`
+// TaskCompletedReference is the HTTP-safe view of a task completion. Metadata
+// is application-only: it is exposed through system/session events but never
+// becomes part of a provider-visible message.
+type TaskCompletedReference struct {
+	TaskID            string         `json:"task_id"`
+	SubagentSessionID string         `json:"subagent_session_id"`
+	SubagentTurnID    string         `json:"subagent_turn_id"`
+	AgentName         string         `json:"agent"`
+	State             TaskState      `json:"state"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 type SubagentConfirmationReference struct {
@@ -138,10 +138,10 @@ type SessionEventResponse struct {
 	TurnURL              string                         `json:"turn_url,omitempty"`
 	EventsURL            string                         `json:"events_url,omitempty"`
 	Error                string                         `json:"error,omitempty"`
-	SubagentResult       *SubagentResultReference       `json:"subagent_result,omitempty"`
 	SubagentConfirmation *SubagentConfirmationReference `json:"subagent_confirmation,omitempty"`
 	SubagentPermission   *SubagentPermissionReference   `json:"subagent_permission,omitempty"`
 	SubagentClosed       *SubagentClosedReference       `json:"subagent_closed,omitempty"`
+	TaskCompleted        *TaskCompletedReference        `json:"task_completed,omitempty"`
 	RuntimeEvent         *EventResponse                 `json:"runtime_event,omitempty"`
 	ScopeEvent           *ScopeEventResponse            `json:"scope_event,omitempty"`
 }
@@ -198,8 +198,8 @@ type MessagesResponse struct {
 	Messages []MessageResponse `json:"messages"`
 }
 
-// SubagentDefinitionResponse is the safe, discovery-only HTTP view of a
-// project definition. Instructions and local paths are intentionally omitted.
+// SubagentDefinitionResponse is host session-management discovery data.
+// Instructions and local paths are intentionally omitted.
 type SubagentDefinitionResponse struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
@@ -213,9 +213,9 @@ type SubagentDefinitionsResponse struct {
 	Definitions []SubagentDefinitionResponse `json:"definitions"`
 }
 
-// CreateSubagentRequest starts a subagent session from a project definition.
-// MainAgentTurnID is optional for direct UI creation; the server assigns a
-// synthetic ID when it is not supplied.
+// CreateSubagentRequest starts a host-managed subagent session from a project
+// definition. MainAgentTurnID is optional for direct UI creation; the server
+// assigns a synthetic ID when it is not supplied.
 type CreateSubagentRequest struct {
 	Name            string `json:"name" validate:"required"`
 	Message         string `json:"message" validate:"required"`
@@ -227,8 +227,8 @@ type SendSubagentMessageRequest struct {
 	Message string `json:"message" validate:"required"`
 }
 
-// SubagentResponse is an HTTP-safe summary of one subagent instance. Pending
-// message content remains private to the manager mailbox.
+// SubagentResponse is host session-management data for one persisted
+// subagent. Pending message content remains private to the manager mailbox.
 type SubagentResponse struct {
 	ID                    string                       `json:"id"`
 	DisplayName           string                       `json:"display_name"`

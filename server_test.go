@@ -708,6 +708,46 @@ func getSessionEventsUntil(t *testing.T, endpoint, after string, stop func(Sessi
 	return nil
 }
 
+func getSessionEventsFor(t *testing.T, endpoint, after string, duration time.Duration) []SessionEventResponse {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	if after != "" {
+		request.Header.Set("Last-Event-ID", after)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("session events status = %d body = %s", response.StatusCode, body)
+	}
+	var events []SessionEventResponse
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event SessionEventResponse
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	return events
+}
+
 func decodeSSE(t *testing.T, reader io.Reader) []EventResponse {
 	t.Helper()
 	var events []EventResponse

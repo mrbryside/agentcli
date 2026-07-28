@@ -87,3 +87,28 @@ func TestEventResponsePreservesProviderFailurePayload(t *testing.T) {
 		t.Fatalf("provider failure response = %#v", response.ProviderEvent)
 	}
 }
+
+func TestSessionTaskCompletionReferenceKeepsMetadataApplicationOnlyAndCloned(t *testing.T) {
+	metadata := map[string]any{
+		"requires_requester_reply": true,
+		"nested":                   map[string]any{"value": "original"},
+	}
+	reference := newTaskCompletedReference(TaskCompletedEvent{
+		TaskID: "task-1", SubagentSessionID: "subagent-session", SubagentTurnID: "subagent-turn",
+		AgentName: "operator", State: TaskStateCompleted, Metadata: metadata,
+	})
+	metadata["requires_requester_reply"] = false
+	metadata["nested"].(map[string]any)["value"] = "changed"
+	if reference.Metadata["requires_requester_reply"] != true || reference.Metadata["nested"].(map[string]any)["value"] != "original" {
+		t.Fatalf("task completion reference metadata = %#v", reference.Metadata)
+	}
+
+	event := cloneSessionEventResponse(SessionEventResponse{
+		Type: SessionActivityTaskCompleted, SessionID: "main-session", TurnID: "root-turn",
+		TaskCompleted: reference,
+	})
+	reference.Metadata["requires_requester_reply"] = false
+	if event.TaskCompleted == nil || event.TaskCompleted.Metadata["requires_requester_reply"] != true {
+		t.Fatalf("session event metadata was not cloned: %#v", event)
+	}
+}
