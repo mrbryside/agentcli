@@ -30,12 +30,17 @@ type GuardModelConfig struct {
 // delivery. EndTurnOnSuccess independently controls whether a successfully
 // completed batch containing the tool ends the current turn, including an
 // early successful EndResponseScope skip. Registry registration appends
-// execution-mode guidance to the cloned tool definition shown to providers.
+// required-skill and execution-mode guidance to the cloned tool definition
+// shown to providers.
 type Tool struct {
 	Definition       agentruntime.ToolDefinition
 	Handler          Handler
 	Trigger          ToolTrigger
 	EndTurnOnSuccess bool
+	// RequiredSkills lists the skills that must each have a successful
+	// load_skill result in the current turn before this tool may execute.
+	// A load with instructions_in_context=true satisfies the requirement.
+	RequiredSkills []string
 	// ResponseScopeCallLimit is a hard cumulative invocation budget shared by
 	// the main-agent turn and every result turn in one response scope. Zero means
 	// unlimited.
@@ -85,6 +90,7 @@ type registeredTool struct {
 	confirmation           ConfirmationDescriptor
 	resultTurnBehavior     func(json.RawMessage, json.RawMessage) agentruntime.ToolTurnBehavior
 	responseScopeCallLimit int
+	requiredSkills         []string
 }
 
 // NewRegistry creates an empty tool registry.
@@ -106,6 +112,10 @@ func (r *Registry) Register(tool Tool) error {
 	}
 	if tool.ResponseScopeCallLimit < 0 {
 		return fmt.Errorf("tool %q response-scope call limit cannot be negative", tool.Definition.Name)
+	}
+	requiredSkills, err := normalizeRequiredSkills(tool.Definition.Name, tool.RequiredSkills)
+	if err != nil {
+		return err
 	}
 	rawGuardPrompt := tool.ToolCallGuardPrompt
 	tool.ToolCallGuardPrompt = strings.TrimSpace(rawGuardPrompt)
@@ -134,6 +144,10 @@ func (r *Registry) Register(tool Tool) error {
 	}
 
 	definition := cloneDefinition(tool.Definition)
+	definition.Description = descriptionWithRequiredSkills(
+		definition.Description,
+		requiredSkills,
+	)
 	definition.Description = descriptionWithExecutionMode(
 		definition.Description,
 		tool.Trigger,
@@ -156,9 +170,27 @@ func (r *Registry) Register(tool Tool) error {
 		confirmation:           tool.Confirmation,
 		resultTurnBehavior:     tool.resultTurnBehavior,
 		responseScopeCallLimit: tool.ResponseScopeCallLimit,
+		requiredSkills:         append([]string(nil), requiredSkills...),
 	}
 	r.order = append(r.order, definition.Name)
 	return nil
+}
+
+func (r *Registry) requiredSkillsFor(name string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.tools[name].requiredSkills...)
+}
+
+func (r *Registry) hasRequiredSkills() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, tool := range r.tools {
+		if len(tool.requiredSkills) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) responseScopeCallLimitFor(name string) int {
@@ -329,6 +361,42 @@ func cloneDefinition(definition agentruntime.ToolDefinition) agentruntime.ToolDe
 	clone := definition
 	clone.InputSchema = definition.InputSchema.Clone()
 	return clone
+}
+
+func normalizeRequiredSkills(toolName string, skills []string) ([]string, error) {
+	normalized := make([]string, 0, len(skills))
+	seen := make(map[string]struct{}, len(skills))
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill)
+		if name == "" {
+			return nil, fmt.Errorf("tool %q required skill name is empty", toolName)
+		}
+		if name != skill {
+			return nil, fmt.Errorf("tool %q required skill %q has surrounding whitespace", toolName, skill)
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fmt.Errorf("tool %q required skill %q is duplicated", toolName, name)
+		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, name)
+	}
+	return normalized, nil
+}
+
+func descriptionWithRequiredSkills(description string, skills []string) string {
+	base := strings.TrimSpace(description)
+	if len(skills) == 0 {
+		return base
+	}
+	requirement := fmt.Sprintf(
+		"Before using this tool, load each required skill in the current turn with load_skill: %s. "+
+			"A status=loaded result satisfies that skill, including when instructions_in_context=true.",
+		strings.Join(skills, ", "),
+	)
+	if base == "" {
+		return requirement
+	}
+	return base + "\n\n" + requirement
 }
 
 func descriptionWithExecutionMode(description string, trigger ToolTrigger, endTurnOnSuccess bool) string {

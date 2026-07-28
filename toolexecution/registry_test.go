@@ -175,6 +175,45 @@ func TestRegistryInjectsTriggerGuidanceIntoToolDescriptions(t *testing.T) {
 	}
 }
 
+func TestRegistryInjectsRequiredSkillGuidanceWithoutMutatingCaller(t *testing.T) {
+	registry := NewRegistry()
+	required := []string{"web-research", "source-policy"}
+	tool := Tool{
+		Definition: agentruntime.ToolDefinition{
+			Name:        "web_search",
+			Description: "Find candidate sources.",
+			InputSchema: agentruntime.ToolSchema{Type: "object"},
+		},
+		Handler:        testHandler,
+		RequiredSkills: required,
+	}
+	if err := registry.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	required[0] = "mutated"
+
+	if got := tool.Definition.Description; got != "Find candidate sources." {
+		t.Fatalf("Register mutated caller definition: %q", got)
+	}
+	if got := tool.RequiredSkills[0]; got != "mutated" {
+		t.Fatalf("test setup did not mutate caller slice: %q", got)
+	}
+	if got := registry.requiredSkillsFor("web_search"); !reflect.DeepEqual(got, []string{"web-research", "source-policy"}) {
+		t.Fatalf("requiredSkillsFor() = %v", got)
+	}
+	description := registry.Definitions()[0].Description
+	for _, expected := range []string{
+		"load each required skill in the current turn with load_skill",
+		"web-research, source-policy",
+		"status=loaded",
+		"instructions_in_context=true",
+	} {
+		if !strings.Contains(description, expected) {
+			t.Errorf("description %q does not contain %q", description, expected)
+		}
+	}
+}
+
 func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 	validDefinition := agentruntime.ToolDefinition{
 		Name:        "weather",
@@ -187,6 +226,9 @@ func TestRegistryRegisterRejectsInvalidTools(t *testing.T) {
 		{name: "empty name", tool: Tool{Definition: agentruntime.ToolDefinition{InputSchema: validDefinition.InputSchema}, Handler: testHandler}},
 		{name: "nil handler", tool: Tool{Definition: validDefinition}},
 		{name: "unsupported trigger", tool: Tool{Definition: validDefinition, Handler: testHandler, Trigger: "later"}},
+		{name: "empty required skill", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredSkills: []string{""}}},
+		{name: "whitespace required skill", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredSkills: []string{" web-research"}}},
+		{name: "duplicate required skill", tool: Tool{Definition: validDefinition, Handler: testHandler, RequiredSkills: []string{"web-research", "web-research"}}},
 		{name: "function and prompt call guards", tool: Tool{Definition: validDefinition, Handler: testHandler, ToolCallGuard: func(context.Context, agentruntime.ToolCallGuardAttempt) (agentruntime.ToolCallGuardDecision, error) {
 			return agentruntime.ToolCallGuardDecision{Action: agentruntime.ToolCallAllow}, nil
 		}, ToolCallGuardPrompt: "check call"}},

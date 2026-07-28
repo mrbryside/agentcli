@@ -101,6 +101,46 @@ invocation, ok := agentcli.ToolInvocationFromContext(ctx)
 admission policy is available through `ToolPermissionPolicyFromContext`.
 Metadata and policy are not user input or substitutes for authorization.
 
+## Require skills before execution
+
+Set `RequiredSkills` when a custom tool must not execute until the model has
+loaded specific workflow instructions:
+
+```go
+agentcli.Tool{
+    Definition: searchDefinition,
+    Handler:    searchHandler,
+    RequiredSkills: []string{
+        "web-research",
+    },
+}
+```
+
+Every listed skill must be available to the agent using the tool. For each new
+turn, the model must call `load_skill` and receive `status=loaded` for that
+exact skill before calling the custom tool. Both a full `instructions` result
+and an `instructions_in_context=true` result satisfy the requirement. A load
+from an earlier turn does not.
+
+Registration automatically adds this requirement to the cloned tool
+description. The runtime also enforces it. If any required skill is missing,
+admission, call-budget reservation, guards, and the handler are skipped:
+
+```json
+{
+  "status": "blocked",
+  "executed": false,
+  "reason": "required_skill_not_loaded",
+  "required_skills": ["web-research"],
+  "missing_skills": ["web-research"],
+  "instruction": "Call load_skill once for each missing skill. A status=loaded result for that skill in this turn satisfies the requirement, including when instructions_in_context=true. Then retry this tool."
+}
+```
+
+Loading a skill and calling its dependent tool in the same parallel tool batch
+does not bypass the gate: the load result must first be present in the current
+turn's conversation context.
+
 ## Tool trigger
 
 The zero trigger is the default: the handler executes immediately and the

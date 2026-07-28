@@ -9,6 +9,14 @@ Application tools may also configure either `ToolCallGuard` or
 `*GuardModelConfig`; see [guardrails.md](guardrails.md) for evaluation and
 retry behavior.
 
+`RequiredSkills` is an optional hard prerequisite for custom tools. Every
+listed skill must be available to the current agent and have a successful
+`load_skill` result in the same runtime turn. Full instruction results and
+`instructions_in_context=true` both satisfy the gate. Missing skills produce a
+successful non-executing `reason=required_skill_not_loaded` result before
+response-scope budgets, admission, guards, or handlers. The registry appends
+the requirement to the cloned provider-facing description.
+
 The root facade exposes `agentcli.Tool`, `ToolDefinition`, `InputSchema`,
 permission/confirmation aliases, and trigger modes. `ObjectSchema` builds a
 closed schema from a struct of `ToolParameter` descriptors; helpers cover all

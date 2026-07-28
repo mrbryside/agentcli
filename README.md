@@ -187,6 +187,11 @@ explicit `agentcli.ObjectSchema` (or another `agentcli.InputSchema`) and a
 `func(context.Context, json.RawMessage) (json.RawMessage, error)` handler;
 `agentcli.DecodeArguments` supplies strict object decoding inside the handler.
 Project files only select which registered tools each agent may use.
+Set `Tool.RequiredSkills` when a handler must execute only after specific
+skills have been loaded successfully in the current turn. AgentCLI adds the
+requirement to the model-facing description and enforces it before admission
+or handler execution, including when `load_skill` reports
+`instructions_in_context=true`.
 
 ## Run the terminal playground
 

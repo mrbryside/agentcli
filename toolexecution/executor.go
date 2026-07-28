@@ -64,6 +64,9 @@ type Config struct {
 	// ResponseScopes coordinates handlers using the EndResponseScope trigger.
 	// Agent construction supplies it automatically.
 	ResponseScopes *ResponseScopeCoordinator
+	// Messages provides the transcript used to confirm current-turn
+	// load_skill results for tools with RequiredSkills.
+	Messages storage.MessageStorage
 }
 
 type callKey struct {
@@ -132,6 +135,9 @@ func NewExecutor(registry *Registry, workerCount int, configs ...Config) (*Execu
 	}
 	if registry.hasResponseScopeCallLimits() && config.ResponseScopes == nil {
 		return nil, errors.New("response-scope tool-call limits require a response scope coordinator")
+	}
+	if registry.hasRequiredSkills() && config.Messages == nil {
+		return nil, errors.New("required-skill tools require message storage")
 	}
 	if config.Store == nil {
 		config.Store = inmemory.NewPermissionStorage()
@@ -387,6 +393,26 @@ func (e *Executor) Run(ctx context.Context, requests <-chan agentruntime.ToolReq
 				continue
 			}
 			request = cloneRequest(request)
+			if required := e.registry.requiredSkillsFor(request.Call.Name); len(required) != 0 {
+				missing, skillErr := missingRequiredSkills(
+					ctx,
+					e.config.Messages,
+					request.SessionID,
+					request.TurnID,
+					required,
+				)
+				if skillErr != nil {
+					e.sendResult(ctx, results, failedResult(
+						request,
+						fmt.Errorf("inspect required skill history: %w", skillErr),
+					))
+					continue
+				}
+				if len(missing) != 0 {
+					e.sendResult(ctx, results, requiredSkillsResult(request, required, missing))
+					continue
+				}
+			}
 			admission := e.policy.currentSnapshot()
 			if limit := e.registry.responseScopeCallLimitFor(request.Call.Name); limit > 0 {
 				used, allowed, budgetErr := e.config.ResponseScopes.ReserveToolCall(

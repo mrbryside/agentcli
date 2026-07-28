@@ -128,6 +128,9 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	if configuration.project != nil && !configuration.subagentAgent {
 		runtimeTools = configuration.project.filterMainAgentTools(configuration.tools)
 	}
+	if err := validateToolRequiredSkills(configuration.project, runtimeTools); err != nil {
+		return nil, err
+	}
 	registeredTools := append([]toolexecution.Tool(nil), runtimeTools...)
 	if configuration.project != nil && len(configuration.project.skills) != 0 {
 		registeredTools = append(registeredTools, toolexecution.NewSkillLoader(
@@ -290,6 +293,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		ToolCallGuardModel:    configuration.model,
 		ToolCallGuardTimeout:  configuration.toolCallGuardTimeout,
 		ResponseScopes:        agent.responseScopes,
+		Messages:              configuration.messages,
 		ToolCallGuardModelResolver: func(providerName, modelName string) (agentruntime.Model, error) {
 			if configuration.project == nil {
 				return nil, errors.New("tool-call guard provider requires a project with provider profiles")
@@ -333,6 +337,10 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 		}
 	}
 	for _, definition := range project.Subagents() {
+		availableSkills := make(map[string]struct{}, len(definition.Skills))
+		for _, name := range definition.Skills {
+			availableSkills[name] = struct{}{}
+		}
 		for _, name := range definition.Tools {
 			tool, found := registered[name]
 			if !found {
@@ -344,6 +352,16 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 					definition.Name,
 					name,
 				)
+			}
+			for _, requiredSkill := range tool.RequiredSkills {
+				if _, available := availableSkills[requiredSkill]; !available {
+					return fmt.Errorf(
+						"subagent %q uses custom tool %q which requires skill %q, but that skill is not available to the subagent",
+						definition.Name,
+						name,
+						requiredSkill,
+					)
+				}
 			}
 		}
 	}
@@ -357,6 +375,28 @@ func validateSubagentTools(tools []toolexecution.Tool) error {
 				"subagent cannot use custom tool %q: EndResponseScope tools are supported only by main agents",
 				tool.Definition.Name,
 			)
+		}
+	}
+	return nil
+}
+
+func validateToolRequiredSkills(project *Project, tools []toolexecution.Tool) error {
+	for _, tool := range tools {
+		for _, name := range tool.RequiredSkills {
+			if project == nil {
+				return fmt.Errorf(
+					"custom tool %q requires skill %q, but no project skills are configured",
+					tool.Definition.Name,
+					name,
+				)
+			}
+			if _, found := project.skills[name]; !found {
+				return fmt.Errorf(
+					"custom tool %q requires skill %q, but it is not available to this agent",
+					tool.Definition.Name,
+					name,
+				)
+			}
 		}
 	}
 	return nil

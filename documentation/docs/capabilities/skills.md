@@ -97,6 +97,20 @@ again when any condition applies:
 - approximately 12,000 transcript tokens have passed; or
 - the skill content hash changed.
 
+## Tools that require skills
+
+Application tools may set `RequiredSkills` to make the runtime enforce skill
+loading instead of relying only on prompt instructions. Every listed skill
+must have a successful `load_skill` result in the current turn before the tool
+handler can run. Both full loads and `instructions_in_context=true` loads
+satisfy the requirement; an earlier turn does not.
+
+If a required skill is missing, the tool returns a successful non-executing
+result with `reason=required_skill_not_loaded`, `required_skills`, and
+`missing_skills`. The model can load each missing skill and then retry the
+tool. The blocked attempt does not consume that tool's response-scope call
+budget.
+
 AgentCLI also injects an ephemeral `<turn_start>` system reminder
 only on the first provider request of each runtime turn. Later provider steps
 do not receive it, so a tool result or another provider round never resets the

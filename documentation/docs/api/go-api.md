@@ -122,6 +122,7 @@ permission checks.
 | `EndTurn` | Require a tool at turn completion and run it immediately. |
 | `EndResponseScope` | Require a tool at the final response-scope completion repair; earlier calls are successful non-executing skips. |
 | `Tool.EndTurnOnSuccess` | End the current turn after the full tool batch succeeds, independently of `Trigger`. |
+| `Tool.RequiredSkills` | Require successful current-turn `load_skill` results before the handler may execute. |
 | `RequestEndTurn(ctx)` | Conditionally request turn termination from inside a handler; applies only when the handler and full tool batch succeed. |
 | `Tool.ResponseScopeCallLimit` | Set a hard cumulative call budget shared by all turns in one response scope. |
 | `ToolCallGuard` | Function result for validating a requested tool call before execution. |
@@ -130,6 +131,7 @@ permission checks.
 | `ToolCallAllow`, `ToolCallReject` | Select the tool-call verdict. |
 
 `Tool` fields are `Definition`, `Handler`, `Trigger`, `EndTurnOnSuccess`,
+`RequiredSkills`,
 `ResponseScopeCallLimit`,
 `ToolCallGuard`, `ToolCallGuardPrompt`, `ToolCallGuardModel`, `Permission`,
 `PermissionWithPolicy`, and
@@ -154,6 +156,17 @@ application-written description with when the model should call the tool,
 whether its handler runs immediately, the exact early-skip semantics, and
 whether a successful batch ends the turn. Registration does not mutate the
 caller's original definition.
+
+When `RequiredSkills` is non-empty, every named skill must be available to the
+current agent and loaded successfully in the current turn before the handler
+can execute. Both the full `instructions` result and
+`instructions_in_context=true` satisfy a `status=loaded` result. A successful
+load from an earlier turn does not satisfy the requirement. A blocked call
+returns `executed=false`, `reason=required_skill_not_loaded`, the complete
+`required_skills` list, and the remaining `missing_skills`; it bypasses
+admission, call budgets, guards, and the handler. Registration appends the same
+requirement to the cloned model-facing tool description.
+
 For invocation-specific behavior, a handler may call `RequestEndTurn(ctx)`.
 This has the same successful-batch semantics as `EndTurnOnSuccess`, but only
 for the invocation whose handler requested it. Handler failure or interruption
