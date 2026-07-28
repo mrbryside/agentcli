@@ -120,6 +120,95 @@ func TestEndResponseScopeAutomaticallyRequiresAndExecutesTriggerAtBoundary(t *te
 	}
 }
 
+func TestStepLimitFinalizationRepairsForgottenEndResponseScopeTool(t *testing.T) {
+	model := &stepLimitFinalizationModel{reportAt: 2}
+	var delivered int
+	report := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Response-scope report.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("Final message").Required()}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			delivered++
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}
+	agent, err := New(
+		context.Background(),
+		WithModel(model),
+		WithProviderStepLimit(1),
+		WithTool(testTool("work")),
+		WithTool(report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("step-limit-finalization-repair"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	result, err := run.Result()
+	if err != nil || !run.StepLimitFinalized() || run.CompletionRepairCount() != 1 || delivered != 1 {
+		t.Fatalf("result = (%#v, %v), finalized=%v repairs=%d delivered=%d", result, err, run.StepLimitFinalized(), run.CompletionRepairCount(), delivered)
+	}
+	requests := model.Requests()
+	if len(requests) != 3 || result.Steps != 3 {
+		t.Fatalf("provider requests/steps = %d/%d, want 3/3", len(requests), result.Steps)
+	}
+	for index := 1; index < len(requests); index++ {
+		if len(requests[index].Tools) != 1 || requests[index].Tools[0].Name != "report" {
+			t.Fatalf("finalization request %d tools = %#v, want only report", index, requests[index].Tools)
+		}
+	}
+	if len(requests[2].ContextReminders) < 2 ||
+		!strings.Contains(requests[2].ContextReminders[len(requests[2].ContextReminders)-1].Content, "report") {
+		t.Fatalf("repair reminders = %#v, want finalization and required report reminders", requests[2].ContextReminders)
+	}
+}
+
+func TestStepLimitFinalizationFailsAfterBoundedMissingEndResponseScopeRepairs(t *testing.T) {
+	model := &stepLimitFinalizationModel{reportAt: -1}
+	report := Tool{
+		Definition: ToolDefinition{
+			Name:        "report",
+			Description: "Response-scope report.",
+			InputSchema: ObjectSchema(struct{ Message ToolParameter }{Message: StringParameter("Final message").Required()}),
+		},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+		Trigger:          EndResponseScope,
+		EndTurnOnSuccess: true,
+	}
+	agent, err := New(
+		context.Background(),
+		WithModel(model),
+		WithProviderStepLimit(1),
+		WithTool(testTool("work")),
+		WithTool(report),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	run, err := agent.Start(context.Background(), userRequest("step-limit-finalization-exhausted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	if _, err := run.Result(); err == nil || !strings.Contains(err.Error(), "required end-of-turn tool was not called successfully") {
+		t.Fatalf("run error = %v, want bounded missing-trigger failure", err)
+	}
+	if got := len(model.Requests()); got != 5 {
+		t.Fatalf("provider requests = %d, want one agentic plus four bounded finalization rounds", got)
+	}
+}
+
 func TestEndResponseScopeFirstToolCallIsSkippedThenWorkContinues(t *testing.T) {
 	model := &earlyReportThenWorkModel{}
 	var reportCalls, workCalls int
@@ -519,6 +608,37 @@ type requiredTriggerToolModel struct {
 	requests     []agentruntime.ModelRequest
 	repairMisses int
 	starts       int
+}
+
+type stepLimitFinalizationModel struct {
+	mu       sync.Mutex
+	requests []agentruntime.ModelRequest
+	reportAt int
+}
+
+func (m *stepLimitFinalizationModel) Start(_ context.Context, request agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	m.mu.Lock()
+	index := len(m.requests)
+	m.requests = append(m.requests, request)
+	m.mu.Unlock()
+	switch {
+	case index == 0:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "work", Name: "work", Arguments: map[string]any{},
+		}}, Finished: true}}, nil
+	case index == m.reportAt:
+		return scriptedStream{result: provider.StreamResult{CompletedTools: []provider.ToolCall{{
+			ID: "report", Name: "report", Arguments: map[string]any{"message": "done"},
+		}}, Finished: true}}, nil
+	default:
+		return scriptedStream{result: provider.StreamResult{Content: "forgot the report tool", Finished: true}}, nil
+	}
+}
+
+func (m *stepLimitFinalizationModel) Requests() []agentruntime.ModelRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]agentruntime.ModelRequest(nil), m.requests...)
 }
 
 type earlyReportThenWorkModel struct {

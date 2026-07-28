@@ -20,12 +20,15 @@ never closes them.
 
 Provider rounds are unlimited by default. `WithProviderStepLimit(n)` opts the
 main and child turns into an agentic budget. When that budget is exhausted, the
-coordinator starts exactly one additional finalization request with no tool
-definitions and a trusted instruction to summarize completed work,
-verification, blockers, and remaining tasks as text. Tool calls returned
-despite that boundary are stripped and never dispatched; missing text becomes
-a deterministic fallback. This finalizer bypasses output/completion repair
-loops and completes the run, so `RunResult.Steps` may be `n+1`.
+coordinator enters a restricted finalization phase: ordinary work tools
+disappear, required trigger tools remain available, and a trusted reminder asks
+the model to finish from existing results. A compliant required
+`EndResponseScope` call therefore still executes at the final boundary. If the
+model returns text while a required trigger remains missing, the existing
+completion guard replays its bounded repair with only missing trigger tools;
+it fails rather than silently ending after three no-progress repairs.
+Unauthorized tool calls are stripped and never dispatched. The initial
+finalizer and its repair rounds count in `RunResult.Steps`.
 
 Trusted runtime input such as a subagent callback can be queued on an active
 run. The run never changes an in-flight provider request. It drains and

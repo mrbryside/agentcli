@@ -369,8 +369,9 @@ func WithMaxSubagents(maximum int) Option {
 }
 
 // WithProviderStepLimit bounds the number of agentic provider rounds a turn
-// may use before one additional tools-free text finalization round. Omitting
-// this option leaves the turn unlimited.
+// may use before a restricted finalization phase. That phase exposes only
+// required trigger tools and reuses bounded completion repair. Omitting this
+// option leaves the turn unlimited.
 func WithProviderStepLimit(maximum int) Option {
 	return func(configuration *config) error {
 		if maximum <= 0 {

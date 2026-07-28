@@ -68,7 +68,7 @@ Common options:
 | `WithPermissionStorage` | Replace permission/grant storage. |
 | `WithConfirmationStorage` | Replace confirmation storage. |
 | `WithSubagentStorage` | Replace child relationship storage. |
-| `WithProviderStepLimit` | Opt into an agentic provider-round budget; omission is unlimited, and exhaustion gets one additional tools-disabled text finalizer. |
+| `WithProviderStepLimit` | Opt into an agentic provider-round budget; omission is unlimited, while exhaustion exposes only required trigger tools and reuses bounded completion repair. |
 | `WithMaxSubagents` | Bound open children per parent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |

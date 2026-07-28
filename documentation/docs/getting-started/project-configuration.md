@@ -125,10 +125,12 @@ still works and receives neither override.
 Provider-step limits are programmatic rather than project configuration.
 Without `WithProviderStepLimit`, main and child turns have no provider-round
 ceiling. `WithProviderStepLimit(n)` allows `n` agentic provider rounds, then
-makes exactly one additional request with no tools so the model can return a
-final text summary; that finalizer is included in `RunResult.Steps`. It cannot
-dispatch tools and does not run completion or output-guard repairs. The option
-requires a positive value and is inherited by child agents.
+enters a restricted finalization phase. Ordinary work tools are unavailable,
+but required trigger tools such as `EndResponseScope` remain exposed. If the
+model forgets one, the existing bounded completion repair replays with only the
+missing trigger tools instead of silently ending the turn. Finalization and
+repair rounds are included in `RunResult.Steps`. The option requires a positive
+value and is inherited by child agents.
 
 `max_subagents` limits non-closed child instances per parent session. A positive
 value sets the quota; omitting it or setting it to `0` keeps the default of 4.

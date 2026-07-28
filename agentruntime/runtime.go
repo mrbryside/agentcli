@@ -29,21 +29,24 @@ type Config struct {
 	InputGuardModel         Model
 	OutputGuardModel        Model
 	Tools                   []ToolDefinition
-	ToolRequests            chan<- ToolRequest
-	ToolResults             <-chan ToolResultEnvelope
-	ToolInterrupts          chan<- ToolInterrupt
-	PermissionRequests      <-chan permission.Request
-	PermissionDecisions     chan<- permission.Decision
-	ConfirmationRequests    <-chan confirmation.Request
-	ConfirmationDecisions   chan<- confirmation.Decision
-	PermissionMode          permission.Mode
+	// StepLimitFinalizationTools names the only tools exposed after MaxSteps is
+	// exhausted. Completion-guard restrictions may narrow this set further.
+	StepLimitFinalizationTools []string
+	ToolRequests               chan<- ToolRequest
+	ToolResults                <-chan ToolResultEnvelope
+	ToolInterrupts             chan<- ToolInterrupt
+	PermissionRequests         <-chan permission.Request
+	PermissionDecisions        chan<- permission.Decision
+	ConfirmationRequests       <-chan confirmation.Request
+	ConfirmationDecisions      chan<- confirmation.Decision
+	PermissionMode             permission.Mode
 	// PermissionModeChanged is invoked while Runtime serializes a live mode
 	// transition and before the transition event is published. It lets an
 	// embedding atomically update the executor's permission policy.
 	PermissionModeChanged func(previous, current permission.Mode) error
 	IDGenerator           IDGenerator
-	// MaxSteps bounds agentic provider rounds before one additional tools-free
-	// text finalization round. Zero disables the boundary.
+	// MaxSteps bounds agentic provider rounds before a restricted finalization
+	// phase. Zero disables the boundary.
 	MaxSteps int
 	// Compactor enables provider-neutral transcript compaction before each
 	// main-model round. Its zero value is disabled.
@@ -59,28 +62,29 @@ type Config struct {
 type Runtime struct {
 	ctx context.Context
 
-	model                   Model
-	messages                storage.MessageStorage
-	systemPrompts           []string
-	contextReminderProvider ContextReminderProvider
-	completionGuard         CompletionGuard
-	inputGuard              InputGuard
-	outputGuard             OutputGuard
-	tools                   []ToolDefinition
-	toolRequests            chan<- ToolRequest
-	toolResults             <-chan ToolResultEnvelope
-	toolInterrupts          chan<- ToolInterrupt
-	permissionRequests      <-chan permission.Request
-	permissionDecisions     chan<- permission.Decision
-	confirmationRequests    <-chan confirmation.Request
-	confirmationDecisions   chan<- confirmation.Decision
-	idGenerator             IDGenerator
-	maxSteps                int
-	permissionMode          permission.Mode
-	permissionModeChanged   func(previous, current permission.Mode) error
-	compactor               *Compactor
-	mainModelMetadata       ModelMetadata
-	logger                  *slog.Logger
+	model                      Model
+	messages                   storage.MessageStorage
+	systemPrompts              []string
+	contextReminderProvider    ContextReminderProvider
+	completionGuard            CompletionGuard
+	inputGuard                 InputGuard
+	outputGuard                OutputGuard
+	tools                      []ToolDefinition
+	stepLimitFinalizationTools []string
+	toolRequests               chan<- ToolRequest
+	toolResults                <-chan ToolResultEnvelope
+	toolInterrupts             chan<- ToolInterrupt
+	permissionRequests         <-chan permission.Request
+	permissionDecisions        chan<- permission.Decision
+	confirmationRequests       <-chan confirmation.Request
+	confirmationDecisions      chan<- confirmation.Decision
+	idGenerator                IDGenerator
+	maxSteps                   int
+	permissionMode             permission.Mode
+	permissionModeChanged      func(previous, current permission.Mode) error
+	compactor                  *Compactor
+	mainModelMetadata          ModelMetadata
+	logger                     *slog.Logger
 
 	mu                        sync.RWMutex
 	active                    map[string]*Run
@@ -215,33 +219,34 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 
 	runtime := &Runtime{
-		ctx:                       ctx,
-		model:                     config.Model,
-		messages:                  config.Messages,
-		systemPrompts:             append([]string(nil), config.SystemPrompts...),
-		contextReminderProvider:   config.ContextReminderProvider,
-		completionGuard:           config.CompletionGuard,
-		inputGuard:                config.InputGuard,
-		outputGuard:               config.OutputGuard,
-		tools:                     cloneToolDefinitions(config.Tools),
-		toolRequests:              config.ToolRequests,
-		toolResults:               config.ToolResults,
-		toolInterrupts:            config.ToolInterrupts,
-		permissionRequests:        config.PermissionRequests,
-		permissionDecisions:       config.PermissionDecisions,
-		confirmationRequests:      config.ConfirmationRequests,
-		confirmationDecisions:     config.ConfirmationDecisions,
-		idGenerator:               config.IDGenerator,
-		maxSteps:                  config.MaxSteps,
-		permissionMode:            config.PermissionMode,
-		permissionModeChanged:     config.PermissionModeChanged,
-		compactor:                 config.Compactor,
-		logger:                    config.Logger,
-		active:                    make(map[string]*Run),
-		pendingPermissions:        make(map[permission.ID]*pendingPermission),
-		permissionDecisionsSeen:   make(map[permission.ID]permission.Decision),
-		pendingConfirmations:      make(map[confirmation.ID]*pendingConfirmation),
-		confirmationDecisionsSeen: make(map[confirmation.ID]confirmation.Decision),
+		ctx:                        ctx,
+		model:                      config.Model,
+		messages:                   config.Messages,
+		systemPrompts:              append([]string(nil), config.SystemPrompts...),
+		contextReminderProvider:    config.ContextReminderProvider,
+		completionGuard:            config.CompletionGuard,
+		inputGuard:                 config.InputGuard,
+		outputGuard:                config.OutputGuard,
+		tools:                      cloneToolDefinitions(config.Tools),
+		stepLimitFinalizationTools: append([]string(nil), config.StepLimitFinalizationTools...),
+		toolRequests:               config.ToolRequests,
+		toolResults:                config.ToolResults,
+		toolInterrupts:             config.ToolInterrupts,
+		permissionRequests:         config.PermissionRequests,
+		permissionDecisions:        config.PermissionDecisions,
+		confirmationRequests:       config.ConfirmationRequests,
+		confirmationDecisions:      config.ConfirmationDecisions,
+		idGenerator:                config.IDGenerator,
+		maxSteps:                   config.MaxSteps,
+		permissionMode:             config.PermissionMode,
+		permissionModeChanged:      config.PermissionModeChanged,
+		compactor:                  config.Compactor,
+		logger:                     config.Logger,
+		active:                     make(map[string]*Run),
+		pendingPermissions:         make(map[permission.ID]*pendingPermission),
+		permissionDecisionsSeen:    make(map[permission.ID]permission.Decision),
+		pendingConfirmations:       make(map[confirmation.ID]*pendingConfirmation),
+		confirmationDecisionsSeen:  make(map[confirmation.ID]confirmation.Decision),
 	}
 	runtime.mainModelMetadata = mainModelMetadata
 	go runtime.routeToolResults()

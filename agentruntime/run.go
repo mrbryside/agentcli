@@ -123,9 +123,11 @@ type runtimeMessageInjection struct {
 
 const (
 	stepLimitFinalizationReminder = `<provider_step_limit state="finalization">
-The configured provider-step limit has been reached. This is the only finalization round and no tools are available. Respond with a concise, self-contained text summary of the work completed, confirmed results and verification, unresolved blockers, and recommended remaining tasks. Do not claim unconfirmed actions and do not attempt any tool call.
+The configured provider-step limit has been reached. Agentic work is over. Only required completion tools may be available. Finish from existing results: call every required completion tool that is available, otherwise respond with a concise, self-contained text summary of completed work, confirmed verification, unresolved blockers, and remaining tasks. Do not claim unconfirmed actions or attempt unavailable tools.
 </provider_step_limit>`
 	stepLimitFinalizationFallback = "The provider-step limit was reached, but the model did not return the required text-only summary. Review the completed tool results and continue the remaining work in a new turn."
+	// One initial finalizer plus the existing three bounded completion repairs.
+	maxStepLimitFinalizationRounds = 4
 )
 
 func newRun(sessionID, turnID string) *Run {
@@ -502,10 +504,10 @@ func (r *Run) runLoop(ctx context.Context, runtime *Runtime, initial Message, in
 				r.setProviderEvents(nil)
 				continue
 			}
-			if r.suppressTextOnlyFinalizationEvent(event) {
+			if r.suppressStepLimitFinalizationEvent(event) {
 				continue
 			}
-			event = r.enforceTextOnlyFinalization(event)
+			event = r.enforceStepLimitFinalization(event, runtime.stepLimitFinalizationTools)
 			if !r.processEvent(ctx, runtime, AgentEvent{Type: ProviderEventReceived, ProviderEvent: event}) {
 				return
 			}
@@ -743,10 +745,12 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	steps := r.providerSteps()
 	finalizing := r.StepLimitFinalized()
 	if runtime.maxSteps > 0 && steps >= runtime.maxSteps {
-		if finalizing {
+		if finalizing && steps-runtime.maxSteps >= maxStepLimitFinalizationRounds {
 			return ErrMaxSteps
 		}
-		r.beginStepLimitFinalization()
+		if !finalizing {
+			r.beginStepLimitFinalization()
+		}
 		finalizing = true
 	}
 	messages, err := runtime.messages.List(ctx, r.sessionID)
@@ -766,13 +770,18 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 	}
 	if finalizing {
 		reminders = append(reminders, ContextReminder{Content: stepLimitFinalizationReminder})
+		reminders = append(reminders, r.takeCompletionReminder()...)
+		reminders = append(reminders, r.takeOutputGuardReminder()...)
 	} else {
 		reminders = append(reminders, r.takeCompletionReminder()...)
 		reminders = append(reminders, r.takeOutputGuardReminder()...)
 	}
 	tools := cloneToolDefinitions(runtime.tools)
 	if finalizing {
-		tools = nil
+		tools = filterCompletionTools(tools, runtime.stepLimitFinalizationTools)
+		if restricted, allowlist := r.completionToolRestriction(); restricted {
+			tools = filterCompletionTools(tools, allowlist)
+		}
 	} else if restricted, allowlist := r.completionToolRestriction(); restricted {
 		if allowlist != nil {
 			tools = filterCompletionTools(tools, allowlist)
@@ -860,12 +869,6 @@ func (r *Run) prepareCompaction(ctx context.Context, runtime *Runtime, request M
 }
 
 func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
-	if r.StepLimitFinalized() {
-		if !r.commitPendingAssistant(ctx, runtime) {
-			return false
-		}
-		return r.processEvent(ctx, runtime, AgentEvent{Type: RunCompleted})
-	}
 	injected, err := r.appendRuntimeInputs(ctx, runtime)
 	if err != nil {
 		return r.fail(ctx, runtime, err)
@@ -973,8 +976,8 @@ func (r *Run) attemptComplete(ctx context.Context, runtime *Runtime) bool {
 	return true
 }
 
-// StepLimitFinalized reports whether this run used its one tools-disabled
-// provider round after exhausting the configured agentic step budget.
+// StepLimitFinalized reports whether this run entered its restricted
+// finalization phase after exhausting the configured agentic step budget.
 func (r *Run) StepLimitFinalized() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -987,7 +990,7 @@ func (r *Run) beginStepLimitFinalization() {
 	r.mu.Unlock()
 }
 
-func (r *Run) suppressTextOnlyFinalizationEvent(event provider.StreamEvent) bool {
+func (r *Run) suppressStepLimitFinalizationEvent(event provider.StreamEvent) bool {
 	if !r.StepLimitFinalized() {
 		return false
 	}
@@ -999,7 +1002,7 @@ func (r *Run) suppressTextOnlyFinalizationEvent(event provider.StreamEvent) bool
 	}
 }
 
-func (r *Run) enforceTextOnlyFinalization(event provider.StreamEvent) provider.StreamEvent {
+func (r *Run) enforceStepLimitFinalization(event provider.StreamEvent, allowlist []string) provider.StreamEvent {
 	if !r.StepLimitFinalized() || event.Type != provider.StreamCompleted {
 		return event
 	}
@@ -1013,15 +1016,27 @@ func (r *Run) enforceTextOnlyFinalization(event provider.StreamEvent) provider.S
 	if result.Reasoning == "" {
 		result.Reasoning = event.Reasoning
 	}
-	if len(result.CompletedTools) == 0 && strings.TrimSpace(result.Content) != "" {
-		return event
+	allowed := make(map[string]struct{}, len(allowlist))
+	for _, name := range allowlist {
+		allowed[name] = struct{}{}
 	}
-	result.CompletedTools = nil
-	if strings.TrimSpace(result.Content) == "" {
-		result.Content = stepLimitFinalizationFallback
+	filtered := result.CompletedTools[:0]
+	for _, call := range result.CompletedTools {
+		if _, ok := allowed[call.Name]; ok {
+			filtered = append(filtered, call)
+		}
 	}
+	result.CompletedTools = filtered
 	event.Payload = provider.StreamCompletedPayload{Result: result}
 	event.Tool = nil
+	if len(result.CompletedTools) != 0 {
+		return event
+	}
+	if strings.TrimSpace(result.Content) != "" {
+		return event
+	}
+	result.Content = stepLimitFinalizationFallback
+	event.Payload = provider.StreamCompletedPayload{Result: result}
 	return event
 }
 
