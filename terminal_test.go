@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -202,18 +203,18 @@ func TestTerminalRendersPermissionModeEvents(t *testing.T) {
 	}
 }
 
-func TestTerminalRendersSubagentStatusToolResultImmediately(t *testing.T) {
+func TestTerminalRendersTaskToolResult(t *testing.T) {
 	var output bytes.Buffer
 	client := terminalClient{terminal: terminal{out: &output}}
 	wrote := false
 	client.renderEvent(agentruntime.AgentEvent{
 		Type: agentruntime.ToolResultReceived,
 		ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
-			Name: SubagentStatusToolName, Status: agentruntime.ToolResultSucceeded,
-			Output: json.RawMessage(`{"subagent":{"id":"subagent_1","status":"idle","queued_messages":0},"activity_summary":"Completed: inspect project","result_ready":true}`),
+			Name: TaskToolName, Status: agentruntime.ToolResultSucceeded,
+			Output: json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"done"}`),
 		}},
 	}, &wrote)
-	for _, wanted := range []string{"✓ subagent_status", "Subagent status · subagent_1 · idle", "Completed: inspect project", "result ready"} {
+	for _, wanted := range []string{"✓ task"} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}
@@ -649,19 +650,11 @@ func TestClosedAgentRejectsTerminal(t *testing.T) {
 	}
 }
 
-func TestTerminalSubagentResultQueueIsSilentAndFIFO(t *testing.T) {
-	client := terminalClient{}
-	first := SubagentResult{SubagentID: "first"}
-	second := SubagentResult{SubagentID: "second"}
-	client.deferMainAgentResult(first)
-	client.deferMainAgentResult(second)
-	if len(client.mainAgentNotices) != 0 {
-		t.Fatalf("deferred results produced notices: %#v", client.mainAgentNotices)
-	}
-	for _, want := range []SubagentResult{first, second} {
-		got, ok := client.dequeueMainAgentResult()
-		if !ok || got.SubagentID != want.SubagentID {
-			t.Fatalf("result dequeue = (%#v, %v), want %#v", got, ok, want)
+func TestTerminalLeavesTaskDeliveryToAgent(t *testing.T) {
+	interfaceType := reflect.TypeOf((*terminalAgent)(nil)).Elem()
+	for _, name := range []string{"SubscribeSubagentResults", "ContinueSubagentResultSubscribed"} {
+		if _, found := interfaceType.MethodByName(name); found {
+			t.Fatalf("terminalAgent still owns %s; task delivery belongs to Agent", name)
 		}
 	}
 }
@@ -840,10 +833,6 @@ func (*terminalAgentStub) StartSubscribed(context.Context, agentruntime.Request)
 	return nil, agentruntime.EventSubscription{}, nil
 }
 
-func (*terminalAgentStub) SubscribeSubagentResults(context.Context) <-chan SubagentResult {
-	return make(chan SubagentResult)
-}
-
 func (*terminalAgentStub) SubscribeSubagentPermissions(context.Context) <-chan SubagentPermissionEvent {
 	return make(chan SubagentPermissionEvent)
 }
@@ -858,10 +847,6 @@ func (*terminalAgentStub) SubscribeSubagentConfirmations(context.Context) <-chan
 
 func (*terminalAgentStub) PendingSubagentConfirmations(context.Context, string) ([]SubagentConfirmationEvent, error) {
 	return nil, nil
-}
-
-func (*terminalAgentStub) ContinueSubagentResultSubscribed(context.Context, SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error) {
-	return nil, agentruntime.EventSubscription{}, nil
 }
 
 func (*terminalAgentStub) ResolvePermission(context.Context, permission.Decision) error {

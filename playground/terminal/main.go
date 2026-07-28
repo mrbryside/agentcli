@@ -32,7 +32,9 @@ func run() (runErr error) {
 	}
 	agent, err := agentcli.New(ctx,
 		// WithProject also applies optional logging.enabled/logging.level from
-		// .agentcli/config.yaml to this playground and all subagents.
+		// .agentcli/config.yaml to this playground and task subagents. The
+		// framework-provided task tool returns foreground task output in the
+		// current turn; the terminal never starts a result-continuation turn.
 		agentcli.WithProject(project),
 		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),

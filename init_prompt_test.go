@@ -19,7 +19,8 @@ func TestInstallerMainPromptKeepsUserFacingOutputInsideTriggerTool(t *testing.T)
 		"Never write that text first and call the tool afterward",
 		"Keep the complete message at or below 1800 Unicode characters",
 		"Summarize",
-		`"will report back"`,
+		"Use `task` when focused research or a separate investigation would help",
+		"same tool-call batch",
 		"For completed work, report the findings directly",
 	} {
 		if !strings.Contains(installer, required) {

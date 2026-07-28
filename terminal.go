@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -158,7 +157,7 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 		}
 		go client.monitorSubagentPermissions(terminalContext, permissionEvents)
 		go client.monitorSubagentConfirmations(terminalContext, confirmationEvents)
-		return client.runTurn(terminalContext, config.initialPrompt, nil, nil)
+		return client.runTurn(terminalContext, config.initialPrompt, nil)
 	}
 	return client.runInteractive(terminalContext, config.input, pendingPermissions, permissionEvents, pendingConfirmations, confirmationEvents)
 }
@@ -186,12 +185,10 @@ func formatTerminalTokenCount(tokens int) string {
 
 type terminalAgent interface {
 	StartSubscribed(context.Context, agentruntime.Request) (*agentruntime.Run, agentruntime.EventSubscription, error)
-	SubscribeSubagentResults(context.Context) <-chan SubagentResult
 	SubscribeSubagentPermissions(context.Context) <-chan SubagentPermissionEvent
 	PendingSubagentPermissions(context.Context, string) ([]SubagentPermissionEvent, error)
 	SubscribeSubagentConfirmations(context.Context) <-chan SubagentConfirmationEvent
 	PendingSubagentConfirmations(context.Context, string) ([]SubagentConfirmationEvent, error)
-	ContinueSubagentResultSubscribed(context.Context, SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error)
 	ResolvePermission(context.Context, permission.Decision) error
 	ResolveConfirmation(context.Context, confirmation.Decision) error
 	ResolveSubagentPermission(context.Context, string, string, permission.Decision) error
@@ -337,7 +334,6 @@ type terminalClient struct {
 	mainAgentLoading       *terminalLoadingController
 	mainAgentReplayThrough uint64
 	mainAgentPromptQueue   []string
-	mainAgentResultQueue   []SubagentResult
 	mainAgentNotices       []string
 	escapeInput            <-chan struct{}
 	reasoningToggleInput   <-chan struct{}
@@ -494,26 +490,11 @@ func (c *terminalClient) runInteractive(
 	go c.monitorSubagentPermissions(ctx, permissionEvents)
 	go c.monitorSubagentConfirmations(ctx, confirmationEvents)
 	lines := inputSession.lines
-	results := c.agent.SubscribeSubagentResults(ctx)
-
 	for {
-		if result, ok := c.dequeueMainAgentResult(); ok {
-			c.mainAgentNotice("Subagent result", resultDisplayReference(result)+" · "+string(result.Status))
-			if err := c.runResultTurn(ctx, result, lines, results); errors.Is(err, errTerminalExit) {
-				return nil
-			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
-				if c.activeView() == "" {
-					c.terminal.error(err)
-				} else {
-					c.mainAgentNotice("Error", err.Error())
-				}
-			}
-			continue
-		}
 		if c.activeView() == "" {
 			if queuedPrompt, ok := c.dequeueMainAgentPrompt(); ok {
 				c.terminal.status("Queued message", "starting")
-				if err := c.runTurn(ctx, queuedPrompt, lines, results); errors.Is(err, errTerminalExit) {
+				if err := c.runTurn(ctx, queuedPrompt, lines); errors.Is(err, errTerminalExit) {
 					return nil
 				} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 					if c.activeView() == "" {
@@ -545,22 +526,6 @@ func (c *terminalClient) runInteractive(
 			}
 			c.terminal.println("")
 			return nil
-		case result, open := <-results:
-			if !open {
-				results = nil
-				continue
-			}
-			c.mainAgentNotice("Subagent result", resultDisplayReference(result)+" · "+string(result.Status))
-			if err := c.runResultTurn(ctx, result, lines, results); errors.Is(err, errTerminalExit) {
-				return nil
-			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
-				if c.activeView() == "" {
-					c.terminal.error(err)
-				} else {
-					c.mainAgentNotice("Error", err.Error())
-				}
-			}
-			continue
 		case line, open := <-inputSession.lines:
 			if !open {
 				return nil
@@ -590,7 +555,7 @@ func (c *terminalClient) runInteractive(
 				}
 				continue
 			}
-			if err := c.runTurn(ctx, prompt, lines, results); errors.Is(err, errTerminalExit) {
+			if err := c.runTurn(ctx, prompt, lines); errors.Is(err, errTerminalExit) {
 				return nil
 			} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
 				if c.activeView() == "" {
@@ -862,13 +827,6 @@ func (c *terminalClient) findSubagent(id string) (storage.Subagent, error) {
 	return storage.Subagent{}, fmt.Errorf("subagent %s was not found in this session", id)
 }
 
-func resultDisplayReference(result SubagentResult) string {
-	if result.DisplayName == "" {
-		return result.SubagentID
-	}
-	return result.DisplayName + " · " + result.SubagentID
-}
-
 func (c *terminalClient) showSubagentStatus(id string) error {
 	record, err := c.findSubagent(id)
 	if err != nil {
@@ -885,7 +843,7 @@ func (c *terminalClient) showSubagentStatus(id string) error {
 	case record.LastResultError != "":
 		activity = "Last turn failed: " + record.LastResultError
 	case record.Status == storage.SubagentStatusIdle && record.LastSubagentTurnID != "":
-		activity = "Completed: " + task + " · result ready"
+		activity = "Last task completed: " + task
 	case record.Status == storage.SubagentStatusClosed:
 		activity = "Closed: " + task
 	default:
@@ -1247,26 +1205,6 @@ func (c *terminalClient) clearMainAgentPrompts() {
 	c.stateMu.Unlock()
 }
 
-// deferMainAgentResult keeps a subagent result pending while the main agent turn is
-// active. This is intentionally silent: result scheduling is internal state,
-// unlike a user-authored prompt that benefits from visible queue feedback.
-func (c *terminalClient) deferMainAgentResult(result SubagentResult) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	c.mainAgentResultQueue = append(c.mainAgentResultQueue, result)
-}
-
-func (c *terminalClient) dequeueMainAgentResult() (SubagentResult, bool) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	if len(c.mainAgentResultQueue) == 0 {
-		return SubagentResult{}, false
-	}
-	result := c.mainAgentResultQueue[0]
-	c.mainAgentResultQueue = c.mainAgentResultQueue[1:]
-	return result, true
-}
-
 func (c *terminalClient) showMainAgentView() {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
@@ -1350,12 +1288,12 @@ func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wrot
 	}
 }
 
-func (c *terminalClient) runTurn(ctx context.Context, prompt string, input <-chan string, results <-chan SubagentResult) error {
+func (c *terminalClient) runTurn(ctx context.Context, prompt string, input <-chan string) error {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil
 	}
-	return c.runMainAgentTurn(ctx, input, results, func() (*agentruntime.Run, agentruntime.EventSubscription, error) {
+	return c.runMainAgentTurn(ctx, input, func() (*agentruntime.Run, agentruntime.EventSubscription, error) {
 		return c.agent.StartSubscribed(ctx, agentruntime.Request{
 			SessionID: c.sessionID,
 			Message: agentruntime.Message{
@@ -1366,13 +1304,7 @@ func (c *terminalClient) runTurn(ctx context.Context, prompt string, input <-cha
 	})
 }
 
-func (c *terminalClient) runResultTurn(ctx context.Context, result SubagentResult, input <-chan string, results <-chan SubagentResult) error {
-	return c.runMainAgentTurn(ctx, input, results, func() (*agentruntime.Run, agentruntime.EventSubscription, error) {
-		return c.agent.ContinueSubagentResultSubscribed(ctx, result)
-	})
-}
-
-func (c *terminalClient) runMainAgentTurn(ctx context.Context, input <-chan string, results <-chan SubagentResult, start func() (*agentruntime.Run, agentruntime.EventSubscription, error)) error {
+func (c *terminalClient) runMainAgentTurn(ctx context.Context, input <-chan string, start func() (*agentruntime.Run, agentruntime.EventSubscription, error)) error {
 	run, subscription, err := start()
 	if err != nil {
 		return err
@@ -1428,13 +1360,7 @@ func (c *terminalClient) runMainAgentTurn(ctx context.Context, input <-chan stri
 				continue
 			}
 			position := c.enqueueMainAgentPrompt(value)
-			c.terminal.status("Queued message", fmt.Sprintf("%d waiting for main agent", position))
-		case result, open := <-results:
-			if !open {
-				results = nil
-				continue
-			}
-			c.deferMainAgentResult(result)
+			c.terminal.status("Queued message", fmt.Sprintf("%d queued", position))
 		case event, open := <-subscription.Events:
 			if !open {
 				// Always flush: this view may have reconstructed content from
@@ -1639,9 +1565,6 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			if visible {
 				loading.Stop()
 				c.terminal.toolResult(event.ToolResult.Result)
-				if event.ToolResult.Result.Name == SubagentStatusToolName {
-					c.terminal.subagentStatus(event.ToolResult.Result.Output)
-				}
 			}
 			if visible {
 				loading.Start("")
@@ -1917,26 +1840,6 @@ func (t terminal) subagent(instance storage.Subagent) {
 		label += " · " + instance.Label
 	}
 	t.status("Subagent", label+" · "+instance.ID+" · "+string(instance.Status))
-}
-
-func (t terminal) subagentStatus(output json.RawMessage) {
-	var result struct {
-		Subagent struct {
-			ID             string                 `json:"id"`
-			Status         storage.SubagentStatus `json:"status"`
-			QueuedMessages int                    `json:"queued_messages"`
-		} `json:"subagent"`
-		ActivitySummary string `json:"activity_summary"`
-		ResultReady     bool   `json:"result_ready"`
-	}
-	if json.Unmarshal(output, &result) != nil || result.Subagent.ID == "" {
-		return
-	}
-	details := string(result.Subagent.Status) + " · " + result.ActivitySummary
-	if result.ResultReady {
-		details += " · result ready"
-	}
-	t.status("Subagent status", result.Subagent.ID+" · "+details)
 }
 
 func (t terminal) messages(messages []agentruntime.Message) {

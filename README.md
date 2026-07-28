@@ -34,11 +34,7 @@ lines and a `next_offset` when more content remains. Tool source is generated
 separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
 `tool_report_discord.go`. A trigger call made as the model's first provider
 action is skipped with a successful continue result and must not be retried by
-the model. After the remaining work and accepted subagent results or
-follow-ups finish, completion repair requests the executable final call.
-The runtime also accepts a later provider-round call when the complete response
-scope is ready to end as a compatibility path,
-but the agent decides whether a report is useful: omitting
+the model. The agent decides whether a response is useful: omitting
 `skipReport` or setting it to `false` records `message`, while
 `skipReport: true` returns `skipped` without writing a report entry. A rejected
 tool call also leaves the report file unchanged. Reported messages must present
@@ -164,6 +160,17 @@ Understand the requested result and provide a clear, self-contained answer.
 
 Omit `tools` or `skills` when none are allowed. Project configuration may also
 include `.agentcli/skill/*/SKILL.md` and `.agentcli/agent/*/*.md`.
+
+## Subagent tasks
+
+The main model has one `task` tool for focused subagent work. New tasks name an
+agent and provide a short description and prompt; they run in the foreground by
+default and return final text in the same main-agent turn. Submit independent
+tasks in one tool-call batch for parallel execution. To continue a saved task,
+call `task` with its `task_id` and a new prompt. Background tasks and promoted
+foreground tasks are delivered by the runtime exactly once; terminal and HTTP
+clients do not create a separate follow-up turn for their result. Host-facing
+subagent session management remains available independently.
 
 ## Create an Agent
 
