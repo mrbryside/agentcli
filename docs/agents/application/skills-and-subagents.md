@@ -86,6 +86,13 @@ semantic outcome requires an explicit successful report.
 Its bounded repair
 exposes only `report_subagent_outcome`, preventing repeated domain actions, and
 defaults safely to incomplete if the child still omits a valid report.
+When a configured provider-step limit is exhausted, the initial child
+finalizer exposes `report_subagent_outcome` immediately; the usual maximum of
+three outcome repairs remains unchanged, and one final text round remains
+available after a report succeeds on the last repair. Application
+`EndResponseScope` tools are root-only and are rejected when assigned to a
+subagent, both during root project validation and defensively during direct
+child construction.
 Lifecycle (`running`, `idle`, `closed`) remains separate from last-turn
 outcome.
 

@@ -78,6 +78,11 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			return nil, err
 		}
 	}
+	if configuration.childAgent {
+		if err := validateChildTools(configuration.tools); err != nil {
+			return nil, err
+		}
+	}
 	// Projects without definitions deliberately allocate no child-session
 	// resources. A child itself is also not a parent manager, keeping the
 	// initial nesting depth at one.
@@ -212,6 +217,14 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			requiredAtResponseScopeEnd = append(requiredAtResponseScopeEnd, tool.Definition.Name)
 		}
 	}
+	stepLimitFinalizationTools := append([]string(nil), requiredAtTurnEnd...)
+	stepLimitFinalizationTools = append(stepLimitFinalizationTools, requiredAtResponseScopeEnd...)
+	if configuration.childAgent {
+		// report_subagent_outcome is required for every child but deliberately
+		// has no trigger because the child still owes the parent a concise
+		// final assistant answer after the report succeeds.
+		stepLimitFinalizationTools = append(stepLimitFinalizationTools, toolexecution.SubagentOutcomeToolName)
+	}
 	completionGuard = completionGuardWithRequiredTools(
 		completionGuard,
 		requiredAtTurnEnd,
@@ -227,33 +240,30 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		compactor = &agentruntime.Compactor{Model: configuration.compactionModel, Estimator: configuration.contextEstimator}
 	}
 	runtime, err := agentruntime.New(runContext, agentruntime.Config{
-		Model:                   configuration.model,
-		Messages:                configuration.messages,
-		SystemPrompts:           append([]string(nil), configuration.systemPrompts...),
-		ContextReminderProvider: reminderProvider,
-		CompletionGuard:         completionGuard,
-		InputGuard:              configuration.inputGuard,
-		OutputGuard:             configuration.outputGuard,
-		InputGuardPrompt:        configuration.inputGuardPrompt,
-		OutputGuardPrompt:       configuration.outputGuardPrompt,
-		InputGuardModel:         inputGuardModel,
-		OutputGuardModel:        outputGuardModel,
-		Tools:                   registry.Definitions(),
-		StepLimitFinalizationTools: append(
-			append([]string(nil), requiredAtTurnEnd...),
-			requiredAtResponseScopeEnd...,
-		),
-		ToolRequests:          toolRequests,
-		ToolResults:           toolResults,
-		ToolInterrupts:        toolInterrupts,
-		PermissionRequests:    permissionRequests,
-		PermissionDecisions:   permissionDecisions,
-		ConfirmationRequests:  confirmationRequests,
-		ConfirmationDecisions: confirmationDecisions,
-		PermissionMode:        configuration.permissionMode,
-		MaxSteps:              configuration.maxProviderSteps,
-		Compactor:             compactor,
-		Logger:                configuration.logger,
+		Model:                      configuration.model,
+		Messages:                   configuration.messages,
+		SystemPrompts:              append([]string(nil), configuration.systemPrompts...),
+		ContextReminderProvider:    reminderProvider,
+		CompletionGuard:            completionGuard,
+		InputGuard:                 configuration.inputGuard,
+		OutputGuard:                configuration.outputGuard,
+		InputGuardPrompt:           configuration.inputGuardPrompt,
+		OutputGuardPrompt:          configuration.outputGuardPrompt,
+		InputGuardModel:            inputGuardModel,
+		OutputGuardModel:           outputGuardModel,
+		Tools:                      registry.Definitions(),
+		StepLimitFinalizationTools: stepLimitFinalizationTools,
+		ToolRequests:               toolRequests,
+		ToolResults:                toolResults,
+		ToolInterrupts:             toolInterrupts,
+		PermissionRequests:         permissionRequests,
+		PermissionDecisions:        permissionDecisions,
+		ConfirmationRequests:       confirmationRequests,
+		ConfirmationDecisions:      confirmationDecisions,
+		PermissionMode:             configuration.permissionMode,
+		MaxSteps:                   configuration.maxProviderSteps,
+		Compactor:                  compactor,
+		Logger:                     configuration.logger,
 		PermissionModeChanged: func(_, current permission.Mode) error {
 			return policyController.SetMode(current)
 		},
@@ -311,9 +321,9 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 }
 
 func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool) error {
-	registered := make(map[string]struct{}, len(tools))
+	registered := make(map[string]toolexecution.Tool, len(tools))
 	for _, tool := range tools {
-		registered[tool.Definition.Name] = struct{}{}
+		registered[tool.Definition.Name] = tool
 	}
 	if project.restrictTools {
 		for _, name := range project.toolNames {
@@ -324,9 +334,29 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 	}
 	for _, definition := range project.Subagents() {
 		for _, name := range definition.Tools {
-			if _, found := registered[name]; !found {
+			tool, found := registered[name]
+			if !found {
 				return fmt.Errorf("subagent %q requires custom tool %q, but it is not registered", definition.Name, name)
 			}
+			if tool.Trigger == toolexecution.EndResponseScope {
+				return fmt.Errorf(
+					"subagent %q cannot use custom tool %q: EndResponseScope tools are supported only by root agents",
+					definition.Name,
+					name,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func validateChildTools(tools []toolexecution.Tool) error {
+	for _, tool := range tools {
+		if tool.Trigger == toolexecution.EndResponseScope {
+			return fmt.Errorf(
+				"child agent cannot use custom tool %q: EndResponseScope tools are supported only by root agents",
+				tool.Definition.Name,
+			)
 		}
 	}
 	return nil

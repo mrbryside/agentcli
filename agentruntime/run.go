@@ -126,8 +126,10 @@ const (
 The configured provider-step limit has been reached. Agentic work is over. Only required completion tools may be available. Finish from existing results: call every required completion tool that is available, otherwise respond with a concise, self-contained text summary of completed work, confirmed verification, unresolved blockers, and remaining tasks. Do not claim unconfirmed actions or attempt unavailable tools.
 </provider_step_limit>`
 	stepLimitFinalizationFallback = "The provider-step limit was reached, but the model did not return the required text-only summary. Review the completed tool results and continue the remaining work in a new turn."
-	// One initial finalizer plus the existing three bounded completion repairs.
-	maxStepLimitFinalizationRounds = 4
+	// One initial finalizer, the existing three bounded completion repairs,
+	// and one final text round when a non-terminal completion tool succeeds on
+	// the last repair.
+	maxStepLimitFinalizationRounds = 5
 )
 
 func newRun(sessionID, turnID string) *Run {

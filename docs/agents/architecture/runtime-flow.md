@@ -21,14 +21,18 @@ never closes them.
 Provider rounds are unlimited by default. `WithProviderStepLimit(n)` opts the
 main and child turns into an agentic budget. When that budget is exhausted, the
 coordinator enters a restricted finalization phase: ordinary work tools
-disappear, required trigger tools remain available, and a trusted reminder asks
-the model to finish from existing results. A compliant required
+disappear, required completion tools remain available, and a trusted reminder
+asks the model to finish from existing results. Child finalization also retains
+the framework-owned `report_subagent_outcome`; it is required for every child
+but has no trigger because the child still writes a concise final answer after
+the report succeeds. A compliant required
 `EndResponseScope` call therefore still executes at the final boundary. If the
 model returns text while a required trigger remains missing, the existing
 completion guard replays its bounded repair with only missing trigger tools;
 it fails rather than silently ending after three no-progress repairs.
 Unauthorized tool calls are stripped and never dispatched. The initial
-finalizer and its repair rounds count in `RunResult.Steps`.
+finalizer, its repair rounds, and any final text round after a successful
+non-terminal completion tool count in `RunResult.Steps`.
 
 Trusted runtime input such as a subagent callback can be queued on an active
 run. The run never changes an in-flight provider request. It drains and

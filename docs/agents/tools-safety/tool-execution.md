@@ -74,11 +74,13 @@ with the missing trigger tools.
 There are at most three consecutive no-progress repairs; progress resets the
 budget. Exhaustion fails the turn.
 
-For user-visible delivery, prefer `Trigger: EndResponseScope`; add
+For root user-visible delivery, prefer `Trigger: EndResponseScope`; add
 `EndTurnOnSuccess: true` when successful final delivery should finish the
-current turn. Successful delivery remains represented by its durable tool call
-and tool result; the runtime does not synthesize an assistant message from tool
-arguments. A call made as the initial human root turn's first provider action,
+current turn. Subagents do not support `EndResponseScope`; they use the
+framework-owned `report_subagent_outcome` followed by a concise final answer
+for the parent callback. Successful root delivery remains represented by its
+durable tool call and tool result; the runtime does not synthesize an assistant
+message from tool arguments. A call made as the initial human root turn's first provider action,
 or while the response scope is still busy,
 receives `status=succeeded`, `action=skipped`, `executed=false`, and
 `reason=tool_called_at_wrong_time`. It does not satisfy the trigger. The result
