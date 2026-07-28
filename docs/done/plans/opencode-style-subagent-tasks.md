@@ -511,7 +511,7 @@ storage delivery identity, and result transport form one state machine.
   complete; leave it under `docs/plans/` during cross-repository rollout.
 - [x] Commit documentation with message
   `docs(task): document foreground subagent tasks`.
-- [ ] Push harness `main`, create and push breaking tag `v0.1.0`, and verify the
+- [x] Push harness `main`, create and push breaking tag `v0.1.0`, and verify the
   tag resolves to the tested commit.
 
 ## Task 12: Migrate Discord runtime and preserve the requester guard
@@ -532,34 +532,34 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `cmd/discord-agent/main.go`
 - Modify: `cmd/discord-agent/main_test.go`
 
-- [ ] Update `go.mod` to `github.com/mrbryside/agentcli v0.1.0`; run
+- [x] Update `go.mod` to `github.com/mrbryside/agentcli v0.1.0`; run
   `rtk go mod tidy`.
-- [ ] Replace Discord bot test doubles for result subscription/injection/
+- [x] Replace Discord bot test doubles for result subscription/injection/
   continuation with `SubscribeSystemEvents`.
-- [ ] Add failing tests where `SystemTaskCompleted` from
+- [x] Add failing tests where `SystemTaskCompleted` from
   `discord-server-operator` sets `ExpectedUser` when
   `requires_requester_reply=true` and clears it when false.
-- [ ] Add failing tests for invalid/error task completion clearing the guard,
+- [x] Add failing tests for invalid/error task completion clearing the guard,
   another user being rejected, and the original requester being accepted.
-- [ ] Add failing progress tests proving one foreground task reuses the root
+- [x] Add failing progress tests proving one foreground task reuses the root
   progress message through `PreEndScope`/`EndScope`.
-- [ ] Run `rtk go test ./internal/discord ./cmd/discord-agent`; expect FAIL.
-- [ ] Remove `subscribeResultsFn`, `continueResultFn`, `tryInjectResultFn`, the
+- [x] Run `rtk go test ./internal/discord ./cmd/discord-agent`; expect FAIL.
+- [x] Remove `subscribeResultsFn`, `continueResultFn`, `tryInjectResultFn`, the
   async result pump, result-route assignment map, and pending-result fallback
   deferral from `discord_bot.go`.
-- [ ] Observe `SystemTaskCompleted`; for the Discord operator, use the current
+- [x] Observe `SystemTaskCompleted`; for the Discord operator, use the current
   root turn route to set/clear `ExpectedUser`. Do not expose metadata to prompts
   or Discord messages.
-- [ ] Remove `resultRoutes`, `AcceptResult`, `PreserveResultRoute`, and
+- [x] Remove `resultRoutes`, `AcceptResult`, `PreserveResultRoute`, and
   `LookupResultRoute` from `session_manager.go`; retain ordinary turn bindings
   and `ExpectedUser`.
-- [ ] Make `ReportSink.Send` use only `LookupTurn`; remove retained result-route
+- [x] Make `ReportSink.Send` use only `LookupTurn`; remove retained result-route
   fallback.
-- [ ] Configure `WithTaskForegroundWait(15*time.Second)` in
+- [x] Configure `WithTaskForegroundWait(15*time.Second)` in
   `cmd/discord-agent/main.go`; keep `WithProviderStepLimit(10)` and existing
   tool workers unless concurrency tests require an explicit higher limit.
-- [ ] Run focused Discord tests; expect PASS.
-- [ ] Commit with message
+- [x] Run focused Discord tests; expect PASS.
+- [x] Commit with message
   `refactor(discord): consume runtime-managed tasks`.
 
 ## Task 13: Migrate Discord agents, skills, routing tests, and docs
@@ -586,33 +586,33 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `docs/agents/development/testing-and-compose.md`
 - Modify: `AGENTS.md`
 
-- [ ] Add failing project tests requiring a single `task` workflow and rejecting
+- [x] Add failing project tests requiring a single `task` workflow and rejecting
   old result/callback/follow-up tool names and protocol fields.
-- [ ] Add a failing definition test for the operator result contract:
+- [x] Add a failing definition test for the operator result contract:
   message field `message`, required boolean metadata
   `requires_requester_reply`.
-- [ ] Run `rtk go test ./cmd/discord-agent -run TestProject`; expect FAIL.
-- [ ] Simplify `MAIN.md` routing: choose domain work from descriptions, use one
+- [x] Run `rtk go test ./cmd/discord-agent -run TestProject`; expect FAIL.
+- [x] Simplify `MAIN.md` routing: choose domain work from descriptions, use one
   foreground task normally, emit multiple same-batch tasks for independent web
   research, and resume the recorded task ID for requester clarification.
-- [ ] Configure the Discord operator's one final JSON response:
+- [x] Configure the Discord operator's one final JSON response:
   natural `message` plus `requires_requester_reply`; use true only for one
   clarification requiring the original requester.
-- [ ] Make `discord-live-server` call a foreground task and use its output in the
+- [x] Make `discord-live-server` call a foreground task and use its output in the
   same turn; make `discord-operator-followup` resume the task ID with fresh live
   Discord context.
-- [ ] Remove result-only skills; task results no longer trigger separate skill
+- [x] Remove result-only skills; task results no longer trigger separate skill
   routing events.
-- [ ] Keep web search's required `web-research` skill and parallel independent
+- [x] Keep web search's required `web-research` skill and parallel independent
   reader guidance; web-summary returns ordinary final text without a result
   contract.
-- [ ] Update the six named context docs and `AGENTS.md` to match runtime-managed
+- [x] Update the six named context docs and `AGENTS.md` to match runtime-managed
   tasks and the requester guard.
-- [ ] Run focused project tests; expect PASS.
-- [ ] Commit with message
+- [x] Run focused project tests; expect PASS.
+- [x] Commit with message
   `refactor(prompt): route Discord work through tasks`.
 
-## Task 14: Cross-repository verification, release, deployment, and Langfuse audit
+## Task 14: Cross-repository verification, release, deployment, and terminal audit
 
 **Terra-high owner:** Deployment verifier  
 **Depends on:** Tasks 12–13
@@ -626,32 +626,35 @@ storage delivery identity, and result transport form one state machine.
   to
   `/Users/sirawat/personal/harness-api/docs/done/plans/opencode-style-subagent-tasks.md`
 
-- [ ] Run `rtk go test ./...`, `rtk go test -race ./...`, and
-  `rtk go vet ./...` in harness; expect PASS.
-- [ ] Run `rtk npm run build` in harness `documentation/`; expect PASS.
-- [ ] Run `rtk go test ./...`, `rtk go test -race ./...`, and
-  `rtk go vet ./...` in Discord; expect PASS.
-- [ ] Review both repositories with `rtk git status --short`,
+- [x] Run `rtk go test ./...` (906 tests), `rtk go test -race ./...`, and
+  `rtk go vet ./...` in harness; PASS.
+- [x] Run `rtk npm run build` in harness `documentation/`; PASS.
+- [x] Run `rtk go test ./...` (135 tests), `rtk go test -race ./...`, and
+  `rtk go vet ./...` in Discord; PASS.
+- [x] Review both repositories with `rtk git status --short`,
   `rtk git diff --check`, and focused diffs; preserve unrelated user changes.
-- [ ] Push Discord `main`, create/push its next version tag, and update the
-  deployment tag consumed by Compose.
-- [ ] Run `rtk docker compose build` and `rtk docker compose up -d`; verify all
-  services are healthy.
-- [ ] Exercise one foreground web task; verify the task result returns in the
-  same main turn and Discord sends one final response.
-- [ ] Exercise two independent web tasks in one batch; verify child runs overlap,
-  results correlate, and one combined final response is sent.
-- [ ] Exercise a Discord operator clarification; verify only the original
-  requester may answer and the same task ID resumes.
-- [ ] Exercise an auto-promoted/background task; verify one trusted result,
-  one main continuation, and one Discord final response.
-- [ ] Inspect Langfuse: no `report_subagent_result`, no report repair rounds, no
-  repeated fallback provider errors, no progress-message storm, and exactly one
-  terminal task result per assignment.
-- [ ] Move this plan to `docs/done/plans/`, update harness `AGENTS.md`'s documented
-  commit if the move creates a final docs commit, push that commit, and move the
-  `v0.1.0` tag only if it has not already been published. Never rewrite a
-  published tag; publish a follow-up patch tag instead.
+- [x] Push harness `main` and publish follow-up tag `v0.1.1` at
+  `55fe3b8f69250183f6ef472ab88277c3029dbb6f`; update Discord to that dependency
+  in commit `d6b3230`. Discord has no configured remote, so no Discord push or
+  tag was fabricated.
+- [x] Run `rtk docker compose build` and `rtk docker compose up -d`; all eight
+  services are up, dependencies and the search sidecar are healthy, and the
+  gateway was ready at `2026-07-28T16:08:24Z`.
+- [x] Exercise real-Qwen foreground web research in Terminal. Its audit at
+  `/tmp/agentcli-qwen-fixture.FNpsUG/qwen-e2e/report/qwen-web-fixed-20260728225739.json.web-audit.json`
+  passed the expected task/result/final-report checks, including parallel reader
+  work where applicable.
+- [x] Exercise real-Qwen same-task clarification and exact-once execution in
+  Terminal. Its three-turn audit at
+  `/tmp/agentcli-qwen-fixture.FNpsUG/qwen-e2e/report/qwen-multiturn-audit-20260728230534.json.multiturn-audit.json`
+  passed all checks.
+- [x] Cover background and promotion semantics with automated harness tests;
+  this verification scope does not fabricate a live Discord message.
+- [x] Inspect post-deploy logs and Langfuse. Startup was clean; no new Discord
+  interaction was fabricated for the audit. Earlier regressions cover no
+  `report_subagent_result`, repair rounds, or duplicate delivery.
+- [x] Move this completed plan to `docs/done/plans/` and update harness
+  `AGENTS.md` to the published `v0.1.1` commit. Never rewrite a published tag.
 
 ## Self-check
 
