@@ -115,14 +115,13 @@ type PendingSubagentPermissionsResponse struct {
 }
 
 // SubagentClosedReference describes the subagent state removed by one successful
-// explicit or automatic close.
+// explicit close.
 type SubagentClosedReference struct {
 	Subagent             SubagentResponse             `json:"subagent"`
 	PreviousStatus       storage.SubagentStatus       `json:"previous_status"`
 	PreviousResultStatus storage.SubagentResultStatus `json:"previous_result_status,omitempty"`
 	DroppedMessages      int                          `json:"dropped_messages,omitempty"`
 	Interrupted          bool                         `json:"interrupted,omitempty"`
-	Automatic            bool                         `json:"automatic,omitempty"`
 }
 
 // SessionEventResponse is the session-wide SSE envelope. Cursor is monotonic
@@ -239,7 +238,7 @@ type SubagentResponse struct {
 	DefinitionName        string                       `json:"definition_name"`
 	Provider              string                       `json:"provider"`
 	Model                 string                       `json:"model"`
-	Status                storage.SubagentStatus       `json:"status"`
+	Status                storage.SubagentStatus       `json:"status,omitempty"`
 	CurrentSubagentTurnID string                       `json:"current_subagent_turn_id,omitempty"`
 	LastSubagentTurnID    string                       `json:"last_subagent_turn_id,omitempty"`
 	LastResultError       string                       `json:"last_result_error,omitempty"`

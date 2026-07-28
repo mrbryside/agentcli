@@ -47,7 +47,6 @@ project.Root()
 project.ProviderName()
 project.ModelName()
 project.PermissionMode()
-project.MaxSubagents()
 project.MainAgent()
 project.Skills()
 project.Subagents()
@@ -91,7 +90,6 @@ Common options:
 | `WithConfirmationStorage` | Replace confirmation storage. |
 | `WithSubagentStorage` | Replace subagent relationship storage. |
 | `WithProviderStepLimit` | Opt into an agentic provider-round budget; omission is unlimited, while exhaustion starts restricted finalization with only required completion tools. |
-| `WithMaxSubagents` | Bound open subagents per main agent session; overrides `config.yaml`. |
 | `WithSystemPrompt` | Add ephemeral provider instructions. |
 | `WithContextReminderProvider` | Add trusted per-round context not persisted in messages. |
 
@@ -346,17 +344,16 @@ do not subscribe to raw task results or create fallback continuation turns.
 work, drops queued subagent input, cancels outstanding unreserved result
 obligations, retains transcript/run history, and rejects future sends. The
 result cancellation releases the main agent response scope's result barrier.
-Bind it to a direct user action. Routine cleanup does not require an application
-call: after a response scope fully settles, AgentCLI automatically closes
-completed and failed subagents that are not referenced by another live scope,
-while retaining incomplete subagents for follow-up.
+Bind it to a direct user action. It is idempotent and normal task completion
+does not call it. Completed, incomplete, and failed runs all remain resumable
+by exact task ID until explicitly closed.
 Cancellation is terminal for the closed subagent, so racing assignment registration
 and result-reservation rollback cannot recreate the obligation. It releases
 scope accounting but does not create a provider turn. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 `SubscribeSystemEvents` reports agent-level facts that are not owned by one
-runtime turn. `SystemSubagentClosed` includes both explicit and automatic
-successful closes with the final subagent snapshot and close effects. The
+runtime turn. `SystemSubagentClosed` reports the first successful explicit
+close with the final subagent snapshot and close effects. The
 previous structured result field is `PreviousResultStatus`.
 
 Subagent decision methods require main agent and subagent ownership in addition to the

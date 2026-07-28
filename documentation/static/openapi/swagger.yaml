@@ -464,8 +464,6 @@ definitions:
     type: object
   agentcli.SubagentClosedReference:
     properties:
-      automatic:
-        type: boolean
       dropped_messages:
         type: integer
       interrupted:
@@ -919,12 +917,10 @@ definitions:
   storage.SubagentStatus:
     enum:
     - running
-    - idle
     - closed
     type: string
     x-enum-varnames:
     - SubagentStatusRunning
-    - SubagentStatusIdle
     - SubagentStatusClosed
 info:
   contact:
@@ -1384,9 +1380,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Queues the message while the subagent is running, or starts an
-        idle incomplete/completed/failed subagent. Closed subagents return conflict.
-        An immediately started turn can be streamed with Accept: text/event-stream.'
+      description: 'Queues the message while the subagent is running, or starts a
+        new turn on a retained task session. Closed subagents return conflict. An
+        immediately started turn can be streamed with Accept: text/event-stream.'
       operationId: startSubagentTurn
       parameters:
       - description: Owning main agent session ID

@@ -55,6 +55,5 @@ func newSubagentClosedReference(event SubagentClosedEvent) *SubagentClosedRefere
 		PreviousResultStatus: event.PreviousResultStatus,
 		DroppedMessages:      event.DroppedMessages,
 		Interrupted:          event.Interrupted,
-		Automatic:            event.Automatic,
 	}
 }

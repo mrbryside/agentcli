@@ -741,6 +741,12 @@ func (r *Run) prepareMessages(runtime *Runtime, messages []Message) ([]Message, 
 }
 
 func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
+	// Runtime inputs win the provider boundary: persist them before resolving
+	// transient reminders or projecting compaction checkpoints. An input that
+	// arrives after this point (including a task result delivered while the
+	// summarizer is running) remains queued; attemptComplete will append it and
+	// start another provider round instead of allowing the current round to
+	// finish without it.
 	if _, err := r.appendRuntimeInputs(ctx, runtime); err != nil {
 		return err
 	}

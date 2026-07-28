@@ -84,9 +84,10 @@ is independent from subagent-completion results, which cannot fire while an
 admission decision is unresolved.
 
 The main model uses `task` for every child-agent execution. A new task requires
-`agent`, `description`, and `prompt`; a resume uses an idle, same-session
-`task_id` plus `prompt`. Foreground is default and returns final output in the
-same tool call. Independent tasks in one batch may run concurrently.
+`agent`, `description`, and `prompt`; a resume uses the exact same-session
+`task_id` plus `prompt`. A supplied task ID never creates a replacement.
+Foreground is default and returns final output in the same tool call.
+Independent tasks in one batch may run concurrently.
 
 `background:true` returns `running`. `WithTaskForegroundWait` can promote an
 unfinished foreground call to the same background path. The Agent owns exactly
@@ -99,17 +100,24 @@ provider-step limit receives no tools and supplies one text-only final response;
 the runtime returns it as `incomplete`. Child agents cannot call `task` or use
 application `EndResponseScope` tools, so tasks cannot nest.
 
-The persisted child lifecycle (`running`, `idle`, `closed`) remains distinct
-from task state. Host Go, Terminal, and HTTP APIs may inspect, message,
-interrupt, resolve safety decisions for, or close those sessions. Those APIs
-are not model tools. A completed task remains resumable while its session is
-idle and open.
+The persisted child lifecycle is `running`, empty/resumable, or `closed`, and
+remains distinct from task result state. Host Go, Terminal, and HTTP APIs may
+inspect, message, interrupt, resolve safety decisions for, or explicitly close
+those sessions. Those APIs are not model tools. Every completed, incomplete,
+or failed run remains resumable until an explicit close.
 
 Each optional result contract extracts a message and validated boolean/string
 metadata from one final response. The message is task output; metadata is only
 in `SystemTaskCompleted`/`task_completed`, never provider context or
 `<task_result>`.
 
-Direct Go, Terminal, and HTTP close paths have the same application-owned destructive lifecycle and should be bound to explicit user actions. The manager enforces main agent ownership, queues accepted subagent follow-ups, and preserves subagent transcripts and retained runs for UI views. Every successful explicit or automatic close emits `SystemSubagentClosed` on the live `SubscribeSystemEvents` stream; the HTTP session stream retains it as `subagent_closed`. See [subagent-lifecycle.md](subagent-lifecycle.md) for close ordering, cancellation markers, result counters, and race behavior.
+Direct Go, Terminal, and HTTP close paths have the same application-owned
+destructive lifecycle and should be bound to explicit user actions. Close is
+idempotent. Its first successful transition emits `SystemSubagentClosed` on
+the live `SubscribeSystemEvents` stream; the HTTP session stream retains it as
+`subagent_closed`. Normal completion and response-scope completion retain the
+task instead of closing it. See
+[subagent-lifecycle.md](subagent-lifecycle.md) for retention, close ordering,
+background reminders, and result accounting.
 
 Back to [application/index.md](index.md).

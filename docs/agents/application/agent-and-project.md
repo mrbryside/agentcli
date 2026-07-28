@@ -11,8 +11,9 @@ tools, and verification flow are documented in
 `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys
 are arbitrary connection aliases; each profile requires a supported `type`
 (`openai` currently). Environment references are expanded, but `.env` is not
-loaded. `config.yaml` may set `max_subagents` to bound non-closed subagent
-instances per main-agent session (default 4).
+loaded. Retained subagent task sessions have no count quota; completed runtime
+instances are unloaded while their task records and transcripts remain
+resumable.
 
 Provider-step limiting is opt-in through `WithProviderStepLimit(n)` and is
 inherited by subagents; omission leaves turns unlimited. Exhaustion enters a
@@ -24,7 +25,7 @@ That response becomes a task result; a step-limited child is `incomplete`.
 With no required completion tool, the finalizer returns a text summary from
 existing results and cannot resume ordinary work. `MAIN.md` selects a provider
 alias, model, optional skills/tools, and instructions. Startup validation
-rejects missing or unsupported provider types, negative limits, unknown
+rejects missing or unsupported provider types, unknown
 profiles or skills, registered-tool allowlist mismatches, and any subagent
 assignment of an `EndResponseScope` tool.
 

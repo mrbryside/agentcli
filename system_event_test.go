@@ -27,9 +27,8 @@ func TestSubagentSystemEventLoggingIsFrameworkOwned(t *testing.T) {
 				Status:            storage.SubagentStatusClosed,
 				LastResultStatus:  storage.SubagentResultCompleted,
 			},
-			PreviousStatus:       storage.SubagentStatusIdle,
+			PreviousStatus:       "",
 			PreviousResultStatus: storage.SubagentResultCompleted,
-			Automatic:            true,
 		},
 	})
 
@@ -40,7 +39,6 @@ func TestSubagentSystemEventLoggingIsFrameworkOwned(t *testing.T) {
 		`main_agent_session_id=main-agent`,
 		`main_agent_turn_id=turn`,
 		`subagent_id=subagent`,
-		`automatic=true`,
 	} {
 		if !strings.Contains(output, required) {
 			t.Fatalf("system logs do not contain %q:\n%s", required, output)

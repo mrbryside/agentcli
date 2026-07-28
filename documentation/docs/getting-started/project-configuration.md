@@ -51,13 +51,11 @@ This makes configuration mistakes visible before the first model request.
 
 ## Provider configuration
 
-`.agentcli/config.yaml` owns connections, the initial permission mode, the
-optional per-main agent open-subagent quota, runtime logging, LLM observability,
-and optional transcript compaction:
+`.agentcli/config.yaml` owns connections, the initial permission mode, runtime
+logging, LLM observability, and optional transcript compaction:
 
 ```yaml
 permission_mode: default
-max_subagents: 4
 
 # Omit this mapping to disable runtime console logs.
 logging:
@@ -157,11 +155,6 @@ without allowing new domain work after the budget. Finalization and repair
 rounds are included in `RunResult.Steps`;
 `Run.StepLimitFinalized()` reports whether the restricted phase was entered.
 The option requires a positive value and is inherited by subagents.
-
-`max_subagents` limits non-closed subagent instances per main agent session. A positive
-value sets the quota; omitting it or setting it to `0` keeps the default of 4.
-Negative values are rejected. The Go option `WithMaxSubagents` can override the
-project value when constructing an Agent.
 
 Environment substitutions use `${NAME}`. A missing variable is a load error;
 the loader does not silently send an empty credential.

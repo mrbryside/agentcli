@@ -770,7 +770,7 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 	agent := &terminalAgentStub{
 		subagents: []storage.Subagent{{
 			ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", DefinitionName: "researcher",
-			Status: storage.SubagentStatusIdle, LastSubagentTurnID: "turn_1", LastResultError: "maximum provider steps reached",
+			Status: "", LastSubagentTurnID: "turn_1", LastResultError: "maximum provider steps reached",
 		}},
 		messages: map[string][]agentruntime.Message{"subagent": {
 			{Type: agentruntime.MessageTypeUser, Content: "Inspect the project."},
@@ -792,7 +792,7 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 
 func TestTerminalCloseActiveSubagentReturnsToMainAgent(t *testing.T) {
 	var output bytes.Buffer
-	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", Status: storage.SubagentStatusIdle}}}
+	agent := &terminalAgentStub{subagents: []storage.Subagent{{ID: "subagent_1", MainAgentSessionID: "mainAgent", SubagentSessionID: "subagent", Status: ""}}}
 	client := terminalClient{agent: agent, terminal: terminal{out: &output}, sessionID: "mainAgent", subagentID: "subagent_1"}
 	if handled, exit := client.command("/close subagent_1"); !handled || exit {
 		t.Fatalf("/close = (%v, %v)", handled, exit)

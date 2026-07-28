@@ -801,7 +801,8 @@ func (c *terminalClient) closeSubagent(id string) error {
 		return err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return fmt.Errorf("subagent %s is already closed", id)
+		c.terminal.status("Subagent already closed", record.ID)
+		return nil
 	}
 	if _, err := c.agent.CloseSubagent(context.Background(), c.sessionID, record.ID); err != nil {
 		return fmt.Errorf("close subagent %s: %w", id, err)
@@ -840,19 +841,23 @@ func (c *terminalClient) showSubagentStatus(id string) error {
 	switch {
 	case record.Status == storage.SubagentStatusRunning:
 		activity = "Working on: " + task
-	case record.LastResultError != "":
-		activity = "Last turn failed: " + record.LastResultError
-	case record.Status == storage.SubagentStatusIdle && record.LastSubagentTurnID != "":
-		activity = "Last task completed: " + task
 	case record.Status == storage.SubagentStatusClosed:
 		activity = "Closed: " + task
+	case record.LastResultError != "":
+		activity = "Last turn failed: " + record.LastResultError
+	case record.LastSubagentTurnID != "":
+		activity = "Last task completed: " + task
 	default:
-		activity = "Idle: " + task
+		activity = "Ready for its first turn: " + task
 	}
 	if queued := len(record.Pending); queued != 0 {
 		activity += fmt.Sprintf(" · %d follow-up message(s) queued", queued)
 	}
-	c.terminal.status("Subagent status", record.ID+" · "+string(record.Status)+" · "+activity)
+	detail := record.ID + " · " + activity
+	if record.Status != "" {
+		detail = record.ID + " · " + string(record.Status) + " · " + activity
+	}
+	c.terminal.status("Subagent status", detail)
 	return nil
 }
 

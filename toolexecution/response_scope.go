@@ -418,31 +418,6 @@ func (c *ResponseScopeCoordinator) CancelSubagentAssignments(sessionID, subagent
 	return len(queue)
 }
 
-// SubagentExclusiveToScope reports whether no other live response scope has
-// accepted work for subagentID. Cleanup callers use it while holding the subagent's
-// own lifecycle lock so a concurrent follow-up cannot race an automatic close.
-func (c *ResponseScopeCoordinator) SubagentExclusiveToScope(sessionID, scopeID, subagentID string) bool {
-	if c == nil || sessionID == "" || scopeID == "" || subagentID == "" {
-		return false
-	}
-	scopeKey := responseScopeKey{sessionID: sessionID, scopeID: scopeID}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	scope := c.scopes[scopeKey]
-	if scope == nil || scope.state != responseScopeEnding {
-		return false
-	}
-	for candidateKey, candidate := range c.scopes {
-		if candidateKey == scopeKey || candidateKey.sessionID != sessionID || candidate == nil {
-			continue
-		}
-		if candidate.subagentCounts[subagentID] > 0 {
-			return false
-		}
-	}
-	return true
-}
-
 // ReserveResultTurn binds a result continuation to the response scope
 // that accepted the corresponding subagent assignments.
 func (c *ResponseScopeCoordinator) ReserveResultTurn(sessionID, continuationTurnID, subagentID, resultTurnID string) (*ResponseScopeReservation, error) {

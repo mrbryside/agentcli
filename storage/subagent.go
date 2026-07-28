@@ -7,17 +7,17 @@ import (
 	"time"
 )
 
-// SubagentStatus describes the lifecycle state of a subagent session.
+// SubagentStatus describes active or terminal lifecycle state. An empty status
+// means the retained task session is not running and may be resumed.
 type SubagentStatus string
 
 const (
 	SubagentStatusRunning SubagentStatus = "running"
-	SubagentStatusIdle    SubagentStatus = "idle"
 	SubagentStatusClosed  SubagentStatus = "closed"
 )
 
 // SubagentResultStatus is the semantic result of the most recently finished
-// subagent turn. It is independent from the running/idle/closed lifecycle.
+// subagent turn. It is independent from the running/closed lifecycle.
 type SubagentResultStatus string
 
 const (
@@ -114,20 +114,8 @@ var (
 	ErrSubagentVersionConflict = errors.New("subagent version conflict")
 	// ErrSubagentClosed indicates an operation would send work to a closed subagent.
 	ErrSubagentClosed = errors.New("subagent closed")
-	// ErrSubagentRunning indicates an operation requires the subagent to be idle.
+	// ErrSubagentRunning indicates an operation requires no active subagent turn.
 	ErrSubagentRunning = errors.New("subagent is still running")
-	// ErrSubagentIncomplete indicates lifecycle cleanup was requested while the
-	// subagent's latest result still requires a follow-up.
-	ErrSubagentIncomplete = errors.New("subagent result is incomplete")
-	// ErrSubagentResultPending indicates send or lifecycle cleanup was
-	// requested before the latest result was consumed by the main agent.
-	ErrSubagentResultPending = errors.New("subagent result has not been consumed")
-	// ErrSubagentReportUnavailable indicates an idle subagent has no terminal or
-	// follow-up result that can safely anchor another message.
-	ErrSubagentReportUnavailable = errors.New("subagent has no finished result")
-	// ErrSubagentCompleted indicates a finished subagent cannot be reused for
-	// follow-up or unrelated new work.
-	ErrSubagentCompleted = errors.New("completed subagent cannot be reused; start a new subagent for genuinely new work")
 )
 
 // ValidateSubagent verifies a record can be retained by a SubagentStorage.
@@ -160,19 +148,19 @@ func ValidateSubagent(subagent Subagent) error {
 	}
 
 	switch subagent.Status {
+	case "":
+		if subagent.CurrentSubagentTurnID != "" {
+			return invalidSubagent("resumable subagent cannot have a current subagent turn ID")
+		}
+		if subagent.ClosedAt != nil {
+			return invalidSubagent("resumable subagent cannot have a closed timestamp")
+		}
 	case SubagentStatusRunning:
 		if subagent.CurrentSubagentTurnID == "" {
 			return invalidSubagent("running subagent requires a current subagent turn ID")
 		}
 		if subagent.ClosedAt != nil {
 			return invalidSubagent("running subagent cannot have a closed timestamp")
-		}
-	case SubagentStatusIdle:
-		if subagent.CurrentSubagentTurnID != "" {
-			return invalidSubagent("idle subagent cannot have a current subagent turn ID")
-		}
-		if subagent.ClosedAt != nil {
-			return invalidSubagent("idle subagent cannot have a closed timestamp")
 		}
 	case SubagentStatusClosed:
 		if subagent.CurrentSubagentTurnID != "" {

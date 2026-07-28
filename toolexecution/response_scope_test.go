@@ -524,37 +524,6 @@ func TestScopeEventsBracketCleanupAndEndScopeHandlers(t *testing.T) {
 	}
 }
 
-func TestResponseScopeSubagentExclusiveRejectsAnotherLiveScopeReference(t *testing.T) {
-	coordinator := NewResponseScopeCoordinator(context.Background())
-	var exclusive bool
-	coordinator.SetCleanup(func(_ context.Context, sessionID, scopeID string, subagentIDs []string) {
-		exclusive = coordinator.SubagentExclusiveToScope(sessionID, scopeID, subagentIDs[0])
-	})
-	if err := coordinator.BeginMainAgentTurn("session", "first"); err != nil {
-		t.Fatal(err)
-	}
-	coordinator.RegisterAssignment("session", "first", "subagent", "first-assignment")
-	if err := coordinator.BeginMainAgentTurn("session", "second"); err != nil {
-		t.Fatal(err)
-	}
-	coordinator.RegisterAssignment("session", "second", "subagent", "second-assignment")
-	firstResult, err := coordinator.ReserveResultTurn("session", "first-result", "subagent", "first-subagent-turn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstResult.Commit()
-	secondResult, err := coordinator.ReserveResultTurn("session", "second-result", "subagent", "second-subagent-turn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondResult.Commit()
-	coordinator.FinishTurn("session", "first")
-	coordinator.FinishTurn("session", "first-result")
-	if exclusive {
-		t.Fatal("subagent referenced by another live scope was reported exclusive")
-	}
-}
-
 func TestResponseScopeCleanupFailureDoesNotSuppressFinalHandler(t *testing.T) {
 	coordinator := NewResponseScopeCoordinator(context.Background())
 	coordinator.SetCleanup(func(context.Context, string, string, []string) {

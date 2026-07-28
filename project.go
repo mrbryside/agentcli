@@ -38,7 +38,6 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 // capabilities live in .agentcli/MAIN.md.
 type ProjectConfig struct {
 	PermissionMode permission.Mode           `yaml:"permission_mode"`
-	MaxSubagents   int                       `yaml:"max_subagents"`
 	Providers      map[string]ProviderConfig `yaml:"providers"`
 	Compaction     *CompactionConfig         `yaml:"compaction"`
 	Logging        *LoggingConfig            `yaml:"logging"`
@@ -308,9 +307,6 @@ func WithProject(project *Project) Option {
 			}
 			configuration.compactionModel = compactionModel
 		}
-		if project.MaxSubagents() > 0 {
-			configuration.maxSubagents = project.MaxSubagents()
-		}
 		return nil
 	}
 }
@@ -437,15 +433,6 @@ func (project *Project) PermissionMode() permission.Mode {
 		return ""
 	}
 	return project.config.PermissionMode
-}
-
-// MaxSubagents returns the configured maximum number of non-closed subagent
-// instances per main agent session. Zero means the Agent default is used.
-func (project *Project) MaxSubagents() int {
-	if project == nil {
-		return 0
-	}
-	return project.config.MaxSubagents
 }
 
 // Skills returns discovered skills in stable name order.
@@ -594,9 +581,6 @@ Examples:
 }
 
 func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, string, ProviderConfig, time.Duration, error) {
-	if config.MaxSubagents < 0 {
-		return "", "", ProviderConfig{}, 0, errors.New("max_subagents cannot be negative")
-	}
 	if err := validateLoggingConfig(config.Logging); err != nil {
 		return "", "", ProviderConfig{}, 0, err
 	}

@@ -69,12 +69,10 @@ turn; otherwise result continuations reserve and settle the matching
 assignment. Both remain in the originating scope and may accept follow-up
 assignments that reopen the barrier.
 The scope starts ending when its last active turn reaches a completion boundary
-with no pending results. It emits `PreEndScope`, then runs cleanup before
-final `EndResponseScope` handlers:
-completed/failed subagents touched only by that scope close automatically,
-incomplete or cross-scope subagents remain open, and successful closes become a
-one-shot trusted reminder reserved for the next human main-agent turn. After all
-final handlers run and the scope is removed, it emits `EndScope`.
+with no pending results. It emits `PreEndScope`, runs final
+`EndResponseScope` handlers, removes the scope, and emits `EndScope`. Task
+records remain retained and resumable regardless of whether the latest result
+was completed, incomplete, or failed; scope completion does not close them.
 Successful `EndResponseScope` delivery remains represented by its tool-call and
 tool-result records; the coordinator does not synthesize an assistant message
 from tool arguments.
@@ -86,7 +84,8 @@ Pure transition and folding duties live in `state.go`, `transition.go`, `effect.
 The main-model framework catalog has one child-work tool: `task`. Foreground
 calls wait for the child final response and return `TaskResult` in the same
 main turn; independent same-batch calls occupy executor workers concurrently.
-Task IDs are resumable only by their owning main session while idle.
+Task IDs are resumable only by their owning main session while retained and
+not running or closed.
 
 Background calls and `WithTaskForegroundWait` promotions persist delivery
 identity before returning `running`. Agent owns exactly-once completion

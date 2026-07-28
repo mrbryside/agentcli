@@ -24,7 +24,7 @@ SSE stream. Clients that attach after request creation recover with
 `GET /v1/sessions/{mainAgentSessionID}/subagent-confirmations`, then resolve using
 the existing nested subagent decision endpoints.
 
-Successful explicit and response-scope automatic subagent closes are published
+Successful explicit subagent closes are published
 through the generic `SubscribeSystemEvents` stream with type
 `SystemSubagentClosed`. The HTTP server retains the same fact as a
 `subagent_closed` main agent-session SSE record, including the final subagent

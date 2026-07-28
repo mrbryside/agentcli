@@ -11,8 +11,7 @@ import (
 type SystemEventType string
 
 const (
-	// SystemSubagentClosed reports one successful explicit or automatic subagent
-	// close.
+	// SystemSubagentClosed reports one successful explicit subagent close.
 	SystemSubagentClosed SystemEventType = "subagent_closed"
 	// SystemTaskCompleted reports one terminal task result and any validated
 	// application-only metadata from its final-result contract.
@@ -42,14 +41,13 @@ type TaskCompletedEvent struct {
 }
 
 // SubagentClosedEvent describes the subagent state removed by one successful
-// explicit or automatic close.
+// explicit close.
 type SubagentClosedEvent struct {
 	Subagent             storage.Subagent
 	PreviousStatus       storage.SubagentStatus
 	PreviousResultStatus storage.SubagentResultStatus
 	DroppedMessages      int
 	Interrupted          bool
-	Automatic            bool
 }
 
 type systemEventSubscriber struct {
@@ -134,7 +132,6 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 				"main_agent_session_id", event.MainAgentSessionID,
 				"main_agent_turn_id", event.MainAgentTurnID,
 				"subagent_id", subagent.ID,
-				"automatic", closed.Automatic,
 			)
 			m.config.logger.Debug("subagent closed details",
 				"event_type", event.Type,
@@ -150,7 +147,6 @@ func (m *subagentManager) publishSystemEvent(event SystemEvent) {
 				"final_outcome", subagent.LastResultStatus,
 				"dropped_messages", closed.DroppedMessages,
 				"interrupted", closed.Interrupted,
-				"automatic", closed.Automatic,
 			)
 		case SystemTaskCompleted:
 			if event.TaskCompleted == nil {

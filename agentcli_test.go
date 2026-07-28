@@ -101,7 +101,7 @@ func TestAgentOwnsBackgroundTaskContinuationAndDoesNotExposeMetadataToProvider(t
 	defer rollback()
 	agent.acceptTaskDelivery(taskDelivery{
 		MainAgentSessionID: "main", MainAgentTurnID: "root-turn", AssignmentID: "child-turn", SubagentTurnID: "child-turn",
-		Result: TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done"},
+		Result:   TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done"},
 		Metadata: map[string]any{"requires_requester_reply": true},
 	})
 	deadline := time.Now().Add(time.Second)

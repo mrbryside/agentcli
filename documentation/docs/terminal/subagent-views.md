@@ -61,7 +61,7 @@ While the subagent view is selected, enter an ordinary prompt:
 ❯ Compare that with the storage implementation too.
 ```
 
-If the subagent is idle, AgentCLI starts a new subagent turn. If it is running, the
+If the subagent is retained, AgentCLI starts a new subagent turn. If it is running, the
 message is queued and processed by that same subagent instance. This avoids
 starting a duplicate subagent for a conversational follow-up.
 
@@ -76,11 +76,11 @@ the complete subagent transcript or cause a main-agent turn.
 
 ## Background completion and results
 
-Subagents always run asynchronously relative to the main agent. When a
-subagent turn ends, AgentCLI sends a `completed`, `incomplete`, or `failed`
-result to the main agent. The result contains subagent identity, structured summary/next-step
-information, and the final result or failure information. `idle` only means no
-turn is executing; it does not imply that the delegated task is complete.
+Background subagents run asynchronously relative to the main agent. When a
+background turn ends, AgentCLI delivers a `completed`, `incomplete`, or
+`failed` result to the main agent. The result contains task identity and the
+final output or failure information. A blank lifecycle status means no child
+turn is executing; the retained task can still be resumed.
 
 If the main agent is already running, the result is queued. The main agent may act on a
 completed subagent while other subagents continue, follow up on an incomplete
@@ -98,7 +98,7 @@ remains a Terminal/application command and is not exposed to the model.
 
 ## Close a subagent
 
-The runtime automatically closes completed and failed subagents at the end of
+Completed and failed subagents remain retained and resumable after the end of
 their settled response scope. Incomplete subagents remain available for
 follow-up. Use `/close` only when the user explicitly wants to stop, discard,
 or close a subagent immediately:

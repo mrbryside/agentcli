@@ -755,32 +755,6 @@ func TestProjectProviderExtraBodyReachesModelRequest(t *testing.T) {
 	}
 }
 
-func TestProjectConfigLoadsAndAppliesMaxSubagents(t *testing.T) {
-	root := projectFixture(t)
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
-max_subagents: 2
-providers:
-  openai:
-    type: openai
-    api_key: test-key
-`)
-	project, err := LoadProject(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if project.MaxSubagents() != 2 {
-		t.Fatalf("project max subagents = %d, want 2", project.MaxSubagents())
-	}
-
-	configuration := defaultConfig(root)
-	if err := WithProject(project)(&configuration); err != nil {
-		t.Fatal(err)
-	}
-	if configuration.maxSubagents != 2 {
-		t.Fatalf("applied max subagents = %d, want 2", configuration.maxSubagents)
-	}
-}
-
 func TestWithProviderStepLimitEnforcesTextFinalization(t *testing.T) {
 	root := projectFixture(t)
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `permission_mode: criticalOnly
@@ -838,7 +812,7 @@ providers:
 	}
 }
 
-func TestLoadProjectRejectsNegativeMaxSubagents(t *testing.T) {
+func TestLoadProjectRejectsRemovedMaxSubagentsField(t *testing.T) {
 	root := projectFixture(t)
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `max_subagents: -1
 providers:
@@ -846,8 +820,8 @@ providers:
     type: openai
     api_key: test-key
 `)
-	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "max_subagents cannot be negative") {
-		t.Fatalf("LoadProject() error = %v", err)
+	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field max_subagents not found") {
+		t.Fatalf("LoadProject() error = %v, want removed max_subagents field", err)
 	}
 }
 

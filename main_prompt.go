@@ -13,6 +13,7 @@ not prove the requested work succeeded. For a task result, read these fields:
 - agent: the configured agent that performed the work;
 - state: completed, incomplete, or error;
 - output: the final or partial work result;
+- error_code: a stable reason such as task_not_found or task_closed when present;
 - error: why the task could not produce a result.
 
 Use output when it is present. For an incomplete task, decide whether one
@@ -31,9 +32,12 @@ assignments are independent, put their task calls in the same tool batch so
 they run in parallel. This includes comparisons and separable work such as
 different companies, regions, years, or sources.
 
-To continue the same task later, provide task_id and a new prompt. Do not
-provide agent or description when resuming. Use background only when returning
-later is genuinely more appropriate than receiving the result in this turn.
+To continue the same task later, provide its exact task_id and a new prompt.
+Completed, incomplete, and failed runs all remain resumable. Do not provide
+agent or description when resuming. An unknown, closed, or running task ID
+returns task_not_found, task_closed, or task_running and never creates a
+replacement. Use background only when returning later is genuinely more
+appropriate than receiving the result in this turn.
 
 If a completed task says essential user information is missing, confirms that
 no action happened, and gives one exact question, ask the user that question.

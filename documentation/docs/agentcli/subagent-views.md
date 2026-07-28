@@ -31,7 +31,7 @@ type SubagentView = {
   subagentID: string;
   subagentSessionID: string;
   displayName: string;
-  status: "running" | "idle" | "closed";
+  status?: "running" | "closed"; // omitted while retained and resumable
   currentSubagentTurnID?: string;
   messages: Message[];
   cursors: Record<string, number>; // keyed by subagent turn ID
@@ -96,7 +96,7 @@ Important response fields are:
 | `id` | Subagent view identity and nested-route key. |
 | `subagent_session_id` | Provider-neutral subagent transcript identity. |
 | `display_name` | Friendly tab/window label. |
-| `status` | `running`, `idle`, or `closed`. |
+| `status` | `running`, `closed`, or omitted while retained and resumable. |
 | `current_subagent_turn_id` | Active subagent turn to attach to. |
 | `last_subagent_turn_id` | Most recently completed subagent turn. |
 | `last_result_error` | Failure summary for the completed turn. |
@@ -197,7 +197,7 @@ so.
 
 ### Continue queued subagent work
 
-Sending a message to an idle subagent starts a new turn. Sending while it is
+Sending a message to a retained subagent starts a new turn. Sending while it is
 running queues the message behind the current turn:
 
 ```text
@@ -279,12 +279,8 @@ decision IDs and session/turn/call correlation must remain unchanged.
 DELETE /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}
 ```
 
-An idle incomplete, completed, or failed subagent can receive another message only
-after its latest result was consumed. A running subagent accepts queued input.
-
-The response-scope runtime automatically closes settled `completed` and
-`failed` subagents after their result continuation ends. It retains
-`incomplete` subagents and any subagent referenced by another live response scope.
+A retained incomplete, completed, or failed task can receive another message
+using its exact ID. A running subagent accepts queued input.
 
 HTTP `DELETE` is an explicit destructive command, not routine cleanup. It can
 interrupt a running subagent, removes queued messages, and closes incomplete work.
@@ -419,7 +415,7 @@ if err != nil {
 subagentStore.Replace(subagent.ID, subagent)
 ```
 
-Continue an existing subagent with the same method whether it is idle or running:
+Continue an existing subagent with the same method whether it is retained or running:
 
 ```go
 subagent, err = agent.SendSubagentMessage(
@@ -434,7 +430,7 @@ if err != nil {
 subagentStore.Replace(subagent.ID, subagent)
 ```
 
-An idle subagent starts a new turn immediately. A running subagent queues the message
+A retained subagent starts a new turn immediately. A running subagent queues the message
 and returns an updated record with another entry in `Pending`. When the current
 turn ends, refresh with `ListSubagents`; if `CurrentSubagentTurnID` changed, attach to
 the new run using the same subscribe-then-replay sequence.
@@ -504,8 +500,7 @@ final delivery still occurs only when an active main agent turn reaches its
 completion boundary. Close does not create that turn. See
 [Subagent lifecycle control](../capabilities/subagent-lifecycle-control.md).
 Do not expose it as an automatic cleanup path; bind it to an explicit user
-action. Routine completed/failed cleanup is owned by the response-scope
-runtime.
+action. Normal completion and response-scope completion retain the task.
 
 Closing retains the transcript. Keep the view available as read-only when the
 application lists subagents with `includeClosed` set to `true`.

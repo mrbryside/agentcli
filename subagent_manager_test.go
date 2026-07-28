@@ -61,7 +61,7 @@ func TestSubagentManagerStartIsAsyncAndSerializesMailbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	model.releases <- struct{}{}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, manager, record.ID, "")
 
 	requests := model.Requests()
 	if len(requests) != 2 || requests[0].Messages[len(requests[0].Messages)-1].Content != "first" || requests[1].Messages[len(requests[1].Messages)-1].Content != "second" {
@@ -116,7 +116,7 @@ func TestSubagentManagerExecuteTaskWaitsForFinalAssistantResponse(t *testing.T) 
 		if err != nil || !found {
 			t.Fatalf("task record = (%#v, %v, %v)", record, found, err)
 		}
-		if record.Status != storage.SubagentStatusIdle || record.ActiveTaskDelivery != nil {
+		if record.Status != "" || record.ActiveTaskDelivery != nil {
 			t.Fatalf("foreground task persisted delivery/state = %#v", record)
 		}
 		if !manager.mainAgent.responseScopes.ReadyToEnd("mainAgent", "main-turn") {
@@ -133,6 +133,110 @@ func TestSubagentManagerExecuteTaskWaitsForFinalAssistantResponse(t *testing.T) 
 		}
 	case <-time.After(time.Second):
 		t.Fatal("foreground task did not return after child completion")
+	}
+}
+
+func TestSubagentManagerRehydratesRetainedTaskByExactID(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 2)}
+	messages := inmemory.NewMessageStorage()
+	relationships := inmemory.NewSubagentStorage()
+	manager := newTestSubagentManagerWithStores(t, model, messages, relationships)
+	if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "first-turn"); err != nil {
+		t.Fatal(err)
+	}
+
+	type taskOutcome struct {
+		result TaskResult
+		err    error
+	}
+	firstResult := make(chan taskOutcome, 1)
+	go func() {
+		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+			MainAgentSessionID: "mainAgent", MainAgentTurnID: "first-turn",
+			AgentName: "researcher", Description: "Retained work", Prompt: "first request",
+		})
+		firstResult <- taskOutcome{result: result, err: err}
+	}()
+	if err := model.waitStarts(1); err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	firstOutcome := <-firstResult
+	if firstOutcome.err != nil {
+		t.Fatal(firstOutcome.err)
+	}
+	first := firstOutcome.result
+	if first.TaskID == "" || first.State != TaskStateCompleted {
+		t.Fatalf("first task result = %#v", first)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	resumedManager := newTestSubagentManagerWithStores(t, model, messages, relationships)
+	defer resumedManager.Close()
+	if err := resumedManager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "second-turn"); err != nil {
+		t.Fatal(err)
+	}
+	resumedResult := make(chan taskOutcome, 1)
+	go func() {
+		result, err := resumedManager.ExecuteTask(context.Background(), TaskRequest{
+			MainAgentSessionID: "mainAgent", MainAgentTurnID: "second-turn",
+			TaskID: first.TaskID, Prompt: "second request",
+		})
+		resumedResult <- taskOutcome{result: result, err: err}
+	}()
+	if err := model.waitStarts(2); err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	resumedOutcome := <-resumedResult
+	if resumedOutcome.err != nil {
+		t.Fatal(resumedOutcome.err)
+	}
+	resumed := resumedOutcome.result
+	if resumed.TaskID != first.TaskID || resumed.State != TaskStateCompleted {
+		t.Fatalf("resumed task result = %#v", resumed)
+	}
+	requests := model.Requests()
+	if got := requests[len(requests)-1].Messages[len(requests[len(requests)-1].Messages)-1].Content; got != "second request" {
+		t.Fatalf("resumed task latest message = %q", got)
+	}
+}
+
+func TestSubagentManagerShutdownRetainsRunningTaskForLaterResume(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{})}
+	messages := inmemory.NewMessageStorage()
+	relationships := inmemory.NewSubagentStorage()
+	manager := newTestSubagentManagerWithStores(t, model, messages, relationships)
+	record, err := manager.Start(context.Background(), "mainAgent", "main-turn", "researcher", "work", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.waitStarts(1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.setTaskDelivery(context.Background(), record.ID, &storage.TaskDelivery{
+		MainAgentTurnID: "main-turn",
+		AssignmentID:    record.CurrentSubagentTurnID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retained, found, err := relationships.Get(context.Background(), record.ID)
+	if err != nil || !found {
+		t.Fatalf("retained task after shutdown = %#v, found=%v, err=%v", retained, found, err)
+	}
+	if retained.Status == storage.SubagentStatusClosed {
+		t.Fatalf("shutdown wrote a closed tombstone: %#v", retained)
+	}
+	if retained.Status == storage.SubagentStatusRunning || retained.CurrentSubagentTurnID != "" {
+		t.Fatalf("shutdown left an unresumable running task: %#v", retained)
+	}
+	if retained.ActiveTaskDelivery != nil {
+		t.Fatalf("shutdown retained process-local result delivery: %#v", retained.ActiveTaskDelivery)
 	}
 }
 
@@ -277,7 +381,7 @@ func TestSubagentManagerExecuteTaskBackgroundRegistersOneDeliveryAndPublishesOne
 		t.Fatalf("duplicate task completion event = %#v", duplicate)
 	case <-time.After(25 * time.Millisecond):
 	}
-	awaitSubagentStatus(t, manager, result.TaskID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, manager, result.TaskID, "")
 	record, found, err = manager.store.Get(context.Background(), result.TaskID)
 	if err != nil || !found || record.ActiveTaskDelivery != nil {
 		t.Fatalf("terminal background record = (%#v, %t, %v)", record, found, err)
@@ -350,7 +454,7 @@ func TestSubagentManagerExecuteTaskBackgroundResumeUsesLatestDeliveryTurn(t *tes
 	case <-time.After(time.Second):
 		t.Fatal("first background task did not complete")
 	}
-	awaitSubagentStatus(t, manager, first.TaskID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, manager, first.TaskID, "")
 
 	resumed, err := manager.ExecuteTask(context.Background(), TaskRequest{
 		MainAgentSessionID: "owner", MainAgentTurnID: "latest-turn", TaskID: first.TaskID,
@@ -409,7 +513,7 @@ func TestSubagentManagerTaskCompletionPublishesContractMetadataOnlyAsSystemEvent
 	}
 }
 
-func TestSubagentManagerExecuteTaskResumesOnlyOwnedIdleTask(t *testing.T) {
+func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{}, 2)}
 	manager := newTestSubagentManager(t, model, 2)
 	defer manager.Close()
@@ -436,10 +540,21 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedIdleTask(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first task did not finish")
 	}
-	if _, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	firstInstance, err := manager.instance(first.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstInstance.mu.Lock()
+	firstRuntimeReleased := firstInstance.agent == nil
+	firstInstance.mu.Unlock()
+	if !firstRuntimeReleased {
+		t.Fatal("completed task retained a live subagent runtime")
+	}
+	crossSession, err := manager.ExecuteTask(context.Background(), TaskRequest{
 		MainAgentSessionID: "other", MainAgentTurnID: "other-turn", TaskID: first.TaskID, Prompt: "continue",
-	}); !errors.Is(err, storage.ErrSubagentNotFound) {
-		t.Fatalf("cross-session resume error = %v", err)
+	})
+	if err != nil || crossSession.State != TaskStateError || crossSession.ErrorCode != TaskErrorNotFound {
+		t.Fatalf("cross-session resume result = %#v, err = %v", crossSession, err)
 	}
 	if _, err := manager.ExecuteTask(context.Background(), TaskRequest{
 		MainAgentSessionID: "owner", MainAgentTurnID: "bad-turn", TaskID: first.TaskID, AgentName: "reviewer", Prompt: "continue",
@@ -530,7 +645,7 @@ func TestSubagentManagerExecuteTaskCancellationInterruptsChild(t *testing.T) {
 	}
 }
 
-func TestSubagentManagerExecuteTaskRejectsUnknownRunningAndClosedTaskIDs(t *testing.T) {
+func TestSubagentManagerExecuteTaskReportsUnknownRunningAndClosedTaskIDs(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
@@ -542,22 +657,26 @@ func TestSubagentManagerExecuteTaskRejectsUnknownRunningAndClosedTaskIDs(t *test
 		{MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: "unknown", Prompt: "continue"},
 		{MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: record.ID, Prompt: "continue"},
 	} {
-		_, err := manager.ExecuteTask(context.Background(), request)
+		result, err := manager.ExecuteTask(context.Background(), request)
+		if err != nil {
+			t.Fatalf("resume returned outer error: %v", err)
+		}
 		if request.TaskID == "unknown" {
-			if !errors.Is(err, storage.ErrSubagentNotFound) {
-				t.Fatalf("unknown task resume error = %v", err)
+			if result.State != TaskStateError || result.ErrorCode != TaskErrorNotFound {
+				t.Fatalf("unknown task resume result = %#v", result)
 			}
-		} else if !errors.Is(err, storage.ErrSubagentRunning) {
-			t.Fatalf("running task resume error = %v", err)
+		} else if result.State != TaskStateError || result.ErrorCode != TaskErrorRunning {
+			t.Fatalf("running task resume result = %#v", result)
 		}
 	}
 	if _, err := manager.CloseSubagent(context.Background(), "mainAgent", record.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	closed, err := manager.ExecuteTask(context.Background(), TaskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: record.ID, Prompt: "continue",
-	}); !errors.Is(err, storage.ErrSubagentClosed) {
-		t.Fatalf("closed task resume error = %v", err)
+	})
+	if err != nil || closed.State != TaskStateError || closed.ErrorCode != TaskErrorClosed {
+		t.Fatalf("closed task resume result = %#v, err = %v", closed, err)
 	}
 }
 
@@ -587,26 +706,22 @@ func TestSubagentManagerStartAlwaysCreatesNewSubagent(t *testing.T) {
 		model := &subagentGateModel{releases: make(chan struct{})}
 		manager := newTestSubagentManager(t, model, 3)
 		defer manager.Close()
-		first, err := manager.Start(context.Background(), "mainAgent", "turn-1", "researcher", "first", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		second, err := manager.Start(context.Background(), "mainAgent", "turn-2", "researcher", "second", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if first.DisplayName == "" || second.DisplayName == "" || first.DisplayName == second.DisplayName {
-			t.Fatalf("friendly names = %q and %q", first.DisplayName, second.DisplayName)
-		}
-		third, err := manager.Start(context.Background(), "mainAgent", "turn-3", "researcher", "talk more", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if third.ID == first.ID || third.ID == second.ID || third.DisplayName == first.DisplayName || third.DisplayName == second.DisplayName {
-			t.Fatalf("third = %#v, first = %#v, second = %#v", third, first, second)
+		seenNames := make(map[string]struct{})
+		for index := 0; index < 6; index++ {
+			record, err := manager.Start(context.Background(), "mainAgent", fmt.Sprintf("turn-%d", index), "researcher", "parallel", "")
+			if err != nil {
+				t.Fatalf("start task %d beyond the removed quota: %v", index, err)
+			}
+			if record.DisplayName == "" {
+				t.Fatalf("task %d has no display name", index)
+			}
+			if _, duplicate := seenNames[record.DisplayName]; duplicate {
+				t.Fatalf("duplicate display name %q", record.DisplayName)
+			}
+			seenNames[record.DisplayName] = struct{}{}
 		}
 		subagents, err := manager.List(context.Background(), "mainAgent", false)
-		if err != nil || len(subagents) != 3 {
+		if err != nil || len(subagents) != 6 {
 			t.Fatalf("subagents = %#v, %v", subagents, err)
 		}
 	})
@@ -705,13 +820,13 @@ func TestSubagentManagerRetainsLastTurnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-	idle, err := manager.getOwned(context.Background(), "mainAgent", record.ID)
+	awaitSubagentStatus(t, manager, record.ID, "")
+	retained, err := manager.getOwned(context.Background(), "mainAgent", record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if idle.LastSubagentTurnID != record.CurrentSubagentTurnID || !strings.Contains(idle.LastResultError, providerErr.Error()) {
-		t.Fatalf("idle failure = %#v", idle)
+	if retained.LastSubagentTurnID != record.CurrentSubagentTurnID || !strings.Contains(retained.LastResultError, providerErr.Error()) {
+		t.Fatalf("retained failure = %#v", retained)
 	}
 }
 
@@ -724,7 +839,7 @@ func TestSubagentManagerReadDefaultsToObservedCursorAndFinalAnswerOnly(t *testin
 		t.Fatal(err)
 	}
 	model.releases <- struct{}{}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, manager, record.ID, "")
 
 	first, err := manager.Read(context.Background(), "mainAgent", record.ID, "")
 	if err != nil {
@@ -767,13 +882,17 @@ func TestSubagentManagerReadOwnershipWaitAndClose(t *testing.T) {
 		t.Fatalf("Wait cancellation error = %v", err)
 	}
 	model.releases <- struct{}{}
-	awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, manager, record.ID, "")
 	closed, err := manager.CloseSubagent(context.Background(), "mainAgent-a", record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if closed.Subagent.Status != storage.SubagentStatusClosed {
 		t.Fatalf("closed record = %#v", closed)
+	}
+	closedAgain, err := manager.CloseSubagent(context.Background(), "mainAgent-a", record.ID)
+	if err != nil || closedAgain.Subagent.Status != storage.SubagentStatusClosed {
+		t.Fatalf("idempotent close = %#v, %v", closedAgain, err)
 	}
 	if _, err := manager.Send(context.Background(), "mainAgent-a", record.ID, "again"); !errors.Is(err, storage.ErrSubagentClosed) {
 		t.Fatalf("Send closed error = %v", err)
@@ -798,15 +917,15 @@ func TestSubagentManagerCloseRetainsRunsAfterReleasingSubagent(t *testing.T) {
 			t.Fatal(err)
 		}
 		model.releases <- struct{}{}
-		awaitSubagentStatus(t, manager, record.ID, storage.SubagentStatusIdle)
-		idle, err := manager.getOwned(context.Background(), "mainAgent", record.ID)
+		awaitSubagentStatus(t, manager, record.ID, "")
+		finished, err := manager.getOwned(context.Background(), "mainAgent", record.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if _, err := manager.CloseSubagent(context.Background(), "mainAgent", record.ID); err != nil {
 			t.Fatal(err)
 		}
-		retained, err := manager.Run(context.Background(), "mainAgent", record.ID, idle.LastSubagentTurnID)
+		retained, err := manager.Run(context.Background(), "mainAgent", record.ID, finished.LastSubagentTurnID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -882,7 +1001,7 @@ func TestSubagentManagerCloseInterruptsAndDropsQueuedWork(t *testing.T) {
 			closed.Subagent.Status != storage.SubagentStatusClosed ||
 			closed.PreviousStatus != storage.SubagentStatusRunning ||
 			closed.PreviousResultStatus != "" || closed.DroppedMessages != 1 ||
-			!closed.Interrupted || closed.Automatic {
+			!closed.Interrupted {
 			t.Fatalf("closed event = %#v", event)
 		}
 	case <-time.After(time.Second):
@@ -943,11 +1062,15 @@ func TestSubagentManagerCloseCancelsOutstandingResponseScopeResults(t *testing.T
 	}
 }
 
-func newTestSubagentManager(t *testing.T, model agentruntime.Model, maximum int) *subagentManager {
-	return newTestSubagentManagerWithStorage(t, model, maximum, inmemory.NewMessageStorage())
+func newTestSubagentManager(t *testing.T, model agentruntime.Model, _ int) *subagentManager {
+	return newTestSubagentManagerWithStorage(t, model, 0, inmemory.NewMessageStorage())
 }
 
-func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, maximum int, messages storage.MessageStorage) *subagentManager {
+func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, _ int, messages storage.MessageStorage) *subagentManager {
+	return newTestSubagentManagerWithStores(t, model, messages, inmemory.NewSubagentStorage())
+}
+
+func newTestSubagentManagerWithStores(t *testing.T, model agentruntime.Model, messages storage.MessageStorage, subagents storage.SubagentStorage) *subagentManager {
 	t.Helper()
 	permissions := inmemory.NewPermissionStorage()
 	mainAgent, err := New(context.Background(), WithModel(&scriptedModel{}), WithMessageStorage(messages), WithPermissionStorage(permissions))
@@ -960,8 +1083,8 @@ func newTestSubagentManagerWithStorage(t *testing.T, model agentruntime.Model, m
 			"researcher": {Name: "researcher", Description: "Research", Provider: "test", Model: "test", Instructions: "be useful"},
 			"reviewer":   {Name: "reviewer", Description: "Review", Provider: "test", Model: "test", Instructions: "review carefully"},
 		}},
-		messages: messages, permissions: permissions, subagents: inmemory.NewSubagentStorage(),
-		maxSubagents: maximum, permissionMode: mainAgent.PermissionMode(), permissionPolicy: permission.Policy{Mode: mainAgent.PermissionMode()},
+		messages: messages, permissions: permissions, subagents: subagents,
+		permissionMode: mainAgent.PermissionMode(), permissionPolicy: permission.Policy{Mode: mainAgent.PermissionMode()},
 		toolWorkers: defaultToolWorkers, channelBuffer: defaultChannelBuffer, skillReload: DefaultSkillReloadPolicy(),
 	})
 	if err != nil {

@@ -670,7 +670,7 @@
         },
         "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns": {
             "post": {
-                "description": "Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
+                "description": "Queues the message while the subagent is running, or starts a new turn on a retained task session. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1967,9 +1967,6 @@
         "agentcli.SubagentClosedReference": {
             "type": "object",
             "properties": {
-                "automatic": {
-                    "type": "boolean"
-                },
                 "dropped_messages": {
                     "type": "integer"
                 },
@@ -2585,12 +2582,10 @@
             "type": "string",
             "enum": [
                 "running",
-                "idle",
                 "closed"
             ],
             "x-enum-varnames": [
                 "SubagentStatusRunning",
-                "SubagentStatusIdle",
                 "SubagentStatusClosed"
             ]
         }

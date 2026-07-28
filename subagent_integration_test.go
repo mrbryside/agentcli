@@ -14,7 +14,6 @@ import (
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/permission"
 	"github.com/mrbryside/agentcli/provider"
-	"github.com/mrbryside/agentcli/storage"
 )
 
 func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *testing.T) {
@@ -184,6 +183,118 @@ func TestSubagentIntegrationBackgroundAndPromotionDeliverOneTrustedResult(t *tes
 	}
 }
 
+func TestSubagentIntegrationCompactionWhileBackgroundTaskFinishesDeliversResultExactlyOnce(t *testing.T) {
+	script := &scriptedModel{toolCalls: []provider.ToolCall{{
+		ID: "task", Name: TaskToolName,
+		Arguments: map[string]any{
+			"agent": "researcher", "description": "Research", "prompt": "research", "background": true,
+		},
+	}}}
+	main := integrationMetadataModel{
+		Model: script,
+		metadata: agentruntime.ModelMetadata{
+			ContextWindowTokens: 8000,
+			MaxOutputTokens:     512,
+		},
+	}
+	summarizer := newBlockingIntegrationCompactionModel()
+	child := newIntegrationSubagentModel("background complete")
+	estimator := agentruntime.ContextEstimatorFunc(func(request agentruntime.ModelRequest) (agentruntime.ContextEstimate, error) {
+		for _, message := range request.Messages {
+			if strings.Contains(message.Content, "Earlier conversation checkpoint.") {
+				return agentruntime.ContextEstimate{Tokens: 1 + 500*(len(request.Messages)-1)}, nil
+			}
+			if message.Type == agentruntime.MessageTypeToolResult {
+				return agentruntime.ContextEstimate{Tokens: 100_000}, nil
+			}
+		}
+		return agentruntime.ContextEstimate{Tokens: 1}, nil
+	})
+	agent := newIntegrationSubagentAgent(
+		t,
+		main,
+		map[string]*integrationSubagentModel{"researcher": child},
+		WithCompactionModel(summarizer),
+		WithContextEstimator(estimator),
+	)
+	if err := agent.messages.Append(context.Background(),
+		agentruntime.Message{
+			ID: "old-user", SessionID: "main", TurnID: "old",
+			Type: agentruntime.MessageTypeUser, Content: "Earlier request.",
+		},
+		agentruntime.Message{
+			ID: "old-answer", SessionID: "main", TurnID: "old",
+			Type: agentruntime.MessageTypeAssistant, Content: "Earlier answer.",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	events := agent.SubscribeSystemEvents(context.Background())
+
+	root, err := agent.Start(context.Background(), agentruntime.Request{
+		SessionID: "main", TurnID: "root",
+		Message: agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "delegate"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.waitRequests(t, 1)
+	select {
+	case <-summarizer.started:
+	case <-time.After(time.Second):
+		var runErr error
+		if root.Done() {
+			_, runErr = root.Result()
+		}
+		t.Fatalf("compaction model did not start; root_done=%t root_error=%v main_requests=%#v", root.Done(), runErr, script.Requests())
+	}
+
+	// Finish the child while the main turn is blocked inside compaction. The
+	// result must queue for the next provider boundary rather than being folded
+	// into, or lost behind, the checkpoint being generated.
+	child.release()
+	completed := waitTaskCompleted(t, events)
+	if completed.TaskCompleted == nil || completed.TaskCompleted.State != TaskStateCompleted {
+		t.Fatalf("task completion during compaction = %#v", completed)
+	}
+	summarizer.release()
+	waitRun(t, root)
+	if _, err := root.Result(); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := script.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("main provider requests = %d, want task call, compacted waiting round, and result round", len(requests))
+	}
+	if !contextReminderContains(requests[1].ContextReminders, "<active_background_tasks>") {
+		t.Fatalf("compacted waiting round lost active background task context: %#v", requests[1].ContextReminders)
+	}
+	if contextReminderContains(requests[2].ContextReminders, "<active_background_tasks>") {
+		t.Fatalf("result round retained stale active background task context: %#v", requests[2].ContextReminders)
+	}
+	if !messagesContainTaskResult(requests[2].Messages) {
+		t.Fatalf("post-compaction result round has no task result: %#v", requests[2].Messages)
+	}
+
+	messages, err := agent.ListMessages(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskResults, checkpoints := 0, 0
+	for _, message := range messages {
+		if message.Type == agentruntime.MessageTypeRuntimeEvent && strings.Contains(message.Content, "<task_result>") {
+			taskResults++
+		}
+		if message.Type == agentruntime.MessageTypeCompactionCheckpoint {
+			checkpoints++
+		}
+	}
+	if taskResults != 1 || checkpoints != 1 {
+		t.Fatalf("stored task results=%d checkpoints=%d, want exactly one each", taskResults, checkpoints)
+	}
+}
+
 func TestSubagentIntegrationBackgroundFailureDeliversOneTrustedError(t *testing.T) {
 	main := &scriptedModel{toolCalls: []provider.ToolCall{{
 		ID: "task", Name: TaskToolName,
@@ -316,12 +427,12 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	}
 	waitRun(t, second)
 	reminders := mainAgentModel.Requests()[1].ContextReminders
-	if len(reminders) != 2 || !strings.Contains(reminders[0].Content, "<turn_start>") || !strings.Contains(reminders[1].Content, created.ID) || !strings.Contains(reminders[1].Content, "<active_subagents>") {
-		t.Fatalf("active subagent reminder = %#v", reminders)
+	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "<turn_start>") {
+		t.Fatalf("host-managed subagent leaked into background-task reminder: %#v", reminders)
 	}
 
 	subagentModel.release()
-	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, agent.subagents, created.ID, "")
 	response = integrationJSONRequest(t, http.MethodPost, httpServer.URL+subagentPath("mainAgent", created.ID)+"/turns", `{"message":"HTTP follow-up"}`)
 	if response.StatusCode != http.StatusAccepted {
 		defer response.Body.Close()
@@ -330,7 +441,7 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 	response.Body.Close()
 	subagentModel.waitRequests(t, 2)
 	subagentModel.release()
-	awaitSubagentStatus(t, agent.subagents, created.ID, storage.SubagentStatusIdle)
+	awaitSubagentStatus(t, agent.subagents, created.ID, "")
 
 	response = integrationJSONRequest(t, http.MethodDelete, httpServer.URL+subagentPath("mainAgent", created.ID), "")
 	if response.StatusCode != http.StatusOK {
@@ -358,14 +469,14 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 		t.Fatal(err)
 	}
 	waitRun(t, third)
-	if got := mainAgentModel.Requests()[2].ContextReminders; len(got) != 1 || !strings.Contains(got[0].Content, "<turn_start>") || strings.Contains(got[0].Content, "<active_subagents>") {
+	if got := mainAgentModel.Requests()[2].ContextReminders; len(got) != 1 || !strings.Contains(got[0].Content, "<turn_start>") || strings.Contains(got[0].Content, "<active_background_tasks>") {
 		t.Fatalf("closed subagent remained in reminder = %#v", got)
 	}
 	mainAgentMessages, err := agent.ListMessages(context.Background(), "mainAgent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(integrationMessageContents(mainAgentMessages), "active_subagents") {
+	if strings.Contains(integrationMessageContents(mainAgentMessages), "active_background_tasks") {
 		t.Fatalf("ephemeral reminder persisted in mainAgent transcript: %#v", mainAgentMessages)
 	}
 }
@@ -382,7 +493,7 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 		}},
 		providerName: "test", modelName: "mainAgent-model", subagents: definitions,
 	}
-	agentOptions := []Option{WithProject(project), WithModel(mainAgent), WithMaxSubagents(4)}
+	agentOptions := []Option{WithProject(project), WithModel(mainAgent)}
 	agentOptions = append(agentOptions, options...)
 	agent, err := New(context.Background(), agentOptions...)
 	if err != nil {
@@ -397,6 +508,83 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 		return New(context.Background(), withSubagentAgent(), WithModel(model), WithMessageStorage(agent.messages))
 	}
 	return agent
+}
+
+type integrationMetadataModel struct {
+	agentruntime.Model
+	metadata agentruntime.ModelMetadata
+}
+
+func (model integrationMetadataModel) ModelMetadata() (agentruntime.ModelMetadata, error) {
+	return model.metadata, nil
+}
+
+type blockingIntegrationCompactionModel struct {
+	started     chan struct{}
+	releaseGate chan struct{}
+	once        sync.Once
+}
+
+func newBlockingIntegrationCompactionModel() *blockingIntegrationCompactionModel {
+	return &blockingIntegrationCompactionModel{started: make(chan struct{}), releaseGate: make(chan struct{})}
+}
+
+func (model *blockingIntegrationCompactionModel) ModelMetadata() (agentruntime.ModelMetadata, error) {
+	return agentruntime.ModelMetadata{ContextWindowTokens: 4096, MaxOutputTokens: 512}, nil
+}
+
+func (model *blockingIntegrationCompactionModel) Start(context.Context, agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	model.once.Do(func() { close(model.started) })
+	return blockingIntegrationCompactionStream{release: model.releaseGate}, nil
+}
+
+func (model *blockingIntegrationCompactionModel) release() {
+	select {
+	case <-model.releaseGate:
+	default:
+		close(model.releaseGate)
+	}
+}
+
+type blockingIntegrationCompactionStream struct {
+	release <-chan struct{}
+}
+
+func (stream blockingIntegrationCompactionStream) Subscribe(ctx context.Context) <-chan provider.StreamEvent {
+	events := make(chan provider.StreamEvent, 1)
+	go func() {
+		defer close(events)
+		select {
+		case <-stream.release:
+			events <- provider.StreamEvent{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{
+				Result: provider.StreamResult{Content: "# Objective\nWait for the active task result.", Finished: true},
+			}}
+		case <-ctx.Done():
+		}
+	}()
+	return events
+}
+
+func (blockingIntegrationCompactionStream) Result() (provider.StreamResult, error) {
+	return provider.StreamResult{}, errors.New("unused")
+}
+
+func contextReminderContains(reminders []agentruntime.ContextReminder, text string) bool {
+	for _, reminder := range reminders {
+		if strings.Contains(reminder.Content, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func messagesContainTaskResult(messages []agentruntime.Message) bool {
+	for _, message := range messages {
+		if message.Type == agentruntime.MessageTypeRuntimeEvent && strings.Contains(message.Content, "<task_result>") {
+			return true
+		}
+	}
+	return false
 }
 
 func onlyTaskToolResult(t *testing.T, messages []agentruntime.Message, callID string) TaskResult {

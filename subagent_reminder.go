@@ -4,182 +4,51 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"sort"
 	"strings"
-	"sync"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/storage"
 )
 
-type subagentReminderKey struct {
-	sessionID string
-	turnID    string
-}
-
-type autoClosedSubagentNotice struct {
-	ID          string
-	DisplayName string
-	Status      storage.SubagentResultStatus
-}
-
-func (m *subagentManager) recordAutoClosedSubagent(record storage.Subagent) {
-	if m == nil || record.MainAgentSessionID == "" || record.ID == "" {
-		return
-	}
-	notice := autoClosedSubagentNotice{ID: record.ID, DisplayName: record.DisplayName, Status: record.LastResultStatus}
-	m.reminderMu.Lock()
-	m.pendingAutoClosed[record.MainAgentSessionID] = append(m.pendingAutoClosed[record.MainAgentSessionID], notice)
-	m.reminderMu.Unlock()
-}
-
-// reserveAutoClosedSubagentReminder assigns pending notices only to a new
-// human main-agent turn. The rollback function restores them if turn admission fails.
-func (m *subagentManager) reserveAutoClosedSubagentReminder(sessionID, turnID string) func(bool) {
-	if m == nil || sessionID == "" || turnID == "" {
-		return func(bool) {}
-	}
-	key := subagentReminderKey{sessionID: sessionID, turnID: turnID}
-	m.reminderMu.Lock()
-	notices := append([]autoClosedSubagentNotice(nil), m.pendingAutoClosed[sessionID]...)
-	if len(notices) != 0 {
-		delete(m.pendingAutoClosed, sessionID)
-		m.turnAutoClosed[key] = notices
-	}
-	m.reminderMu.Unlock()
-
-	var once sync.Once
-	return func(accepted bool) {
-		once.Do(func() {
-			if accepted || len(notices) == 0 {
-				return
-			}
-			m.reminderMu.Lock()
-			delete(m.turnAutoClosed, key)
-			m.pendingAutoClosed[sessionID] = append(notices, m.pendingAutoClosed[sessionID]...)
-			m.reminderMu.Unlock()
-		})
-	}
-}
-
-func (m *subagentManager) finishAutoClosedSubagentReminder(sessionID, turnID string) {
-	if m == nil {
-		return
-	}
-	m.reminderMu.Lock()
-	delete(m.turnAutoClosed, subagentReminderKey{sessionID: sessionID, turnID: turnID})
-	m.reminderMu.Unlock()
-}
-
-func (m *subagentManager) autoClosedSubagentReminders(sessionID, turnID string) []agentruntime.ContextReminder {
-	if m == nil || sessionID == "" || turnID == "" {
-		return nil
-	}
-	m.reminderMu.Lock()
-	notices := append([]autoClosedSubagentNotice(nil), m.turnAutoClosed[subagentReminderKey{sessionID: sessionID, turnID: turnID}]...)
-	m.reminderMu.Unlock()
-	if len(notices) == 0 {
-		return nil
-	}
-	sort.Slice(notices, func(i, j int) bool {
-		if notices[i].DisplayName == notices[j].DisplayName {
-			return notices[i].ID < notices[j].ID
-		}
-		return notices[i].DisplayName < notices[j].DisplayName
-	})
-	var content strings.Builder
-	content.WriteString("<subagents_automatically_closed>\n")
-	for _, notice := range notices {
-		content.WriteString("  <subagent>\n")
-		fmt.Fprintf(&content, "    <subagent_id>%s</subagent_id>\n", html.EscapeString(notice.ID))
-		fmt.Fprintf(&content, "    <display_name>%s</display_name>\n", html.EscapeString(notice.DisplayName))
-		fmt.Fprintf(&content, "    <result_status>%s</result_status>\n", html.EscapeString(string(notice.Status)))
-		content.WriteString("  </subagent>\n")
-	}
-	content.WriteString("  <instruction>These completed or failed subagents were closed automatically after the previous user response. They cannot receive follow-up messages. Start a new subagent only if new work requires one. Closing a subagent is controlled by the host application and is not available as a model action.</instruction>\n")
-	content.WriteString("</subagents_automatically_closed>")
-	return []agentruntime.ContextReminder{{Content: content.String()}}
-}
-
-// subagentReminderProvider derives only session-scoped lifecycle metadata.
-// Subagent results arrive automatically; the reminder is the authoritative
-// current snapshot for deciding whether to work or wait without polling.
+// subagentReminderProvider reports only asynchronous work that is still owned
+// by the runtime. Foreground and finished task sessions remain resumable by
+// task_id but do not need repeated provider context.
 func subagentReminderProvider(manager *subagentManager) agentruntime.ContextReminderProvider {
-	const maximumSnapshots = 256
-	var snapshotsMu sync.Mutex
-	snapshots := make(map[subagentReminderKey][]agentruntime.ContextReminder)
-	order := make([]subagentReminderKey, 0, maximumSnapshots)
-
 	return func(ctx context.Context, request agentruntime.ContextReminderRequest) ([]agentruntime.ContextReminder, error) {
 		if manager == nil || strings.TrimSpace(request.SessionID) == "" {
 			return nil, nil
-		}
-		key := subagentReminderKey{sessionID: request.SessionID, turnID: request.TurnID}
-		if request.TurnID != "" {
-			snapshotsMu.Lock()
-			cached, found := snapshots[key]
-			snapshotsMu.Unlock()
-			if found {
-				return cloneSubagentReminders(cached), nil
-			}
 		}
 		records, err := manager.List(ctx, request.SessionID, false)
 		if err != nil {
 			return nil, err
 		}
-		resolved := manager.autoClosedSubagentReminders(request.SessionID, request.TurnID)
-		if len(records) == 0 {
-			if request.TurnID != "" {
-				snapshotsMu.Lock()
-				if _, found := snapshots[key]; !found {
-					snapshots[key] = cloneSubagentReminders(resolved)
-					order = append(order, key)
-					if len(order) > maximumSnapshots {
-						delete(snapshots, order[0])
-						order = order[1:]
-					}
-				}
-				snapshotsMu.Unlock()
-			}
-			return resolved, nil
-		}
-
 		var content strings.Builder
-		content.WriteString("<active_subagents>\n")
+		active := 0
 		for _, record := range records {
-			content.WriteString("  <subagent>\n")
-			fmt.Fprintf(&content, "    <subagent_id>%s</subagent_id>\n", html.EscapeString(record.ID))
-			fmt.Fprintf(&content, "    <definition_name>%s</definition_name>\n", html.EscapeString(record.DefinitionName))
-			fmt.Fprintf(&content, "    <lifecycle_status>%s</lifecycle_status>\n", html.EscapeString(string(record.Status)))
-			content.WriteString("  </subagent>\n")
-		}
-		content.WriteString("  <instruction>Each subagent_id identifies a resumable task. A running task is still working; an idle task can receive a focused follow-up. Do not inspect, poll, or call a tool merely to wait for a task. Continue only independent work that is already planned.</instruction>\n")
-		content.WriteString("</active_subagents>")
-		resolved = append(resolved, agentruntime.ContextReminder{Content: content.String()})
-		if request.TurnID != "" {
-			snapshotsMu.Lock()
-			if _, found := snapshots[key]; !found {
-				snapshots[key] = cloneSubagentReminders(resolved)
-				order = append(order, key)
-				if len(order) > maximumSnapshots {
-					delete(snapshots, order[0])
-					order = order[1:]
-				}
+			if record.ActiveTaskDelivery == nil {
+				continue
 			}
-			resolved = cloneSubagentReminders(snapshots[key])
-			snapshotsMu.Unlock()
+			if active == 0 {
+				content.WriteString("<active_background_tasks>\n")
+			}
+			state := "result_pending"
+			if record.Status == storage.SubagentStatusRunning {
+				state = "running"
+			}
+			content.WriteString("  <task>\n")
+			fmt.Fprintf(&content, "    <task_id>%s</task_id>\n", html.EscapeString(record.ID))
+			fmt.Fprintf(&content, "    <agent>%s</agent>\n", html.EscapeString(record.DefinitionName))
+			fmt.Fprintf(&content, "    <state>%s</state>\n", state)
+			content.WriteString("  </task>\n")
+			active++
 		}
-		return resolved, nil
+		if active == 0 {
+			return nil, nil
+		}
+		content.WriteString("  <instruction>These background tasks are still being handled. Do not poll them or start duplicate work. Continue only independent work that is already planned.</instruction>\n")
+		content.WriteString("</active_background_tasks>")
+		return []agentruntime.ContextReminder{{Content: content.String()}}, nil
 	}
-}
-
-func cloneSubagentReminders(reminders []agentruntime.ContextReminder) []agentruntime.ContextReminder {
-	if reminders == nil {
-		return nil
-	}
-	cloned := make([]agentruntime.ContextReminder, len(reminders))
-	copy(cloned, reminders)
-	return cloned
 }
 
 func unreadSubagentMessages(ctx context.Context, manager *subagentManager, subagentSessionID, observedID string) (int, error) {

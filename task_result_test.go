@@ -53,3 +53,21 @@ func TestTaskResultFromFinalOutputUsesContractAndRuntimeState(t *testing.T) {
 		t.Fatalf("invalid task result = %#v", invalid)
 	}
 }
+
+func TestTaskDeliveryRuntimeMessageIncludesTaskReferenceErrorCode(t *testing.T) {
+	message := taskDelivery{Result: TaskResult{
+		TaskID:    "missing-task",
+		State:     TaskStateError,
+		ErrorCode: TaskErrorNotFound,
+		Error:     "task not found",
+	}}.RuntimeMessage()
+	contents := strings.TrimSuffix(strings.TrimPrefix(message.Content, "<task_result>\n"), "\n</task_result>")
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(contents), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["task_id"] != "missing-task" || payload["state"] != string(TaskStateError) ||
+		payload["error_code"] != string(TaskErrorNotFound) {
+		t.Fatalf("task reference error payload = %#v", payload)
+	}
+}

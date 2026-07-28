@@ -50,10 +50,10 @@ type Agent struct {
 	// taskDeliveries is intentionally private. Background task completion is a
 	// runtime responsibility, not a transport concern: terminal, HTTP, and
 	// embedding applications must not create competing continuation turns.
-	taskDeliveries       chan taskDelivery
-	taskCoordinatorCtx   context.Context
-	taskCoordinatorStop  context.CancelFunc
-	taskCoordinatorDone  chan struct{}
+	taskDeliveries      chan taskDelivery
+	taskCoordinatorCtx  context.Context
+	taskCoordinatorStop context.CancelFunc
+	taskCoordinatorDone chan struct{}
 }
 
 func taskAgentsForProject(project *Project) []toolexecution.TaskAgent {
@@ -116,9 +116,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	if configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent {
 		if configuration.subagents == nil {
 			configuration.subagents = inmemory.NewSubagentStorage()
-		}
-		if configuration.maxSubagents == 0 {
-			configuration.maxSubagents = defaultMaxSubagents
 		}
 	}
 	if err := configuration.validate(); err != nil {
@@ -248,7 +245,6 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			}
 			return json.Marshal(result)
 		})
-		agent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
 	}
 	reminderProvider := composeContextReminderProviders(
 		newTurnContextReminderProvider(),
@@ -650,18 +646,14 @@ func (a *Agent) Start(ctx context.Context, request agentruntime.Request) (*agent
 	if err := ensureResponseTurnID(&request); err != nil {
 		return nil, err
 	}
-	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
 	if err := a.responseScopes.BeginMainAgentTurn(request.SessionID, request.TurnID); err != nil {
-		finishReminderReservation(false)
 		return nil, err
 	}
 	run, err := a.runtime.Start(ctx, request)
 	if err != nil {
 		a.responseScopes.RollbackMainAgentTurn(request.SessionID, request.TurnID)
-		finishReminderReservation(false)
 		return nil, err
 	}
-	finishReminderReservation(true)
 	a.watchAcceptedRun(run)
 	return run, nil
 }
@@ -696,18 +688,14 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	if err := ensureResponseTurnID(&request); err != nil {
 		return nil, agentruntime.EventSubscription{}, err
 	}
-	finishReminderReservation := a.reserveAutoClosedSubagentReminder(request)
 	if err := a.responseScopes.BeginMainAgentTurn(request.SessionID, request.TurnID); err != nil {
-		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
 	run, subscription, err := a.runtime.StartSubscribed(ctx, request)
 	if err != nil {
 		a.responseScopes.RollbackMainAgentTurn(request.SessionID, request.TurnID)
-		finishReminderReservation(false)
 		return nil, agentruntime.EventSubscription{}, err
 	}
-	finishReminderReservation(true)
 	a.watchAcceptedRun(run)
 	return run, subscription, nil
 }
@@ -804,13 +792,6 @@ func ensureResponseTurnID(request *agentruntime.Request) error {
 	return nil
 }
 
-func (a *Agent) reserveAutoClosedSubagentReminder(request agentruntime.Request) func(bool) {
-	if a == nil || a.subagents == nil || request.Message.Type != agentruntime.MessageTypeUser {
-		return func(bool) {}
-	}
-	return a.subagents.reserveAutoClosedSubagentReminder(request.SessionID, request.TurnID)
-}
-
 func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
 	if run == nil {
 		return
@@ -823,9 +804,6 @@ func (a *Agent) watchAcceptedRun(run *agentruntime.Run) {
 		for range subscription.Events {
 		}
 		a.responseScopes.FinishTurn(run.SessionID(), run.TurnID())
-		if a.subagents != nil {
-			a.subagents.finishAutoClosedSubagentReminder(run.SessionID(), run.TurnID())
-		}
 	}()
 }
 
@@ -968,8 +946,8 @@ func (a *Agent) WaitSubagent(ctx context.Context, mainAgentSessionID string, sub
 	return manager.Wait(ctx, mainAgentSessionID, subagentIDs, after)
 }
 
-// SendSubagentMessage queues running subagent work or resumes an idle subagent after
-// its latest result has been consumed.
+// SendSubagentMessage queues running subagent work or resumes a retained task
+// session.
 func (a *Agent) SendSubagentMessage(ctx context.Context, mainAgentSessionID, subagentID, message string) (storage.Subagent, error) {
 	manager, err := a.subagentManager()
 	if err != nil {

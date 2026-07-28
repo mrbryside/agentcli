@@ -72,8 +72,11 @@ For a new task, provide `agent`, `description`, and `prompt`:
 ```
 
 For a resume, provide only `task_id` and `prompt`. The ID belongs to its
-main-agent session, retains child history, and can resume only while the child
-is idle and open. Foreign, unknown, running, and closed IDs fail.
+main-agent session, retains child history, and can resume after a completed,
+incomplete, or failed run. A supplied ID is exact: the runtime never creates a
+replacement when it is unknown or closed. Such calls return
+`error_code: "task_not_found"` or `error_code: "task_closed"`; a task already
+running returns `error_code: "task_running"`.
 
 Foreground is the default. The tool waits for the child final response and
 returns:
@@ -157,17 +160,17 @@ endpoint preserve transcript/run history while interrupting active work,
 dropping queued input, and rejecting future input. A successful close emits
 `SystemSubagentClosed`. Terminal task completion separately emits
 `SystemTaskCompleted`; both are live system facts rather than transcript
-messages.
+messages. Close is idempotent: closing an already-closed task returns its
+existing tombstone without emitting a duplicate close event.
 
-## Capacity
+## Retained task sessions
 
-Set the project-wide default in `.agentcli/config.yaml`:
+Task sessions have no count quota. After a turn finishes, AgentCLI unloads its
+live runtime while retaining the task record and transcript. Any retained task
+can be resumed later with its exact `task_id`. Use `WithSubagentStorage` when
+those relationships must survive process restarts.
 
-```yaml
-max_subagents: 4
-```
-
-This limits non-closed child sessions per main-agent session. Omitting the
-field, or setting `0`, uses the default of four. `WithMaxSubagents` overrides
-it programmatically. Use `WithSubagentStorage` when persisted relationship
-metadata must be durable.
+The framework injects `<active_background_tasks>` only while asynchronous work
+is still running or its result is waiting for delivery. Finished resumable
+tasks and foreground work are omitted. The reminder is rebuilt at each
+provider boundary, so stale tasks disappear without a turn-level snapshot.

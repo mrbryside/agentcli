@@ -96,7 +96,7 @@ func TestServerSubagentCRUDMessagesAndOwnership(t *testing.T) {
 		closeEvent.SubagentClosed.Subagent.ID != created.ID ||
 		closeEvent.SubagentClosed.Subagent.Status != storage.SubagentStatusClosed ||
 		closeEvent.SubagentClosed.PreviousStatus != storage.SubagentStatusRunning ||
-		!closeEvent.SubagentClosed.Interrupted || closeEvent.SubagentClosed.Automatic {
+		!closeEvent.SubagentClosed.Interrupted {
 		t.Fatalf("subagent close session event = %#v", closeEvent)
 	}
 }
@@ -118,6 +118,19 @@ func TestServerSubagentTurnSSEAndReconnect(t *testing.T) {
 	reconnected := getSSEEvents(t, serverURL+subagentTurnPath("mainAgent-events", created.ID, created.CurrentSubagentTurnID)+"/events", jsonNumber(last))
 	if len(reconnected) != 0 {
 		t.Fatalf("reconnect after final event = %#v", reconnected)
+	}
+	retainedResponse := doJSON(t, http.MethodGet, serverURL+subagentPath("mainAgent-events", created.ID), "", "")
+	var retainedPayload map[string]any
+	if err := json.NewDecoder(retainedResponse.Body).Decode(&retainedPayload); err != nil {
+		retainedResponse.Body.Close()
+		t.Fatal(err)
+	}
+	retainedResponse.Body.Close()
+	if retainedResponse.StatusCode != http.StatusOK {
+		t.Fatalf("retained task status = %d", retainedResponse.StatusCode)
+	}
+	if _, found := retainedPayload["status"]; found {
+		t.Fatalf("retained task unexpectedly exposed lifecycle status: %#v", retainedPayload)
 	}
 
 	closed := doJSON(t, http.MethodDelete, serverURL+subagentPath("mainAgent-events", created.ID), "", "")

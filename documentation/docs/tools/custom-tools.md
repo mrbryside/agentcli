@@ -357,7 +357,7 @@ for event := range events {
 ```
 
 The stream is live-only. Subscribe before starting the main-agent turn when neither
-boundary may be missed. `PreEndScope` precedes automatic subagent cleanup and
+boundary may be missed. `PreEndScope` precedes final response-scope handlers and
 the first final `EndResponseScope` handler. `EndScope` is emitted only after
 the turn completes, canonical messages are persisted, and the scope is removed.
 

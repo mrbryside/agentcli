@@ -185,7 +185,7 @@ the completion boundary. See
 each human response scope:
 
 - `PreEndScope` (`pre_end_scope`) fires at the final completion boundary,
-  before automatic subagent cleanup and final `EndResponseScope`
+  before final `EndResponseScope`
   handlers.
 - `EndScope` (`end_scope`) fires after cleanup and all final handlers run and
   the scope has been removed.

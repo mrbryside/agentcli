@@ -301,7 +301,7 @@ remains, the server creates a result turn with
 `source: subagent_result`. Clients do not need to poll or manually ask the
 main agent to read the subagent.
 
-When the subagent originated from a main-agent assignment, its automatic
+When the subagent originated from a main-agent assignment, its Agent-owned
 result remains in that original response scope. A subagent created directly
 through this HTTP endpoint has no originating scope, so its result
 continuation starts a new main-agent response scope instead.
@@ -315,7 +315,7 @@ curl -sS -X POST \
   -d '{"message":"Now focus on confirmation storage"}'
 ```
 
-This returns `202 Accepted`. If the subagent was idle, `Location` identifies its
+This returns `202 Accepted`. If the subagent was retained, `Location` identifies its
 new turn. If it was active, the message is queued and no turn exists for that
 queued input yet. Supplying `Accept: text/event-stream` streams only an
 immediately started turn, not queued mailbox work.
@@ -332,10 +332,9 @@ from the owned record. On reload, query `subagent-permissions` and
 `subagent-confirmations` to recover unresolved subagent gates that may predate the
 current session-stream subscription.
 
-Sending to a running subagent queues the message. Sending to an idle incomplete
-or failed subagent starts the follow-up only after its latest result has been
-consumed; otherwise it returns `409 conflict`. A completed subagent rejects
-follow-up work and is not reused.
+Sending to a running subagent queues the message. Sending to any retained
+completed, incomplete, or failed task starts a new child turn with the same
+task ID and transcript. A closed record returns `409 task_closed`.
 
 Delete uses the same destructive lifecycle path as `Agent.CloseSubagent`. It
 may interrupt active work, drops queued input, retains transcript and completed

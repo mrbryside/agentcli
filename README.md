@@ -72,7 +72,6 @@ Create `.agentcli/config.yaml`:
 
 ```yaml
 permission_mode: default
-max_subagents: 4
 
 # Optional structured runtime, tool, scope, and repair lifecycle logs.
 # Omit this mapping to disable console logging.

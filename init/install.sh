@@ -178,7 +178,6 @@ cat >"$target/.agentcli/config.yaml" <<'EOF'
 # API_KEY and GUARDRAILS_API_KEY are loaded from the process environment.
 # Keep live provider keys out of this file.
 permission_mode: criticalOnly
-max_subagents: 4
 
 # Main-agent identity, model, and capability allowlists live in MAIN.md.
 

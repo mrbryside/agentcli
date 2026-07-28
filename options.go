@@ -18,7 +18,6 @@ import (
 
 const defaultChannelBuffer = 64
 const defaultToolWorkers = 4
-const defaultMaxSubagents = 4
 
 // defaultCompletionRepairLimit bounds provider retries when a completion
 // guard requires a trigger or semantic result-report tool. A bounded retry keeps
@@ -47,7 +46,6 @@ type config struct {
 	subagents               storage.SubagentStorage
 	maxProviderSteps        int
 	taskForegroundWait      time.Duration
-	maxSubagents            int
 	subagentAgent           bool
 	contextReminderProvider agentruntime.ContextReminderProvider
 	inputGuard              agentruntime.InputGuard
@@ -110,13 +108,10 @@ func (configuration config) validate() error {
 	if configuration.confirmations == nil {
 		return errors.New("confirmation storage is required")
 	}
-	if configuration.maxSubagents < 0 {
-		return errors.New("maximum subagents cannot be negative")
-	}
 	if configuration.maxProviderSteps < 0 {
 		return errors.New("maximum provider steps cannot be negative")
 	}
-	if configuration.maxSubagents > 0 && configuration.subagents == nil && configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent {
+	if configuration.subagents == nil && configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent {
 		return errors.New("subagent storage is required")
 	}
 	if err := configuration.skillReload.Validate(); err != nil {
@@ -352,19 +347,6 @@ func WithSubagentStorage(subagents storage.SubagentStorage) Option {
 			return errors.New("subagent storage is required")
 		}
 		configuration.subagents = subagents
-		return nil
-	}
-}
-
-// WithMaxSubagents bounds the number of non-closed subagent instances each
-// main agent session may keep open. The default is applied only for projects that
-// define subagents.
-func WithMaxSubagents(maximum int) Option {
-	return func(configuration *config) error {
-		if maximum <= 0 {
-			return errors.New("maximum subagents must be positive")
-		}
-		configuration.maxSubagents = maximum
 		return nil
 	}
 }

@@ -28,7 +28,7 @@ type subagentManager struct {
 	ctx       context.Context
 
 	mu              sync.RWMutex
-	startMu         sync.Mutex // makes the per-mainAgent open-instance quota atomic.
+	startMu         sync.Mutex // serializes task creation and display-name allocation.
 	instances       map[string]*managedSubagent
 	closed          bool
 	changed         chan struct{}
@@ -38,15 +38,11 @@ type subagentManager struct {
 	// finishes while a foreground wait is being promoted. The durable delivery
 	// identity remains the recovery boundary; this map only serializes the
 	// in-process monitor and post-registration fast path.
-	taskDeliveryMu   sync.Mutex
-	taskDeliverySeen map[string]struct{}
+	taskDeliveryMu     sync.Mutex
+	taskDeliverySeen   map[string]struct{}
 	taskRegistrationMu sync.Mutex
 	taskExecutionMu    sync.Mutex
 	taskExecutions     map[string]map[string]taskExecution
-
-	reminderMu        sync.Mutex
-	pendingAutoClosed map[string][]autoClosedSubagentNotice
-	turnAutoClosed    map[subagentReminderKey][]autoClosedSubagentNotice
 
 	confirmationMu             sync.Mutex
 	nextConfirmationSubscriber uint64
@@ -69,9 +65,9 @@ type managedSubagent struct {
 	// completed event history is transport state, not a live subagent runtime.
 	agent *Agent
 
-	mu                            sync.Mutex // serializes the one active subagent turn and its mailbox.
-	run                           *agentruntime.Run
-	runs                          map[string]*agentruntime.Run
+	mu   sync.Mutex // serializes the one active subagent turn and its mailbox.
+	run  *agentruntime.Run
+	runs map[string]*agentruntime.Run
 }
 
 type subagentCloseResult struct {
@@ -92,17 +88,12 @@ func newSubagentManager(mainAgent *Agent, configuration config) (*subagentManage
 	if mainAgent == nil || configuration.project == nil || configuration.subagents == nil {
 		return nil, errors.New("subagent manager requires mainAgent, project, and storage")
 	}
-	if configuration.maxSubagents <= 0 {
-		return nil, errors.New("subagent maximum must be positive")
-	}
 	return &subagentManager{
 		mainAgent: mainAgent, store: configuration.subagents, project: configuration.project,
 		config: configuration, ctx: mainAgent.context, instances: make(map[string]*managedSubagent),
-		changed: make(chan struct{}),
-		taskDeliverySeen:       make(map[string]struct{}),
-		taskExecutions:         make(map[string]map[string]taskExecution),
-		pendingAutoClosed:       make(map[string][]autoClosedSubagentNotice),
-		turnAutoClosed:          make(map[subagentReminderKey][]autoClosedSubagentNotice),
+		changed:                 make(chan struct{}),
+		taskDeliverySeen:        make(map[string]struct{}),
+		taskExecutions:          make(map[string]map[string]taskExecution),
 		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
 		permissionSubscribers:   make(map[uint64]*subagentPermissionSubscriber),
 		systemEventSubscribers:  make(map[uint64]*systemEventSubscriber),
@@ -139,7 +130,7 @@ type TaskRequest struct {
 	Background         bool
 }
 
-// ExecuteTask starts a new subagent task or resumes an idle task owned by the
+// ExecuteTask starts a new subagent task or resumes a retained task owned by the
 // same main-agent session. Foreground execution is intentionally synchronous:
 // it returns the child's final response to the invoking tool call and creates
 // no response-scope result obligation. Background delivery is added separately
@@ -182,6 +173,25 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 		record, definition, run, err = m.resumeForegroundTask(ctx, request)
 	}
 	if err != nil {
+		if request.TaskID != "" {
+			switch {
+			case errors.Is(err, storage.ErrSubagentNotFound):
+				return TaskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorNotFound,
+					Error: "No task exists with this task_id.",
+				}, nil
+			case errors.Is(err, storage.ErrSubagentClosed):
+				return TaskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorClosed,
+					Error: "This task was closed and cannot be resumed. Start a new task without task_id.",
+				}, nil
+			case errors.Is(err, storage.ErrSubagentRunning):
+				return TaskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorRunning,
+					Error: "This task already has a running turn.",
+				}, nil
+			}
+		}
 		return TaskResult{}, err
 	}
 	if request.Background {
@@ -213,7 +223,7 @@ func (m *subagentManager) startForegroundTask(ctx context.Context, request TaskR
 	if err != nil {
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
-	instance, err := m.instance(record.ID)
+	instance, err := m.instanceForRecord(record)
 	if err != nil {
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
@@ -241,7 +251,7 @@ func (m *subagentManager) resumeForegroundTask(ctx context.Context, request Task
 	if !found {
 		return storage.Subagent{}, SubagentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", record.DefinitionName)
 	}
-	instance, err := m.instance(record.ID)
+	instance, err := m.instanceForRecord(record)
 	if err != nil {
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
@@ -257,6 +267,9 @@ func (m *subagentManager) resumeForegroundTask(ctx context.Context, request Task
 	if record.Status == storage.SubagentStatusRunning {
 		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentRunning
 	}
+	if err := m.ensureAgentLocked(instance, definition); err != nil {
+		return storage.Subagent{}, SubagentDefinition{}, nil, err
+	}
 	turnID, err := newSubagentID("turn_")
 	if err != nil {
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
@@ -268,7 +281,11 @@ func (m *subagentManager) resumeForegroundTask(ctx context.Context, request Task
 	m.markTaskExecution(record.ID, turnID, request.MainAgentTurnID)
 	if err := m.startTurnLocked(instance, running, turnID, request.Prompt); err != nil {
 		m.unmarkTaskExecution(record.ID, turnID)
-		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		_, _ = m.transition(context.Background(), record.ID, "", "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		if subagent := instance.agent; subagent != nil {
+			instance.agent = nil
+			_ = subagent.Close()
+		}
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
 	run := instance.runs[turnID]
@@ -419,7 +436,7 @@ func (m *subagentManager) registerTaskDelivery(ctx context.Context, record stora
 		return err
 	}
 	// The durable record wins over the stale snapshot returned by task start.
-	// A fast terminal monitor may already have changed it to idle; dispatch the
+	// A fast terminal monitor may already have finished it; dispatch the
 	// saved final output now, while taskDeliverySeen suppresses any duplicate.
 	if updated.Status != storage.SubagentStatusRunning {
 		m.publishTaskTerminal(updated, definition, run)
@@ -569,7 +586,7 @@ func (m *subagentManager) terminalTaskResult(record storage.Subagent, definition
 
 // waitForTaskLifecycle fences the manager's monitor after a child Run reports
 // completion. Run.Result guarantees provider and transcript effects, while the
-// monitor owns the durable running-to-idle transition used by a later resume.
+// monitor owns the durable running-to-resumable transition used by a later resume.
 func (m *subagentManager) waitForTaskLifecycle(ctx context.Context, record storage.Subagent) error {
 	for {
 		latest, err := m.getOwned(ctx, record.MainAgentSessionID, record.ID)
@@ -637,17 +654,6 @@ func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, 
 }
 
 func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent, registerScopeAssignment bool) (storage.Subagent, error) {
-	// The durable store, rather than the in-memory handle map, is the source
-	// of truth for the per-main agent quota.
-	open := 0
-	for _, subagent := range existing {
-		if subagent.Status != storage.SubagentStatusClosed {
-			open++
-		}
-	}
-	if open >= m.config.maxSubagents {
-		return storage.Subagent{}, fmt.Errorf("maximum of %d open subagents reached", m.config.maxSubagents)
-	}
 	displayName, err := newSubagentDisplayName(existing)
 	if err != nil {
 		return storage.Subagent{}, err
@@ -912,7 +918,7 @@ func (m *subagentManager) Wait(ctx context.Context, mainAgentSessionID string, i
 	if after == nil {
 		// Before taking a state snapshot, unread output is immediately useful
 		// to the caller. Once it is all observed, the snapshot makes later
-		// close/idle/running transitions wake this wait too.
+		// close and running transitions wake this wait too.
 		unread, err := m.changedSince(ctx, mainAgentSessionID, ids, nil)
 		if err != nil || len(unread) != 0 {
 			return unread, err
@@ -954,7 +960,7 @@ func (m *subagentManager) Wait(ctx context.Context, mainAgentSessionID string, i
 
 // WaitForTurnCompletion joins the turn that is active when this method is
 // called. Provider chunks, tool progress, and the delegated user message do
-// not complete the wait. If an explicit target is already idle or closed, its
+// not complete the wait. If an explicit target is already resumable or closed, its
 // completed state is returned immediately. With no IDs, all currently running
 // subagents become targets.
 func (m *subagentManager) WaitForTurnCompletion(ctx context.Context, mainAgentSessionID string, ids []string) ([]storage.Subagent, error) {
@@ -1069,7 +1075,7 @@ func (m *subagentManager) Send(ctx context.Context, mainAgentSessionID, id, cont
 	if record.Status == storage.SubagentStatusClosed {
 		return storage.Subagent{}, storage.ErrSubagentClosed
 	}
-	instance, err := m.instance(id)
+	instance, err := m.instanceForRecord(record)
 	if err != nil {
 		return storage.Subagent{}, err
 	}
@@ -1084,11 +1090,20 @@ func (m *subagentManager) Send(ctx context.Context, mainAgentSessionID, id, cont
 	if record.Status == storage.SubagentStatusClosed {
 		return storage.Subagent{}, storage.ErrSubagentClosed
 	}
+	definition, found := m.project.subagents[record.DefinitionName]
+	if !found {
+		return storage.Subagent{}, fmt.Errorf("subagent definition %q is not available", record.DefinitionName)
+	}
+	if record.Status != storage.SubagentStatusRunning {
+		if err := m.ensureAgentLocked(instance, definition); err != nil {
+			return storage.Subagent{}, err
+		}
+	}
 	return m.sendLocked(ctx, instance, record, content)
 }
 
-// sendLocked starts immediately when idle and appends FIFO mailbox work when
-// a turn is already active. The caller holds instance.mu.
+// sendLocked starts immediately when no turn is active and appends FIFO
+// mailbox work when a turn is already active. The caller holds instance.mu.
 func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubagent, record storage.Subagent, content string) (storage.Subagent, error) {
 	if record.Status == storage.SubagentStatusRunning {
 		messageID, idErr := newSubagentID("submsg_")
@@ -1110,7 +1125,7 @@ func (m *subagentManager) sendLocked(ctx context.Context, instance *managedSubag
 		return storage.Subagent{}, err
 	}
 	if err := m.startTurnLocked(instance, updated, turnID, content); err != nil {
-		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		_, _ = m.transition(context.Background(), record.ID, "", "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
 		return storage.Subagent{}, err
 	}
 	m.signalChanged()
@@ -1121,9 +1136,8 @@ func normalizeSubagentMessage(content string) string {
 	return strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
 }
 
-
-// Interrupt stops only the current subagent turn. The subagent instance remains
-// idle and can accept another Send after the terminal event is recorded.
+// Interrupt stops only the current subagent turn. The retained task can accept
+// another Send after the terminal event is recorded.
 func (m *subagentManager) Interrupt(ctx context.Context, mainAgentSessionID, id, reason string) error {
 	if _, err := m.getOwned(nonNilContext(ctx), mainAgentSessionID, id); err != nil {
 		return err
@@ -1202,92 +1216,8 @@ func (m *subagentManager) interruptMainAgentTurn(mainAgentSessionID, mainAgentTu
 	}
 }
 
-// autoCloseScopeSubagents releases completed and failed subagents touched by a
-// quiescent response scope. Incomplete subagents stay open for future follow-up.
-func (m *subagentManager) autoCloseScopeSubagents(ctx context.Context, mainAgentSessionID, scopeID string, ids []string) {
-	ids = append([]string(nil), ids...)
-	sort.Strings(ids)
-	for _, id := range ids {
-		closed, ok := m.autoCloseScopeSubagent(nonNilContext(ctx), mainAgentSessionID, scopeID, id)
-		if ok {
-			m.recordAutoClosedSubagent(closed)
-		}
-	}
-}
-
-func (m *subagentManager) autoCloseScopeSubagent(ctx context.Context, mainAgentSessionID, scopeID, id string) (storage.Subagent, bool) {
-	ctx = nonNilContext(ctx)
-	record, err := m.getOwned(ctx, mainAgentSessionID, id)
-	if err != nil {
-		return storage.Subagent{}, false
-	}
-	instance, instanceErr := m.instance(id)
-	if instanceErr != nil {
-		if record.Status != storage.SubagentStatusIdle || len(record.Pending) != 0 {
-			return storage.Subagent{}, false
-		}
-		if err := m.validateSubagentClose(ctx, record); err != nil {
-			return storage.Subagent{}, false
-		}
-		if !m.mainAgent.responseScopes.SubagentExclusiveToScope(mainAgentSessionID, scopeID, id) {
-			return storage.Subagent{}, false
-		}
-		closed, closeErr := m.store.Close(ctx, id)
-		if closeErr == nil {
-			m.signalChanged()
-			m.publishSystemEvent(SystemEvent{
-				Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID, MainAgentTurnID: scopeID,
-				SubagentClosed: &SubagentClosedEvent{
-					Subagent: closed, PreviousStatus: record.Status,
-					PreviousResultStatus: record.LastResultStatus, Automatic: true,
-				},
-			})
-			return closed, true
-		}
-		return storage.Subagent{}, false
-	}
-	instance.mu.Lock()
-	record, err = m.getOwned(ctx, mainAgentSessionID, id)
-	if err != nil {
-		instance.mu.Unlock()
-		return storage.Subagent{}, false
-	}
-	if record.Status != storage.SubagentStatusIdle || len(record.Pending) != 0 {
-		instance.mu.Unlock()
-		return storage.Subagent{}, false
-	}
-	if err := m.validateSubagentClose(ctx, record); err != nil {
-		instance.mu.Unlock()
-		return storage.Subagent{}, false
-	}
-	if !m.mainAgent.responseScopes.SubagentExclusiveToScope(mainAgentSessionID, scopeID, id) {
-		instance.mu.Unlock()
-		return storage.Subagent{}, false
-	}
-	closed, err := m.store.Close(ctx, id)
-	if err != nil {
-		instance.mu.Unlock()
-		return storage.Subagent{}, false
-	}
-	subagent := instance.agent
-	instance.agent = nil
-	instance.mu.Unlock()
-	if subagent != nil {
-		_ = subagent.Close()
-	}
-	m.signalChanged()
-	m.publishSystemEvent(SystemEvent{
-		Type: SystemSubagentClosed, MainAgentSessionID: mainAgentSessionID, MainAgentTurnID: scopeID,
-		SubagentClosed: &SubagentClosedEvent{
-			Subagent: closed, PreviousStatus: record.Status,
-			PreviousResultStatus: record.LastResultStatus, Automatic: true,
-		},
-	})
-	return closed, true
-}
-
 // CloseSubagent destructively closes one owned subagent for an application-owned
-// caller. Automatic lifecycle cleanup uses autoCloseScopeSubagents instead.
+// caller. Normal task completion never closes a resumable task session.
 func (m *subagentManager) CloseSubagent(ctx context.Context, mainAgentSessionID, id string) (subagentCloseResult, error) {
 	ctx = nonNilContext(ctx)
 	record, err := m.getOwned(ctx, mainAgentSessionID, id)
@@ -1295,7 +1225,7 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, mainAgentSessionID,
 		return subagentCloseResult{}, err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return subagentCloseResult{}, storage.ErrSubagentClosed
+		return subagentCloseResult{Subagent: record, PreviousStatus: storage.SubagentStatusClosed, PreviousResultStatus: record.LastResultStatus}, nil
 	}
 	instance, instanceErr := m.instance(id)
 	if instanceErr != nil {
@@ -1330,7 +1260,7 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, mainAgentSessionID,
 	}
 	if record.Status == storage.SubagentStatusClosed {
 		instance.mu.Unlock()
-		return subagentCloseResult{}, storage.ErrSubagentClosed
+		return subagentCloseResult{Subagent: record, PreviousStatus: storage.SubagentStatusClosed, PreviousResultStatus: record.LastResultStatus}, nil
 	}
 	run := instance.run
 	subagent := instance.agent
@@ -1364,36 +1294,6 @@ func (m *subagentManager) CloseSubagent(ctx context.Context, mainAgentSessionID,
 		},
 	})
 	return result, nil
-}
-
-// validateSubagentClose limits automatic response-scope cleanup to host-managed
-// sessions whose latest terminal output was explicitly read. Task delivery does
-// not advance the host observation cursor, so task sessions remain available
-// for an explicit task_id resume.
-func (m *subagentManager) validateSubagentClose(ctx context.Context, record storage.Subagent) error {
-	switch record.LastResultStatus {
-	case storage.SubagentResultCompleted, storage.SubagentResultFailed:
-		return m.validateLatestSubagentResultObserved(ctx, record)
-	case storage.SubagentResultIncomplete:
-		return storage.ErrSubagentIncomplete
-	default:
-		return storage.ErrSubagentReportUnavailable
-	}
-}
-
-func (m *subagentManager) validateLatestSubagentResultObserved(ctx context.Context, record storage.Subagent) error {
-	messages, err := m.mainAgent.ListMessages(nonNilContext(ctx), record.SubagentSessionID)
-	if err != nil {
-		return fmt.Errorf("read subagent result cursor: %w", err)
-	}
-	if len(messages) == 0 {
-		return storage.ErrSubagentResultPending
-	}
-	latest := messages[len(messages)-1]
-	if record.ObservedMessageID != latest.ID || record.ObservedVersion < uint64(len(messages)) {
-		return storage.ErrSubagentResultPending
-	}
-	return nil
 }
 
 // Run returns the retained subagent run for nested SSE backfill and live
@@ -1486,7 +1386,13 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 		m.signalChanged()
 	}
 	instance.mu.Lock()
-	defer instance.mu.Unlock()
+	var runtimeToClose *Agent
+	defer func() {
+		instance.mu.Unlock()
+		if runtimeToClose != nil {
+			_ = runtimeToClose.Close()
+		}
+	}()
 	if instance.run != run {
 		return
 	}
@@ -1524,8 +1430,10 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 		lastSummary = ""
 		lastNextStep = ""
 	}
-	completed, err := m.transition(context.Background(), id, storage.SubagentStatusIdle, "", run.TurnID(), lastTurnError, lastResultStatus, lastSummary, lastNextStep)
+	completed, err := m.transition(context.Background(), id, "", "", run.TurnID(), lastTurnError, lastResultStatus, lastSummary, lastNextStep)
 	if err != nil {
+		runtimeToClose = instance.agent
+		instance.agent = nil
 		return
 	}
 	instance.run = nil
@@ -1536,7 +1444,7 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	} else if execution, task := m.taskExecutionFor(completed.ID, run.TurnID()); task {
 		// Foreground task callers consume the final response directly. If a
 		// promotion is concurrently registering delivery, its post-registration
-		// idle check will enqueue it. Either way, publish completion only once.
+		// terminal check will enqueue it. Either way, publish completion only once.
 		result, metadata := m.terminalTaskResult(completed, m.project.subagents[completed.DefinitionName], run)
 		if m.claimTaskCompletion(completed.ID + "\x00" + run.TurnID()) {
 			m.publishTaskCompleted(completed, execution.mainAgentTurnID, run.TurnID(), result, metadata)
@@ -1548,19 +1456,27 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	// preserved even when Send races completion.
 	afterDequeue, next, err := m.store.Dequeue(context.Background(), id)
 	if err != nil || next == nil {
+		runtimeToClose = instance.agent
+		instance.agent = nil
 		return
 	}
 	turnID, err := newSubagentID("turn_")
 	if err != nil {
+		runtimeToClose = instance.agent
+		instance.agent = nil
 		return
 	}
 	_ = afterDequeue
 	running, err := m.transition(context.Background(), id, storage.SubagentStatusRunning, turnID, "", "", "", "", "")
 	if err != nil {
+		runtimeToClose = instance.agent
+		instance.agent = nil
 		return
 	}
 	if err := m.startTurnLocked(instance, running, turnID, next.Content); err != nil {
-		_, _ = m.transition(context.Background(), id, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		_, _ = m.transition(context.Background(), id, "", "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
+		runtimeToClose = instance.agent
+		instance.agent = nil
 	}
 	m.signalChanged()
 }
@@ -1625,8 +1541,9 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 	return storage.Subagent{}, storage.ErrSubagentVersionConflict
 }
 
-// Close closes every live subagent before the main-agent executor is cancelled. This
-// order prevents a main agent tool wait from being stranded on a subagent executor.
+// Close unloads every live subagent runtime before the main-agent executor is
+// cancelled. Durable task records remain resumable; only CloseSubagent writes a
+// closed tombstone.
 func (m *subagentManager) Close() error {
 	m.closeConfirmations()
 	m.closePermissions()
@@ -1637,17 +1554,22 @@ func (m *subagentManager) Close() error {
 		return nil
 	}
 	m.closed = true
-	instances := make(map[string]*managedSubagent, len(m.instances))
+	type retainedInstance struct {
+		id       string
+		instance *managedSubagent
+	}
+	instances := make([]retainedInstance, 0, len(m.instances))
 	for id, instance := range m.instances {
-		instances[id] = instance
+		instances = append(instances, retainedInstance{id: id, instance: instance})
 	}
 	m.mu.Unlock()
 	var first error
-	for id, instance := range instances {
-		if _, err := m.store.Close(context.Background(), id); err != nil && !errors.Is(err, storage.ErrSubagentNotFound) && first == nil {
+	for _, retained := range instances {
+		if _, err := m.retainForShutdown(context.Background(), retained.id); err != nil &&
+			!errors.Is(err, storage.ErrSubagentClosed) && first == nil {
 			first = err
 		}
-		if subagent := instance.releaseAgent(); subagent != nil {
+		if subagent := retained.instance.releaseAgent(); subagent != nil {
 			if err := subagent.Close(); err != nil && first == nil {
 				first = err
 			}
@@ -1655,6 +1577,47 @@ func (m *subagentManager) Close() error {
 	}
 	m.signalChanged()
 	return first
+}
+
+// retainForShutdown removes process-local running and delivery state without
+// writing a closed tombstone. A later manager can rehydrate the same task ID
+// from its retained transcript.
+func (m *subagentManager) retainForShutdown(ctx context.Context, id string) (storage.Subagent, error) {
+	for attempts := 0; attempts < 8; attempts++ {
+		record, found, err := m.store.Get(ctx, id)
+		if err != nil {
+			return storage.Subagent{}, err
+		}
+		if !found {
+			return storage.Subagent{}, storage.ErrSubagentNotFound
+		}
+		if record.Status == storage.SubagentStatusClosed {
+			return record, nil
+		}
+		if record.Status == "" && record.ActiveTaskDelivery == nil {
+			return record, nil
+		}
+		update := storage.SubagentUpdate{
+			Status: record.Status, CurrentSubagentTurnID: record.CurrentSubagentTurnID,
+			LastSubagentTurnID: record.LastSubagentTurnID, LastResultError: record.LastResultError,
+			LastResultStatus: record.LastResultStatus, LastResultSummary: record.LastResultSummary,
+			LastResultNextStep: record.LastResultNextStep,
+		}
+		if record.Status == storage.SubagentStatusRunning {
+			update.Status = ""
+			update.CurrentSubagentTurnID = ""
+			update.LastSubagentTurnID = record.CurrentSubagentTurnID
+			update.LastResultError = "subagent runtime stopped during shutdown"
+			update.LastResultStatus = storage.SubagentResultFailed
+			update.LastResultSummary = ""
+			update.LastResultNextStep = ""
+		}
+		updated, err := m.store.Update(ctx, id, record.Version, update)
+		if !errors.Is(err, storage.ErrSubagentVersionConflict) {
+			return updated, err
+		}
+	}
+	return storage.Subagent{}, storage.ErrSubagentVersionConflict
 }
 
 func (m *subagentManager) getOwned(ctx context.Context, mainAgentSessionID, id string) (storage.Subagent, error) {
@@ -1679,6 +1642,43 @@ func (m *subagentManager) instance(id string) (*managedSubagent, error) {
 		return nil, storage.ErrSubagentNotFound
 	}
 	return instance, nil
+}
+
+// instanceForRecord returns an in-process handle for a durable task record.
+// Retained task sessions deliberately outlive their runtime instances, so a
+// missing handle is recreated without changing task identity or transcript.
+func (m *subagentManager) instanceForRecord(record storage.Subagent) (*managedSubagent, error) {
+	if record.ID == "" {
+		return nil, storage.ErrSubagentNotFound
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, ErrClosed
+	}
+	if instance := m.instances[record.ID]; instance != nil {
+		return instance, nil
+	}
+	instance := &managedSubagent{runs: make(map[string]*agentruntime.Run)}
+	m.instances[record.ID] = instance
+	return instance, nil
+}
+
+// ensureAgentLocked rehydrates the live runtime for one retained task session.
+// The caller holds instance.mu.
+func (m *subagentManager) ensureAgentLocked(instance *managedSubagent, definition SubagentDefinition) error {
+	if instance == nil {
+		return storage.ErrSubagentNotFound
+	}
+	if instance.agent != nil {
+		return nil
+	}
+	subagent, err := m.createSubagent(definition)
+	if err != nil {
+		return fmt.Errorf("create subagent agent: %w", err)
+	}
+	instance.agent = subagent
+	return nil
 }
 
 func (m *subagentManager) removeInstance(id string) {

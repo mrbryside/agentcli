@@ -161,7 +161,7 @@ func (server *Server) closeSubagent(c echo.Context) error {
 // sendSubagentTurn godoc
 // @Summary Continue a host-managed subagent conversation
 // @ID startSubagentTurn
-// @Description Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
+// @Description Queues the message while the subagent is running, or starts a new turn on a retained task session. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.
 // @Tags Subagents
 // @Accept json
 // @Produce json
@@ -194,9 +194,9 @@ func (server *Server) sendSubagentTurn(c echo.Context) error {
 	status := http.StatusAccepted
 	if record.CurrentSubagentTurnID != "" && record.Status == storage.SubagentStatusRunning {
 		c.Response().Header().Set("Location", subagentTurnPath(mainAgentSessionID, subagentID, record.CurrentSubagentTurnID))
-		// A new idle subagent turn can be streamed from the same POST ergonomics as
-		// a main-agent turn. Queued mailbox work has no run of its own yet, so it is
-		// represented by the normal accepted summary instead.
+		// A new turn on a retained subagent session can be streamed from the same
+		// POST ergonomics as a main-agent turn. Queued mailbox work has no run of
+		// its own yet, so it is represented by the normal accepted summary instead.
 		if acceptsEventStream(c.Request()) && len(record.Pending) == 0 {
 			run, runErr := server.agent.SubagentRun(c.Request().Context(), mainAgentSessionID, subagentID, record.CurrentSubagentTurnID)
 			if runErr != nil {

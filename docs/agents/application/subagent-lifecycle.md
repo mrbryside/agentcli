@@ -1,32 +1,70 @@
 # Subagent lifecycle control
 
-The v0.1 model protocol is `task`: foreground waits in the calling tool,
-background/promotion returns `running`, and Agent performs exact-once terminal
-delivery. A child stays resumable by same-session `task_id` while idle. The
-host-only close/view APIs below remain subagent APIs; retired callback/report
-and result-continuation behavior is not model-facing compatibility.
+The model-facing protocol is `task`: foreground calls wait for the current
+result, while background or promoted calls return `running` and Agent delivers
+the terminal result exactly once. A task record and transcript stay resumable
+by exact same-session `task_id` after every completed, incomplete, or failed
+run.
 
-Read this file when changing explicit subagent close, response-scope result
-accounting, automatic subagent cleanup, or application lifecycle surfaces.
+Read this file when changing task retention, background-task reminders,
+explicit close, response-scope result accounting, or application lifecycle
+surfaces.
 
-## Ownership
+## Runtime and retained state
 
-The main-agent model catalog contains only `task`; lifecycle summaries, list,
-and status remain application-owned surfaces. Destructive close belongs to the
-host application and is available through `Agent.CloseSubagent`, Terminal
-`/close`, and the HTTP `DELETE` subagent endpoint. Foreground task results
-return in place; background/promoted results are delivered exactly once by
-Agent, and an idle child remains resumable by same-session task ID.
+The persisted lifecycle has only two named states:
 
-`active_subagents` is lifecycle-only while a result is pending. It emits
-`result_delivery=pending` but withholds the structured result payload until
-the result has been consumed.
+- `running` means one child turn is active;
+- `closed` is an explicit host-owned tombstone.
 
-All explicit surfaces converge on `subagentManager.CloseSubagent`. The manager
-validates main agent ownership, durably closes storage, removes queued input,
-interrupts active work when necessary, closes the subagent runtime, cancels
-response-scope result obligations, signals state change, and publishes
-`SystemSubagentClosed`. Transcript and retained run history remain readable.
+An empty status means the record is retained and resumable but no live child
+turn is running. After a terminal run, Agent unloads the live child runtime and
+keeps the task record, transcript, last result, and task ID. Resuming by exact
+task ID recreates the runtime from retained state. There is no task-count
+quota.
+
+Supplying a task ID never creates a replacement. An unknown ID returns
+`error_code=task_not_found`; a closed ID returns
+`error_code=task_closed`; an already-running ID returns
+`error_code=task_running`.
+
+`<active_background_tasks>` is fresh provider-boundary context containing only
+asynchronous work whose result is still pending. It identifies each task by
+`task_id`, `agent`, and `state` (`running` or `result_pending`). Foreground
+tasks and finished resumable records are omitted. The reminder tells the model
+not to poll or duplicate those tasks while allowing independent work to
+continue.
+
+Compaction does not summarize this reminder into durable history. The
+compacted main-provider request keeps the reminder snapshot resolved for that
+boundary. If a task finishes while its summary is being generated, the trusted
+task result remains queued outside the compactor. The current provider round
+may still see the earlier `running` snapshot, but it cannot finish over the
+queued result: completion appends `<task_result>` durably and starts another
+provider round. That next round rebuilds the reminder, omits the finished task,
+and includes the exact task result once.
+
+## Ownership and explicit close
+
+The main-agent model receives only `task`; list, status, interrupt, and close
+remain host application APIs. Destructive close is available through
+`Agent.CloseSubagent`, Terminal `/close`, and the HTTP `DELETE` subagent
+endpoint.
+
+All close surfaces converge on `subagentManager.CloseSubagent`. The manager
+validates ownership, closes durable storage, removes queued input, interrupts
+active work when needed, unloads the runtime, cancels outstanding
+response-scope result obligations, and publishes `SystemSubagentClosed`.
+Transcript and retained run history remain readable. Repeated close is
+idempotent and returns the same closed record without publishing another close
+event.
+
+Normal completion, failure, step-limit finalization, response-scope completion,
+and process shutdown do not close a task. Graceful shutdown converts an active
+run into a retained failed result and clears its process-local delivery
+identity, so restart cannot leave a permanently `running` or
+`result_pending` task. Retention cleanup may be added by an embedding
+application later; it is not part of the runtime lifecycle.
 
 ## Result accounting
 
@@ -34,48 +72,23 @@ response-scope result obligations, signals state change, and publishes
 increments both `pendingResults` and the scope's per-subagent touch count.
 `ReserveResultTurn` removes the oldest matching assignment, decrements
 `pendingResults`, and transfers responsibility to an active result turn.
-`ReserveInlineResult` instead transfers responsibility to `pendingInputs`
-on an already-active compatible turn. The runtime commits it only after the
+`ReserveInlineResult` instead transfers responsibility to `pendingInputs` on
+an already-active compatible turn. The runtime commits it only after the
 trusted result is durably appended at a provider boundary. Rollback restores
 the original assignment if the run closes before acceptance.
 
-Assignment registration retains the subagent definition, display name, assignment ID,
-and subagent turn ID when available. Result reservation atomically records the
-received subagent turn and result status alongside the remaining pending assignments.
-The reservation can expose this internal snapshot through `ResultProgress` for
-runtime accounting and tests. It is not provider context. The trusted
-`<task_result>` message contains only `task_id`, `agent`, `state`, `output`, and
-`error`; result-contract metadata and response-scope progress remain
-application/runtime-only. Rollback removes the received entry before restoring
-the pending obligation.
+The trusted `<task_result>` message contains only `task_id`, `agent`, `state`,
+`output`, optional `error_code`, and `error`. Result-contract metadata and
+response-scope progress remain application/runtime-only.
 
 `CancelSubagentAssignments` records a terminal cancellation marker for the
-session/subagent pair and deletes every queued, unreserved assignment. Each deleted
-assignment decrements `pendingResults` and the matching touch count once.
-After cancellation:
+session/subagent pair and deletes every queued, unreserved assignment. Each
+deleted assignment decrements `pendingResults` and the matching touch count
+once. Cancellation is idempotent and changes accounting only; it does not
+start a provider turn.
 
-- `RegisterAssignment` creates no new obligation for that subagent;
-- an assignment rollback cannot find and decrement a deleted assignment;
-- a rejected result reservation removes its result record but does not
-  restore the assignment or increment `pendingResults`;
-- an already committed result turn remains active and settles normally.
-
-Cancellation is idempotent. Result tombstones and subagent cancellation markers
-outlive response-scope deletion because subagent IDs are stable and late delivery
-must not consume work from another scope.
-
-Cancellation changes accounting only. It does not start a provider turn.
 `EndResponseScope` handlers still require one active turn, zero pending
-results, and zero pending runtime inputs. Provider step one is blocked only
-for the initial human main-agent turn; a result continuation may execute there on
-its first provider round.
-
-## Automatic cleanup
-
-At the final response-scope boundary, `autoCloseScopeSubagents` closes idle
-`completed` and `failed` subagents that are exclusive to that scope.
-`incomplete`, running, queued, result-pending, and cross-scope subagents remain
-open. Cleanup runs before final handlers and successful closes publish
-`SystemSubagentClosed`.
+results, and zero pending runtime inputs. A result continuation may execute a
+required final handler on its first provider round.
 
 Back to [application/index.md](index.md).

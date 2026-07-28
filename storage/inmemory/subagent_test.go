@@ -75,10 +75,10 @@ func TestSubagentStorageUpdateUsesVersionCompareAndPreservesOwnership(t *testing
 	if err != nil || updated.Status != storage.SubagentStatusRunning || updated.LastResultError != "provider failed" || updated.Version != created.Version+1 {
 		t.Fatalf("Update = (%#v, %v)", updated, err)
 	}
-	if _, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{Status: storage.SubagentStatusIdle}); !errors.Is(err, storage.ErrSubagentVersionConflict) {
+	if _, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{Status: ""}); !errors.Is(err, storage.ErrSubagentVersionConflict) {
 		t.Fatalf("stale Update error = %v, want ErrSubagentVersionConflict", err)
 	}
-	if _, err := store.Update(context.Background(), "missing", 1, storage.SubagentUpdate{Status: storage.SubagentStatusIdle}); !errors.Is(err, storage.ErrSubagentNotFound) {
+	if _, err := store.Update(context.Background(), "missing", 1, storage.SubagentUpdate{Status: ""}); !errors.Is(err, storage.ErrSubagentNotFound) {
 		t.Fatalf("missing Update error = %v, want ErrSubagentNotFound", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestSubagentStorageUpdateReplacesActiveTaskDelivery(t *testing.T) {
 	}
 	first := storage.TaskDelivery{MainAgentTurnID: "mainAgent_turn_2", AssignmentID: "assignment_1"}
 	updated, err := store.Update(context.Background(), record.ID, created.Version, storage.SubagentUpdate{
-		Status:             storage.SubagentStatusIdle,
+		Status:             "",
 		ActiveTaskDelivery: &first,
 	})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestSubagentStorageUpdateReplacesActiveTaskDelivery(t *testing.T) {
 	}
 	second := storage.TaskDelivery{MainAgentTurnID: "mainAgent_turn_3", AssignmentID: "assignment_2"}
 	updated, err = store.Update(context.Background(), record.ID, updated.Version, storage.SubagentUpdate{
-		Status:             storage.SubagentStatusIdle,
+		Status:             "",
 		ActiveTaskDelivery: &second,
 	})
 	if err != nil {
@@ -216,7 +216,7 @@ func TestSubagentStorageConcurrentIndependentMainAgents(t *testing.T) {
 func inMemorySubagent(id, mainAgentID string, created time.Time) storage.Subagent {
 	return storage.Subagent{
 		ID: id, DisplayName: "Mira", MainAgentSessionID: mainAgentID, MainAgentTurnID: "mainAgent_turn", SubagentSessionID: id + "_session",
-		DefinitionName: "researcher", Provider: "openai", Model: "gpt-test", Status: storage.SubagentStatusIdle,
+		DefinitionName: "researcher", Provider: "openai", Model: "gpt-test", Status: "",
 		Pending:   []storage.SubagentQueuedMessage{{ID: "queued", Content: "queued", CreatedAt: created}},
 		CreatedAt: created, UpdatedAt: created,
 	}

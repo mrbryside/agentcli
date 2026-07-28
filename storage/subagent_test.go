@@ -95,7 +95,7 @@ func testSubagent() Subagent {
 	return Subagent{
 		ID: "subagent_1", DisplayName: "Mira", Label: "research", MainAgentSessionID: "mainAgent_1", MainAgentTurnID: "turn_mainAgent_1",
 		SubagentSessionID: "subagent_1", DefinitionName: "researcher", Provider: "openai", Model: "gpt-test",
-		Status: SubagentStatusIdle, LastSubagentTurnID: "turn_subagent_1", Version: 3,
+		Status: "", LastSubagentTurnID: "turn_subagent_1", Version: 3,
 		Pending:           []SubagentQueuedMessage{{ID: "queued_1", Content: "continue", CreatedAt: now}},
 		ObservedMessageID: "message_1", ObservedVersion: 2, CreatedAt: now, UpdatedAt: now,
 	}

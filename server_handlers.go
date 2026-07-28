@@ -375,13 +375,15 @@ func (server *Server) writeRuntimeError(c echo.Context, err error) error {
 		status, code = http.StatusBadRequest, "invalid_request"
 	case errors.Is(err, agentruntime.ErrRunNotFound), errors.Is(err, permission.ErrNotFound), errors.Is(err, confirmation.ErrNotFound), errors.Is(err, storage.ErrSubagentNotFound):
 		status, code = http.StatusNotFound, "not_found"
-	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning), errors.Is(err, storage.ErrSubagentCompleted), errors.Is(err, storage.ErrSubagentIncomplete), errors.Is(err, storage.ErrSubagentResultPending), errors.Is(err, storage.ErrSubagentReportUnavailable):
+	case errors.Is(err, agentruntime.ErrTurnInProgress), errors.Is(err, agentruntime.ErrTurnExists), errors.Is(err, permission.ErrAlreadyResolved), errors.Is(err, confirmation.ErrAlreadyResolved), errors.Is(err, storage.ErrSubagentRunning):
 		status, code = http.StatusConflict, "conflict"
 	case errors.Is(err, errServerTurnQueueFull):
 		status, code = http.StatusTooManyRequests, "turn_queue_full"
 	case errors.Is(err, errQueuedTurnCancelled):
 		status, code = http.StatusConflict, "turn_cancelled"
-	case errors.Is(err, ErrClosed), errors.Is(err, permission.ErrClosed), errors.Is(err, confirmation.ErrClosed), errors.Is(err, storage.ErrSubagentClosed):
+	case errors.Is(err, storage.ErrSubagentClosed):
+		status, code = http.StatusConflict, "task_closed"
+	case errors.Is(err, ErrClosed), errors.Is(err, permission.ErrClosed), errors.Is(err, confirmation.ErrClosed):
 		status, code = http.StatusServiceUnavailable, "closed"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status, code = http.StatusRequestTimeout, "request_cancelled"

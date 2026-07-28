@@ -25,15 +25,16 @@ type taskDelivery struct {
 // embedding application and is published only through SystemTaskCompleted.
 func (delivery taskDelivery) RuntimeMessage() agentruntime.Message {
 	payload, _ := json.Marshal(struct {
-		TaskID         string                                     `json:"task_id"`
-		Agent          string                                     `json:"agent"`
-		State          TaskState                                  `json:"state"`
-		Output         string                                     `json:"output"`
-		Error          string                                     `json:"error"`
+		TaskID    string        `json:"task_id"`
+		Agent     string        `json:"agent"`
+		State     TaskState     `json:"state"`
+		Output    string        `json:"output"`
+		ErrorCode TaskErrorCode `json:"error_code,omitempty"`
+		Error     string        `json:"error"`
 	}{
 		TaskID: delivery.Result.TaskID, Agent: delivery.Result.AgentName,
 		State: delivery.Result.State, Output: delivery.Result.Output,
-		Error: delivery.Result.Error,
+		ErrorCode: delivery.Result.ErrorCode, Error: delivery.Result.Error,
 	})
 	return agentruntime.Message{
 		Type:    agentruntime.MessageTypeRuntimeEvent,

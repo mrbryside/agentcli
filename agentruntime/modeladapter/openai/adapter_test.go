@@ -400,7 +400,7 @@ func TestAdapterPlacesContextRemindersWithoutMutatingTranscript(t *testing.T) {
 			{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{CallID: "call-1", Name: "weather", Arguments: json.RawMessage(`{}`)}}},
 			{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{CallID: "call-1", Name: "weather", Status: agentruntime.ToolResultSucceeded, Output: json.RawMessage(`null`)}},
 		}
-		reminders := []agentruntime.ContextReminder{{Content: "<active_subagents>one</active_subagents>"}, {Content: "second"}}
+		reminders := []agentruntime.ContextReminder{{Content: "<active_background_tasks>one</active_background_tasks>"}, {Content: "second"}}
 		if _, err := adapter.Start(context.Background(), agentruntime.ModelRequest{Messages: messages, ContextReminders: reminders}); err != nil {
 			t.Fatal(err)
 		}
@@ -414,7 +414,7 @@ func TestAdapterPlacesContextRemindersWithoutMutatingTranscript(t *testing.T) {
 		if len(got) != 6 || got[2].Role != "user" || got[2].Content != "latest user" {
 			t.Fatalf("provider messages = %#v", got)
 		}
-		wantContent := "<system-reminder>\n<active_subagents>one</active_subagents>\n</system-reminder>\n\n<system-reminder>\nsecond\n</system-reminder>"
+		wantContent := "<system-reminder>\n<active_background_tasks>one</active_background_tasks>\n</system-reminder>\n\n<system-reminder>\nsecond\n</system-reminder>"
 		if got[5].Role != "user" || got[5].Content != wantContent {
 			t.Fatalf("tail reminder = %#v, want content %q", got[5], wantContent)
 		}

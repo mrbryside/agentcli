@@ -136,10 +136,10 @@ Subagent permission requests follow the same pattern through the
 `subagent_permission` session event and
 `GET /v1/sessions/{mainAgentSessionID}/subagent-permissions`.
 
-A successful explicit or automatic subagent close emits `subagent_closed`. Its
+A successful explicit subagent close emits `subagent_closed`. Its
 `subagent_closed` payload contains the final subagent snapshot,
 `previous_status`, optional `previous_result_status`, `dropped_messages`,
-`interrupted`, and `automatic`. The main agent-session cursor retains this fact for
+and `interrupted`. The main agent-session cursor retains this fact for
 reconnects even though the in-process `SubscribeSystemEvents` stream is
 live-only.
 
@@ -155,7 +155,7 @@ GET /v1/sessions/{sessionID}/messages
 GET /v1/sessions/{sessionID}/subagents?include_closed=true
 ```
 
-The subagent list is authoritative for initial `running`, `idle`, and `closed`
+The subagent list is authoritative for initial `running`, retained, and `closed`
 state. Session SSE events incrementally update that state after hydration.
 Session-event replay is retained in server memory and supports reconnects while
 that server process remains alive; it does not survive a server restart.
