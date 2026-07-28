@@ -23,6 +23,11 @@ func (a *Agent) Close() error {
 		if a.subagents != nil {
 			a.closeErr = a.subagents.Close()
 		}
+		// Subagent Close interrupts live work before stopping the private task
+		// coordinator. Any terminal completion already accepted before shutdown
+		// is either drained by the coordinator or cancelled with the agent;
+		// callers never need a separate result-pump shutdown path.
+		a.stopTaskCoordinator()
 		a.cancel()
 		if err := a.Wait(); err != nil && a.closeErr == nil {
 			a.closeErr = err

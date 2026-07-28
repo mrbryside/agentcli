@@ -40,6 +40,16 @@ type subagentManager struct {
 	resultSubscribers    map[uint64]*subagentResultSubscriber
 	resultsClosed        bool
 
+	// taskDeliverySeen makes completion handoff exactly-once even when a child
+	// finishes while a foreground wait is being promoted. The durable delivery
+	// identity remains the recovery boundary; this map only serializes the
+	// in-process monitor and post-registration fast path.
+	taskDeliveryMu   sync.Mutex
+	taskDeliverySeen map[string]struct{}
+	taskRegistrationMu sync.Mutex
+	taskExecutionMu    sync.Mutex
+	taskExecutions     map[string]map[string]taskExecution
+
 	reminderMu        sync.Mutex
 	pendingAutoClosed map[string][]autoClosedSubagentNotice
 	turnAutoClosed    map[subagentReminderKey][]autoClosedSubagentNotice
@@ -74,6 +84,10 @@ type managedSubagent struct {
 	lastStatusSnapshot            storage.Subagent
 }
 
+type taskExecution struct {
+	mainAgentTurnID string
+}
+
 type subagentReadResult = SubagentReadResult
 
 func newSubagentManager(mainAgent *Agent, configuration config) (*subagentManager, error) {
@@ -87,6 +101,8 @@ func newSubagentManager(mainAgent *Agent, configuration config) (*subagentManage
 		mainAgent: mainAgent, store: configuration.subagents, project: configuration.project,
 		config: configuration, ctx: mainAgent.context, instances: make(map[string]*managedSubagent),
 		changed: make(chan struct{}), resultSubscribers: make(map[uint64]*subagentResultSubscriber),
+		taskDeliverySeen:       make(map[string]struct{}),
+		taskExecutions:         make(map[string]map[string]taskExecution),
 		pendingAutoClosed:       make(map[string][]autoClosedSubagentNotice),
 		turnAutoClosed:          make(map[subagentReminderKey][]autoClosedSubagentNotice),
 		confirmationSubscribers: make(map[uint64]*subagentConfirmationSubscriber),
@@ -144,10 +160,6 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 	if request.Prompt == "" {
 		return TaskResult{}, errors.New("task prompt is required")
 	}
-	if request.Background {
-		return TaskResult{}, errors.New("background tasks are not enabled")
-	}
-
 	var (
 		record     storage.Subagent
 		definition SubagentDefinition
@@ -174,7 +186,15 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 	if err != nil {
 		return TaskResult{}, err
 	}
-	return m.waitForTask(ctx, record, definition, run)
+	if request.Background {
+		return m.backgroundTask(ctx, request, record, definition, run)
+	}
+	if m.config.taskForegroundWait > 0 {
+		return m.waitOrPromoteTask(ctx, request, record, definition, run)
+	}
+	result, waitErr := m.waitForTask(ctx, record, definition, run)
+	m.waitForTaskCompletionPublication(context.Background(), record.ID, run.TurnID())
+	return result, waitErr
 }
 
 func (m *subagentManager) startForegroundTask(ctx context.Context, request TaskRequest) (storage.Subagent, SubagentDefinition, *agentruntime.Run, error) {
@@ -247,7 +267,9 @@ func (m *subagentManager) resumeForegroundTask(ctx context.Context, request Task
 	if err != nil {
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
+	m.markTaskExecution(record.ID, turnID, request.MainAgentTurnID)
 	if err := m.startTurnLocked(instance, running, turnID, request.Prompt); err != nil {
+		m.unmarkTaskExecution(record.ID, turnID)
 		_, _ = m.transition(context.Background(), record.ID, storage.SubagentStatusIdle, "", turnID, err.Error(), storage.SubagentResultFailed, "", "")
 		return storage.Subagent{}, SubagentDefinition{}, nil, err
 	}
@@ -317,6 +339,234 @@ func (m *subagentManager) waitForTask(ctx context.Context, record storage.Subage
 		return result, nil
 	}
 	return taskResultFromFinalOutput(record.ID, definition, output, run.StepLimitFinalized()), nil
+}
+
+// waitOrPromoteTask gives foreground work a bounded opportunity to finish. A
+// timeout changes only delivery ownership, never the child run: the same
+// assignment is atomically registered before ExecuteTask returns running.
+func (m *subagentManager) waitOrPromoteTask(ctx context.Context, request TaskRequest, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
+	completed := make(chan TaskResult, 1)
+	go func() {
+		result, err := m.waitForTask(context.Background(), record, definition, run)
+		if err != nil {
+			result = TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}
+		}
+		completed <- result
+	}()
+	timer := time.NewTimer(m.config.taskForegroundWait)
+	defer timer.Stop()
+	select {
+	case result := <-completed:
+		m.waitForTaskCompletionPublication(context.Background(), record.ID, run.TurnID())
+		return result, nil
+	case <-ctx.Done():
+		_ = run.Interrupt(context.Background(), "task request cancelled")
+		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: ctx.Err().Error()}, nil
+	case <-timer.C:
+		// Prefer a result that completed at the timeout boundary. This avoids
+		// turning a completed foreground response into an unnecessary later
+		// continuation merely because both channels became ready together.
+		select {
+		case result := <-completed:
+			m.waitForTaskCompletionPublication(context.Background(), record.ID, run.TurnID())
+			return result, nil
+		default:
+		}
+		return m.backgroundTask(ctx, request, record, definition, run)
+	}
+}
+
+func (m *subagentManager) backgroundTask(ctx context.Context, request TaskRequest, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
+	delivery := storage.TaskDelivery{MainAgentTurnID: request.MainAgentTurnID, AssignmentID: run.TurnID()}
+	if err := m.registerTaskDelivery(ctx, record, definition, run, delivery); err != nil {
+		return TaskResult{}, err
+	}
+	return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateRunning}, nil
+}
+
+// registerTaskDelivery records a response-scope barrier before exposing a
+// running result to the main model. If completion won the race with
+// registration, the post-registration check enqueues the retained terminal
+// result through the same exactly-once path as monitor.
+func (m *subagentManager) registerTaskDelivery(ctx context.Context, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run, delivery storage.TaskDelivery) error {
+	if run == nil || run.TurnID() == "" || delivery.MainAgentTurnID == "" || delivery.AssignmentID == "" {
+		return errors.New("task delivery identity is required")
+	}
+	m.taskRegistrationMu.Lock()
+	defer m.taskRegistrationMu.Unlock()
+	latest, err := m.getOwned(ctx, record.MainAgentSessionID, record.ID)
+	if err != nil {
+		return err
+	}
+	if current := latest.ActiveTaskDelivery; current != nil {
+		if current.MainAgentTurnID == delivery.MainAgentTurnID && current.AssignmentID == delivery.AssignmentID {
+			return nil
+		}
+		return errors.New("task already has an active delivery")
+	}
+	rollback := m.mainAgent.responseScopes.RegisterAssignmentMetadata(
+		record.MainAgentSessionID,
+		delivery.MainAgentTurnID,
+		toolexecution.ResponseScopePendingResult{
+			SubagentID:     record.ID,
+			DefinitionName: definition.Name,
+			DisplayName:    record.DisplayName,
+			AssignmentID:   delivery.AssignmentID,
+			SubagentTurnID: run.TurnID(),
+		},
+	)
+	updated, err := m.setTaskDelivery(ctx, record.ID, &delivery)
+	if err != nil {
+		rollback()
+		return err
+	}
+	// The durable record wins over the stale snapshot returned by task start.
+	// A fast terminal monitor may already have changed it to idle; dispatch the
+	// saved final output now, while taskDeliverySeen suppresses any duplicate.
+	if updated.Status != storage.SubagentStatusRunning {
+		m.publishTaskTerminal(updated, definition, run)
+	}
+	return nil
+}
+
+func (m *subagentManager) setTaskDelivery(ctx context.Context, id string, delivery *storage.TaskDelivery) (storage.Subagent, error) {
+	for attempts := 0; attempts < 8; attempts++ {
+		record, found, err := m.store.Get(ctx, id)
+		if err != nil {
+			return storage.Subagent{}, err
+		}
+		if !found {
+			return storage.Subagent{}, storage.ErrSubagentNotFound
+		}
+		if record.Status == storage.SubagentStatusClosed {
+			return storage.Subagent{}, storage.ErrSubagentClosed
+		}
+		updated, err := m.store.Update(ctx, id, record.Version, storage.SubagentUpdate{
+			Status: record.Status, CurrentSubagentTurnID: record.CurrentSubagentTurnID,
+			LastSubagentTurnID: record.LastSubagentTurnID, LastResultError: record.LastResultError,
+			LastResultStatus: record.LastResultStatus, LastResultSummary: record.LastResultSummary,
+			LastResultNextStep: record.LastResultNextStep, ActiveTaskDelivery: storage.CloneTaskDelivery(delivery),
+		})
+		if !errors.Is(err, storage.ErrSubagentVersionConflict) {
+			return updated, err
+		}
+	}
+	return storage.Subagent{}, storage.ErrSubagentVersionConflict
+}
+
+func (m *subagentManager) publishTaskTerminal(record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) {
+	delivery := record.ActiveTaskDelivery
+	if delivery == nil || delivery.AssignmentID == "" || delivery.MainAgentTurnID == "" {
+		return
+	}
+	key := record.ID + "\x00" + delivery.AssignmentID
+	if !m.claimTaskCompletion(key) {
+		return
+	}
+	m.unmarkTaskExecution(record.ID, delivery.AssignmentID)
+	m.signalChanged()
+
+	result, metadata := m.terminalTaskResult(record, definition, run)
+	m.publishTaskCompleted(record, delivery.MainAgentTurnID, delivery.AssignmentID, result, metadata)
+	m.mainAgent.acceptTaskDelivery(taskDelivery{
+		MainAgentSessionID: record.MainAgentSessionID, MainAgentTurnID: delivery.MainAgentTurnID,
+		AssignmentID: delivery.AssignmentID, SubagentSessionID: record.SubagentSessionID,
+		SubagentTurnID: delivery.AssignmentID, Result: result, Metadata: metadata,
+	})
+	// The handoff has been accepted by the Agent-owned coordinator. Clearing
+	// the active identity permits a later task_id resume to install a new latest
+	// delivery without ever routing its result to the original main-agent turn.
+	_, _ = m.setTaskDelivery(context.Background(), record.ID, nil)
+}
+
+func (m *subagentManager) publishTaskCompleted(record storage.Subagent, mainAgentTurnID, subagentTurnID string, result TaskResult, metadata map[string]any) {
+	completed := TaskCompletedEvent{
+		TaskID: record.ID, SubagentSessionID: record.SubagentSessionID,
+		SubagentTurnID: subagentTurnID, AgentName: result.AgentName,
+		State: result.State, Metadata: cloneTaskMetadata(metadata),
+	}
+	m.publishSystemEvent(SystemEvent{
+		Type: SystemTaskCompleted, MainAgentSessionID: record.MainAgentSessionID,
+		MainAgentTurnID: mainAgentTurnID, TaskCompleted: &completed,
+	})
+}
+
+func (m *subagentManager) claimTaskCompletion(key string) bool {
+	m.taskDeliveryMu.Lock()
+	defer m.taskDeliveryMu.Unlock()
+	if _, seen := m.taskDeliverySeen[key]; seen {
+		return false
+	}
+	m.taskDeliverySeen[key] = struct{}{}
+	return true
+}
+
+func (m *subagentManager) markTaskExecution(taskID, turnID, mainAgentTurnID string) {
+	if taskID == "" || turnID == "" || mainAgentTurnID == "" {
+		return
+	}
+	m.taskExecutionMu.Lock()
+	if m.taskExecutions[taskID] == nil {
+		m.taskExecutions[taskID] = make(map[string]taskExecution)
+	}
+	m.taskExecutions[taskID][turnID] = taskExecution{mainAgentTurnID: mainAgentTurnID}
+	m.taskExecutionMu.Unlock()
+}
+
+func (m *subagentManager) taskExecutionFor(taskID, turnID string) (taskExecution, bool) {
+	m.taskExecutionMu.Lock()
+	execution, found := m.taskExecutions[taskID][turnID]
+	m.taskExecutionMu.Unlock()
+	return execution, found
+}
+
+func (m *subagentManager) unmarkTaskExecution(taskID, turnID string) {
+	m.taskExecutionMu.Lock()
+	turns := m.taskExecutions[taskID]
+	delete(turns, turnID)
+	if len(turns) == 0 {
+		delete(m.taskExecutions, taskID)
+	}
+	m.taskExecutionMu.Unlock()
+}
+
+// waitForTaskCompletionPublication keeps a synchronous foreground result and
+// its application event ordered. monitor owns publication because it also
+// handles provider failures and cancellation; foreground callers only wait for
+// that short terminal bookkeeping fence.
+func (m *subagentManager) waitForTaskCompletionPublication(ctx context.Context, taskID, turnID string) {
+	for {
+		if _, running := m.taskExecutionFor(taskID, turnID); !running {
+			return
+		}
+		m.mu.RLock()
+		notify := m.changed
+		closed := m.closed
+		m.mu.RUnlock()
+		if closed {
+			return
+		}
+		select {
+		case <-notify:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *subagentManager) terminalTaskResult(record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, map[string]any) {
+	if record.LastResultError != "" {
+		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: record.LastResultError}, nil
+	}
+	output, err := m.lastTaskAssistantOutput(record.SubagentSessionID, record.LastSubagentTurnID, "")
+	if err != nil {
+		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}, nil
+	}
+	incomplete := record.LastResultStatus == storage.SubagentResultIncomplete
+	if run != nil && run.StepLimitFinalized() {
+		incomplete = true
+	}
+	return taskFinalResultFromOutput(record.ID, definition, output, incomplete)
 }
 
 // waitForTaskLifecycle fences the manager's monitor after a child Run reports
@@ -467,11 +717,18 @@ func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, m
 	}
 	m.instances[id] = instance
 	m.mu.Unlock()
+	if !registerScopeAssignment {
+		// This path is reserved for model-facing tasks. Mark it before the
+		// child can complete so the legacy host result stream cannot race a
+		// later background registration.
+		m.markTaskExecution(id, turnID, mainAgentTurnID)
+	}
 
 	instance.mu.Lock()
 	err = m.startTurnLocked(instance, record, turnID, message)
 	instance.mu.Unlock()
 	if err != nil {
+		m.unmarkTaskExecution(id, turnID)
 		m.removeInstance(id)
 		_ = subagent.Close()
 		_, _ = m.store.Close(context.Background(), id)
@@ -1475,8 +1732,27 @@ func (m *subagentManager) monitor(id string, instance *managedSubagent, run *age
 	}
 	instance.run = nil
 	m.signalChanged()
-	result := subagentResultFromMessages(completed, messages)
-	m.publishResult(result)
+	if completed.ActiveTaskDelivery != nil {
+		definition := m.project.subagents[completed.DefinitionName]
+		m.publishTaskTerminal(completed, definition, run)
+	} else if execution, task := m.taskExecutionFor(completed.ID, run.TurnID()); task {
+		// Foreground task callers consume the final response directly. If a
+		// promotion is concurrently registering delivery, its post-registration
+		// idle check will enqueue it. Either way, never leak this task into the
+		// legacy client-owned result stream.
+		result, metadata := m.terminalTaskResult(completed, m.project.subagents[completed.DefinitionName], run)
+		if m.claimTaskCompletion(completed.ID + "\x00" + run.TurnID()) {
+			m.publishTaskCompleted(completed, execution.mainAgentTurnID, run.TurnID(), result, metadata)
+		}
+		m.unmarkTaskExecution(completed.ID, run.TurnID())
+		m.signalChanged()
+	} else {
+		// Host-created sessions retain their existing inspection signal until
+		// the server and terminal migration removes the legacy transport. Task
+		// executions never reach this branch, so they cannot be delivered twice.
+		result := subagentResultFromMessages(completed, messages)
+		m.publishResult(result)
+	}
 	// One completion owns the dequeue/start transition, so mailbox order is
 	// preserved even when Send races completion.
 	afterDequeue, next, err := m.store.Dequeue(context.Background(), id)
@@ -1549,6 +1825,7 @@ func (m *subagentManager) transition(ctx context.Context, id string, status stor
 		updated, err := m.store.Update(ctx, id, record.Version, storage.SubagentUpdate{
 			Status: status, CurrentSubagentTurnID: currentTurnID, LastSubagentTurnID: last, LastResultError: turnError,
 			LastResultStatus: resultStatus, LastResultSummary: summary, LastResultNextStep: nextStep,
+			ActiveTaskDelivery: storage.CloneTaskDelivery(record.ActiveTaskDelivery),
 		})
 		if !errors.Is(err, storage.ErrSubagentVersionConflict) {
 			return updated, err

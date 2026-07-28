@@ -84,6 +84,64 @@ func TestTaskTypesAndForegroundWaitOption(t *testing.T) {
 	}
 }
 
+func TestAgentOwnsBackgroundTaskContinuationAndDoesNotExposeMetadataToProvider(t *testing.T) {
+	model := &scriptedModel{}
+	agent, err := New(context.Background(), WithModel(model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+	agent.startTaskCoordinator()
+	if err := agent.responseScopes.BeginMainAgentTurn("main", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	rollback := agent.responseScopes.RegisterAssignmentMetadata("main", "root-turn", toolexecution.ResponseScopePendingResult{
+		SubagentID: "task_1", AssignmentID: "child-turn", SubagentTurnID: "child-turn",
+	})
+	defer rollback()
+	agent.acceptTaskDelivery(taskDelivery{
+		MainAgentSessionID: "main", MainAgentTurnID: "root-turn", AssignmentID: "child-turn", SubagentTurnID: "child-turn",
+		Result: TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done"},
+		Metadata: map[string]any{"requires_requester_reply": true},
+	})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		messages, listErr := agent.ListMessages(context.Background(), "main")
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		for _, message := range messages {
+			if strings.Contains(message.Content, "<task_result>") {
+				if strings.Contains(message.Content, "requires_requester_reply") || strings.Contains(message.Content, "metadata") {
+					t.Fatalf("provider-visible task result leaked application metadata: %s", message.Content)
+				}
+				if !strings.Contains(message.Content, "task_1") || !strings.Contains(message.Content, "researcher") {
+					t.Fatalf("provider-visible task result = %s", message.Content)
+				}
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("agent did not start its own task continuation")
+}
+
+func TestAgentCloseStopsTaskCoordinator(t *testing.T) {
+	agent, err := New(context.Background(), WithModel(&scriptedModel{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.startTaskCoordinator()
+	if err := agent.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-agent.taskCoordinatorDone:
+	case <-time.After(time.Second):
+		t.Fatal("Agent.Close did not stop the task coordinator")
+	}
+}
+
 func TestNewRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

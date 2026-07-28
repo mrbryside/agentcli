@@ -278,37 +278,37 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `system_event.go`
 - Modify: `system_event_test.go`
 
-- [ ] Add failing manager tests for `background=true`: immediate
+- [x] Add failing manager tests for `background=true`: immediate
   `TaskStateRunning`, one persisted delivery identity, and one eventual terminal
   result.
-- [ ] Add failing promotion race tests for completion before timeout, timeout
+- [x] Add failing promotion race tests for completion before timeout, timeout
   before completion, cancellation during promotion, and duplicate promotion;
   assert exactly one foreground result or one background delivery.
-- [ ] Add failing scope tests proving foreground tasks create no result barrier,
+- [x] Add failing scope tests proving foreground tasks create no result barrier,
   while background/promoted tasks register one obligation before returning
   `running`.
-- [ ] Add failing resume tests proving a background resume routes its result to
+- [x] Add failing resume tests proving a background resume routes its result to
   the latest `ActiveTaskDelivery`, not the original main-agent turn.
-- [ ] Run focused manager/scope tests; expect FAIL.
-- [ ] Implement background and promotion in `ExecuteTask`; pseudocode:
+- [x] Run focused manager/scope tests; expect FAIL.
+- [x] Implement background and promotion in `ExecuteTask`; pseudocode:
   `start child`; `background -> register delivery + return running`;
   `foreground wait configured -> select child result vs timer`; on timer,
   atomically register delivery, mark promoted, return running.
-- [ ] Replace the model-facing callback payload with
+- [x] Replace the model-facing callback payload with
   `<task_result>` containing only task ID, agent, state, output, and error.
-- [ ] Make `Agent` own the internal background-result coordinator:
+- [x] Make `Agent` own the internal background-result coordinator:
   try injection at the next provider boundary; otherwise start one continuation
   turn; clients never call continuation methods.
-- [ ] Publish `SystemTaskCompleted` with validated application-only metadata,
+- [x] Publish `SystemTaskCompleted` with validated application-only metadata,
   but omit metadata from `<task_result>` and stored provider messages.
-- [ ] Remove exported `SubscribeSubagentResults`,
-  `TryInjectSubagentResult`, and `ContinueSubagentResultSubscribed`; keep
-  host-only session inspection/close APIs.
-- [ ] Ensure `Agent.Close` stops the internal coordinator after accepted
+- [x] Keep the old exported result wrappers deprecated and isolated from task
+  executions only until Tasks 7 and 8 migrate their compile-time callers; then
+  remove them before `v0.1.0`. Keep host-only session inspection/close APIs.
+- [x] Ensure `Agent.Close` stops the internal coordinator after accepted
   terminal results are drained or cancelled.
-- [ ] Run focused tests; expect PASS.
-- [ ] Run `rtk go test -race ./...`; expect PASS.
-- [ ] Commit with message
+- [x] Run focused tests; expect PASS.
+- [x] Run `rtk go test -race ./...`; expect PASS.
+- [x] Commit with message
   `feat(task): deliver background task results exactly once`.
 
 ## Task 7: Remove client-owned result continuation from HTTP and SSE

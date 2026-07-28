@@ -44,19 +44,7 @@ type SubagentResult struct {
 // final response is a task error rather than a repair loop or a second child
 // turn.
 func taskResultFromFinalOutput(taskID string, definition SubagentDefinition, output string, incomplete bool) TaskResult {
-	result := TaskResult{TaskID: taskID, AgentName: definition.Name}
-	final, err := parseTaskFinalResult(definition, output)
-	if err != nil {
-		result.State = TaskStateError
-		result.Error = err.Error()
-		return result
-	}
-	result.Output = final.Output
-	if incomplete {
-		result.State = TaskStateIncomplete
-	} else {
-		result.State = TaskStateCompleted
-	}
+	result, _ := taskFinalResultFromOutput(taskID, definition, output, incomplete)
 	return result
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mrbryside/agentcli/agentruntime"
 	"github.com/mrbryside/agentcli/confirmation"
@@ -46,6 +47,14 @@ type Agent struct {
 
 	subagents      *subagentManager
 	responseScopes *toolexecution.ResponseScopeCoordinator
+
+	// taskDeliveries is intentionally private. Background task completion is a
+	// runtime responsibility, not a transport concern: terminal, HTTP, and
+	// embedding applications must not create competing continuation turns.
+	taskDeliveries       chan taskDelivery
+	taskCoordinatorCtx   context.Context
+	taskCoordinatorStop  context.CancelFunc
+	taskCoordinatorDone  chan struct{}
 }
 
 func taskAgentsForProject(project *Project) []toolexecution.TaskAgent {
@@ -348,6 +357,9 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 
 	agent.runtime = runtime
 	agent.subagents = manager
+	if manager != nil {
+		agent.startTaskCoordinator()
+	}
 	go func() {
 		err := executor.Run(runContext, toolRequests, toolResults, toolInterrupts)
 		agent.executorMu.Lock()
@@ -356,6 +368,136 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		close(agent.executorDone)
 	}()
 	return agent, nil
+}
+
+func (a *Agent) startTaskCoordinator() {
+	if a == nil || a.taskCoordinatorDone != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.taskCoordinatorCtx = ctx
+	a.taskCoordinatorStop = cancel
+	a.taskCoordinatorDone = make(chan struct{})
+	// A task delivery is accepted only after its response-scope obligation is
+	// durable. The bounded queue is larger than the default subagent limit and
+	// producers block rather than silently losing a terminal result.
+	a.taskDeliveries = make(chan taskDelivery, 64)
+	go func() {
+		defer close(a.taskCoordinatorDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case delivery := <-a.taskDeliveries:
+				a.deliverTaskResult(ctx, delivery)
+			}
+		}
+	}()
+}
+
+func (a *Agent) acceptTaskDelivery(delivery taskDelivery) {
+	if a == nil || a.taskCoordinatorCtx == nil || delivery.Result.TaskID == "" {
+		return
+	}
+	select {
+	case <-a.taskCoordinatorCtx.Done():
+		return
+	case a.taskDeliveries <- delivery:
+	}
+}
+
+// deliverTaskResult first joins an active originating main-agent turn at its
+// next provider boundary. When that turn has already ended, it owns exactly
+// one ordinary continuation turn for the still-live response scope.
+func (a *Agent) deliverTaskResult(ctx context.Context, delivery taskDelivery) {
+	if a == nil || a.runtime == nil || delivery.MainAgentSessionID == "" || delivery.MainAgentTurnID == "" {
+		return
+	}
+	for {
+		if ctx.Err() != nil || a.isClosing() {
+			return
+		}
+		activeTurnID, active := a.runtime.ActiveTurnID(delivery.MainAgentSessionID)
+		if active && activeTurnID == delivery.MainAgentTurnID {
+			reservation, err := a.responseScopes.ReserveInlineResultWithMetadata(
+				delivery.MainAgentSessionID,
+				activeTurnID,
+				taskDeliveryScopeResult(delivery),
+			)
+			if err == nil {
+				err = a.runtime.InjectRuntimeMessage(
+					ctx,
+					delivery.MainAgentSessionID,
+					activeTurnID,
+					delivery.RuntimeMessage(),
+					reservation.Commit,
+				)
+				if err == nil {
+					return
+				}
+				reservation.Rollback(delivery.Result.TaskID, delivery.SubagentTurnID)
+				if !errors.Is(err, agentruntime.ErrRunNotFound) && !a.isClosing() {
+					return
+				}
+			}
+		}
+
+		continuationTurnID, err := newSubagentID("turn_")
+		if err != nil {
+			return
+		}
+		reservation, err := a.responseScopes.ReserveResultTurnWithMetadata(
+			delivery.MainAgentSessionID,
+			continuationTurnID,
+			taskDeliveryScopeResult(delivery),
+		)
+		if err != nil {
+			// A live user turn may have just been admitted. Its response scope
+			// remains the delivery owner, so wait for the next boundary rather
+			// than letting a client recreate this delivery.
+			if errors.Is(err, toolexecution.ErrResponseScopeAssignmentNotFound) || a.isClosing() {
+				return
+			}
+			continue
+		}
+		run, err := a.runtime.Start(ctx, agentruntime.Request{
+			SessionID: delivery.MainAgentSessionID,
+			TurnID:    continuationTurnID,
+			Message:   delivery.RuntimeMessage(),
+		})
+		if err == nil {
+			reservation.Commit()
+			a.watchAcceptedRun(run)
+			return
+		}
+		reservation.Rollback(delivery.Result.TaskID, delivery.SubagentTurnID)
+		if !errors.Is(err, agentruntime.ErrTurnInProgress) || a.isClosing() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func taskDeliveryScopeResult(delivery taskDelivery) toolexecution.ResponseScopeDeliveredResult {
+	return toolexecution.ResponseScopeDeliveredResult{
+		SubagentID:     delivery.Result.TaskID,
+		DefinitionName: delivery.Result.AgentName,
+		AssignmentID:   delivery.AssignmentID,
+		SubagentTurnID: delivery.SubagentTurnID,
+		ResultStatus:   string(delivery.Result.State),
+	}
+}
+
+func (a *Agent) stopTaskCoordinator() {
+	if a == nil || a.taskCoordinatorStop == nil {
+		return
+	}
+	a.taskCoordinatorStop()
+	<-a.taskCoordinatorDone
 }
 
 func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool) error {
@@ -571,9 +713,11 @@ func (a *Agent) StartSubscribed(ctx context.Context, request agentruntime.Reques
 	return run, subscription, nil
 }
 
-// SubscribeSubagentResults returns a live-only stream of compact subagent-turn
-// completions. Durable unread state remains available through ReadSubagent and
-// context reminders when no subscriber is attached.
+// SubscribeSubagentResults returns the legacy host-session result stream.
+//
+// Deprecated: model-facing task execution is delivered internally by Agent.
+// This compatibility surface is retained only until the terminal and HTTP
+// session-management migrations remove their old host-created-session pump.
 func (a *Agent) SubscribeSubagentResults(ctx context.Context) <-chan SubagentResult {
 	if a == nil || a.subagents == nil {
 		closed := make(chan SubagentResult)
@@ -663,6 +807,9 @@ func (a *Agent) PendingSubagentPermissions(ctx context.Context, mainAgentSession
 //
 // Call TryInjectSubagentResult first when the host wants results to join
 // an already-active main agent between provider rounds.
+//
+// Deprecated: Agent owns task-result delivery. This remains only for the
+// legacy host-created subagent session API and never receives task executions.
 func (a *Agent) ContinueSubagentResultSubscribed(ctx context.Context, result SubagentResult) (*agentruntime.Run, agentruntime.EventSubscription, error) {
 	if a == nil || a.runtime == nil {
 		return nil, agentruntime.EventSubscription{}, errors.New("agent is nil")
@@ -681,6 +828,9 @@ func (a *Agent) ContinueSubagentResultSubscribed(ctx context.Context, result Sub
 // boundary of the currently active main agent response scope. It returns false
 // when no compatible main agent run is active, allowing the host to start a normal
 // result continuation turn instead.
+//
+// Deprecated: Agent owns task-result delivery. This remains only for the
+// legacy host-created subagent session API and never receives task executions.
 func (a *Agent) TryInjectSubagentResult(ctx context.Context, result SubagentResult) (bool, error) {
 	if a == nil || a.runtime == nil {
 		return false, errors.New("agent is nil")

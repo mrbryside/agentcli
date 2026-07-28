@@ -73,6 +73,13 @@ func TestSubagentManagerExecuteTaskWaitsForFinalAssistantResponse(t *testing.T) 
 	model := &subagentGateModel{releases: make(chan struct{}, 1)}
 	manager := newTestSubagentManager(t, model, 2)
 	defer manager.Close()
+	// A positive wait limit still returns a foreground result when the child
+	// completes before the timer; it must not install a delivery identity.
+	manager.config.taskForegroundWait = time.Second
+	events := manager.subscribeSystemEvents(context.Background())
+	if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "main-turn"); err != nil {
+		t.Fatal(err)
+	}
 
 	results := make(chan TaskResult, 1)
 	errs := make(chan error, 1)
@@ -111,6 +118,18 @@ func TestSubagentManagerExecuteTaskWaitsForFinalAssistantResponse(t *testing.T) 
 		}
 		if record.Status != storage.SubagentStatusIdle || record.ActiveTaskDelivery != nil {
 			t.Fatalf("foreground task persisted delivery/state = %#v", record)
+		}
+		if !manager.mainAgent.responseScopes.ReadyToEnd("mainAgent", "main-turn") {
+			t.Fatal("foreground task incorrectly registered a later-result scope barrier")
+		}
+		select {
+		case event := <-events:
+			if event.Type != SystemTaskCompleted || event.MainAgentTurnID != "main-turn" || event.TaskCompleted == nil ||
+				event.TaskCompleted.TaskID != result.TaskID || event.TaskCompleted.State != TaskStateCompleted {
+				t.Fatalf("foreground task completion event = %#v", event)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("foreground task did not publish completion event")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("foreground task did not return after child completion")
@@ -209,6 +228,187 @@ func TestSubagentManagerExecuteTaskHandlesInstantChildCompletion(t *testing.T) {
 	}
 }
 
+func TestSubagentManagerExecuteTaskBackgroundRegistersOneDeliveryAndPublishesOneTerminalEvent(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 1)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	events := manager.subscribeSystemEvents(context.Background())
+	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
+		Description: "Long work", Prompt: "wait", Background: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != TaskStateRunning || result.TaskID == "" {
+		t.Fatalf("background start result = %#v", result)
+	}
+	record, found, err := manager.store.Get(context.Background(), result.TaskID)
+	if err != nil || !found || record.ActiveTaskDelivery == nil ||
+		record.ActiveTaskDelivery.MainAgentTurnID != "root-turn" ||
+		record.ActiveTaskDelivery.AssignmentID != record.CurrentSubagentTurnID {
+		t.Fatalf("background delivery record = (%#v, %t, %v)", record, found, err)
+	}
+	if manager.mainAgent.responseScopes.ReadyToEnd("mainAgent", "root-turn") {
+		t.Fatal("background task did not hold one response-scope delivery barrier")
+	}
+	run, err := manager.Run(context.Background(), "mainAgent", result.TaskID, record.CurrentSubagentTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.registerTaskDelivery(context.Background(), record, manager.project.subagents["researcher"], run, *record.ActiveTaskDelivery); err != nil {
+		t.Fatalf("duplicate task delivery registration: %v", err)
+	}
+	model.releases <- struct{}{}
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted || event.MainAgentTurnID != "root-turn" || event.TaskCompleted == nil ||
+			event.TaskCompleted.TaskID != result.TaskID || event.TaskCompleted.State != TaskStateCompleted {
+			t.Fatalf("task completion event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for task completion event")
+	}
+	select {
+	case duplicate := <-events:
+		t.Fatalf("duplicate task completion event = %#v", duplicate)
+	case <-time.After(25 * time.Millisecond):
+	}
+	awaitSubagentStatus(t, manager, result.TaskID, storage.SubagentStatusIdle)
+	record, found, err = manager.store.Get(context.Background(), result.TaskID)
+	if err != nil || !found || record.ActiveTaskDelivery != nil {
+		t.Fatalf("terminal background record = (%#v, %t, %v)", record, found, err)
+	}
+	reservation, err := manager.mainAgent.responseScopes.ReserveResultTurn("mainAgent", "task-result-turn", result.TaskID, record.LastSubagentTurnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress := reservation.ResultProgress(); progress.PendingCount != 0 || !progress.AllResultsDelivered {
+		t.Fatalf("duplicate delivery left extra scope obligations: %#v", progress)
+	}
+	reservation.Commit()
+}
+
+func TestSubagentManagerExecuteTaskPromotionRegistersDeliveryExactlyOnce(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 1)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	manager.config.taskForegroundWait = time.Millisecond
+	if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("mainAgent", "root-turn"); err != nil {
+		t.Fatal(err)
+	}
+	events := manager.subscribeSystemEvents(context.Background())
+	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
+		Description: "Long work", Prompt: "wait",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != TaskStateRunning {
+		t.Fatalf("promoted task result = %#v", result)
+	}
+	model.releases <- struct{}{}
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted || event.TaskCompleted == nil || event.TaskCompleted.TaskID != result.TaskID {
+			t.Fatalf("promoted completion event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for promoted task completion")
+	}
+	select {
+	case duplicate := <-events:
+		t.Fatalf("duplicate promoted task completion event = %#v", duplicate)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func TestSubagentManagerExecuteTaskBackgroundResumeUsesLatestDeliveryTurn(t *testing.T) {
+	model := &subagentGateModel{releases: make(chan struct{}, 2)}
+	manager := newTestSubagentManager(t, model, 1)
+	defer manager.Close()
+	for _, turnID := range []string{"first-turn", "latest-turn"} {
+		if err := manager.mainAgent.responseScopes.BeginMainAgentTurn("owner", turnID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events := manager.subscribeSystemEvents(context.Background())
+	first, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "owner", MainAgentTurnID: "first-turn", AgentName: "researcher",
+		Description: "Initial work", Prompt: "first", Background: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.releases <- struct{}{}
+	select {
+	case <-events:
+	case <-time.After(time.Second):
+		t.Fatal("first background task did not complete")
+	}
+	awaitSubagentStatus(t, manager, first.TaskID, storage.SubagentStatusIdle)
+
+	resumed, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "owner", MainAgentTurnID: "latest-turn", TaskID: first.TaskID,
+		Prompt: "continue", Background: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.TaskID != first.TaskID || resumed.State != TaskStateRunning {
+		t.Fatalf("background resume = %#v", resumed)
+	}
+	record, found, err := manager.store.Get(context.Background(), first.TaskID)
+	if err != nil || !found || record.ActiveTaskDelivery == nil || record.ActiveTaskDelivery.MainAgentTurnID != "latest-turn" {
+		t.Fatalf("resumed active delivery = (%#v, %t, %v)", record, found, err)
+	}
+	model.releases <- struct{}{}
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted || event.MainAgentTurnID != "latest-turn" || event.TaskCompleted == nil || event.TaskCompleted.TaskID != first.TaskID {
+			t.Fatalf("resumed task completion = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resumed background task did not complete")
+	}
+}
+
+func TestSubagentManagerTaskCompletionPublishesContractMetadataOnlyAsSystemEvent(t *testing.T) {
+	manager := newTestSubagentManager(t, taskFinalModel{content: `{"message":"Need your confirmation","requires_requester_reply":true}`}, 1)
+	defer manager.Close()
+	definition := manager.project.subagents["researcher"]
+	definition.Result = &AgentResultContract{
+		MessageField: "message",
+		Metadata: map[string]AgentResultMetadataField{
+			"requires_requester_reply": {Type: "boolean", Required: true},
+		},
+	}
+	manager.project.subagents["researcher"] = definition
+	events := manager.subscribeSystemEvents(context.Background())
+	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
+		Description: "Ask one question", Prompt: "work",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != TaskStateCompleted || result.Output != "Need your confirmation" {
+		t.Fatalf("contract task result = %#v", result)
+	}
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted || event.TaskCompleted == nil || event.TaskCompleted.Metadata["requires_requester_reply"] != true {
+			t.Fatalf("contract task system event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("contract task did not publish metadata event")
+	}
+}
+
 func TestSubagentManagerExecuteTaskResumesOnlyOwnedIdleTask(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{}, 2)}
 	manager := newTestSubagentManager(t, model, 2)
@@ -287,6 +487,8 @@ func TestSubagentManagerExecuteTaskCancellationInterruptsChild(t *testing.T) {
 	model := &subagentGateModel{releases: make(chan struct{})}
 	manager := newTestSubagentManager(t, model, 1)
 	defer manager.Close()
+	manager.config.taskForegroundWait = time.Second
+	events := manager.subscribeSystemEvents(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	results := make(chan TaskResult, 1)
@@ -312,6 +514,19 @@ func TestSubagentManagerExecuteTaskCancellationInterruptsChild(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancelled task did not return")
+	}
+	select {
+	case event := <-events:
+		if event.Type != SystemTaskCompleted || event.TaskCompleted == nil || event.TaskCompleted.State != TaskStateError ||
+			!strings.Contains(event.TaskCompleted.TaskID, "subagent_") {
+			t.Fatalf("cancelled task completion event = %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled task did not publish terminal event")
+	}
+	records, err := manager.List(context.Background(), "mainAgent", true)
+	if err != nil || len(records) != 1 || records[0].ActiveTaskDelivery != nil {
+		t.Fatalf("cancelled foreground wait registered delivery = (%#v, %v)", records, err)
 	}
 }
 
@@ -1193,6 +1408,12 @@ type subagentFailModel struct{ err error }
 
 func (model subagentFailModel) Start(context.Context, agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
 	return nil, model.err
+}
+
+type taskFinalModel struct{ content string }
+
+func (model taskFinalModel) Start(context.Context, agentruntime.ModelRequest) (agentruntime.ModelStream, error) {
+	return scriptedStream{result: provider.StreamResult{Content: model.content, Finished: true}}, nil
 }
 
 func (s subagentGateStream) Subscribe(ctx context.Context) <-chan provider.StreamEvent {
