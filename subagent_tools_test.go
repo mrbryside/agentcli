@@ -177,7 +177,7 @@ func TestStartSubagentToolAlwaysCreatesNewChild(t *testing.T) {
 		if err := json.Unmarshal(selectionJSON, &selection); err != nil {
 			t.Fatal(err)
 		}
-		if selection.Action != toolexecution.SubagentStartCreated || !selection.Accepted || selection.Deduplicated || selection.Callback != "automatic" || !selection.MustWait || selection.Behavior != "" || selection.TurnAction != "continue_independent_work" || strings.Contains(string(selectionJSON), `"finish_turn"`) || len(selection.Candidates) != 0 || !strings.Contains(selection.NextAction, "already-planned parent work") {
+		if selection.Action != toolexecution.SubagentStartCreated || !selection.Accepted || selection.Deduplicated || selection.Callback != "automatic" || !selection.MustWait || selection.Behavior != "" || selection.TurnAction != "continue_independent_work" || strings.Contains(string(selectionJSON), `"finish_turn"`) || len(selection.Candidates) != 0 || !strings.Contains(selection.NextAction, "specific independent parent work planned before dispatch") {
 			t.Fatalf("selection = %s", selectionJSON)
 		}
 		for _, forbidden := range []string{`"last_turn_error"`, `"last_turn_outcome"`, `"last_turn_summary"`, `"last_turn_next_step"`} {
@@ -484,8 +484,9 @@ func callSubagentTool(bridge *toolexecution.SubagentToolBridge, name string, ctx
 func isEndedCallbackInstruction(instruction string) bool {
 	for _, expected := range []string{
 		"No new work was dispatched",
-		"existing result will arrive automatically later",
-		"successful tool batch will end automatically",
+		"Stop now and wait for the existing subagent result",
+		"successful tool batch ends automatically",
+		"runtime resumes the parent when the result is ready",
 		"Do not retry, call another tool, or generate assistant content",
 	} {
 		if !strings.Contains(instruction, expected) {
@@ -499,9 +500,9 @@ func isContinueCallbackInstruction(instruction string) bool {
 	for _, expected := range []string{
 		"result will arrive automatically later",
 		"continue_after_dispatch=true",
-		"already-planned parent work",
-		"outside the delegated task",
-		"Do not invent work, poll, or narrate waiting",
+		"specific independent parent work planned before dispatch",
+		"stop and wait for the subagent result",
+		"merely to simulate waiting",
 	} {
 		if !strings.Contains(instruction, expected) {
 			return false

@@ -101,6 +101,8 @@ func TestSubagentCallbackRuntimeMessageIncludesCallbackProgress(t *testing.T) {
 		`"outcome_status":"completed"`,
 		"Read callback_progress before deciding what to do",
 		"process each exactly once",
+		"never call a tool to simulate waiting",
+		"runtime resumes the parent automatically",
 	} {
 		if !strings.Contains(message.Content, expected) {
 			t.Fatalf("callback runtime message missing %q: %s", expected, message.Content)

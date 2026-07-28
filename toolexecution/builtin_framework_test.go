@@ -139,20 +139,21 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		if tool.Definition.Name == StartSubagentToolName {
 			for _, expected := range []string{
 				"not a status, reminder, or follow-up tool for running work",
-				"wait for its automatic callback",
+				"wait for its automatic result",
 				"explicitly choose continue_after_dispatch",
-				"Set it to false",
-				"successful result with a pending callback",
-				"whole tool batch succeeds",
-				"without another provider step or assistant content",
+				"controls only the parent turn and never subagent concurrency",
+				"Set it to false when no specific independent parent work remains",
+				"subagents keep running",
+				"Multiple subagents started together with false still run in parallel",
 				"Set it to true only",
 				"already planned",
 				"never invent work to justify true",
 				"use the same value on all calls",
-				"all false to wait",
-				"all true to continue",
+				"all false when no parent work remains",
+				"all true only for that planned independent work",
 				"Never mix values",
-				"any false call that returns a pending callback ends the successful batch",
+				"any false call that accepts work ends the successful batch",
+				"merely to simulate waiting",
 			} {
 				if !strings.Contains(tool.Definition.Description, expected) {
 					t.Fatalf("start_subagent description does not contain turn-choice rule %q: %q", expected, tool.Definition.Description)
@@ -163,9 +164,9 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 				"continue an existing child",
 				`"continue_after_dispatch"`,
 				`"required":["name","message","continue_after_dispatch"]`,
-				"Required turn choice made before dispatch",
-				"all false to wait after the batch",
-				"all true to continue independent parent work",
+				"Controls only whether the parent continues immediately",
+				"Multiple subagents started together with false still run in parallel",
+				"all false when no parent work remains",
 			} {
 				if !strings.Contains(schema, expected) {
 					t.Fatalf("start_subagent schema does not contain turn-choice rule %q: %s", expected, schema)
@@ -196,7 +197,7 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 			t.Fatalf("send_subagent_message does not describe callback-driven follow-up: %q", tool.Definition.Description)
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName && (!strings.Contains(tool.Definition.Description, "idle incomplete or failed child only") ||
-			!strings.Contains(tool.Definition.Description, "latest callback has been consumed") ||
+			!strings.Contains(tool.Definition.Description, "latest result has been delivered and consumed") ||
 			!strings.Contains(tool.Definition.Description, "applicable instruction or the user explicitly requires") ||
 			!strings.Contains(tool.Definition.Description, "Never call while the child is running") ||
 			!strings.Contains(tool.Definition.Description, "not for waiting, status checks, polling") ||
@@ -207,33 +208,30 @@ func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
 		}
 		if tool.Definition.Name == SendSubagentMessageToolName {
 			for _, expected := range []string{
-				"ID of an idle incomplete or failed child whose latest callback was already received and consumed",
+				"ID of an idle incomplete or failed child whose latest result was already delivered and consumed",
 				"Never use a running, completed, or closed child",
 				"Do not send unrelated new work, status checks, reminders",
 				`"continue_after_dispatch"`,
 				`"required":["subagent_id","message","continue_after_dispatch"]`,
-				"duplicate, already_sent, or callback_pending result ends the successful batch",
+				"Controls only whether the parent continues immediately",
+				"Set false when no specific independent parent work remains",
 			} {
 				if !strings.Contains(schema, expected) {
 					t.Fatalf("send_subagent_message schema does not contain idle-only rule %q: %s", expected, schema)
 				}
 			}
 		}
-		if (tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName) && (!strings.Contains(tool.Definition.Description, "provider boundary") || !strings.Contains(tool.Definition.Description, "callback continuation turn")) {
-			t.Fatalf("asynchronous dispatch tool %q does not describe automatic callback delivery: %q", tool.Definition.Name, tool.Definition.Description)
-		}
 		if tool.Definition.Name == SendSubagentMessageToolName {
 			for _, expected := range []string{
 				"explicitly choose continue_after_dispatch",
-				"accepted result then ends the current successful tool batch automatically",
+				"accepted result ends the current successful tool batch automatically",
+				"controls only the parent turn",
 				"Set it to true only",
 				"already planned",
-				"outside this child's task",
-				"independent of its callback",
 				"successful tool batch ends automatically regardless of continue_after_dispatch",
 				"recovery_exhausted",
 				"continue to report the terminal failure",
-				"Never narrate waiting",
+				"merely to simulate waiting",
 				"response or delivery tool",
 			} {
 				if !strings.Contains(tool.Definition.Description, expected) {

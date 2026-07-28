@@ -306,7 +306,7 @@ func TestSubagentIntegrationStartCanEndParentTurnAfterDispatch(t *testing.T) {
 			continue
 		}
 		found = strings.Contains(string(message.ToolResult.Output), `"turn_action":"end_turn_wait_for_callback"`) &&
-			strings.Contains(string(message.ToolResult.Output), "current turn will end automatically")
+			strings.Contains(string(message.ToolResult.Output), "current turn ends automatically")
 	}
 	if !found {
 		t.Fatalf("start_subagent result has no terminal turn action: %#v", messages)
