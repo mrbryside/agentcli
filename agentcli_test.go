@@ -185,6 +185,74 @@ func TestNewExposesOnlyExplicitlySuppliedTools(t *testing.T) {
 	}
 }
 
+func TestNewRegistersOnlyTaskForMainAgentSubagents(t *testing.T) {
+	model := &scriptedModel{}
+	project := &Project{subagents: map[string]SubagentDefinition{
+		"researcher": {Name: "researcher", Description: "Find current evidence."},
+		"reviewer":   {Name: "reviewer", Description: "Review proposed changes."},
+	}}
+	projectOption := func(configuration *config) error {
+		configuration.project = project
+		return nil
+	}
+	agent, err := New(context.Background(), WithModel(model), projectOption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agent.Close()
+
+	run, err := agent.Start(context.Background(), userRequest("catalog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, run)
+	requests := model.Requests()
+	if len(requests) != 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != TaskToolName {
+		t.Fatalf("main tool catalog = %#v, want only task", requests)
+	}
+	description := requests[0].Tools[0].Description
+	for _, expected := range []string{"researcher: Find current evidence.", "reviewer: Review proposed changes."} {
+		if !strings.Contains(description, expected) {
+			t.Fatalf("task description missing configured agent %q: %q", expected, description)
+		}
+	}
+	for _, retired := range []string{"start_subagent", "send_subagent_message", "list_subagents", "subagent_status"} {
+		if strings.Contains(description, retired) {
+			t.Fatalf("retired model tool remains in task description: %q", description)
+		}
+	}
+}
+
+func TestNewDeniesTaskToolToSubagentsAndCustomTaskConflicts(t *testing.T) {
+	taskTool := toolexecution.Tool{
+		Definition: agentruntime.ToolDefinition{Name: TaskToolName, InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	if agent, err := New(context.Background(), WithModel(&scriptedModel{}), WithTool(taskTool), func(configuration *config) error {
+		configuration.subagentAgent = true
+		return nil
+	}); err == nil {
+		if agent != nil {
+			_ = agent.Close()
+		}
+		t.Fatal("subagent accepted task tool")
+	}
+	project := &Project{subagents: map[string]SubagentDefinition{
+		"researcher": {Name: "researcher", Description: "Find evidence."},
+	}}
+	if agent, err := New(context.Background(), WithModel(&scriptedModel{}), WithTool(taskTool), func(configuration *config) error {
+		configuration.project = project
+		return nil
+	}); err == nil {
+		if agent != nil {
+			_ = agent.Close()
+		}
+		t.Fatal("main agent accepted custom task tool")
+	}
+}
+
 func TestCustomToolExecutesAndPermissionRoundTrip(t *testing.T) {
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "call", Name: "custom", Arguments: map[string]any{}}}}
 	agent, err := New(context.Background(), WithModel(model), WithTool(toolexecution.Tool{

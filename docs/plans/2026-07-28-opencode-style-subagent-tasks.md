@@ -190,31 +190,33 @@ storage delivery identity, and result transport form one state machine.
 - Modify: `agent.go`
 - Modify: `agentcli_test.go`
 
-- [ ] Add failing framework tests asserting the main catalog contains `task`
+- [x] Add failing framework tests asserting the main catalog contains `task`
   and omits `start_subagent`, `send_subagent_message`, list, status, and wait
   tools.
-- [ ] Add failing schema tests asserting a flat object with required `prompt`
+- [x] Add failing schema tests asserting a flat object with required `prompt`
   and optional `agent`, `description`, `task_id`, and `background`.
-- [ ] Add failing handler tests for strict new/resume validation and the simple
+- [x] Add failing handler tests for strict new/resume validation and the simple
   JSON result fields `task_id`, `agent`, `state`, `output`, and `error`.
-- [ ] Run `rtk go test ./toolexecution . -run 'Test.*TaskTool'`; expect FAIL.
-- [ ] Replace `SubagentToolBridge` with `TaskToolBridge`; pseudocode:
+- [x] Run `rtk go test ./toolexecution . -run 'Test.*TaskTool'`; expect FAIL.
+- [x] Replace `SubagentToolBridge` with `TaskToolBridge`; pseudocode:
   `decode -> validate new/resume form -> build TaskRequest from Invocation ->
   controller.ExecuteTask -> marshal TaskResult`.
-- [ ] Define `TaskToolName = "task"` in `subagent_tools.go`; remove compatibility
-  constants for the old model tools.
-- [ ] Bind `TaskToolBridge` during `Agent.New` and register it only in the main
+- [x] Define `TaskToolName = "task"` in `subagent_tools.go`; remove the old
+  names from all model catalogs now, then delete the temporary compile-only
+  aliases after Tasks 8 and 10 migrate their remaining callers.
+- [x] Bind `TaskToolBridge` during `Agent.New` and register it only in the main
   registry.
-- [ ] Filter available agent definitions by permissions before appending their
-  names/descriptions to the `task` tool description; denied agents must be
-  absent.
-- [ ] Keep `task` denied to subagents through existing subagent tool validation
+- [x] Append exactly the project's validated agent definitions to the `task`
+  tool description, matching the manager's accepted start targets. Permission
+  policy remains per tool invocation; there is no static per-agent permission
+  domain to filter.
+- [x] Keep `task` denied to subagents through existing subagent tool validation
   and filtered registries.
-- [ ] Add a concurrency test using two task calls in one executor batch and a
+- [x] Add a concurrency test using two task calls in one executor batch and a
   barrier; assert both handlers start before either finishes and worker count is
   the ceiling.
-- [ ] Run focused tool/registry/root tests; expect PASS.
-- [ ] Commit with message
+- [x] Run focused tool/registry/root tests; expect PASS.
+- [x] Commit with message
   `feat(task): expose one model-facing task tool`.
 
 ## Task 5: Remove completion-report tooling and enforce text-only finalization

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mrbryside/agentcli/agentruntime"
-	"github.com/mrbryside/agentcli/storage"
 	"github.com/mrbryside/agentcli/storage/inmemory"
 )
 
@@ -79,208 +79,144 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 }
 
-func TestSubagentToolBridgeOwnsCompleteReservedCatalog(t *testing.T) {
-	tools := NewSubagentToolBridge().Tools()
-	if len(tools) != 2 {
-		t.Fatalf("subagent tool count = %d, want 2", len(tools))
+func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
+	bridge := NewTaskToolBridge([]TaskAgent{
+		{Name: "reviewer", Description: "Review changes."},
+		{Name: "researcher", Description: "Find evidence."},
+	})
+	tools := bridge.Tools()
+	if len(tools) != 1 {
+		t.Fatalf("task tool count = %d, want 1", len(tools))
 	}
-	seen := make(map[string]bool, len(tools))
-	for _, tool := range tools {
-		if !IsSubagentToolName(tool.Definition.Name) || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
-			t.Fatalf("invalid subagent built-in %q", tool.Definition.Name)
-		}
-		schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
-		if tool.Definition.Name == StartSubagentToolName || tool.Definition.Name == SendSubagentMessageToolName {
-			if tool.Trigger != "" || tool.EndTurnOnSuccess || strings.Contains(schema, `"finish_turn"`) {
-				t.Fatalf("subagent operation %q must not use static terminal behavior or legacy finish_turn: %#v", tool.Definition.Name, tool)
-			}
-		}
-		if tool.Definition.Name == StartSubagentToolName && tool.resultTurnBehavior != nil {
-			t.Fatalf("start_subagent unexpectedly has dynamic terminal behavior")
-		}
-		if tool.Definition.Name == SendSubagentMessageToolName && tool.resultTurnBehavior == nil {
-			t.Fatalf("send_subagent_message must resolve terminal behavior from its result")
-		}
-		if tool.Definition.Name == StartSubagentToolName {
-			for _, expected := range []string{
-				"Start one new subagent",
-				"never continues an existing subagent",
-				"use send_subagent_message",
-				"independent and useful in parallel",
-				"accepted, action, main_agent_action, and instruction",
-				"accepted=true means work started, not completed",
-				"<subagent_result>",
-				"status checks, reminders, polling, or waiting",
-			} {
-				if !strings.Contains(tool.Definition.Description, expected) {
-					t.Fatalf("start_subagent description does not contain turn-choice rule %q: %q", expected, tool.Definition.Description)
-				}
-			}
-			for _, expected := range []string{
-				`"continue_main_agent"`,
-				`"required":["name","message","continue_main_agent"]`,
-				"main agent should stop",
-				"independent main-agent work",
-				"does not control parallel subagents",
-				"same value",
-			} {
-				if !strings.Contains(schema, expected) {
-					t.Fatalf("start_subagent schema does not contain turn-choice rule %q: %s", expected, schema)
-				}
-			}
-		}
-		if tool.Definition.Name == SendSubagentMessageToolName {
-			for _, expected := range []string{
-				"one focused follow-up",
-				"exact idle subagent",
-				"incomplete or failed <subagent_result>",
-				"Never send to running or completed work",
-				"accepted, action, main_agent_action, and instruction",
-				"next subagent turn started, not completed",
-			} {
-				if !strings.Contains(tool.Definition.Description, expected) {
-					t.Fatalf("send_subagent_message description does not contain lifecycle rule %q: %q", expected, tool.Definition.Description)
-				}
-			}
-			for _, expected := range []string{
-				"Exact id of an idle incomplete or failed subagent",
-				"One focused follow-up",
-				"continue_main_agent",
-				"main agent should stop",
-			} {
-				if !strings.Contains(schema, expected) {
-					t.Fatalf("send_subagent_message schema does not contain lifecycle rule %q: %s", expected, schema)
-				}
-			}
-		}
-		schema = string(marshaledToolSchema(t, tool.Definition.InputSchema))
-		if strings.Contains(schema, `"type":"string"`) && !strings.Contains(schema, `"minLength":1`) {
-			t.Fatalf("subagent tool %q has an unconstrained string schema: %s", tool.Definition.Name, schema)
-		}
-		seen[tool.Definition.Name] = true
+	tool := tools[0]
+	if tool.Definition.Name != TaskToolName || !IsSubagentToolName(TaskToolName) || tool.Handler == nil || !json.Valid(marshaledToolSchema(t, tool.Definition.InputSchema)) {
+		t.Fatalf("invalid task built-in: %#v", tool.Definition)
 	}
-	for name := range subagentToolNames {
-		if !seen[name] {
-			t.Fatalf("reserved subagent tool %q is missing", name)
+	for _, retired := range []string{"start_subagent", "send_subagent_message", "list_subagents", "subagent_status", "wait_subagent"} {
+		if strings.Contains(tool.Definition.Name, retired) || IsSubagentToolName(retired) {
+			t.Fatalf("retired model-facing tool %q remains exposed", retired)
 		}
 	}
-	if seen[ListSubagentsToolName] || seen[SubagentStatusToolName] {
-		t.Fatalf("inspection tools remain model-facing: %#v", seen)
+	for _, expected := range []string{
+		"new task", "task_id", "Foreground is the default", "same tool batch", "researcher: Find evidence.", "reviewer: Review changes.",
+	} {
+		if !strings.Contains(tool.Definition.Description, expected) {
+			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)
+		}
+	}
+	if tool.Trigger != "" || tool.EndTurnOnSuccess || tool.resultTurnBehavior != nil {
+		t.Fatalf("task must be a normal foreground tool: %#v", tool)
+	}
+	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
+	for _, expected := range []string{`"required":["prompt"]`, `"agent"`, `"description"`, `"task_id"`, `"background"`, `"additionalProperties":false`} {
+		if !strings.Contains(schema, expected) {
+			t.Fatalf("task schema does not contain %q: %s", expected, schema)
+		}
 	}
 }
 
-func TestSubagentToolSummaryUsesExplicitIdentityFields(t *testing.T) {
-	encoded, err := json.Marshal(summarizeSubagent(storage.Subagent{
-		ID:                    "subagent",
-		SubagentSessionID:     "subagent-session",
-		CurrentSubagentTurnID: "subagent-turn",
-	}))
+func TestTaskToolBridgeValidatesFormsAndReturnsBoundResult(t *testing.T) {
+	bridge := NewTaskToolBridge(nil)
+	bridge.Bind(func(_ context.Context, invocation Invocation, input TaskToolInput) (json.RawMessage, error) {
+		if invocation.SessionID != "main" || invocation.TurnID != "turn" || input.Agent == nil || *input.Agent != "researcher" {
+			t.Fatalf("executor input = %#v / %#v", invocation, input)
+		}
+		return json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"done","error":""}`), nil
+	})
+	tool := bridge.Tools()[0]
+	ctx := WithInvocation(context.Background(), Invocation{SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName})
+	output, err := tool.Handler(ctx, json.RawMessage(`{"agent":"researcher","description":"Research","prompt":"find it"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := string(encoded)
-	for _, expected := range []string{
-		`"subagent_session_id":"subagent-session"`,
-		`"current_subagent_turn_id":"subagent-turn"`,
-	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("subagent summary missing %q: %s", expected, output)
-		}
+	var result map[string]string
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
 	}
-	for _, legacy := range []string{`"session_id"`, `"current_turn_id"`} {
-		if strings.Contains(output, legacy) {
-			t.Fatalf("subagent summary contains ambiguous field %q: %s", legacy, output)
-		}
-	}
-}
-
-func TestSubagentToolTurnBehavior(t *testing.T) {
-	for _, tool := range NewSubagentToolBridge().Tools() {
-		if tool.Trigger != "" || tool.EndTurnOnSuccess {
-			t.Fatalf("%s static terminal behavior = (trigger=%q, end_on_success=%t)", tool.Definition.Name, tool.Trigger, tool.EndTurnOnSuccess)
-		}
-		if tool.Definition.Name == StartSubagentToolName && tool.resultTurnBehavior != nil {
-			t.Fatalf("start_subagent dynamic terminal behavior is set")
-		}
-		if tool.Definition.Name == SendSubagentMessageToolName && tool.resultTurnBehavior == nil {
-			t.Fatalf("send_subagent_message dynamic terminal behavior is not set")
-		}
+	if len(result) != 5 || result["task_id"] != "task_1" || result["agent"] != "researcher" || result["state"] != "completed" || result["output"] != "done" || result["error"] != "" {
+		t.Fatalf("task output = %s", output)
 	}
 
-	tests := []struct {
+	for _, test := range []struct {
 		name      string
 		arguments string
-		output    string
-		want      agentruntime.ToolTurnBehavior
+		want      string
 	}{
-		{"accepted wait", `{"continue_main_agent":false}`, `{"accepted":true,"action":"started"}`, agentruntime.ToolTurnEndOnSuccess},
-		{"accepted continue", `{"continue_main_agent":true}`, `{"accepted":true,"action":"started"}`, agentruntime.ToolTurnContinue},
-		{"duplicate always waits", `{"continue_main_agent":true}`, `{"accepted":false,"action":"duplicate"}`, agentruntime.ToolTurnEndOnSuccess},
-		{"already sent always waits", `{"continue_main_agent":false}`, `{"accepted":false,"action":"already_sent"}`, agentruntime.ToolTurnEndOnSuccess},
-		{"callback pending always waits", `{"continue_main_agent":true}`, `{"accepted":false,"action":"result_pending"}`, agentruntime.ToolTurnEndOnSuccess},
-		{"completed continues", `{"continue_main_agent":false}`, `{"accepted":false,"action":"subagent_completed"}`, agentruntime.ToolTurnContinue},
-		{"recovery exhausted continues", `{"continue_main_agent":false}`, `{"accepted":false,"action":"recovery_exhausted"}`, agentruntime.ToolTurnContinue},
-	}
-	for _, test := range tests {
+		{"missing prompt", `{"agent":"researcher","description":"Research"}`, "task prompt is required"},
+		{"new missing agent", `{"description":"Research","prompt":"find it"}`, "task agent is required"},
+		{"new missing description", `{"agent":"researcher","prompt":"find it"}`, "task description is required"},
+		{"resume includes agent", `{"task_id":"task_1","agent":"researcher","prompt":"continue"}`, "cannot be supplied"},
+		{"resume includes description", `{"task_id":"task_1","description":"again","prompt":"continue"}`, "cannot be supplied"},
+		{"empty task id", `{"task_id":" ","prompt":"continue"}`, "task_id cannot be empty"},
+		{"unknown field", `{"agent":"researcher","description":"Research","prompt":"find it","extra":true}`, "unknown field"},
+	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := sendSubagentMessageTurnBehavior(json.RawMessage(test.arguments), json.RawMessage(test.output))
-			if got != test.want {
-				t.Fatalf("turn behavior = %q, want %q", got, test.want)
+			_, err := tool.Handler(ctx, json.RawMessage(test.arguments))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Handler(%s) error = %v, want %q", test.arguments, err, test.want)
 			}
 		})
 	}
 }
 
-func TestSendSubagentMessageRecoveryExhaustedResultReportsTerminalFailure(t *testing.T) {
-	bridge := NewSubagentToolBridge()
-	bridge.Bind(staticSubagentController{send: SubagentSendResult{
-		Action: SubagentSendRecoveryExhausted,
-		Subagent: storage.Subagent{
-			ID: "child", DisplayName: "Aster", DefinitionName: "researcher", Status: storage.SubagentStatusIdle,
-		},
-	}})
-	var sendTool Tool
-	for _, tool := range bridge.Tools() {
-		if tool.Definition.Name == SendSubagentMessageToolName {
-			sendTool = tool
-			break
-		}
+func TestTaskToolBridgeRequiresTaskInvocationAndBinding(t *testing.T) {
+	tool := NewTaskToolBridge(nil).Tools()[0]
+	if _, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"researcher","description":"Research","prompt":"find it"}`)); err == nil || !strings.Contains(err.Error(), "requires tool invocation context") {
+		t.Fatalf("missing invocation error = %v", err)
 	}
-	ctx := WithInvocation(context.Background(), Invocation{
-		SessionID: "parent", TurnID: "callback-turn", CallID: "send", ToolName: SendSubagentMessageToolName,
+	ctx := WithInvocation(context.Background(), Invocation{SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName})
+	if _, err := tool.Handler(ctx, json.RawMessage(`{"agent":"researcher","description":"Research","prompt":"find it"}`)); err == nil || !strings.Contains(err.Error(), "task manager is unavailable") {
+		t.Fatalf("unbound bridge error = %v", err)
+	}
+}
+
+func TestTaskToolHandlersRunInParallelWithinExecutorWorkerCeiling(t *testing.T) {
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	var running atomic.Int32
+	var maximum atomic.Int32
+	bridge := NewTaskToolBridge(nil)
+	bridge.Bind(func(_ context.Context, invocation Invocation, _ TaskToolInput) (json.RawMessage, error) {
+		current := running.Add(1)
+		for {
+			observed := maximum.Load()
+			if current <= observed || maximum.CompareAndSwap(observed, current) {
+				break
+			}
+		}
+		entered <- invocation.CallID
+		<-release
+		running.Add(-1)
+		return json.RawMessage(`{"task_id":"task","agent":"researcher","state":"completed","output":"done","error":""}`), nil
 	})
-	output, err := sendTool.Handler(ctx, json.RawMessage(`{"subagent_id":"child","message":"retry","continue_main_agent":false}`))
+	registry := NewRegistry()
+	if err := registry.Register(bridge.Tools()[0]); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := NewExecutor(registry, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result sendSubagentMessageToolOutput
-	if err := json.Unmarshal(output, &result); err != nil {
-		t.Fatal(err)
+	requests := make(chan agentruntime.ToolRequest, 2)
+	results := make(chan agentruntime.ToolResultEnvelope, 2)
+	interrupts := make(chan agentruntime.ToolInterrupt, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runExecutor(executor, ctx, requests, results, interrupts)
+	for _, callID := range []string{"first", "second"} {
+		requests <- toolRequest("main", "turn", callID, TaskToolName, `{"agent":"researcher","description":"Research","prompt":"work"}`)
 	}
-	if result.Action != SubagentSendRecoveryExhausted || result.Accepted || result.ResultDelivery != "none" ||
-		result.MainAgentAction != "report_terminal_failure" ||
-		!strings.Contains(result.Instruction, "Report the terminal failure") ||
-		!strings.Contains(result.Instruction, "do not retry") {
-		t.Fatalf("recovery_exhausted output = %s", output)
+	started := map[string]bool{waitString(t, entered): true, waitString(t, entered): true}
+	if !started["first"] || !started["second"] || maximum.Load() != 2 || maximum.Load() > 2 {
+		t.Fatalf("task handlers did not run concurrently within the two-worker ceiling: started=%v max=%d", started, maximum.Load())
 	}
-}
-
-type staticSubagentController struct {
-	send SubagentSendResult
-}
-
-func (controller staticSubagentController) Start(context.Context, string, string, string, string, string) (storage.Subagent, error) {
-	return storage.Subagent{}, nil
-}
-
-func (controller staticSubagentController) List(context.Context, string, bool) ([]storage.Subagent, error) {
-	return nil, nil
-}
-
-func (controller staticSubagentController) StatusFromMainAgentTurn(context.Context, string, string, string) (SubagentStatusSnapshot, error) {
-	return SubagentStatusSnapshot{}, nil
-}
-
-func (controller staticSubagentController) SendFromMainAgentTurn(context.Context, string, string, string, string) (SubagentSendResult, error) {
-	return controller.send, nil
+	close(release)
+	for range 2 {
+		result := waitResult(t, results)
+		if result.Result.Status != agentruntime.ToolResultSucceeded || result.Result.Name != TaskToolName {
+			t.Fatalf("task result = %#v", result)
+		}
+	}
+	cancel()
+	waitDone(t, done)
 }

@@ -56,6 +56,28 @@ func TestRegistryRegisterDefinitionsAndLookup(t *testing.T) {
 	}
 }
 
+func TestRegistryRegistersOnlyTaskFromTaskBridge(t *testing.T) {
+	registry := NewRegistry()
+	bridge := NewTaskToolBridge([]TaskAgent{{Name: "researcher", Description: "Find evidence."}})
+	bridge.Bind(func(context.Context, Invocation, TaskToolInput) (json.RawMessage, error) {
+		return json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"done","error":""}`), nil
+	})
+	for _, tool := range bridge.Tools() {
+		if err := registry.Register(tool); err != nil {
+			t.Fatal(err)
+		}
+	}
+	definitions := registry.Definitions()
+	if len(definitions) != 1 || definitions[0].Name != TaskToolName {
+		t.Fatalf("registry task definitions = %#v, want only task", definitions)
+	}
+	for _, retired := range []string{"start_subagent", "send_subagent_message", "list_subagents", "subagent_status", "wait_subagent"} {
+		if _, found := registry.lookup(retired); found {
+			t.Fatalf("retired model tool %q remains registered", retired)
+		}
+	}
+}
+
 func TestRegistryDefinitionsDoNotShareSchemas(t *testing.T) {
 	registry := NewRegistry()
 	definition := agentruntime.ToolDefinition{

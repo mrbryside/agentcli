@@ -5,6 +5,7 @@ package agentcli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -45,6 +46,24 @@ type Agent struct {
 
 	subagents      *subagentManager
 	responseScopes *toolexecution.ResponseScopeCoordinator
+}
+
+func taskAgentsForProject(project *Project) []toolexecution.TaskAgent {
+	if project == nil {
+		return nil
+	}
+	definitions := project.Subagents()
+	agents := make([]toolexecution.TaskAgent, 0, len(definitions))
+	for _, definition := range definitions {
+		// Project validation has already ensured the definition and each of its
+		// declared capabilities exist. Keeping this projection here makes the
+		// task tool's advertised catalog match the manager's start targets.
+		agents = append(agents, toolexecution.TaskAgent{
+			Name:        definition.Name,
+			Description: definition.Description,
+		})
+	}
+	return agents
 }
 
 // New creates an agent with in-memory storage and no tools by default.
@@ -111,7 +130,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 	}
 
 	registry := toolexecution.NewRegistry()
-	var subagentTools *toolexecution.SubagentToolBridge
+	var taskTools *toolexecution.TaskToolBridge
 	mainAgentHasSubagents := configuration.project != nil && len(configuration.project.subagents) != 0 && !configuration.subagentAgent
 	if mainAgentHasSubagents {
 		for _, tool := range configuration.tools {
@@ -119,7 +138,10 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 				return nil, fmt.Errorf("custom tool %q conflicts with reserved subagent tool", tool.Definition.Name)
 			}
 		}
-		subagentTools = toolexecution.NewSubagentToolBridge()
+		// Definitions are loaded only from this project's configured catalog.
+		// The task bridge receives no caller-supplied names, so its advertised
+		// names match the manager's start targets exactly.
+		taskTools = toolexecution.NewTaskToolBridge(taskAgentsForProject(configuration.project))
 	}
 	// Keep configuration.tools as caller-provided tools only. The skill loader
 	// is a per-Agent framework tool; retaining it in config would make subagent
@@ -147,10 +169,10 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			return nil, fmt.Errorf("register tool: %w", err)
 		}
 	}
-	if subagentTools != nil {
-		for _, tool := range subagentTools.Tools() {
+	if taskTools != nil {
+		for _, tool := range taskTools.Tools() {
 			if err := registry.Register(tool); err != nil {
-				return nil, fmt.Errorf("register subagent tool: %w", err)
+				return nil, fmt.Errorf("register task tool: %w", err)
 			}
 		}
 	}
@@ -199,7 +221,28 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			shutdownOwnedLangfuse(langfuseClient, ownsLangfuse)
 			return nil, fmt.Errorf("create subagent manager: %w", err)
 		}
-		subagentTools.Bind(manager)
+		taskTools.Bind(func(ctx context.Context, invocation toolexecution.Invocation, input toolexecution.TaskToolInput) (json.RawMessage, error) {
+			request := TaskRequest{
+				MainAgentSessionID: invocation.SessionID,
+				MainAgentTurnID:    invocation.TurnID,
+				Prompt:             input.Prompt,
+				Background:         input.Background,
+			}
+			if input.Agent != nil {
+				request.AgentName = *input.Agent
+			}
+			if input.Description != nil {
+				request.Description = *input.Description
+			}
+			if input.TaskID != nil {
+				request.TaskID = *input.TaskID
+			}
+			result, executeErr := manager.ExecuteTask(ctx, request)
+			if executeErr != nil {
+				return nil, executeErr
+			}
+			return json.Marshal(result)
+		})
 		agent.responseScopes.SetCleanup(manager.autoCloseScopeSubagents)
 	}
 	reminderProvider := composeContextReminderProviders(
@@ -370,6 +413,9 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 
 func validateSubagentTools(tools []toolexecution.Tool) error {
 	for _, tool := range tools {
+		if tool.Definition.Name == toolexecution.TaskToolName {
+			return errors.New("subagent cannot use the main-agent task tool")
+		}
 		if tool.Trigger == toolexecution.EndResponseScope {
 			return fmt.Errorf(
 				"subagent cannot use custom tool %q: EndResponseScope tools are supported only by main agents",

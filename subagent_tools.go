@@ -2,18 +2,23 @@ package agentcli
 
 import "github.com/mrbryside/agentcli/toolexecution"
 
-// Compatibility aliases keep existing agentcli callers source-compatible;
-// all subagent tool definitions and handlers are owned by toolexecution.
-const (
-	StartSubagentToolName       = toolexecution.StartSubagentToolName
-	ListSubagentsToolName       = toolexecution.ListSubagentsToolName
-	SubagentStatusToolName      = toolexecution.SubagentStatusToolName
-	SendSubagentMessageToolName = toolexecution.SendSubagentMessageToolName
-)
+// TaskToolName is the only subagent execution tool visible to the main model.
+const TaskToolName = toolexecution.TaskToolName
 
 var subagentToolNames = map[string]struct{}{
-	StartSubagentToolName:       {},
-	SendSubagentMessageToolName: {},
+	TaskToolName: {},
 }
 
 func isSubagentToolName(name string) bool { return toolexecution.IsSubagentToolName(name) }
+
+// Transitional aliases keep pre-task terminal and integration code compiling
+// until Tasks 8 and 10 migrate their callers. They are never registered in a
+// model catalog and must be removed before the v0.1.0 release.
+//
+// TODO(tasks-8-10): delete after host callers no longer reference them.
+const (
+	StartSubagentToolName       = "start_subagent"
+	ListSubagentsToolName       = "list_subagents"
+	SubagentStatusToolName      = "subagent_status"
+	SendSubagentMessageToolName = "send_subagent_message"
+)
