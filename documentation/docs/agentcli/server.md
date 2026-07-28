@@ -5,6 +5,20 @@ sidebar_position: 4
 
 # Echo server
 
+## Task delivery (v0.1)
+
+Task completion is Agent-owned. A foreground `task` returns child output in
+the same main turn. Background work and `WithTaskForegroundWait` promotion
+return `running`; Agent injects one trusted result at a safe boundary or starts
+one continuation. The server and its clients do not configure or operate a
+subagent-result pump. `WithServerAutoContinueSubagents` was removed and is not
+a current integration option.
+
+Nested `/subagents` routes remain host-only session management. Session SSE
+publishes each terminal background/promoted result exactly once as
+`task_completed` (source `task`) with task/session/turn/agent/state and any
+application-only result-contract metadata.
+
 Every `Agent` can expose the complete JSON/SSE API without a separate server
 package.
 
@@ -31,7 +45,6 @@ return agent.RunServer(
     agentcli.WithServerHeartbeat(15*time.Second),
     agentcli.WithServerRequestLimit(1<<20),
     agentcli.WithServerTurnQueueLimit(32),
-    agentcli.WithServerAutoContinueSubagents(true),
     agentcli.WithServerMiddleware(authenticationMiddleware),
 )
 ```
@@ -43,14 +56,9 @@ is the outermost Echo middleware.
 turn is not counted. The default is 64. Other sessions never wait behind this
 session's queue.
 
-`WithServerAutoContinueSubagents` defaults to `true`. A completed subagent first
-tries to join a compatible active main agent at its next provider boundary. If no
-compatible run remains, the server creates a trusted result turn and
-publishes it through `GET /v1/sessions/{sessionID}/events`. Results from
-main-agent assignments remain in their originating response scope in either path. A subagent
-created directly through the HTTP API has no originating scope, so its
-fallback result starts a new response scope. Disable automatic continuation only
-when the embedding application owns both injection and fallback continuation.
+Agent owns all background or promoted task delivery. A terminal result is
+injected at a safe provider boundary or handled by one Agent-created
+continuation; server configuration cannot disable or replace that behavior.
 
 ## Embed in an existing process
 

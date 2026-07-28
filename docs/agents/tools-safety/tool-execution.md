@@ -1,5 +1,12 @@
 # Tool execution
 
+`task` is the one main-agent child-work framework tool. New calls use
+agent/description/prompt; resumes use task_id/prompt. Same-batch independent
+calls may run in parallel. Foreground is default, with `background:true` and
+`WithTaskForegroundWait` promotion using Agent-owned exact-once delivery.
+Children do not receive `task` or `EndResponseScope` tools. Step-limit
+finalization is text-only and yields `incomplete`, with no report-repair tool.
+
 `toolexecution.Tool` combines a provider-neutral definition, raw JSON handler,
 one optional trigger mode, optional permission or policy-aware permission
 descriptor, and optional confirmation descriptor. `Registry.Register` requires
@@ -54,19 +61,11 @@ and whether a successful batch ends the turn. The caller's original
 Without a trigger the tool is optional and immediate; with a trigger it keeps
 that trigger's requirement and delivery timing. One such tool can end a mixed
 batch containing normal immediate tools, but it cannot bypass missing required
-triggers. Framework `start_subagent` requires a
-`continue_main_agent` choice. False asks the handler to end a successful
-pending-result batch; true returns control for already-planned independent
-main agent work. Every parallel start in one batch uses the same value.
-`send_subagent_message` also requires `continue_main_agent`: false ends an
-accepted successful batch and true returns control for already-planned
-independent work. Duplicate, already-sent, and result-pending results end the
-successful batch regardless of the value. A `recovery_exhausted` result
-continues so the main agent can report the terminal failure. The result joins a
-compatible active main agent at its next provider boundary or falls back to a
-continuation turn.
-Destructive subagent close is application-owned and is not registered in the
-model tool catalog.
+triggers. `task` is the only main-agent child-work framework tool. A foreground
+call returns final output in place; background or foreground-wait promotion is
+delivered exactly once by Agent. Independent calls in one batch use the bounded
+worker pool, and task is absent from child registries. Destructive subagent
+close is application-owned and is not registered in the model tool catalog.
 
 `EndTurn` executes its handler immediately. Its latest successful result
 anywhere in the turn satisfies the requirement; a later failed attempt makes it
@@ -84,9 +83,9 @@ budget. Exhaustion fails the turn.
 
 For root user-visible delivery, prefer `Trigger: EndResponseScope`; add
 `EndTurnOnSuccess: true` when successful final delivery should finish the
-current turn. Subagents do not support `EndResponseScope`; they use the
-framework-owned `report_subagent_result` followed by a concise final answer
-for the main agent result. Successful root delivery remains represented by its
+current turn. Subagents do not support `EndResponseScope`; at their provider
+step limit, no tools are exposed and one text-only final answer yields
+`incomplete`. Successful root delivery remains represented by its
 durable tool call and tool result; the runtime does not synthesize an assistant
 message from tool arguments. A call made as the initial human main-agent turn's first provider action,
 or while the response scope is still busy,

@@ -18,7 +18,9 @@ Provider-step limiting is opt-in through `WithProviderStepLimit(n)` and is
 inherited by subagents; omission leaves turns unlimited. Exhaustion enters a
 restricted finalization phase that removes ordinary work tools. Main-agent
 finalization retains its registered `EndTurn` and `EndResponseScope` tools;
-subagent finalization retains the framework-owned `report_subagent_result`.
+subagent finalization has no tools and accepts one text-only final response.
+That response becomes a task result; a step-limited child is `incomplete`.
+`report_subagent_result` and its repair loop no longer exist.
 With no required completion tool, the finalizer returns a text summary from
 existing results and cannot resume ordinary work. `MAIN.md` selects a provider
 alias, model, optional skills/tools, and instructions. Startup validation

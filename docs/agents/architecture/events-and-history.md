@@ -32,9 +32,15 @@ The HTTP message views retain the checkpoint's `compaction_checkpoint` type but
 deliberately omit its summary and coverage boundaries. Clients must treat these
 records as opaque runtime state rather than displayable transcript content.
 
+`SystemTaskCompleted` is a live Agent-level completion fact. It identifies the
+task, child session/turn, agent, and terminal state, plus any validated
+application-only result-contract metadata. Metadata is never a transcript
+message or provider context. HTTP retains this as `task_completed`.
+
 The Echo server adds retained HTTP/SSE recovery and a bounded FIFO for
 same-session turns above the runtime's strict single-active-turn rule. Session
-SSE uses one cursor across user turns, automatic subagent result turns, and
+SSE uses one cursor across user turns, Agent-owned background task continuation
+turns, and
 the scope-level `PreEndScope`/`EndScope` events forwarded by the Agent facade.
 The server waits until the triggering turn's runtime events are published
 before forwarding either scope event, so `run_completed` remains ordered before

@@ -140,12 +140,13 @@ diagnostics. Proceeding persists it immediately before `RunCompleted`.
 
 The retry reminder is ephemeral and applies only to the next provider request.
 An optional non-nil allowlist restricts that request and all of its follow-up
-rounds. A reminder can ask a subagent to call `report_subagent_result`, but the
-provider is free to return a normal assistant response instead.
+rounds. In v0.1, a subagent step-limit finalizer exposes no tools and accepts
+one text-only final answer as `TaskStateIncomplete`; it does not ask a child to
+call a reporting tool. The provider may return a normal assistant response
+instead.
 Guard implementations own their retry policy; use `RepairCount` to keep it
-bounded. AgentCLI applies this mechanism automatically to subagent sessions to
-enforce up to three `report_subagent_result` repairs without re-running domain
-tools. A required `EndTurn` trigger is satisfied by its latest successful
+bounded. Task finalization does not re-run domain tools. A required `EndTurn`
+trigger is satisfied by its latest successful
 result in the current turn. An `EndResponseScope` trigger is satisfied only by
 a handler executed from the final response-scope completion boundary; earlier
 calls are successful skipped results that continue the model round. A later

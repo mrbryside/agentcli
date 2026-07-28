@@ -123,7 +123,9 @@ session only projects an existing checkpoint. Project-created subagents
 inherit the compaction model and any explicit estimator override; otherwise
 each subagent selects the estimator from its own main model. Their events carry
 the subagent's own session and turn IDs and do not appear as main agent-run events;
-the main agent continues receiving the normal subagent result lifecycle.
+the main agent receives foreground task results in the current tool result or
+Agent-owned background delivery. Result-contract metadata remains
+application-only and is never projected into provider context.
 
 ## Provider boundary
 

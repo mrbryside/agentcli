@@ -83,8 +83,13 @@ behavior, and stored reasoning can be restored when a view is reopened.
 
 Input remains editable while the current main-agent or subagent turn is streaming. A
 new main-agent prompt is placed in the main-agent queue and starts after the active turn
-and higher-priority subagent results are handled. Input entered in a subagent
+and Agent-owned background task delivery is handled. Input entered in a subagent
 view is sent to that subagent; if it is already running, the message is queued in
 the subagent's mailbox.
+
+Foreground `task` calls do not require a special terminal wait state: their
+output returns in the current main-agent turn. Background or auto-promoted
+tasks are delivered exactly once by Agent; Terminal must neither poll a child
+session nor create a continuation turn.
 
 Use `/session` to see whether the selected view is `active` or `idle`.

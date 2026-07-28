@@ -300,7 +300,7 @@
                 "tags": [
                     "Subagents"
                 ],
-                "summary": "List subagents owned by a main agent session",
+                "summary": "List host-managed subagent sessions owned by a main agent session",
                 "operationId": "listSubagents",
                 "parameters": [
                     {
@@ -342,7 +342,7 @@
                 "tags": [
                     "Subagents"
                 ],
-                "summary": "Create and asynchronously start a subagent",
+                "summary": "Create and asynchronously start a host-managed subagent session",
                 "operationId": "createSubagent",
                 "parameters": [
                     {
@@ -398,7 +398,7 @@
                 "tags": [
                     "Subagents"
                 ],
-                "summary": "Read one owned subagent",
+                "summary": "Read one host-managed subagent session",
                 "operationId": "getSubagent",
                 "parameters": [
                     {
@@ -670,7 +670,7 @@
         },
         "/v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns": {
             "post": {
-                "description": "Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent after its latest result has been consumed. Closed, result-pending, and result-less subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
+                "description": "Queues the message while the subagent is running, or starts an idle incomplete/completed/failed subagent. Closed subagents return conflict. An immediately started turn can be streamed with Accept: text/event-stream.",
                 "consumes": [
                     "application/json"
                 ],
@@ -681,7 +681,7 @@
                 "tags": [
                     "Subagents"
                 ],
-                "summary": "Continue a subagent conversation",
+                "summary": "Continue a host-managed subagent conversation",
                 "operationId": "startSubagentTurn",
                 "parameters": [
                     {
@@ -923,7 +923,7 @@
         },
         "/v1/sessions/{sessionID}/events": {
             "get": {
-                "description": "Replays and follows every main-agent turn in a session, including queued lifecycle records, response-scope boundaries, and turns created automatically from subagent results. The session cursor is independent from each runtime event sequence.",
+                "description": "Replays and follows main-agent lifecycle records, response-scope boundaries, and application-visible task completion metadata. The session cursor is independent from each runtime event sequence.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -1818,14 +1818,14 @@
             "type": "string",
             "enum": [
                 "user",
-                "subagent_result",
+                "task",
                 "subagent_confirmation",
                 "subagent_permission",
                 "subagent_lifecycle"
             ],
             "x-enum-varnames": [
                 "ServerTurnSourceUser",
-                "ServerTurnSourceSubagentResult",
+                "ServerTurnSourceTask",
                 "ServerTurnSourceSubagentConfirmation",
                 "ServerTurnSourceSubagentPermission",
                 "ServerTurnSourceSubagentLifecycle"
@@ -1842,7 +1842,8 @@
                 "scope_event",
                 "subagent_confirmation",
                 "subagent_permission",
-                "subagent_closed"
+                "subagent_closed",
+                "task_completed"
             ],
             "x-enum-varnames": [
                 "SessionActivityTurnQueued",
@@ -1853,7 +1854,8 @@
                 "SessionActivityScopeEvent",
                 "SessionActivitySubagentConfirmation",
                 "SessionActivitySubagentPermission",
-                "SessionActivitySubagentClosed"
+                "SessionActivitySubagentClosed",
+                "SessionActivityTaskCompleted"
             ]
         },
         "agentcli.SessionEventResponse": {
@@ -1892,8 +1894,8 @@
                 "subagent_permission": {
                     "$ref": "#/definitions/agentcli.SubagentPermissionReference"
                 },
-                "subagent_result": {
-                    "$ref": "#/definitions/agentcli.SubagentResultReference"
+                "task_completed": {
+                    "$ref": "#/definitions/agentcli.TaskCompletedReference"
                 },
                 "turn_id": {
                     "type": "string"
@@ -2195,54 +2197,6 @@
                 }
             }
         },
-        "agentcli.SubagentResultReference": {
-            "type": "object",
-            "properties": {
-                "definition_name": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "main_agent_session_id": {
-                    "type": "string"
-                },
-                "main_agent_turn_id": {
-                    "type": "string"
-                },
-                "next_step": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/agentcli.SubagentResultStatus"
-                },
-                "subagent_id": {
-                    "type": "string"
-                },
-                "subagent_session_id": {
-                    "type": "string"
-                },
-                "subagent_turn_id": {
-                    "type": "string"
-                },
-                "summary": {
-                    "type": "string"
-                }
-            }
-        },
-        "agentcli.SubagentResultStatus": {
-            "type": "string",
-            "enum": [
-                "completed",
-                "incomplete",
-                "failed"
-            ],
-            "x-enum-varnames": [
-                "SubagentResultCompleted",
-                "SubagentResultIncomplete",
-                "SubagentResultFailed"
-            ]
-        },
         "agentcli.SubagentTurnResponse": {
             "type": "object",
             "properties": {
@@ -2264,6 +2218,45 @@
                     }
                 }
             }
+        },
+        "agentcli.TaskCompletedReference": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "state": {
+                    "$ref": "#/definitions/agentcli.TaskState"
+                },
+                "subagent_session_id": {
+                    "type": "string"
+                },
+                "subagent_turn_id": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "agentcli.TaskState": {
+            "type": "string",
+            "enum": [
+                "running",
+                "completed",
+                "incomplete",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "TaskStateRunning",
+                "TaskStateCompleted",
+                "TaskStateIncomplete",
+                "TaskStateError"
+            ]
         },
         "agentcli.ToolCallResponse": {
             "type": "object",

@@ -148,3 +148,15 @@ npm run build
 
 The race run matters because sessions, subscribers, tool workers, decisions,
 and subagent results intentionally operate concurrently.
+
+## Task regression coverage
+
+Use scripted models to verify a foreground task returns one `TaskResult` in
+the initiating main turn, two independent same-batch task calls overlap, and a
+same-session `task_id` resume preserves child history. Cover foreign, running,
+and closed IDs as errors. Test `background:true` and positive
+`WithTaskForegroundWait` promotion for one `running` result, one trusted
+`<task_result>`/continuation, and one `SystemTaskCompleted` event. At a child
+step limit assert that the final request has no tools and the partial text is
+`incomplete`. Contract tests should prove valid metadata only appears on the
+system event and invalid contract output yields one task error.

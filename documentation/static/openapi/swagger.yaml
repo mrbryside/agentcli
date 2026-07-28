@@ -357,14 +357,14 @@ definitions:
   agentcli.ServerTurnSource:
     enum:
     - user
-    - subagent_result
+    - task
     - subagent_confirmation
     - subagent_permission
     - subagent_lifecycle
     type: string
     x-enum-varnames:
     - ServerTurnSourceUser
-    - ServerTurnSourceSubagentResult
+    - ServerTurnSourceTask
     - ServerTurnSourceSubagentConfirmation
     - ServerTurnSourceSubagentPermission
     - ServerTurnSourceSubagentLifecycle
@@ -379,6 +379,7 @@ definitions:
     - subagent_confirmation
     - subagent_permission
     - subagent_closed
+    - task_completed
     type: string
     x-enum-varnames:
     - SessionActivityTurnQueued
@@ -390,6 +391,7 @@ definitions:
     - SessionActivitySubagentConfirmation
     - SessionActivitySubagentPermission
     - SessionActivitySubagentClosed
+    - SessionActivityTaskCompleted
   agentcli.SessionEventResponse:
     properties:
       cursor:
@@ -414,8 +416,8 @@ definitions:
         $ref: '#/definitions/agentcli.SubagentConfirmationReference'
       subagent_permission:
         $ref: '#/definitions/agentcli.SubagentPermissionReference'
-      subagent_result:
-        $ref: '#/definitions/agentcli.SubagentResultReference'
+      task_completed:
+        $ref: '#/definitions/agentcli.TaskCompletedReference'
       turn_id:
         type: string
       turn_url:
@@ -617,39 +619,6 @@ definitions:
       version:
         type: integer
     type: object
-  agentcli.SubagentResultReference:
-    properties:
-      definition_name:
-        type: string
-      display_name:
-        type: string
-      main_agent_session_id:
-        type: string
-      main_agent_turn_id:
-        type: string
-      next_step:
-        type: string
-      status:
-        $ref: '#/definitions/agentcli.SubagentResultStatus'
-      subagent_id:
-        type: string
-      subagent_session_id:
-        type: string
-      subagent_turn_id:
-        type: string
-      summary:
-        type: string
-    type: object
-  agentcli.SubagentResultStatus:
-    enum:
-    - completed
-    - incomplete
-    - failed
-    type: string
-    x-enum-varnames:
-    - SubagentResultCompleted
-    - SubagentResultIncomplete
-    - SubagentResultFailed
   agentcli.SubagentTurnResponse:
     properties:
       subagent:
@@ -664,6 +633,34 @@ definitions:
           $ref: '#/definitions/agentcli.SubagentResponse'
         type: array
     type: object
+  agentcli.TaskCompletedReference:
+    properties:
+      agent:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      state:
+        $ref: '#/definitions/agentcli.TaskState'
+      subagent_session_id:
+        type: string
+      subagent_turn_id:
+        type: string
+      task_id:
+        type: string
+    type: object
+  agentcli.TaskState:
+    enum:
+    - running
+    - completed
+    - incomplete
+    - error
+    type: string
+    x-enum-varnames:
+    - TaskStateRunning
+    - TaskStateCompleted
+    - TaskStateIncomplete
+    - TaskStateError
   agentcli.ToolCallResponse:
     properties:
       arguments:
@@ -1150,7 +1147,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: List subagents owned by a main agent session
+      summary: List host-managed subagent sessions owned by a main agent session
       tags:
       - Subagents
     post:
@@ -1188,7 +1185,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Create and asynchronously start a subagent
+      summary: Create and asynchronously start a host-managed subagent session
       tags:
       - Subagents
   /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}:
@@ -1252,7 +1249,7 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Read one owned subagent
+      summary: Read one host-managed subagent session
       tags:
       - Subagents
   /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/confirmations/{confirmationID}/decisions:
@@ -1388,8 +1385,7 @@ paths:
       consumes:
       - application/json
       description: 'Queues the message while the subagent is running, or starts an
-        idle incomplete/completed/failed subagent after its latest result has been
-        consumed. Closed, result-pending, and result-less subagents return conflict.
+        idle incomplete/completed/failed subagent. Closed subagents return conflict.
         An immediately started turn can be streamed with Accept: text/event-stream.'
       operationId: startSubagentTurn
       parameters:
@@ -1429,7 +1425,7 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/agentcli.APIErrorResponse'
-      summary: Continue a subagent conversation
+      summary: Continue a host-managed subagent conversation
       tags:
       - Subagents
   /v1/sessions/{mainAgentSessionID}/subagents/{subagentID}/turns/{turnID}:
@@ -1562,10 +1558,9 @@ paths:
       - Subagents
   /v1/sessions/{sessionID}/events:
     get:
-      description: Replays and follows every main-agent turn in a session, including
-        queued lifecycle records, response-scope boundaries, and turns created automatically
-        from subagent results. The session cursor is independent from each runtime
-        event sequence.
+      description: Replays and follows main-agent lifecycle records, response-scope
+        boundaries, and application-visible task completion metadata. The session
+        cursor is independent from each runtime event sequence.
       operationId: streamSessionEvents
       parameters:
       - description: Session ID

@@ -5,6 +5,12 @@ sidebar_position: 2
 
 # Build an application with the API
 
+> **v0.1:** render foreground task results in the current main turn. For
+> background/promoted work, listen for one `task_completed` SSE activity and
+> render the Agent-owned continuation if present. The former server
+> auto-continuation option and client result injection/continuation APIs were
+> removed. Nested `/subagents` APIs remain host-only views and controls.
+
 The HTTP API can power a web chat, desktop client, messaging bot, workflow
 service, or another interactive application. It exposes the complete
 `agentcli` interaction loop:
@@ -102,23 +108,22 @@ return agent.RunServer(
 )
 ```
 
-Automatic subagent result delivery is enabled by default. A host that wants to
-manage subagent completions itself can opt out with
-`agentcli.WithServerAutoContinueSubagents(false)`.
+Foreground task output returns in the current main-agent tool call. For
+background work or `WithTaskForegroundWait` promotion, Agent owns exactly one
+terminal delivery: it first injects trusted task output at a compatible safe
+provider boundary, otherwise starts one continuation turn. Clients render the
+normal main-agent activity and optional `task_completed` session event; they
+cannot disable, replace, poll, inject, or continue this delivery.
 
-Results first join a compatible active main agent at its next provider boundary;
-otherwise an automatic result turn starts. Both remain in the response scope
-that originally assigned the subagent. An early `EndResponseScope` call is a successful
+Both paths remain in the response scope that originated the task. An early `EndResponseScope` call is a successful
 non-executing skip; no handler invocation is retained for later. A skipped tool
 configured with `EndTurnOnSuccess` ends the current turn only while results
 or other active turns keep the scope open, allowing results to arrive without
 another provider round. A premature call in an otherwise quiescent scope
-continues so ordinary work can finish. Intermediate result turns may finish
-without that trigger. A result continuation may execute the final handler on
-provider step one when it is the last active turn and no result/input is
-pending; completion repair remains the fallback. Direct Go integrations call
-`TryInjectSubagentResult` before
-`ContinueSubagentResultSubscribed`.
+continues so ordinary work can finish. Intermediate Agent-owned continuation
+turns may finish without that trigger. A continuation may execute the final
+handler on provider step one when it is the last active turn and no result/input
+is pending; completion repair remains the fallback.
 
 ## End-to-end browser flow
 

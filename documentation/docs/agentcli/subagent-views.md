@@ -441,35 +441,30 @@ the new run using the same subscribe-then-replay sequence.
 
 ### Handle results and lifecycle changes
 
-`SubscribeSubagentResults` reports completed or failed subagent turns to the
-host. Use it to refresh background view badges and subagent records without
-polling:
-
-```go
-for result := range agent.SubscribeSubagentResults(ctx) {
-    if result.MainAgentSessionID != mainAgentSessionID {
-        continue
-    }
-
-    subagents, err := agent.ListSubagents(ctx, mainAgentSessionID, true)
-    if err != nil {
-        reportError(err)
-        continue
-    }
-    subagentStore.Merge(subagents)
-}
-```
-
-Subscribe to successful close facts as well so open subagent lists update without
-polling:
+Agent owns model-created task delivery. Applications may observe
+`SystemTaskCompleted` to refresh child-session views or consume validated
+application metadata; they do not inject the result or create another main
+turn. A host-created subagent turn already exposes its own retained/live run
+events, so refresh the record after `RunCompleted`.
 
 ```go
 for event := range agent.SubscribeSystemEvents(ctx) {
-    if event.Type == agentcli.SystemSubagentClosed &&
-        event.MainAgentSessionID == mainAgentSessionID &&
-        event.SubagentClosed != nil {
-        subagent := event.SubagentClosed.Subagent
-        subagentStore.Replace(subagent.ID, subagent)
+    if event.MainAgentSessionID != mainAgentSessionID {
+        continue
+    }
+    switch event.Type {
+    case agentcli.SystemTaskCompleted:
+        subagents, err := agent.ListSubagents(ctx, mainAgentSessionID, true)
+        if err != nil {
+            reportError(err)
+            continue
+        }
+        subagentStore.Merge(subagents)
+    case agentcli.SystemSubagentClosed:
+        if event.SubagentClosed != nil {
+            subagent := event.SubagentClosed.Subagent
+            subagentStore.Replace(subagent.ID, subagent)
+        }
     }
 }
 ```

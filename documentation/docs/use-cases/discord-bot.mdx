@@ -8,6 +8,13 @@ import TabItem from '@theme/TabItem';
 
 # Minimal Discord bot
 
+> **Task-runtime update:** configure `WithTaskForegroundWait` when a Discord
+> interaction should wait briefly for a delegated answer. Agent owns all
+> background/promoted result injection and continuation. Consume
+> `SystemTaskCompleted` only for trusted host behavior (for example validated
+> result-contract metadata); do not publish metadata into prompts or create a
+> second Discord reply. The tutorial's older callback protocol is superseded.
+
 This use case turns each Discord channel into one agentcli conversation. The
 bot replies to direct messages and to guild messages that mention it.
 
@@ -819,10 +826,10 @@ running a public bot, add the pieces required by your product:
   thread ID for one conversation per thread.
 - **SSE reconnect:** store the last event ID and reconnect with
   `Last-Event-ID`. Fetch the turn status if a stream ends unexpectedly.
-- **Automatic subagent results:** API clients should follow the
+- **Task completion:** API clients should follow the
   [session-wide event stream](../api/sse-events.md#session-stream), not only one
-  turn URL. Embedded clients should consume and continue
-  `SubscribeSubagentResults`.
+  turn URL. Embedded clients may observe `SystemTaskCompleted` for host state;
+  Agent already owns trusted result injection and any continuation.
 - **Permissions and confirmations:** render requests from events and post
   explicit decisions. Never infer approval from a Discord reaction or timeout.
 - **Progress:** use provider, tool, compaction, `pre_end_scope`, and

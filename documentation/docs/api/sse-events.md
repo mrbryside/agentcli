@@ -5,6 +5,14 @@ sidebar_position: 2
 
 # Events
 
+## Task completion
+
+`task_completed` is a retained session activity event with source `task`. It
+is emitted once for a terminal background or promoted task and contains
+`task_id`, `subagent_session_id`, `subagent_turn_id`, `agent`, `state`, and
+optional validated contract `metadata`. Metadata is host-only and never enters
+provider context. Foreground output is already in the initiating main turn.
+
 Main-agent and subagent run event endpoints use standard Server-Sent Events.
 
 Both endpoints are also present in the generated

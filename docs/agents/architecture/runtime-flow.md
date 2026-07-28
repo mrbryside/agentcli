@@ -22,10 +22,9 @@ Provider rounds are unlimited by default. `WithProviderStepLimit(n)` opts the
 main and subagent turns into an agentic budget. When that budget is exhausted, the
 coordinator enters a restricted finalization phase: ordinary work tools
 disappear, required completion tools remain available, and a trusted reminder
-asks the model to finish from existing results. Subagent finalization also retains
-the framework-owned `report_subagent_result`; it is required for every subagent
-but has no trigger because the subagent still writes a concise final answer after
-the report succeeds. A compliant required
+asks the model to finish from existing results. Subagent finalization exposes no
+tools and accepts one text-only final answer; its task state is `incomplete`.
+A compliant required
 `EndResponseScope` call therefore still executes at the final boundary. If the
 model returns text while a required trigger remains missing, the existing
 completion guard replays its bounded repair with only missing trigger tools;
@@ -81,5 +80,17 @@ tool-result records; the coordinator does not synthesize an assistant message
 from tool arguments.
 
 Pure transition and folding duties live in `state.go`, `transition.go`, `effect.go`, and `result.go`; orchestration belongs in `runtime.go`, `run.go`, and `router.go`.
+
+## Tasks
+
+The main-model framework catalog has one child-work tool: `task`. Foreground
+calls wait for the child final response and return `TaskResult` in the same
+main turn; independent same-batch calls occupy executor workers concurrently.
+Task IDs are resumable only by their owning main session while idle.
+
+Background calls and `WithTaskForegroundWait` promotions persist delivery
+identity before returning `running`. Agent owns exactly-once completion
+injection/continuation. Child step-limit finalization has no tools and returns
+partial text as `incomplete`; a child cannot invoke `task`.
 
 Back to [architecture/index.md](index.md).

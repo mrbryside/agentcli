@@ -493,23 +493,23 @@ storage delivery identity, and result transport form one state machine.
 - Regenerate: `documentation/static/redoc/index.html`
 - Modify: `AGENTS.md`
 
-- [ ] Replace old lifecycle diagrams and examples with foreground, background,
+- [x] Replace old lifecycle diagrams and examples with foreground, background,
   promotion, resume, result contract, and exact-once delivery examples.
-- [ ] Document that `/subagents` is host session management while the main model
+- [x] Document that `/subagents` is host session management while the main model
   sees only `task`.
-- [ ] Document `WithTaskForegroundWait`, task states, result-contract metadata,
+- [x] Document `WithTaskForegroundWait`, task states, result-contract metadata,
   task permission filtering, nesting denial, and the breaking API removals.
-- [ ] Update `AGENTS.md`'s documented commit only after code/docs commits are
+- [x] Update `AGENTS.md`'s documented commit only after code/docs commits are
   final.
-- [ ] Run `rtk go test ./...`, `rtk go test -race ./...`, and
+- [x] Run `rtk go test ./...`, `rtk go test -race ./...`, and
   `rtk go vet ./...`; expect PASS.
-- [ ] Run `rtk npm run build` in `documentation/`; expect OpenAPI generation,
+- [x] Run `rtk npm run build` in `documentation/`; expect OpenAPI generation,
   Redoc validation/rendering, and Docusaurus build to PASS.
-- [ ] Review `rtk git diff --check` and generated artifact diffs.
+- [x] Review `rtk git diff --check` and generated artifact diffs.
 - [ ] Move the completed plan to
   `docs/done/plans/opencode-style-subagent-tasks.md` only after Tasks 12–14 are
   complete; leave it under `docs/plans/` during cross-repository rollout.
-- [ ] Commit documentation with message
+- [x] Commit documentation with message
   `docs(task): document foreground subagent tasks`.
 - [ ] Push harness `main`, create and push breaking tag `v0.1.0`, and verify the
   tag resolves to the tested commit.

@@ -5,6 +5,21 @@ sidebar_position: 3
 
 # Go API
 
+## Task API (v0.1)
+
+`TaskResult` has `TaskID`, `AgentName`, `State`, `Output`, and `Error`; states
+are `running`, `completed`, `incomplete`, and `error`. Use
+`WithTaskForegroundWait(d)` to promote a foreground task after a positive wait
+(`0` waits normally; negative is rejected). Subscribe to
+`Agent.SubscribeSystemEvents` for `SystemTaskCompleted`; its metadata is
+application-only.
+
+The Agent owns background delivery. The exported result subscription,
+injection, and continuation compatibility APIs referenced later in this legacy
+reference are removed. Retained `StartSubagent`, `ListSubagents`, messaging,
+run, interruption, permission/confirmation, and close APIs are host-only
+child-session controls, not model-facing task compatibility.
+
 This page summarizes the high-level Go surface. Detailed behavior is covered in
 the feature guides.
 
@@ -287,34 +302,24 @@ agent.SendSubagentMessage(ctx, mainAgentSessionID, subagentID, message)
 agent.ListSubagents(ctx, mainAgentSessionID, includeClosed)
 agent.CloseSubagent(ctx, mainAgentSessionID, subagentID)
 agent.InterruptSubagent(ctx, mainAgentSessionID, subagentID, reason)
-agent.SubscribeSubagentResults(ctx)
 agent.SubscribeSystemEvents(ctx)
 agent.SubscribeSubagentPermissions(ctx)
 agent.PendingSubagentPermissions(ctx, mainAgentSessionID)
 agent.SubscribeSubagentConfirmations(ctx)
 agent.PendingSubagentConfirmations(ctx, mainAgentSessionID)
-agent.TryInjectSubagentResult(ctx, result)
-agent.ContinueSubagentResultSubscribed(ctx, result)
 agent.ReadSubagent(ctx, mainAgentSessionID, subagentID, afterMessageID)
 agent.WaitSubagent(ctx, mainAgentSessionID, subagentIDs, afterVersions)
 ```
 
-The result/report types use explicit main-agent and subagent names:
+The task completion type uses explicit child identity:
 
 ```go
-agentcli.SubagentResult{
-    MainAgentSessionID: "...",
-    MainAgentTurnID:    "...",
-    SubagentID:         "...",
-    DefinitionName:     "researcher",
-    SubagentSessionID:  "...",
-    SubagentTurnID:     "...",
-    Status:             agentcli.SubagentResultCompleted,
-}
-
-toolexecution.SubagentReport{
-    Status:  toolexecution.SubagentReportCompleted,
-    Summary: "...",
+agentcli.TaskCompletedEvent{
+    TaskID:            "...",
+    SubagentSessionID: "...",
+    SubagentTurnID:    "...",
+    AgentName:         "researcher",
+    State:             agentcli.TaskStateCompleted,
 }
 ```
 
@@ -324,10 +329,9 @@ by `ReadSubagent`. `SubagentConfirmationEvent` and
 `SubagentTurnID`. `SystemEvent` exposes `MainAgentSessionID` and
 `MainAgentTurnID`; no legacy identity aliases are retained.
 
-`TryInjectSubagentResult` returns `true` after the trusted result has been
-durably appended at a safe provider boundary of a compatible active main agent.
-When it returns `false`, use `ContinueSubagentResultSubscribed` as the
-fallback continuation turn.
+`SystemTaskCompleted` identifies each terminal task and carries any validated
+application-only result-contract metadata. Agent owns delivery; applications
+do not subscribe to raw task results or create fallback continuation turns.
 
 `CloseSubagent` is an explicit destructive command: it may interrupt active
 work, drops queued subagent input, cancels outstanding unreserved result
@@ -389,10 +393,8 @@ server.Shutdown(ctx)
 
 Options: `WithServerAddress`, `WithServerRequestLimit`,
 `WithServerHeartbeat`, `WithServerTurnQueueLimit`, and
-`WithServerMiddleware`. `WithServerAutoContinueSubagents` controls whether the
-server first tries inline result injection and otherwise starts a result
-continuation. The queue option bounds accepted waiting main-agent turns per
-session; it does not change direct `Agent.Start` admission.
+`WithServerMiddleware`. The queue option bounds accepted waiting main-agent
+turns per session; it does not change direct `Agent.Start` admission.
 
 ## Lifecycle
 

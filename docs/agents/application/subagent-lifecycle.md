@@ -1,16 +1,22 @@
 # Subagent lifecycle control
 
+The v0.1 model protocol is `task`: foreground waits in the calling tool,
+background/promotion returns `running`, and Agent performs exact-once terminal
+delivery. A child stays resumable by same-session `task_id` while idle. The
+host-only close/view APIs below remain subagent APIs; retired callback/report
+and result-continuation behavior is not model-facing compatibility.
+
 Read this file when changing explicit subagent close, response-scope result
 accounting, automatic subagent cleanup, or application lifecycle surfaces.
 
 ## Ownership
 
-The main-agent model catalog contains only `start_subagent` and
-`send_subagent_message`. Lifecycle summaries are injected through
-`active_subagents`; list and status remain application-owned surfaces. Subagents
-receive `report_subagent_result`. Destructive close belongs to the host
-application and is available through `Agent.CloseSubagent`, Terminal `/close`,
-and the HTTP `DELETE` subagent endpoint.
+The main-agent model catalog contains only `task`; lifecycle summaries, list,
+and status remain application-owned surfaces. Destructive close belongs to the
+host application and is available through `Agent.CloseSubagent`, Terminal
+`/close`, and the HTTP `DELETE` subagent endpoint. Foreground task results
+return in place; background/promoted results are delivered exactly once by
+Agent, and an idle child remains resumable by same-session task ID.
 
 `active_subagents` is lifecycle-only while a result is pending. It emits
 `result_delivery=pending` but withholds the structured result payload until

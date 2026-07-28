@@ -1,5 +1,14 @@
 # Skills and subagents
 
+**v0.1 task protocol:** configured child agents still have persisted subagent
+sessions, but the main model receives only `task`. New work supplies agent,
+description, and prompt; same-session resume supplies task_id and prompt.
+Foreground returns one result in place; background or foreground-wait promotion
+uses Agent-owned exact-once delivery. Child agents cannot call `task`.
+`TaskState` is running/completed/incomplete/error; result-contract metadata is
+application-only in `SystemTaskCompleted`, and step-limit finalization is
+text-only with no `report_subagent_result` repair.
+
 Skills live at `.agentcli/skill/{name}/SKILL.md`. Their name and description are
 discovery metadata; full instructions load progressively through the
 framework-owned `load_skill` tool. A model may load a skill after selecting it
@@ -53,104 +62,32 @@ through `ResolveSubagentPermission` or `ResolveSubagentConfirmation`. This path
 is independent from subagent-completion results, which cannot fire while an
 admission decision is unresolved.
 
-Subagent sessions are always asynchronous. `start_subagent` requires
-`continue_main_agent`. False requests a turn end through the same
-handler-controlled mechanism available to custom tools; it takes effect only
-when the call returns a pending result and the complete tool batch succeeds.
-True returns control to the main agent model for already-planned work outside the
-delegated task that is independent of the result. Every parallel start in one
-batch must use the same value: all false to wait, or all true to continue.
-`send_subagent_message` also requires `continue_main_agent`: false ends an
-accepted successful batch to wait, while true returns control only for
-already-planned independent work. Duplicate, already-sent, and result-pending
-results end the successful batch regardless of that value. Destructive close is
-application-owned and absent from the model catalog. An accepted assignment
-returns `accepted`, `action`, `result_delivery`, `main_agent_action`, and
-`instruction`; `result_delivery=automatic` means the result will arrive later.
-The main agent must not narrate waiting, call a
-response or delivery tool, invent work, retry, redo delegated work, or poll. If
-a compatible main agent run is still active,
-`TryInjectSubagentResult` appends the trusted result at the next provider
-boundary; it never interrupts a live provider stream or tool handler.
-Otherwise `ContinueSubagentResultSubscribed` starts a continuation turn.
-Duplicate, already-sent, and result-pending calls use
-`result_delivery=existing`; they create no new pending result.
-`recovery_exhausted` returns `result_delivery=none` and
-`main_agent_action=report_terminal_failure` so the main agent can report
-the terminal failure; the same normalized failure receives at most one recovery
-assignment per subagent in one response scope.
-Every successful `start_subagent` call creates a new separately addressed
-subagent; it never reuses or continues an existing subagent. A completed, incomplete,
-or failed result carries structured summary/next-step fields, terminal error,
-and final assistant answer when available. `completed` forbids `next_step` and
-`error`; `incomplete` requires one concrete `next_step`; `failed` requires the
-actual terminal `error` and forbids `next_step`.
-`report_subagent_result` is registered automatically only for subagents; every
-structured result requires an explicit successful report.
-Its bounded repair
-exposes only `report_subagent_result`, preventing repeated domain actions, and
-defaults safely to incomplete if the subagent still omits a valid report.
-When a configured provider-step limit is exhausted, the initial subagent
-finalizer exposes `report_subagent_result` immediately; the usual maximum of
-three result-report repairs remains unchanged, and one final text round remains
-available after a report succeeds on the last repair. Application
-`EndResponseScope` tools are main-agent-only and are rejected when assigned to a
-subagent, both during main-agent project validation and defensively during direct
-subagent construction.
-Lifecycle (`running`, `idle`, `closed`) remains separate from last-turn
-result status.
+The main model uses `task` for every child-agent execution. A new task requires
+`agent`, `description`, and `prompt`; a resume uses an idle, same-session
+`task_id` plus `prompt`. Foreground is default and returns final output in the
+same tool call. Independent tasks in one batch may run concurrently.
 
-Start results are always accepted when creation succeeds. Ordinary lookup and
-research should start one subagent, evaluate its result, and start another only
-if needed. Multiple starts in one provider response are for intentional
-independent comparison or parallel work. Follow-ups target a known idle
-incomplete or failed subagent through `send_subagent_message` after its latest
-result is consumed. Completed subagents are not reused.
+`background:true` returns `running`. `WithTaskForegroundWait` can promote an
+unfinished foreground call to the same background path. The Agent owns exactly
+one terminal delivery, injecting `<task_result>` at a safe provider boundary
+or starting a continuation turn. Models and clients never poll, report a
+result, or operate delivery callbacks.
 
-The model-facing send path hashes normalized content with main agent session, main agent
-turn, and subagent ID. One main-agent turn may assign to a given subagent once: exact
-retries return `duplicate`, changed retries return `already_sent`, and neither
-reaches the mailbox; these idempotency decisions run before lifecycle
-admission, so a fast result cannot turn a same-turn retry into an error. A new
-main agent turn can send again. Model-facing sends target idle subagents only after
-the latest result cursor was observed. A running subagent returns
-`result_pending` with `accepted=false`,
-`result_delivery=existing`, `main_agent_action=stop_and_wait`, and a short
-notice that the pending result will arrive automatically. An observed completed subagent returns
-`subagent_completed` without assignment and is not reused. Direct Go/HTTP sends may
-still queue FIFO input behind a running subagent, but completed, closed, and
-subagents without a usable result reject sends.
-The model has no list or status tools; the runtime supplies active instance
-summaries through `active_subagents`, and subagent results arrive only through
-results. While a completion result is pending, both routing tool results
-and the reminder omit result error, status, summary, and next-step payloads.
+Task state is `running`, `completed`, `incomplete`, or `error`. A child at the
+provider-step limit receives no tools and supplies one text-only final response;
+the runtime returns it as `incomplete`. Child agents cannot call `task` or use
+application `EndResponseScope` tools, so tasks cannot nest.
 
-One human main-agent turn opens one response scope. Accepted subagent assignments, inline
-result inputs, and result continuation turns remain in that scope;
-follow-up assignments reopen its result barrier. Inline reservations hold a
-pending-input barrier until the result is durably appended. The first-action
-guard applies only to provider step one of the human main-agent turn; a result
-continuation may deliver a final `EndResponseScope` tool on its first provider
-round. Early main-agent calls and calls while the scope is busy are successful
-non-executing skips and are not retained. At the final boundary, the runtime
-automatically closes touched idle subagents whose last result status is completed or
-failed, while retaining incomplete and cross-scope subagents.
+The persisted child lifecycle (`running`, `idle`, `closed`) remains distinct
+from task state. Host Go, Terminal, and HTTP APIs may inspect, message,
+interrupt, resolve safety decisions for, or close those sessions. Those APIs
+are not model tools. A completed task remains resumable while its session is
+idle and open.
 
-Every trusted result runtime message includes an atomic `result_progress`
-snapshot for its response scope. `pending_results` identifies outstanding
-accepted assignments by subagent identity and `assignment_id`, with
-`subagent_turn_id` when one already exists. `delivered_results` identifies
-delivered subagent turns with `subagent_turn_id` and `result_status`.
-Reservation rollback removes the unaccepted received
-entry and restores its pending assignment.
-
-The provider-facing `report_subagent_result` schema is intentionally a flat
-object using `properties`, `required`, and a status `enum`. Status-dependent
-rules remain authoritative in the runtime parser: it rejects forbidden fields
-and requires `next_step` or `error` when appropriate. Keeping conditional
-validation out of root-level JSON Schema combinators avoids compatible
-providers that expose the tool but fail to generate arguments for nested
-`oneOf` branches.
+Each optional result contract extracts a message and validated boolean/string
+metadata from one final response. The message is task output; metadata is only
+in `SystemTaskCompleted`/`task_completed`, never provider context or
+`<task_result>`.
 
 Direct Go, Terminal, and HTTP close paths have the same application-owned destructive lifecycle and should be bound to explicit user actions. The manager enforces main agent ownership, queues accepted subagent follow-ups, and preserves subagent transcripts and retained runs for UI views. Every successful explicit or automatic close emits `SystemSubagentClosed` on the live `SubscribeSystemEvents` stream; the HTTP session stream retains it as `subagent_closed`. See [subagent-lifecycle.md](subagent-lifecycle.md) for close ordering, cancellation markers, result counters, and race behavior.
 

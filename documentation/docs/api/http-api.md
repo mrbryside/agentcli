@@ -5,6 +5,15 @@ sidebar_position: 1
 
 # HTTP API
 
+## Tasks and child-session routes
+
+The main model's `task` tool is not an HTTP endpoint. `/subagents` endpoints
+remain host-only persisted-session management. Follow session SSE for
+`task_completed` (source `task`) when a background or auto-promoted task ends;
+the event has task ID, child session/turn, agent, state, and trusted
+application-only metadata. No client-side injection or continuation endpoint
+exists in v0.1.
+
 The Echo server exposes JSON commands, retained state, and SSE streams. The
 default base URL is `http://127.0.0.1:8080`.
 

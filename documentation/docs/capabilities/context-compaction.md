@@ -5,6 +5,11 @@ sidebar_position: 3
 
 # Context compaction
 
+Task result-contract metadata is application-only: it is not transcript
+history and is never included in compacted or projected provider context.
+Foreground task results arrive in the current tool call; Agent-owned
+background delivery follows normal runtime boundaries.
+
 Automatic context compaction keeps long-running sessions within a model's
 context window without deleting their stored transcript. It summarizes an
 older prefix into a cumulative checkpoint and sends the main model that

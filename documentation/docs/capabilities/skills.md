@@ -5,6 +5,9 @@ sidebar_position: 1
 
 # Skills
 
+Skills can be assigned to a configured child agent, but child registries omit
+the main-only `task` tool. Delegation therefore remains one level deep.
+
 Skills are project-owned instruction packages selected progressively by the
 model. A skill is not executable code and cannot register a custom tool.
 

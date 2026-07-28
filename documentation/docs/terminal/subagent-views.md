@@ -5,6 +5,11 @@ sidebar_position: 4
 
 # Subagent views
 
+Terminal child-session views are host controls, not the model-facing protocol.
+The main model sees only `task`: foreground output returns in its current turn,
+while background and foreground-wait-promoted completion is delivered exactly
+once by Agent. Terminal must not poll, inject, or continue a task result.
+
 The terminal can display a main-agent session and its subagent sessions without mixing
 their transcripts. Each subagent has its own session, turns, messages, live
 stream, tool events, permission requests, and confirmation requests.
@@ -83,18 +88,13 @@ subagent, or wait for more results.
 The terminal displays result notifications in the main-agent view without copying
 subagent output into the selected subagent view.
 
-The Terminal and its repository playground use the framework-owned subagent
-tool contract directly; they do not maintain a separate schema. Model-facing
-`start_subagent` requires `continue_main_agent`. A false value ends a
-successful pending-result batch without another provider step; true returns
-control for only already-planned main agent work outside the delegated task that
-is independent of the result. Parallel starts use the same value throughout
-their batch. `send_subagent_message` uses the same required choice: false ends an accepted
-successful batch, while true continues only qualifying independent work.
-Duplicate, already-sent, and result-pending results end the batch regardless
-of that value. A result joins a compatible active main agent at its next provider
-boundary or resumes the main agent in a continuation turn. Destructive close remains
-a Terminal/application command and is not exposed to the model.
+The Terminal and its repository playground use the same main-agent `task`
+contract; they do not maintain a separate schema. Foreground task output
+returns in the current main turn. Background and foreground-wait-promoted work
+returns `running`, then Agent performs exactly-once delivery at a safe boundary
+or through one continuation turn. Terminal renders that normal main-agent
+activity and never polls, injects, or continues task results. Destructive close
+remains a Terminal/application command and is not exposed to the model.
 
 ## Close a subagent
 

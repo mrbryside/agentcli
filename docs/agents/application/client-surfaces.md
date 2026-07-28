@@ -1,5 +1,12 @@
 # Client surfaces
 
+The main model sees `task`, not lifecycle subagent tools. Foreground task output
+returns in the current turn; background and `WithTaskForegroundWait` promotion
+are delivered exactly once by Agent. Terminal and HTTP clients only observe
+the normal run plus `SystemTaskCompleted`/`task_completed`; they do not inject
+or continue task results. Persisted subagent views and `/subagents` remain
+host session-management interfaces.
+
 `Agent.RunTerminal` is the reusable Terminal UI. Terminal options select input, output, initial prompt, and session ID. It renders streaming content, tools, permissions, confirmations, subagent views, and loading state. Interactive input and output share one prompt-aware renderer; see [terminal-ui.md](terminal-ui.md) for its editing, streaming, reasoning, and interrupt contracts. Exiting the Terminal UI does not close the Agent, allowing later direct turns or server startup.
 
 `Agent.RunServer` and `NewServer` expose Echo JSON/SSE endpoints. The server binds to loopback by default, accepts middleware, limits request size, emits heartbeat comments, queues a bounded number of same-session turns, and lets different sessions proceed concurrently. `NewServer` is preferred when embedding `Handler` or `Echo` in another service.

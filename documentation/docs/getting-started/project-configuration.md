@@ -5,6 +5,17 @@ sidebar_position: 2
 
 # Project configuration
 
+## Tasks and result contracts (v0.1)
+
+The main agent selects configured child definitions through the single `task`
+tool. New work supplies agent/description/prompt; resume supplies task ID and
+prompt. Child definitions can declare `result.message_field` and named
+`boolean`/`string` metadata. A valid final JSON object yields the message as
+task output and metadata only in `SystemTaskCompleted`/`task_completed`.
+Child agents cannot invoke `task`. At a provider step limit they receive a
+text-only finalization and return `incomplete`; `report_subagent_result` is
+removed.
+
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
 the config's compaction/provider mappings, `MAIN.md`, and every subagent
@@ -127,15 +138,16 @@ Without `WithProviderStepLimit`, main and subagent turns have no provider-round
 ceiling. `WithProviderStepLimit(n)` allows `n` agentic provider rounds, then
 enters a restricted finalization phase. Ordinary work tools are unavailable.
 The finalizer sees only registered `EndTurn` and `EndResponseScope` completion
-tools; a subagent also sees `report_subagent_result`. If no required completion
-tool is available, the model must return a text summary from existing results.
+tools; a subagent sees no tools and returns one text-only final response as an
+`incomplete` task result. If no required completion tool is available, the
+model must return a text summary from existing results.
 If it returns neither a permitted completion tool nor text, the runtime inserts
 a deterministic fallback summary rather than starting more agentic work.
 
 Missing required completion tools reuse the existing bounded completion repair,
 which exposes only the missing tools. This preserves end-of-response delivery
-and the subagent result report without allowing new domain work after the
-budget. Finalization and repair rounds are included in `RunResult.Steps`;
+without allowing new domain work after the budget. Finalization and repair
+rounds are included in `RunResult.Steps`;
 `Run.StepLimitFinalized()` reports whether the restricted phase was entered.
 The option requires a positive value and is inherited by subagents.
 

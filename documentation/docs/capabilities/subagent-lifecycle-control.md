@@ -11,10 +11,21 @@ inspection and destructive actions.
 
 ## Ownership contract
 
+> **v0.1 update:** the main-agent model owns no subagent lifecycle tools. It
+> sees only `task`; foreground calls return in place, while background and
+> promoted calls are delivered exactly once by `Agent`. The prior model-tool
+> table below documents removed names. `/subagents`, Terminal views, and Go
+> methods remain host session-management surfaces.
+
+`SystemTaskCompleted` carries task ID, child session/turn, agent, terminal
+state, and validated application-only result-contract metadata. The same fact
+is `task_completed` on session SSE. Host clients render it but never inject or
+continue results themselves.
+
 | Owner | Operations |
 | --- | --- |
-| Main-agent model | `start_subagent` and `send_subagent_message` |
-| Subagent model | `report_subagent_result` |
+| Main-agent model | `task` only; new work or same-session idle `task_id` resume |
+| Subagent model | Domain tools and one final text response; no task nesting |
 | Host application | List/status inspection; explicit close through Go, Terminal, or HTTP; interrupt; history and event presentation |
 | Runtime | Result correlation, response-scope accounting, and final-boundary cleanup of eligible completed or failed subagents |
 

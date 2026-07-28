@@ -24,7 +24,7 @@ the currently selected main-agent or subagent view.
 stored transcript. The old session can still be inspected through the Go or
 HTTP APIs.
 
-## Subagent commands
+## Child-session commands
 
 | Command | Description |
 | --- | --- |
@@ -34,7 +34,8 @@ HTTP APIs.
 | `/back` | Return to the main-agent view without interrupting the subagent. |
 | `/close REF` | Destructively close a subagent, interrupting active work if needed, dropping queued input, and releasing outstanding result obligations. |
 
-`REF` is one subagent ID or one display name. See
+These commands are host-only persisted-subagent controls; they do not expose
+the model-facing task protocol. `REF` is one subagent ID or one display name. See
 [Subagent views](./subagent-views.md) for message routing and background work.
 
 ## Permission commands
