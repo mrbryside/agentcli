@@ -73,6 +73,7 @@ type SkillToolResult struct {
 	Description           string `json:"description,omitempty"`
 	Instructions          string `json:"instructions,omitempty"`
 	InstructionsInContext bool   `json:"instructions_in_context,omitempty"`
+	ToolsUnchanged        bool   `json:"tools_unchanged"`
 	Message               string `json:"message,omitempty"`
 }
 
@@ -92,7 +93,7 @@ func (loader *SkillLoader) Tool() Tool {
 	return Tool{
 		Definition: agentruntime.ToolDefinition{
 			Name:        SkillLoaderToolName,
-			Description: "Load the full instructions for exactly one skill from available_skills. Use it when an applicable instruction requires that skill, its description directly matches the task you are about to perform, or the user asks to read it. Each skill may be loaded once per <turn_start>. A result with status=loaded confirms the named skill loaded. If instructions_in_context=true, the full instructions are already in the conversation; do not call load_skill again for that skill in this turn. Loading one skill does not load any other skill.",
+			Description: "Load the full instructions for exactly one skill from available_skills. Use it when an applicable instruction requires that skill, its description directly matches the task you are about to perform, or the user asks to read it. Each skill may be loaded once per <turn_start>. A result with status=loaded confirms the named skill loaded. If instructions_in_context=true, the full instructions are already in the conversation; do not call load_skill again for that skill in this turn. Loading one skill does not load any other skill. Loading a skill changes only instruction context; it does not add, remove, or enable tools. The tools listed with the current request are available now and are authoritative. If a tool name is listed, do not claim it is missing or ask the user to enable it.",
 			InputSchema: mustRawToolSchema(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"description":"Exact skill name from available_skills. Do not submit the same name more than once after the latest <turn_start>."}},"required":["name"],"additionalProperties":false}`),
 		},
 		Handler: loader.handle,
@@ -156,7 +157,8 @@ func (loader *SkillLoader) handle(ctx context.Context, arguments json.RawMessage
 
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name, Description: skill.Description,
-		Instructions: skill.Instructions, Message: skillLoadedMessage(skill.Name, false),
+		Instructions: skill.Instructions, ToolsUnchanged: true,
+		Message: skillLoadedMessage(skill.Name, false),
 	})
 }
 
@@ -164,15 +166,16 @@ func marshalSkillFromContext(skill Skill) (json.RawMessage, error) {
 	return json.Marshal(SkillToolResult{
 		Status: "loaded", Name: skill.Name,
 		InstructionsInContext: true,
+		ToolsUnchanged:        true,
 		Message:               skillLoadedMessage(skill.Name, true),
 	})
 }
 
 func skillLoadedMessage(name string, instructionsInContext bool) string {
 	if instructionsInContext {
-		return fmt.Sprintf("Skill %q loaded successfully. This result applies only to %q. Its full instructions are already available in the conversation. Do not load this skill again until a new <turn_start>.", name, name)
+		return fmt.Sprintf("Skill %q loaded successfully. Its full instructions are already available in the conversation. Tool availability did not change; tools listed with the current request are available now. Do not load %q again until a new <turn_start>.", name, name)
 	}
-	return fmt.Sprintf("Skill %q loaded successfully. This result applies only to %q. Its full instructions are included in this result. Do not load this skill again until a new <turn_start>.", name, name)
+	return fmt.Sprintf("Skill %q loaded successfully. Its full instructions are included in this result. Tool availability did not change; tools listed with the current request are available now. Do not load %q again until a new <turn_start>.", name, name)
 }
 
 func hashSkill(skill Skill) string {

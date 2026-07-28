@@ -68,7 +68,8 @@ The full-body result is:
   "name": "interview",
   "description": "Interview the user to resolve missing requirements before implementation.",
   "instructions": "# Interview workflow\n\n...",
-  "message": "Skill \"interview\" loaded successfully. This result applies only to \"interview\". Its full instructions are included in this result. Do not load this skill again until a new <turn_start>."
+  "tools_unchanged": true,
+  "message": "Skill \"interview\" loaded successfully. Its full instructions are included in this result. Tool availability did not change; tools listed with the current request are available now. Do not load \"interview\" again until a new <turn_start>."
 }
 ```
 
@@ -80,14 +81,18 @@ repeating its body:
   "status": "loaded",
   "name": "interview",
   "instructions_in_context": true,
-  "message": "Skill \"interview\" loaded successfully. This result applies only to \"interview\". Its full instructions are already available in the conversation. Do not load this skill again until a new <turn_start>."
+  "tools_unchanged": true,
+  "message": "Skill \"interview\" loaded successfully. Its full instructions are already available in the conversation. Tool availability did not change; tools listed with the current request are available now. Do not load \"interview\" again until a new <turn_start>."
 }
 ```
 
 Both forms mean that the named skill loaded successfully. The compact form
 does not mean that the whole skill catalog loaded; another skill needs its own
-call. It also does not instruct the model to perform any particular next
-action—the loaded skill contains that workflow.
+call. `tools_unchanged: true` means loading changed instruction context only;
+it did not add, remove, or enable tools. The tools listed with the current
+request remain available, so the model should not claim that a listed tool is
+missing because of a skill load. A successful load also does not require an
+immediate next action—the loaded skill contains that workflow.
 
 Tool results and later provider steps do not create another trigger by
 themselves. After a named skill loads, the model must not load that skill again

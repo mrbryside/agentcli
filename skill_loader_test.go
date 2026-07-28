@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	expectedFreshSkillMessage                 = `Skill "testing-go" loaded successfully. This result applies only to "testing-go". Its full instructions are included in this result. Do not load this skill again until a new <turn_start>.`
-	expectedSkillInstructionsInContextMessage = `Skill "testing-go" loaded successfully. This result applies only to "testing-go". Its full instructions are already available in the conversation. Do not load this skill again until a new <turn_start>.`
+	expectedFreshSkillMessage                 = `Skill "testing-go" loaded successfully. Its full instructions are included in this result. Tool availability did not change; tools listed with the current request are available now. Do not load "testing-go" again until a new <turn_start>.`
+	expectedSkillInstructionsInContextMessage = `Skill "testing-go" loaded successfully. Its full instructions are already available in the conversation. Tool availability did not change; tools listed with the current request are available now. Do not load "testing-go" again until a new <turn_start>.`
 )
 
 type skillLoader struct {
@@ -42,7 +42,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 	loader := newSkillLoader(project, messages, DefaultSkillReloadPolicy())
 
 	loaded := callSkillLoader(t, loader, "session", "turn-1", "call-1")
-	if loaded.Status != "loaded" || loaded.Instructions == "" || loaded.InstructionsInContext ||
+	if loaded.Status != "loaded" || loaded.Instructions == "" || loaded.InstructionsInContext || !loaded.ToolsUnchanged ||
 		loaded.Name != "testing-go" ||
 		loaded.Message != expectedFreshSkillMessage {
 		t.Fatalf("first result = %#v", loaded)
@@ -51,7 +51,7 @@ func TestSkillLoaderDeduplicatesRecentInstructions(t *testing.T) {
 	appendUserMessage(t, messages, "session", "turn-2", "user-2", "please test this")
 
 	recent := callSkillLoader(t, loader, "session", "turn-2", "call-2")
-	if recent.Status != "loaded" || recent.Instructions != "" || !recent.InstructionsInContext ||
+	if recent.Status != "loaded" || recent.Instructions != "" || !recent.InstructionsInContext || !recent.ToolsUnchanged ||
 		recent.Name != "testing-go" ||
 		recent.Message != expectedSkillInstructionsInContextMessage {
 		t.Fatalf("recent result = %#v", recent)

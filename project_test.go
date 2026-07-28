@@ -71,6 +71,15 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		!strings.Contains(prompts[0], "Never claim more than the complete result confirms") {
 		t.Fatalf("main tool-result discipline prompt = %q", prompts[0])
 	}
+	for _, expected := range []string{
+		"tools listed with the current request are available now",
+		"authoritative tool list",
+		"do not claim it is missing or ask the user to enable it",
+	} {
+		if !strings.Contains(prompts[0], expected) {
+			t.Fatalf("main tool-availability prompt missing %q: %q", expected, prompts[0])
+		}
+	}
 	if !strings.Contains(prompts[0], "Give the user a clear, self-contained answer") ||
 		strings.Contains(prompts[0], "required subagent results are still pending") {
 		t.Fatalf("main response prompt = %q", prompts[0])
@@ -103,7 +112,11 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"## Read the result",
 		"One load_skill call loads only the skill named",
 		"instructions_in_context=true",
+		"tools_unchanged=true",
 		"already available in the",
+		"tools listed with the current request are available now",
+		"do not claim it is\n  missing",
+		"does not require an\n  action",
 		"Loading a skill only makes its instructions available",
 		"web-research is loaded",
 		"discord-live-server now has a separate valid",
@@ -142,6 +155,9 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"instructions_in_context=true",
 		"already in the conversation",
 		"does not load any other skill",
+		"changes only instruction context",
+		"tools listed with the current request are available now",
+		"do not claim it is missing",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain trigger/result rule %q: %q", expected, tool.Definition.Description)
@@ -214,6 +230,10 @@ Return evidence and limits.
 		"same tool batch",
 		"run in parallel",
 		"task_id",
+		"essential user information is missing",
+		"resume that same task_id",
+		"exactly two independent readers",
+		"same assistant tool-call message",
 		"<available_task_agents>",
 		"<name>researcher</name>",
 		"<description>Research current information from reliable sources.</description>",

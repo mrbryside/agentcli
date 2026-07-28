@@ -311,12 +311,18 @@ func TestSubagentSystemPromptsKeepAssignmentSeparateFromFramework(t *testing.T) 
 		`working_directory: "` + project.root + `"`,
 		"# Evidence and tool use",
 		subagentCapabilityBoundaryPrompt,
+		"tools listed with the current request are available now",
+		"authoritative tool list",
+		"do not claim it is missing or ask the user to enable it",
 		"# Sensitive information",
 		modelSecretSafetyPrompt,
 		"# Skills",
 		"<name>testing-go</name>",
 		"# Delivery contract",
 		subagentCompletionPrompt,
+		"do not guess or take the action",
+		"one exact question for the user",
+		"same task can receive the user's answer later",
 	} {
 		if !strings.Contains(framework, expected) {
 			t.Fatalf("subagent framework prompt does not contain %q: %q", expected, framework)

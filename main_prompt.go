@@ -2,7 +2,7 @@ package agentcli
 
 import "strings"
 
-const mainAgentOperatingPrompt = "Handle the user's request directly unless a listed subagent is required or clearly useful. Use only registered tools and information actually returned by them. Keep the answer focused on the requested result and state blockers honestly."
+const mainAgentOperatingPrompt = "Handle the user's request directly unless a listed subagent is required or clearly useful. Use only registered tools and information actually returned by them. The tools listed with the current request are available now and are the authoritative tool list. If a tool name is listed, do not claim it is missing or ask the user to enable it. Keep the answer focused on the requested result and state blockers honestly."
 
 const mainAgentToolResultPrompt = `Read the complete result after every tool call.
 
@@ -30,6 +30,15 @@ different companies, regions, years, or sources.
 To continue the same task later, provide task_id and a new prompt. Do not
 provide agent or description when resuming. Use background only when returning
 later is genuinely more appropriate than receiving the result in this turn.
+
+If a completed task says essential user information is missing, confirms that
+no action happened, and gives one exact question, ask the user that question.
+After the user answers, resume that same task_id with the answer. Do not start
+a new task or supply agent or description for this continuation.
+
+When exactly two independent readers are needed, make exactly two task calls
+in the same assistant tool-call message, with one reader prompt for each
+source. Do not wait for the first reader before starting the second.
 
 Do not call task again merely to see whether work has progressed. Do not make
 tool calls solely to delay a response. Use the returned output, state, and

@@ -58,8 +58,10 @@ returns:
 ```
 
 States are `running`, `completed`, `incomplete`, and `error`. Place independent
-task calls in one tool batch to run them concurrently. Use `background:true`
-only when later delivery is appropriate; do not poll or simulate waiting.
+task calls in the same tool-call message (one batch) to run them concurrently.
+For example, two independent readers require two `task` calls in that one
+batch. Use `background:true` only when later delivery is appropriate; do not
+poll or simulate waiting.
 
 `WithTaskForegroundWait(d)` can promote unfinished foreground work after a
 positive duration. Zero or omission waits without a framework timeout; a
@@ -93,6 +95,23 @@ Validated boolean/string metadata is application-only: it is published in
 `SystemTaskCompleted` and HTTP `task_completed`, but never included in provider
 context or `<task_result>`. An invalid contract result is one task `error` and
 publishes no metadata.
+
+## Requesting essential input
+
+A child may finish with `state: "completed"` and return a question because it
+needs essential input before it can safely act. Treat that output as the exact
+question to ask the user. Do not guess the missing input and do not perform the
+action first.
+
+When the user answers, resume the existing work with exactly the saved task ID
+and the user's answer:
+
+```json
+{"task_id":"subagent_123","prompt":"The user chose the weekly schedule."}
+```
+
+Do not create a new task for this continuation. The existing task retains the
+child's context, including what it has already gathered and why it asked.
 
 ## Host session controls
 

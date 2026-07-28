@@ -30,6 +30,9 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		"instructions_in_context=true",
 		"already in the conversation",
 		"does not load any other skill",
+		"changes only instruction context",
+		"tools listed with the current request are available now",
+		"do not claim it is missing",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("load_skill description does not contain %q: %q", expected, tool.Definition.Description)
@@ -58,6 +61,7 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 	}
 	if result.Status != "loaded" || result.Name != "testing-go" ||
 		result.Instructions != "Run the Go tests." ||
+		!result.ToolsUnchanged ||
 		result.Message != skillLoadedMessage("testing-go", false) {
 		t.Fatalf("skill result = %s", output)
 	}
@@ -73,6 +77,7 @@ func TestSkillLoaderIsAToolExecutionBuiltIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reused.Status != "loaded" || reused.Instructions != "" || !reused.InstructionsInContext ||
+		!reused.ToolsUnchanged ||
 		reused.Name != "testing-go" ||
 		reused.Message != skillLoadedMessage("testing-go", true) {
 		t.Fatalf("reused skill result does not identify instructions in context: %#v", reused)
@@ -98,7 +103,7 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"new task", "task_id", "Foreground is the default", "same tool batch", "researcher: Find evidence.", "reviewer: Review changes.",
+		"new task", "task_id", "essential user information", "resume that same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)

@@ -120,7 +120,10 @@ Every listed skill must be available to the agent using the tool. For each new
 turn, the model must call `load_skill` and receive `status=loaded` for that
 exact skill before calling the custom tool. Both a full `instructions` result
 and an `instructions_in_context=true` result satisfy the requirement. A load
-from an earlier turn does not.
+from an earlier turn does not. The load result's `tools_unchanged: true` field
+confirms that loading instructions did not alter the tools listed with the
+current request; `RequiredSkills` controls execution admission, not tool
+registration.
 
 Registration automatically adds this requirement to the cloned tool
 description. The runtime also enforces it. If any required skill is missing,

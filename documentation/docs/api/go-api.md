@@ -14,6 +14,13 @@ are `running`, `completed`, `incomplete`, and `error`. Use
 `Agent.SubscribeSystemEvents` for `SystemTaskCompleted`; its metadata is
 application-only.
 
+`completed` means the child finished its current work; its `Output` may still
+be a question for essential user input before a safe action can occur. Present
+that question unchanged. When the user replies, the main model resumes the
+same task with only `task_id` and `prompt`; it must not start a replacement
+task. Independent task calls issued in the same tool-call batch run in
+parallel, so two independent readers are two calls in that one batch.
+
 The Agent owns background delivery. The exported result subscription,
 injection, and continuation compatibility APIs referenced later in this legacy
 reference are removed. Retained `StartSubagent`, `ListSubagents`, messaging,
@@ -176,7 +183,9 @@ When `RequiredSkills` is non-empty, every named skill must be available to the
 current agent and loaded successfully in the current turn before the handler
 can execute. Both the full `instructions` result and
 `instructions_in_context=true` satisfy a `status=loaded` result. A successful
-load from an earlier turn does not satisfy the requirement. A blocked call
+load returns `tools_unchanged=true`: it changes instruction context only and
+does not add, remove, or enable tools listed with the current request. A
+successful load from an earlier turn does not satisfy the requirement. A blocked call
 returns `executed=false`, `reason=required_skill_not_loaded`, the complete
 `required_skills` list, and the remaining `missing_skills`; it bypasses
 admission, call budgets, guards, and the handler. Registration appends the same

@@ -110,7 +110,7 @@ func (bridge *TaskToolBridge) Tools() []Tool {
 
 func (bridge *TaskToolBridge) description() string {
 	var description strings.Builder
-	description.WriteString("Run one focused task with a configured agent. For a new task, provide agent, description, and prompt. To continue the same task later, provide task_id and prompt; omit agent and description. Foreground is the default: its final output is returned by this call. Use background only when later delivery is appropriate. Put independent tasks in the same tool batch so they can run in parallel. Do not call task again merely to check progress or make tool calls solely to delay a response.")
+	description.WriteString("Run one focused task with a configured agent. For a new task, provide agent, description, and prompt. To continue the same task later, provide task_id and prompt; omit agent and description. If a completed task needs essential user information, ask its exact question, then resume that same task_id with the user's answer; do not start a new task. Foreground is the default: its final output is returned by this call. Use background only when later delivery is appropriate. Put independent tasks in the same assistant tool-call message so they can run in parallel. When exactly two independent readers are needed, make exactly two task calls in that one message, one source prompt each, without waiting for the first. Do not call task again merely to check progress or make tool calls solely to delay a response.")
 	if len(bridge.agents) == 0 {
 		return description.String()
 	}

@@ -566,8 +566,13 @@ One load_skill call loads only the skill named in that call.
 - instructions contains the full skill body when it is returned.
 - instructions_in_context=true means the full body is already available in the
   conversation. The load still succeeded; do not call load_skill again.
-- Loading a skill only makes its instructions available. Follow those
-  instructions and the current request to decide what to do next.
+- tools_unchanged=true means loading the skill did not add, remove, or enable
+  tools. The tools listed with the current request are available now and are
+  the authoritative tool list. If a tool name is listed, do not claim it is
+  missing or ask the user to enable it.
+- Loading a skill only makes its instructions available. It does not require an
+  action. Follow the loaded instructions and the current request to decide what
+  to do next.
 
 Examples:
 
