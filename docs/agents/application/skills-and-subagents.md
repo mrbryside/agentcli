@@ -56,15 +56,15 @@ alone and discovery-only questions do not trigger a subagent.
 Application `MAIN.md`, skills, and subagent role prompts may stay in domain
 language without repeating the task protocol. Naming a configured agent,
 requesting parallel or sequential work, or asking to continue the same agent
-conversation is translated through the framework prompt into the task calls
-below.
+conversation expresses application policy; the framework prompt explains the
+task calls that can implement it.
 
 Prompt ownership is deliberately split:
 
 | Owner | Contract |
 | --- | --- |
 | `MAIN.md` and skills | Domain policy: when a specialist is required, dependency/ordering requirements, constraints, and desired outcomes. |
-| Main task framework prompt | Agent selection, new/resume fields, batching, foreground/background behavior, saved-ID continuation, missing-input handoff, and task-result reading. |
+| Main task framework prompt | Agent selection, new/resume fields, batching, foreground/background behavior, optional saved-ID continuation mechanics, and task-result reading. |
 | Per-call `prompt` | Concrete work and the context required for this child turn. |
 | Subagent definition body | Domain role, method, evidence standards, and quality criteria. |
 | Subagent framework prompt | Tool/evidence boundaries, secret safety, no nesting, generic final delivery, missing-input behavior, and optional exact result JSON. |
@@ -90,6 +90,8 @@ The main model uses `task` for every child-agent execution. A new task requires
 `task_id` plus `prompt`. A supplied task ID always wins over create-only fields
 and never creates a replacement. A corrected resume must preserve task_id
 rather than dropping it and accidentally creating another task.
+The framework exposes resume as a capability; current application or user
+instructions decide whether a particular request should use it.
 Foreground is default and returns final output in the same tool call.
 Independent tasks in one batch may run concurrently.
 

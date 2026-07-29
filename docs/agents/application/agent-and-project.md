@@ -35,9 +35,9 @@ start with the core runtime/context framework message, then insert a
 framework-owned skill-discovery message when skills are configured and a task
 orchestration/catalog message when subagents are configured, before `MAIN.md`.
 The task message owns new-versus-resume fields, foreground/background behavior,
-parallel batching, continuation, and result interpretation. `MAIN.md` and
-skills may require named, parallel, sequential, or continuing domain work
-without restating that protocol.
+parallel batching, optional continuation mechanics, and result interpretation.
+`MAIN.md` and skills decide whether named, parallel, sequential, or continuing
+domain work is required.
 
 A subagent receives one framework message containing runtime context,
 capability and secret boundaries, optional skill discovery, the generic
