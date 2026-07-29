@@ -104,6 +104,6 @@ main-agent session while the terminal remains open.
 
 - [Input, streaming, and keyboard shortcuts](./input-and-streaming.md)
 - [Complete command reference](./commands.md)
-- [Work with subagent views](./subagent-views.md)
+- [Work with task-session views](./subagent-views.md)
 - [Safety and troubleshooting](./safety-and-troubleshooting.md)
 - [Run the complete playground example](../examples/terminal-playground.md)

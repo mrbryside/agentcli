@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ import (
 const terminalInterruptInput = "\x03"
 
 const terminalExitConfirmWindow = 2 * time.Second
+
+const terminalMainAgentNoticeLimit = 64
 
 var errTerminalExit = errors.New("terminal exit requested")
 
@@ -141,12 +144,12 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 	permissionEvents := a.SubscribeSubagentPermissions(terminalContext)
 	pendingPermissions, err := a.PendingSubagentPermissions(terminalContext, config.sessionID)
 	if err != nil {
-		return fmt.Errorf("load pending subagent permissions: %w", err)
+		return fmt.Errorf("load pending task-session permissions: %w", err)
 	}
 	confirmationEvents := a.SubscribeSubagentConfirmations(terminalContext)
 	pendingConfirmations, err := a.PendingSubagentConfirmations(terminalContext, config.sessionID)
 	if err != nil {
-		return fmt.Errorf("load pending subagent confirmations: %w", err)
+		return fmt.Errorf("load pending task-session confirmations: %w", err)
 	}
 	if config.initialPrompt != "" {
 		for _, event := range pendingPermissions {
@@ -334,7 +337,7 @@ type terminalClient struct {
 	mainAgentLoading       *terminalLoadingController
 	mainAgentReplayThrough uint64
 	mainAgentPromptQueue   []string
-	mainAgentNotices       []string
+	mainAgentNotices       []terminalNotice
 	escapeInput            <-chan struct{}
 	reasoningToggleInput   <-chan struct{}
 	exitArmedUntil         time.Time
@@ -350,6 +353,11 @@ const (
 type terminalApproval struct {
 	kind terminalApprovalKind
 	id   string
+}
+
+type terminalNotice struct {
+	label string
+	value string
 }
 
 // queueApproval serializes every main agent and subagent approval into one visible
@@ -410,7 +418,7 @@ func (c *terminalClient) presentNextApproval() {
 	if active == nil {
 		return
 	}
-	c.renderInView("", func() {
+	c.renderInView(c.activeView(), func() {
 		c.renderApproval(*active, permissionRequest, confirmationRequest)
 	})
 }
@@ -420,7 +428,7 @@ func (c *terminalClient) presentNextApproval() {
 // would deadlock on the non-reentrant render mutex.
 func (c *terminalClient) presentNextApprovalWhileRendering() {
 	active, permissionRequest, confirmationRequest := c.activateNextApproval()
-	if active == nil || !c.isActiveView("") {
+	if active == nil {
 		return
 	}
 	c.renderApproval(*active, permissionRequest, confirmationRequest)
@@ -462,6 +470,23 @@ func (c *terminalClient) activeApprovalSnapshot() (terminalApproval, bool) {
 		return terminalApproval{}, false
 	}
 	return *c.activeApproval, true
+}
+
+func (c *terminalClient) renderActiveApproval() {
+	active, found := c.activeApprovalSnapshot()
+	if !found {
+		return
+	}
+	switch active.kind {
+	case terminalApprovalPermission:
+		if request, exists := c.pendingPermission(permission.ID(active.id)); exists {
+			c.renderApproval(active, request, confirmation.Request{})
+		}
+	case terminalApprovalConfirmation:
+		if request, exists := c.pendingConfirmation(confirmation.ID(active.id)); exists {
+			c.renderApproval(active, permission.Request{}, request)
+		}
+	}
 }
 
 func (c *terminalClient) runInteractive(
@@ -728,6 +753,7 @@ func (c *terminalClient) command(input string) (handled, exit bool) {
 		c.switchView("")
 		c.setMainAgentRun(nil)
 		c.clearMainAgentPrompts()
+		c.clearMainAgentNotices()
 		c.terminal.clear()
 		c.terminal.banner(c.modelName, c.sessionID)
 		return true, false
@@ -740,7 +766,7 @@ func (c *terminalClient) command(input string) (handled, exit bool) {
 			c.terminal.status("Session", c.sessionID)
 		} else {
 			c.terminal.status("Main agent session", c.sessionID)
-			c.terminal.status("Subagent", c.activeView())
+			c.terminal.status("Task session", c.activeView())
 		}
 		if c.currentViewStreaming() {
 			c.terminal.status("Streaming", "active")
@@ -776,21 +802,23 @@ func (c *terminalClient) openSubagent(id string) error {
 		return err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return fmt.Errorf("subagent %s is closed", id)
+		return fmt.Errorf("task session %s is closed", id)
 	}
 	messages, err := c.agent.ListMessages(context.Background(), record.SubagentSessionID)
 	if err != nil {
-		return fmt.Errorf("load subagent %s messages: %w", id, err)
+		return fmt.Errorf("load task session %s messages: %w", id, err)
 	}
 	viewContext := c.switchView(record.ID)
 	c.terminal.clear()
 	c.terminal.subagent(record)
 	c.terminal.messages(messages)
 	if record.Status != storage.SubagentStatusRunning && record.LastResultError != "" {
-		c.terminal.error(fmt.Errorf("subagent turn %s failed: %s", record.LastSubagentTurnID, record.LastResultError))
+		c.terminal.status("Task result", "error · "+record.LastSubagentTurnID+" · "+record.LastResultError)
 	}
 	if record.Status == storage.SubagentStatusRunning && record.CurrentSubagentTurnID != "" {
 		c.streamSubagentRun(viewContext, c.sessionID, record.ID, record.CurrentSubagentTurnID)
+	} else {
+		c.renderActiveApproval()
 	}
 	return nil
 }
@@ -801,17 +829,17 @@ func (c *terminalClient) closeSubagent(id string) error {
 		return err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		c.terminal.status("Subagent already closed", record.ID)
+		c.terminal.status("Task session already closed", record.ID)
 		return nil
 	}
 	if _, err := c.agent.CloseSubagent(context.Background(), c.sessionID, record.ID); err != nil {
-		return fmt.Errorf("close subagent %s: %w", id, err)
+		return fmt.Errorf("close task session %s: %w", id, err)
 	}
 	if c.activeView() == record.ID {
 		c.switchView("")
 		c.showMainAgentView()
 	}
-	c.terminal.status("Closed subagent", record.ID)
+	c.terminal.status("Closed task session", record.ID)
 	return nil
 }
 
@@ -825,7 +853,7 @@ func (c *terminalClient) findSubagent(id string) (storage.Subagent, error) {
 			return instance, nil
 		}
 	}
-	return storage.Subagent{}, fmt.Errorf("subagent %s was not found in this session", id)
+	return storage.Subagent{}, fmt.Errorf("task session %s was not found in this session", id)
 }
 
 func (c *terminalClient) showSubagentStatus(id string) error {
@@ -838,26 +866,26 @@ func (c *terminalClient) showSubagentStatus(id string) error {
 		task = record.DefinitionName
 	}
 	var activity string
+	result := terminalTaskResultLabel(record)
 	switch {
 	case record.Status == storage.SubagentStatusRunning:
 		activity = "Working on: " + task
 	case record.Status == storage.SubagentStatusClosed:
 		activity = "Closed: " + task
-	case record.LastResultError != "":
-		activity = "Last turn failed: " + record.LastResultError
-	case record.LastSubagentTurnID != "":
-		activity = "Last task completed: " + task
+	case result == string(TaskStateError):
+		activity = "Last task result: error · " + record.LastResultError
+	case result == string(TaskStateIncomplete):
+		activity = "Last task result: incomplete · " + record.LastResultNextStep
+	case result == string(TaskStateCompleted):
+		activity = "Last task result: completed · " + task
 	default:
 		activity = "Ready for its first turn: " + task
 	}
 	if queued := len(record.Pending); queued != 0 {
 		activity += fmt.Sprintf(" · %d follow-up message(s) queued", queued)
 	}
-	detail := record.ID + " · " + activity
-	if record.Status != "" {
-		detail = record.ID + " · " + string(record.Status) + " · " + activity
-	}
-	c.terminal.status("Subagent status", detail)
+	detail := record.ID + " · " + terminalTaskSessionLifecycle(record) + " · " + activity
+	c.terminal.status("Task session status", detail)
 	return nil
 }
 
@@ -1224,22 +1252,34 @@ func (c *terminalClient) showMainAgentView() {
 		return
 	}
 	c.terminal.messages(messages)
-	for _, notice := range c.takeMainAgentNotices() {
-		c.terminal.status("Notification", notice)
+	for _, notice := range c.mainAgentNoticeSnapshot() {
+		c.terminal.status(notice.label, notice.value)
 	}
 	run := c.currentMainAgentRun()
-	if run == nil || run.Done() {
+	if run == nil {
+		c.renderActiveApproval()
 		return
 	}
 	wroteContent := false
 	events := run.Events()
 	for _, event := range events {
-		c.renderBackfillEvent(event, &wroteContent)
+		if run.Done() {
+			c.renderBackfillAlertEvent(event, &wroteContent)
+		} else {
+			c.renderBackfillEvent(event, &wroteContent)
+		}
 	}
 	if len(events) != 0 {
 		c.stateMu.Lock()
 		c.mainAgentReplayThrough = events[len(events)-1].Sequence
 		c.stateMu.Unlock()
+	}
+	c.renderActiveApproval()
+	if run.Done() {
+		return
+	}
+	if _, approvalActive := c.activeApprovalSnapshot(); approvalActive {
+		return
 	}
 	if loading := c.currentMainAgentLoading(); loading != nil && !wroteContent {
 		loading.Start("")
@@ -1251,8 +1291,10 @@ func (c *terminalClient) mainAgentNotice(label, value string) {
 	defer c.renderMu.Unlock()
 	c.stateMu.Lock()
 	visible := c.subagentID == ""
-	if !visible {
-		c.mainAgentNotices = append(c.mainAgentNotices, label+" · "+value)
+	c.mainAgentNotices = append(c.mainAgentNotices, terminalNotice{label: label, value: value})
+	if overflow := len(c.mainAgentNotices) - terminalMainAgentNoticeLimit; overflow > 0 {
+		copy(c.mainAgentNotices, c.mainAgentNotices[overflow:])
+		c.mainAgentNotices = c.mainAgentNotices[:terminalMainAgentNoticeLimit]
 	}
 	c.stateMu.Unlock()
 	if visible {
@@ -1260,12 +1302,16 @@ func (c *terminalClient) mainAgentNotice(label, value string) {
 	}
 }
 
-func (c *terminalClient) takeMainAgentNotices() []string {
+func (c *terminalClient) mainAgentNoticeSnapshot() []terminalNotice {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	notices := append([]string(nil), c.mainAgentNotices...)
+	return append([]terminalNotice(nil), c.mainAgentNotices...)
+}
+
+func (c *terminalClient) clearMainAgentNotices() {
+	c.stateMu.Lock()
 	c.mainAgentNotices = nil
-	return notices
+	c.stateMu.Unlock()
 }
 
 func (c *terminalClient) toggleReasoning() {
@@ -1281,15 +1327,41 @@ func (c *terminalClient) toggleReasoning() {
 }
 
 func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wroteContent *bool) {
-	if event.Type != agentruntime.ProviderEventReceived {
+	if event.Type == agentruntime.ProviderEventReceived {
+		switch event.ProviderEvent.Type {
+		case provider.ContentReceived:
+			c.terminal.write(event.ProviderEvent.Content)
+			*wroteContent = true
+		case provider.ReasoningReceived:
+			c.terminal.reasoning(event.ProviderEvent.Reasoning)
+		}
 		return
 	}
-	switch event.ProviderEvent.Type {
-	case provider.ContentReceived:
-		c.terminal.write(event.ProviderEvent.Content)
-		*wroteContent = true
-	case provider.ReasoningReceived:
-		c.terminal.reasoning(event.ProviderEvent.Reasoning)
+	c.renderBackfillAlertEvent(event, wroteContent)
+}
+
+func (c *terminalClient) renderBackfillAlertEvent(event agentruntime.AgentEvent, wroteContent *bool) {
+	switch event.Type {
+	case agentruntime.RunStarted:
+		if event.PermissionMode != nil && event.PermissionMode.Current == permission.Unrestricted {
+			c.terminal.unrestricted()
+		}
+	case agentruntime.AgentInterrupted:
+		c.terminal.ensureNewline(*wroteContent)
+		*wroteContent = false
+		c.terminal.interrupted()
+	case agentruntime.PermissionModeChanged:
+		if event.PermissionMode != nil {
+			c.terminal.ensureNewline(*wroteContent)
+			*wroteContent = false
+			c.terminal.permissionMode(event.PermissionMode.Previous, event.PermissionMode.Current)
+		}
+	case agentruntime.RunFailed:
+		if event.Error != nil {
+			c.terminal.ensureNewline(*wroteContent)
+			*wroteContent = false
+			c.terminal.error(event.Error)
+		}
 	}
 }
 
@@ -1392,14 +1464,14 @@ func (c *terminalClient) runSubagentTurn(ctx context.Context, prompt string, inp
 	}
 	subagentID := c.activeView()
 	if subagentID == "" {
-		return errors.New("no active subagent view")
+		return errors.New("no active task-session view")
 	}
 	record, err := c.findSubagent(subagentID)
 	if err != nil {
 		return err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return fmt.Errorf("subagent %s is closed", record.ID)
+		return fmt.Errorf("task session %s is closed", record.ID)
 	}
 	sent, err := c.agent.SendSubagentMessage(ctx, c.sessionID, record.ID, prompt)
 	if err != nil {
@@ -1409,7 +1481,7 @@ func (c *terminalClient) runSubagentTurn(ctx context.Context, prompt string, inp
 		c.terminal.status("Queued message", sent.ID)
 		return nil
 	}
-	c.terminal.status("Subagent", string(sent.Status))
+	c.terminal.status("Task session", terminalTaskSessionLifecycle(sent))
 	viewContext, active := c.activeViewContext(sent.ID)
 	if active {
 		c.streamSubagentRun(viewContext, c.sessionID, sent.ID, sent.CurrentSubagentTurnID)
@@ -1449,9 +1521,14 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 			return nil
 		}
 	}
-	loading := c.terminal.loadingController()
-	if !wroteContent && !c.renderInView(id, func() { loading.Start("") }) {
+	if !c.renderInView(id, func() { c.renderActiveApproval() }) {
 		return nil
+	}
+	loading := c.terminal.loadingController()
+	if _, approvalActive := c.activeApprovalSnapshot(); !approvalActive && !wroteContent {
+		if !c.renderInView(id, func() { loading.Start("") }) {
+			return nil
+		}
 	}
 	defer loading.Stop()
 	interrupts := c.interrupts
@@ -1562,7 +1639,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			loading.Stop()
 			c.terminal.ensureNewline(*wroteContent)
 			*wroteContent = false
-			c.terminal.toolCall(event.ToolRequest.Call.Name, "")
+			c.terminal.toolCall(event.ToolRequest.Call.Name, terminalToolCallDetails(event.ToolRequest.Call))
 			loading.Start("Running " + event.ToolRequest.Call.Name)
 		}
 	case agentruntime.ToolResultReceived:
@@ -1764,11 +1841,11 @@ func (t terminal) promptValue() string { return t.paint("1;36", "❯ ") }
 
 func (t terminal) help() {
 	t.println(t.paint("1", "Commands"))
-	t.println("  /agents   list available definitions and subagent sessions")
-	t.println("  /agent REF enter an open subagent session by ID or display name")
-	t.println("  /agent-status REF show subagent status without an agent turn")
+	t.println("  /agents   list available task agents and retained task sessions")
+	t.println("  /agent REF open a retained task session by ID or display name")
+	t.println("  /agent-status REF show task result and lifecycle without starting a turn")
 	t.println("  /back     return to the main agent session")
-	t.println("  /close REF close a subagent session by ID or display name")
+	t.println("  /close REF close a retained task session by ID or display name")
 	t.println("  /new      start a new conversation")
 	t.println("  /session  show the current session ID")
 	t.println("  /skills   show skills available for automatic selection")
@@ -1805,11 +1882,11 @@ func (t terminal) skills(skills []Skill) {
 
 func (t terminal) subagents(definitions []SubagentDefinition, instances []storage.Subagent) {
 	if len(definitions) == 0 && len(instances) == 0 {
-		t.println("No subagent definitions or sessions available.")
+		t.println("No task-agent definitions or retained task sessions available.")
 		return
 	}
 	if len(definitions) != 0 {
-		t.println(t.paint("1", "Available subagents"))
+		t.println(t.paint("1", "Available task agents"))
 		for _, definition := range definitions {
 			skills := "none"
 			if len(definition.Skills) != 0 {
@@ -1824,7 +1901,7 @@ func (t terminal) subagents(definitions []SubagentDefinition, instances []storag
 		}
 	}
 	if len(instances) != 0 {
-		t.println(t.paint("1", "Subagent sessions"))
+		t.println(t.paint("1", "Retained task sessions"))
 		for _, instance := range instances {
 			label := instance.DisplayName + " · " + instance.DefinitionName
 			if instance.Label != "" {
@@ -1834,7 +1911,11 @@ func (t terminal) subagents(definitions []SubagentDefinition, instances []storag
 			if len(instance.Pending) != 0 {
 				queued = fmt.Sprintf(" · %d queued", len(instance.Pending))
 			}
-			t.println("  " + instance.ID + " · " + label + " · " + string(instance.Status) + queued)
+			result := terminalTaskResultLabel(instance)
+			if result != "" {
+				result = " · result=" + result
+			}
+			t.println("  " + instance.ID + " · " + label + " · lifecycle=" + terminalTaskSessionLifecycle(instance) + result + queued)
 		}
 	}
 }
@@ -1844,7 +1925,71 @@ func (t terminal) subagent(instance storage.Subagent) {
 	if instance.Label != "" {
 		label += " · " + instance.Label
 	}
-	t.status("Subagent", label+" · "+instance.ID+" · "+string(instance.Status))
+	detail := label + " · " + instance.ID + " · lifecycle=" + terminalTaskSessionLifecycle(instance)
+	if result := terminalTaskResultLabel(instance); result != "" {
+		detail += " · result=" + result
+	}
+	t.status("Task session", detail)
+}
+
+func terminalTaskSessionLifecycle(instance storage.Subagent) string {
+	switch instance.Status {
+	case storage.SubagentStatusRunning:
+		return "running"
+	case storage.SubagentStatusClosed:
+		return "closed"
+	default:
+		return "resumable"
+	}
+}
+
+func terminalTaskResultLabel(instance storage.Subagent) string {
+	switch instance.LastResultStatus {
+	case storage.SubagentResultCompleted:
+		return string(TaskStateCompleted)
+	case storage.SubagentResultIncomplete:
+		return string(TaskStateIncomplete)
+	case storage.SubagentResultFailed:
+		return string(TaskStateError)
+	}
+	if strings.TrimSpace(instance.LastResultError) != "" {
+		return string(TaskStateError)
+	}
+	if strings.TrimSpace(instance.LastSubagentTurnID) != "" {
+		return string(TaskStateCompleted)
+	}
+	return ""
+}
+
+func terminalToolCallDetails(call agentruntime.ToolCall) string {
+	if call.Name != TaskToolName {
+		return ""
+	}
+	var input struct {
+		Agent       *string `json:"agent"`
+		Description *string `json:"description"`
+		TaskID      *string `json:"task_id"`
+	}
+	if err := json.Unmarshal(call.Arguments, &input); err != nil {
+		return ""
+	}
+	if input.TaskID != nil {
+		if taskID := strings.TrimSpace(*input.TaskID); taskID != "" {
+			return "resume · " + taskID
+		}
+	}
+	details := []string{"new"}
+	if input.Agent != nil {
+		if agent := strings.TrimSpace(*input.Agent); agent != "" {
+			details = append(details, agent)
+		}
+	}
+	if input.Description != nil {
+		if description := strings.TrimSpace(*input.Description); description != "" {
+			details = append(details, description)
+		}
+	}
+	return strings.Join(details, " · ")
 }
 
 func (t terminal) messages(messages []agentruntime.Message) {
@@ -1866,7 +2011,7 @@ func (t terminal) messages(messages []agentruntime.Message) {
 			t.println(content)
 		case agentruntime.MessageTypeToolCall:
 			for _, call := range message.ToolCalls {
-				t.toolCall(call.Name, "")
+				t.toolCall(call.Name, terminalToolCallDetails(call))
 			}
 		case agentruntime.MessageTypeToolResult:
 			if message.ToolResult != nil {
@@ -1943,6 +2088,13 @@ func (t terminal) toolCall(name, details string) {
 }
 
 func (t terminal) toolResult(result agentruntime.ToolResult) {
+	if result.Name == TaskToolName && result.Status == agentruntime.ToolResultSucceeded {
+		var taskResult TaskResult
+		if json.Unmarshal(result.Output, &taskResult) == nil && taskResult.TaskID != "" {
+			t.taskResult(taskResult)
+			return
+		}
+	}
 	icon := "✓"
 	color := "32"
 	detail := "done"
@@ -1952,6 +2104,30 @@ func (t terminal) toolResult(result agentruntime.ToolResult) {
 		detail = result.Error
 	}
 	t.println(t.paint(color, "  "+icon+" "+result.Name) + t.paint("2", " · "+detail))
+}
+
+func (t terminal) taskResult(result TaskResult) {
+	icon, color := "✓", "32"
+	switch result.State {
+	case TaskStateRunning:
+		icon, color = "↗", "36"
+	case TaskStateIncomplete:
+		icon, color = "!", "33"
+	case TaskStateError:
+		icon, color = "✗", "31"
+	}
+	details := []string{string(result.State)}
+	if result.AgentName != "" {
+		details = append(details, result.AgentName)
+	}
+	details = append(details, result.TaskID)
+	if result.ErrorCode != "" {
+		details = append(details, string(result.ErrorCode))
+	}
+	if result.State == TaskStateError && strings.TrimSpace(result.Error) != "" {
+		details = append(details, strings.TrimSpace(result.Error))
+	}
+	t.println(t.paint(color, "  "+icon+" task") + t.paint("2", " · "+strings.Join(details, " · ")))
 }
 
 func (t terminal) reasoning(reasoning string) {

@@ -203,21 +203,128 @@ func TestTerminalRendersPermissionModeEvents(t *testing.T) {
 	}
 }
 
-func TestTerminalRendersTaskToolResult(t *testing.T) {
+func TestTerminalBackfillRestoresAlertEvents(t *testing.T) {
 	var output bytes.Buffer
 	client := terminalClient{terminal: terminal{out: &output}}
-	wrote := false
-	client.renderEvent(agentruntime.AgentEvent{
-		Type: agentruntime.ToolResultReceived,
-		ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
-			Name: TaskToolName, Status: agentruntime.ToolResultSucceeded,
-			Output: json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"done"}`),
-		}},
-	}, &wrote)
-	for _, wanted := range []string{"✓ task"} {
+	wrote := true
+	for _, event := range []agentruntime.AgentEvent{
+		{
+			Type:           agentruntime.RunStarted,
+			PermissionMode: &agentruntime.PermissionModeChange{Current: permission.Unrestricted},
+		},
+		{
+			Type:           agentruntime.PermissionModeChanged,
+			PermissionMode: &agentruntime.PermissionModeChange{Previous: permission.Default, Current: permission.CriticalOnly},
+		},
+		{Type: agentruntime.AgentInterrupted},
+		{Type: agentruntime.RunFailed, Error: errors.New("provider unavailable")},
+	} {
+		client.renderBackfillEvent(event, &wrote)
+	}
+	for _, wanted := range []string{"unrestricted", "default → criticalOnly", "Interrupted.", "Error · provider unavailable"} {
+		if !strings.Contains(output.String(), wanted) {
+			t.Fatalf("backfill output %q missing %q", output.String(), wanted)
+		}
+	}
+}
+
+func TestTerminalReasoningToggleRestoresNoticesAndActiveApproval(t *testing.T) {
+	var output bytes.Buffer
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	request := permission.Request{
+		ID: "perm_1", SessionID: "mainAgent", TurnID: "turn_1",
+		CallID: "call_1", ToolName: "deploy", Details: "production",
+	}
+	active := terminalApproval{kind: terminalApprovalPermission, id: string(request.ID)}
+	client := terminalClient{
+		agent:              &terminalAgentStub{messages: map[string][]agentruntime.Message{"mainAgent": {{Type: agentruntime.MessageTypeAssistant, Reasoning: "inspect"}}}},
+		terminal:           terminal{out: &output, stream: renderer},
+		modelName:          "test",
+		sessionID:          "mainAgent",
+		pendingPermissions: map[permission.ID]permission.Request{request.ID: request},
+		activeApproval:     &active,
+	}
+
+	client.mainAgentNotice("Alert", "background task needs attention")
+	client.toggleReasoning()
+	client.toggleReasoning()
+
+	if got := strings.Count(output.String(), "Alert · background task needs attention"); got != 3 {
+		t.Fatalf("notice rendered %d times live and across two redraws: %q", got, output.String())
+	}
+	if got := strings.Count(output.String(), "⚠ permission deploy · production"); got != 2 {
+		t.Fatalf("active approval rendered %d times across two redraws: %q", got, output.String())
+	}
+	if renderer.reasoningIsExpanded() {
+		t.Fatal("two reasoning toggles did not restore collapsed state")
+	}
+}
+
+func TestTerminalRendersTaskToolResult(t *testing.T) {
+	tests := []struct {
+		state TaskState
+		icon  string
+		extra string
+	}{
+		{state: TaskStateRunning, icon: "↗"},
+		{state: TaskStateCompleted, icon: "✓"},
+		{state: TaskStateIncomplete, icon: "!"},
+		{state: TaskStateError, icon: "✗", extra: "task_closed"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.state), func(t *testing.T) {
+			var output bytes.Buffer
+			client := terminalClient{terminal: terminal{out: &output}}
+			wrote := false
+			result, err := json.Marshal(TaskResult{
+				TaskID: "task_1", AgentName: "researcher", State: test.state,
+				ErrorCode: TaskErrorCode(test.extra), Error: "details",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.renderEvent(agentruntime.AgentEvent{
+				Type: agentruntime.ToolResultReceived,
+				ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
+					Name: TaskToolName, Status: agentruntime.ToolResultSucceeded, Output: result,
+				}},
+			}, &wrote)
+			for _, wanted := range []string{test.icon + " task", string(test.state), "researcher", "task_1"} {
+				if !strings.Contains(output.String(), wanted) {
+					t.Fatalf("output %q missing %q", output.String(), wanted)
+				}
+			}
+			if strings.Contains(output.String(), "task · done") {
+				t.Fatalf("task result fell back to generic success: %q", output.String())
+			}
+			if test.extra != "" && !strings.Contains(output.String(), test.extra) {
+				t.Fatalf("output %q missing %q", output.String(), test.extra)
+			}
+		})
+	}
+}
+
+func TestTerminalRendersNewAndResumedTaskCallsDistinctly(t *testing.T) {
+	var output bytes.Buffer
+	terminal{out: &output}.messages([]agentruntime.Message{
+		{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{
+			Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"full private prompt"}`),
+		}}},
+		{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{
+			Name: TaskToolName, Arguments: json.RawMessage(`{"task_id":"task_1","prompt":"continue"}`),
+		}}},
+	})
+	for _, wanted := range []string{
+		"● task (new · researcher · Inspect queues)",
+		"● task (resume · task_1)",
+	} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}
+	}
+	if strings.Contains(output.String(), "full private prompt") {
+		t.Fatalf("task prompt leaked into terminal summary: %q", output.String())
 	}
 }
 
@@ -412,7 +519,7 @@ func TestTerminalSubagentCommandsNavigateWithoutReadingMainAgentObservation(t *t
 	if agent.readSubagentCalls != 0 {
 		t.Fatalf("terminal used ReadSubagent %d times", agent.readSubagentCalls)
 	}
-	for _, wanted := range []string{"researcher", "Mira", "skills=none", "tools=none", "subagent_1", "Subagent status · subagent_1 · running · Working on: researcher", "Compare queues.", "Here is the comparison.", "Closed subagent · subagent_1", "Session · mainAgent"} {
+	for _, wanted := range []string{"Available task agents", "Retained task sessions", "researcher", "Mira", "skills=none", "tools=none", "subagent_1", "Task session status · subagent_1 · running · Working on: researcher", "Compare queues.", "Here is the comparison.", "Closed task session · subagent_1", "Session · mainAgent"} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}
@@ -426,7 +533,27 @@ func TestTerminalSubagentCommandsRejectUnknownAndClosedInstances(t *testing.T) {
 	client.command("/agent missing")
 	client.command("/agent closed")
 	client.command("/close missing")
-	for _, wanted := range []string{"subagent missing was not found in this session", "subagent closed is closed"} {
+	for _, wanted := range []string{"task session missing was not found in this session", "task session closed is closed"} {
+		if !strings.Contains(output.String(), wanted) {
+			t.Fatalf("output %q missing %q", output.String(), wanted)
+		}
+	}
+}
+
+func TestTerminalTaskSessionListSeparatesLifecycleFromResult(t *testing.T) {
+	var output bytes.Buffer
+	terminal{out: &output}.subagents(nil, []storage.Subagent{
+		{ID: "task_running", DisplayName: "Rin", DefinitionName: "researcher", Status: storage.SubagentStatusRunning},
+		{ID: "task_incomplete", DisplayName: "Mira", DefinitionName: "researcher", LastResultStatus: storage.SubagentResultIncomplete},
+		{ID: "task_failed", DisplayName: "Sol", DefinitionName: "reviewer", LastResultStatus: storage.SubagentResultFailed},
+		{ID: "task_closed", DisplayName: "Kai", DefinitionName: "reviewer", Status: storage.SubagentStatusClosed, LastResultStatus: storage.SubagentResultCompleted},
+	})
+	for _, wanted := range []string{
+		"task_running · Rin · researcher · lifecycle=running",
+		"task_incomplete · Mira · researcher · lifecycle=resumable · result=incomplete",
+		"task_failed · Sol · reviewer · lifecycle=resumable · result=error",
+		"task_closed · Kai · reviewer · lifecycle=closed · result=completed",
+	} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}
@@ -783,7 +910,7 @@ func TestTerminalOpenSubagentShowsToolHistoryAndLastTurnFailure(t *testing.T) {
 	if err := client.openSubagent("subagent_1"); err != nil {
 		t.Fatal(err)
 	}
-	for _, wanted := range []string{"Inspect the project.", "● load_skill", "✓ load_skill", "subagent turn turn_1 failed", "maximum provider steps reached"} {
+	for _, wanted := range []string{"Task session", "lifecycle=resumable", "Inspect the project.", "● load_skill", "✓ load_skill", "Task result · error · turn_1", "maximum provider steps reached"} {
 		if !strings.Contains(output.String(), wanted) {
 			t.Fatalf("output %q missing %q", output.String(), wanted)
 		}

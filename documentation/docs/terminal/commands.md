@@ -6,14 +6,14 @@ sidebar_position: 3
 # Command reference
 
 Commands begin with `/`. Any other submitted text becomes a user message for
-the currently selected main-agent or subagent view.
+the currently selected main-agent or retained task-session view.
 
 ## General commands
 
 | Command | Description |
 | --- | --- |
 | `/help` | Print the command and keyboard-shortcut summary. |
-| `/session` | Show the main-agent session, selected subagent when applicable, and selected-view streaming state. |
+| `/session` | Show the main-agent session, selected task session when applicable, and selected-view streaming state. |
 | `/new` | Generate and switch to a new main-agent session. The Agent remains open. |
 | `/clear` | Clear the screen and redraw the banner for the current main-agent session. |
 | `/skills` | List skills available for automatic selection. This does not load a skill. |
@@ -24,19 +24,21 @@ the currently selected main-agent or subagent view.
 stored transcript. The old session can still be inspected through the Go or
 HTTP APIs.
 
-## Child-session commands
+## Task-session commands
 
 | Command | Description |
 | --- | --- |
-| `/agents` | List available subagent definitions and subagent sessions. |
-| `/agent REF` | Open a subagent using its ID or case-insensitive display name. |
-| `/agent-status REF` | Show lifecycle status and activity summary without starting a model turn. |
-| `/back` | Return to the main-agent view without interrupting the subagent. |
-| `/close REF` | Destructively close a subagent, interrupting active work if needed, dropping queued input, and releasing outstanding result obligations. |
+| `/agents` | List available task-agent definitions and retained task sessions. |
+| `/agent REF` | Open a retained task session using its ID or case-insensitive display name. |
+| `/agent-status REF` | Show task result and session lifecycle without starting a model turn. |
+| `/back` | Return to the main-agent view without interrupting the task session. |
+| `/close REF` | Destructively close a task session, interrupting active work if needed, dropping queued input, and releasing outstanding result obligations. |
 
-These commands are host-only persisted-subagent controls; they do not expose
-the model-facing task protocol. `REF` is one subagent ID or one display name. See
-[Subagent views](./subagent-views.md) for message routing and background work.
+The command spellings remain backward compatible even though the UI now uses
+the task contract's terminology. These are host controls for persisted task
+sessions; the main model still sees only the `task` tool. `REF` is one task ID
+or one display name. See [Task-session views](./subagent-views.md) for message
+routing and background work.
 
 ## Permission commands
 
@@ -71,7 +73,8 @@ answer it:
 | `3` | Allow for this project |
 | `4` | Deny |
 
-Use the explicit ID commands when several main-agent or subagent requests are pending.
+Use the explicit ID commands when requests from several main-agent or task
+sessions are pending.
 
 ## Confirmation commands
 
@@ -81,8 +84,8 @@ Use the explicit ID commands when several main-agent or subagent requests are pe
 | `/confirm ID` | Answer Yes to one confirmation. |
 | `/decline ID` | Answer No to one confirmation. |
 
-Typing `y` or `n` answers the visible confirmation. Main-agent/subagent permissions and
-confirmations share one global FIFO, so only the oldest request is actionable.
+Typing `y` or `n` answers the visible confirmation. Main-agent/task-session
+permissions and confirmations share one global FIFO, so only the oldest request is actionable.
 A shortcut for the wrong kind is ignored rather than resolving another queued
 request. Confirmations are never bypassed by unrestricted mode.
 

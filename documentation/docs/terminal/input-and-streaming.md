@@ -21,7 +21,7 @@ state, so streamed output can update without deleting the draft.
 | `Home` / `End` | Move to the start or end of the current draft line. |
 | `Backspace` / `Delete` | Remove text before or after the cursor. |
 | `Ctrl+O` | Expand or collapse all provider reasoning in the active view. |
-| `Esc` | Interrupt the active main-agent or subagent response. |
+| `Esc` | Interrupt the active main-agent or task-session response. |
 | `Ctrl+C` twice | Exit the terminal. The second press must occur within two seconds. |
 
 The editor accepts bracketed paste. Pasting several lines inserts one
@@ -30,7 +30,7 @@ to send the pasted content.
 
 Prompt history is held for the lifetime of the terminal process. Multi-line
 prompts retain their line breaks. The same history is available while viewing
-the main-agent session or a subagent session; it is not persisted as terminal-editor
+the main-agent session or a task session; it is not persisted as terminal-editor
 state across process restarts. Conversation messages remain available through
 message storage independently.
 
@@ -76,16 +76,19 @@ reasoning is intentionally dimmer than the answer:
   compare the possible outcomes
 ```
 
-Press `Ctrl+O` again to collapse it. Main-agent and subagent views use the same
-behavior, and stored reasoning can be restored when a view is reopened.
+Press `Ctrl+O` again to collapse it. Main-agent and task-session views use the
+same behavior, and stored reasoning can be restored when a view is reopened.
+The redraw also restores runtime alerts, retained notifications, and the active
+permission or confirmation prompt. Toggling reasoning therefore does not hide
+actionable state.
 
 ## Send input while a response is active
 
-Input remains editable while the current main-agent or subagent turn is streaming. A
+Input remains editable while the current main-agent or task-session turn is streaming. A
 new main-agent prompt is placed in the main-agent queue and starts after the active turn
-and Agent-owned background task delivery is handled. Input entered in a subagent
-view is sent to that subagent; if it is already running, the message is queued in
-the subagent's mailbox.
+and Agent-owned background task delivery is handled. Input entered in a task-session
+view is sent to that same retained task session; if it is already running, the
+message is queued in its mailbox.
 
 Foreground `task` calls do not require a special terminal wait state: their
 output returns in the current main-agent turn. Background or auto-promoted
