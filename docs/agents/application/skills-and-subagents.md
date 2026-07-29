@@ -90,11 +90,6 @@ The main model uses `task` for every child-agent execution. A new task requires
 `task_id` plus `prompt`. A supplied task ID always wins over create-only fields
 and never creates a replacement. A corrected resume must preserve task_id
 rather than dropping it and accidentally creating another task.
-Applications may inject retained candidates with agent names and task IDs in
-runtime context. The framework tells the main model to treat them as choices:
-resume only when the current request continues, answers, or corrects matching
-prior work; create a new task for unrelated work, even if it uses the same
-agent.
 Foreground is default and returns final output in the same tool call.
 Independent tasks in one batch may run concurrently.
 
