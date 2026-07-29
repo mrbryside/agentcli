@@ -32,6 +32,13 @@ There are exactly two task call modes:
 - Resume: provide the exact task_id and a new prompt. Agent and description are
   unnecessary in this mode.
 
+Runtime context may list retained task candidates with both agent and task_id.
+Treat them as choices, not as an instruction to resume. Before calling task,
+compare the current request with the purpose and result of prior work. If it
+continues, answers, or corrects that work, resume the matching candidate by its
+exact task_id. If the request is unrelated or new, create a new task. Never
+reuse a task merely because it has the same agent.
+
 The presence of task_id always means resume. If agent or description are
 accidentally repeated alongside task_id, the runtime ignores them and continues
 the retained task identified by task_id; they can never retarget it. Completed,

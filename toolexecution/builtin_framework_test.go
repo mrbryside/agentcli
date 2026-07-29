@@ -103,7 +103,7 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"new task", "task_id", "presence of task_id always selects resume mode", "runtime ignores agent or description", "keep the same task_id", "never remove task_id", "Completed, incomplete, and failed runs remain resumable", "error_code task_not_found or task_closed", "essential user information", "resume the same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
+		"new task", "task_id", "retained task candidates", "choices, not as an instruction to resume", "unrelated or new", "same agent", "presence of task_id always selects resume mode", "runtime ignores agent or description", "keep the same task_id", "never remove task_id", "Completed, incomplete, and failed runs remain resumable", "error_code task_not_found or task_closed", "essential user information", "resume the same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)

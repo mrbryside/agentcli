@@ -6,6 +6,9 @@ authoritative: create-only agent/description fields are discarded before
 validation and execution, so they cannot retarget a retained task. Same-batch
 independent calls may run in parallel. Foreground is default, with
 `background:true` and `WithTaskForegroundWait` promotion using Agent-owned exact-once delivery.
+Runtime-provided retained-task candidates are advisory: the model resumes the
+matching task only for related continuation and creates a new task for
+unrelated work. Sharing an agent name is not sufficient reason to resume.
 Children do not receive `task` or `EndResponseScope` tools. Step-limit
 finalization is text-only and yields `incomplete`, with no report-repair tool.
 
