@@ -110,7 +110,7 @@ func (bridge *TaskToolBridge) Tools() []Tool {
 
 func (bridge *TaskToolBridge) description() string {
 	var description strings.Builder
-	description.WriteString("Run one focused task with a configured agent. For a new task, provide agent, description, and prompt. To continue any existing task later, provide its exact task_id and a prompt; omit agent and description. Completed, incomplete, and failed runs remain resumable. A missing or closed task_id returns error_code task_not_found or task_closed and never creates a replacement task. If a task needs essential user information, ask its exact question, then resume the same task_id with the user's answer. Foreground is the default: its final output is returned by this call. Use background only when later delivery is appropriate. Put independent tasks in the same assistant tool-call message so they can run in parallel. When exactly two independent readers are needed, make exactly two task calls in that one message, one source prompt each, without waiting for the first. Do not call task again merely to check progress or make tool calls solely to delay a response.")
+	description.WriteString("Run one focused task with a configured agent. For a new task, provide agent, description, and prompt. To continue any existing task later, provide its exact task_id and a prompt; agent and description are unnecessary. The presence of task_id always selects resume mode, and the runtime ignores agent or description if they are accidentally included. Completed, incomplete, and failed runs remain resumable. A missing or closed task_id returns error_code task_not_found or task_closed and never creates a replacement task. After any resume error, keep the same task_id when correcting the call; never remove task_id merely to make the call succeed. If a task needs essential user information, ask its exact question, then resume the same task_id with the user's answer. Foreground is the default: its final output is returned by this call. Use background only when later delivery is appropriate. Put independent tasks in the same assistant tool-call message so they can run in parallel. When exactly two independent readers are needed, make exactly two task calls in that one message, one source prompt each, without waiting for the first. Do not call task again merely to check progress or make tool calls solely to delay a response.")
 	if len(bridge.agents) == 0 {
 		return description.String()
 	}
@@ -126,6 +126,7 @@ func (bridge *TaskToolBridge) handle(ctx context.Context, arguments json.RawMess
 	if err := decodeTaskTool(arguments, &input); err != nil {
 		return nil, err
 	}
+	input = normalizeTaskToolInput(input)
 	if err := validateTaskToolInput(input); err != nil {
 		return nil, err
 	}
@@ -138,6 +139,17 @@ func (bridge *TaskToolBridge) handle(ctx context.Context, arguments json.RawMess
 		return nil, err
 	}
 	return executor(ctx, invocation, input)
+}
+
+// normalizeTaskToolInput makes task_id the unambiguous mode discriminator.
+// Models sometimes repeat the create-only agent and description fields while
+// resuming; those fields cannot retarget the retained task and are discarded.
+func normalizeTaskToolInput(input TaskToolInput) TaskToolInput {
+	if input.TaskID != nil {
+		input.Agent = nil
+		input.Description = nil
+	}
+	return input
 }
 
 func decodeTaskTool(arguments json.RawMessage, output any) error {
@@ -171,12 +183,6 @@ func validateTaskToolInput(input TaskToolInput) error {
 	}
 	if strings.TrimSpace(*input.TaskID) == "" {
 		return errors.New("task_id cannot be empty")
-	}
-	if input.Agent != nil {
-		return errors.New("task agent cannot be supplied when resuming a task")
-	}
-	if input.Description != nil {
-		return errors.New("task description cannot be supplied when resuming a task")
 	}
 	return nil
 }

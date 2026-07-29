@@ -3,8 +3,10 @@
 **v0.1 task protocol:** configured child agents still have persisted subagent
 sessions, but the main model receives only `task`. New work supplies agent,
 description, and prompt; same-session resume supplies task_id and prompt.
-Foreground returns one result in place; background or foreground-wait promotion
-uses Agent-owned exact-once delivery. Child agents cannot call `task`.
+When task_id is present it authoritatively selects resume mode; repeated
+agent/description values are ignored and cannot create or retarget a task.
+Foreground returns one result in place; background or foreground-wait
+promotion uses Agent-owned exact-once delivery. Child agents cannot call `task`.
 `TaskState` is running/completed/incomplete/error; result-contract metadata is
 application-only in `SystemTaskCompleted`, and step-limit finalization is
 text-only with no `report_subagent_result` repair.
@@ -85,7 +87,9 @@ admission decision is unresolved.
 
 The main model uses `task` for every child-agent execution. A new task requires
 `agent`, `description`, and `prompt`; a resume uses the exact same-session
-`task_id` plus `prompt`. A supplied task ID never creates a replacement.
+`task_id` plus `prompt`. A supplied task ID always wins over create-only fields
+and never creates a replacement. A corrected resume must preserve task_id
+rather than dropping it and accidentally creating another task.
 Foreground is default and returns final output in the same tool call.
 Independent tasks in one batch may run concurrently.
 

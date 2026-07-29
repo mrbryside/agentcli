@@ -81,7 +81,7 @@ Use sources and explain uncertainty.
 	}
 	if !strings.Contains(subagents, "# Subagents") ||
 		!strings.Contains(subagents, "Use task for focused work") ||
-		!strings.Contains(subagents, "Foreground is the\ndefault") ||
+		!strings.Contains(subagents, "Foreground is the default") ||
 		!strings.Contains(subagents, "same tool batch") ||
 		!strings.Contains(subagents, "task_id") {
 		t.Fatalf("task prompt = %q", subagents)

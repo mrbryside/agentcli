@@ -103,7 +103,7 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"new task", "task_id", "Completed, incomplete, and failed runs remain resumable", "error_code task_not_found or task_closed", "essential user information", "resume the same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
+		"new task", "task_id", "presence of task_id always selects resume mode", "runtime ignores agent or description", "keep the same task_id", "never remove task_id", "Completed, incomplete, and failed runs remain resumable", "error_code task_not_found or task_closed", "essential user information", "resume the same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)
@@ -155,8 +155,6 @@ func TestTaskToolBridgeValidatesFormsAndReturnsBoundResult(t *testing.T) {
 		{"missing prompt", `{"agent":"researcher","description":"Research"}`, "task prompt is required"},
 		{"new missing agent", `{"description":"Research","prompt":"find it"}`, "task agent is required"},
 		{"new missing description", `{"agent":"researcher","prompt":"find it"}`, "task description is required"},
-		{"resume includes agent", `{"task_id":"task_1","agent":"researcher","prompt":"continue"}`, "cannot be supplied"},
-		{"resume includes description", `{"task_id":"task_1","description":"again","prompt":"continue"}`, "cannot be supplied"},
 		{"empty task id", `{"task_id":" ","prompt":"continue"}`, "task_id cannot be empty"},
 		{"unknown field", `{"agent":"researcher","description":"Research","prompt":"find it","extra":true}`, "unknown field"},
 	} {
@@ -166,6 +164,25 @@ func TestTaskToolBridgeValidatesFormsAndReturnsBoundResult(t *testing.T) {
 				t.Fatalf("Handler(%s) error = %v, want %q", test.arguments, err, test.want)
 			}
 		})
+	}
+}
+
+func TestTaskToolBridgeTaskIDWinsOverCreateOnlyFields(t *testing.T) {
+	bridge := NewTaskToolBridge(nil)
+	bridge.Bind(func(_ context.Context, _ Invocation, input TaskToolInput) (json.RawMessage, error) {
+		if input.TaskID == nil || *input.TaskID != "task_1" || input.Agent != nil || input.Description != nil || input.Prompt != "continue" {
+			t.Fatalf("normalized resume input = %#v", input)
+		}
+		return json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"continued","error":""}`), nil
+	})
+	tool := bridge.Tools()[0]
+	ctx := WithInvocation(context.Background(), Invocation{SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName})
+	output, err := tool.Handler(ctx, json.RawMessage(`{"task_id":"task_1","agent":"wrong-agent","description":"new task metadata","prompt":"continue"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), `"output":"continued"`) {
+		t.Fatalf("task output = %s", output)
 	}
 }
 

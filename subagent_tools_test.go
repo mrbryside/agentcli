@@ -60,7 +60,7 @@ func TestTaskToolBridgeValidatesInvocationAndExecutesForegroundTask(t *testing.T
 	}
 }
 
-func TestTaskToolBridgeRejectsInvalidNewAndResumeForms(t *testing.T) {
+func TestTaskToolBridgeRejectsInvalidNewForms(t *testing.T) {
 	manager := newTestSubagentManager(t, &scriptedModel{}, 1)
 	defer manager.Close()
 	bridge := newTestTaskToolBridge(manager)
@@ -75,8 +75,6 @@ func TestTaskToolBridgeRejectsInvalidNewAndResumeForms(t *testing.T) {
 		{"missing prompt", json.RawMessage(`{"agent":"researcher","description":"Research"}`), "task prompt is required"},
 		{"new missing agent", json.RawMessage(`{"description":"Research","prompt":"work"}`), "task agent is required"},
 		{"new missing description", json.RawMessage(`{"agent":"researcher","prompt":"work"}`), "task description is required"},
-		{"resume includes agent", json.RawMessage(`{"task_id":"task_1","agent":"researcher","prompt":"continue"}`), "cannot be supplied"},
-		{"resume includes description", json.RawMessage(`{"task_id":"task_1","description":"Research","prompt":"continue"}`), "cannot be supplied"},
 		{"unknown field", json.RawMessage(`{"agent":"researcher","description":"Research","prompt":"work","continue_main_agent":false}`), "unknown field"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -84,6 +82,30 @@ func TestTaskToolBridgeRejectsInvalidNewAndResumeForms(t *testing.T) {
 				t.Fatalf("task error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestTaskToolBridgeResumeIgnoresCreateOnlyFields(t *testing.T) {
+	bridge := toolexecution.NewTaskToolBridge(nil)
+	bridge.Bind(func(_ context.Context, _ toolexecution.Invocation, input toolexecution.TaskToolInput) (json.RawMessage, error) {
+		if input.TaskID == nil || *input.TaskID != "task_1" || input.Agent != nil || input.Description != nil {
+			t.Fatalf("normalized resume input = %#v", input)
+		}
+		return json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"continued","error":""}`), nil
+	})
+	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
+		SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName,
+	})
+	output, err := callTaskTool(bridge, ctx, json.RawMessage(`{"task_id":"task_1","agent":"wrong-agent","description":"replacement","prompt":"continue"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result TaskResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.TaskID != "task_1" || result.AgentName != "researcher" || result.Output != "continued" {
+		t.Fatalf("task result = %#v", result)
 	}
 }
 

@@ -556,16 +556,11 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 	if err != nil || crossSession.State != TaskStateError || crossSession.ErrorCode != TaskErrorNotFound {
 		t.Fatalf("cross-session resume result = %#v, err = %v", crossSession, err)
 	}
-	if _, err := manager.ExecuteTask(context.Background(), TaskRequest{
-		MainAgentSessionID: "owner", MainAgentTurnID: "bad-turn", TaskID: first.TaskID, AgentName: "reviewer", Prompt: "continue",
-	}); err == nil {
-		t.Fatal("resume accepted a new agent")
-	}
-
 	resumedResults := make(chan TaskResult, 1)
 	go func() {
 		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
-			MainAgentSessionID: "owner", MainAgentTurnID: "second", TaskID: first.TaskID, Prompt: "continue",
+			MainAgentSessionID: "owner", MainAgentTurnID: "second", TaskID: first.TaskID,
+			AgentName: "reviewer", Description: "replacement metadata", Prompt: "continue",
 		})
 		if err != nil {
 			t.Errorf("resume task: %v", err)
@@ -579,7 +574,7 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 	model.releases <- struct{}{}
 	select {
 	case resumed := <-resumedResults:
-		if resumed.TaskID != first.TaskID || resumed.State != TaskStateCompleted || resumed.Output != "done" {
+		if resumed.TaskID != first.TaskID || resumed.AgentName != "researcher" || resumed.State != TaskStateCompleted || resumed.Output != "done" {
 			t.Fatalf("resumed result = %#v", resumed)
 		}
 		record, found, err := manager.store.Get(context.Background(), first.TaskID)
@@ -595,6 +590,22 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("resumed task did not finish")
+	}
+}
+
+func TestSubagentManagerRejectsPresentButEmptyTaskID(t *testing.T) {
+	manager := newTestSubagentManager(t, &scriptedModel{}, 1)
+	defer manager.Close()
+	_, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		MainAgentSessionID: "owner",
+		MainAgentTurnID:    "turn",
+		TaskID:             " ",
+		AgentName:          "researcher",
+		Description:        "must not become a new task",
+		Prompt:             "continue",
+	})
+	if err == nil || !strings.Contains(err.Error(), "task_id cannot be empty") {
+		t.Fatalf("empty task_id error = %v", err)
 	}
 }
 

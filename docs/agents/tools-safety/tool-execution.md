@@ -1,9 +1,11 @@
 # Tool execution
 
 `task` is the one main-agent child-work framework tool. New calls use
-agent/description/prompt; resumes use task_id/prompt. Same-batch independent
-calls may run in parallel. Foreground is default, with `background:true` and
-`WithTaskForegroundWait` promotion using Agent-owned exact-once delivery.
+agent/description/prompt; resumes use task_id/prompt. Presence of task_id is
+authoritative: create-only agent/description fields are discarded before
+validation and execution, so they cannot retarget a retained task. Same-batch
+independent calls may run in parallel. Foreground is default, with
+`background:true` and `WithTaskForegroundWait` promotion using Agent-owned exact-once delivery.
 Children do not receive `task` or `EndResponseScope` tools. Step-limit
 finalization is text-only and yields `incomplete`, with no report-repair tool.
 

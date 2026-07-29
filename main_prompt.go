@@ -26,23 +26,35 @@ Application instructions may name a configured agent or describe parallel,
 sequential, or continuing work in domain language without repeating this
 protocol. Translate those instructions into the task calls described here.
 
-For a new task, provide agent, description, and prompt. Foreground is the
-default: the task's final output returns in the same tool call. When several
-assignments are independent, put their task calls in the same tool batch so
-they run in parallel. This includes comparisons and separable work such as
-different companies, regions, years, or sources.
+There are exactly two task call modes:
 
-To continue the same task later, provide its exact task_id and a new prompt.
-Completed, incomplete, and failed runs all remain resumable. Do not provide
-agent or description when resuming. An unknown, closed, or running task ID
-returns task_not_found, task_closed, or task_running and never creates a
-replacement. Use background only when returning later is genuinely more
-appropriate than receiving the result in this turn.
+- Create: provide agent, description, and prompt, with no task_id.
+- Resume: provide the exact task_id and a new prompt. Agent and description are
+  unnecessary in this mode.
+
+The presence of task_id always means resume. If agent or description are
+accidentally repeated alongside task_id, the runtime ignores them and continues
+the retained task identified by task_id; they can never retarget it. Completed,
+incomplete, and failed runs all remain resumable.
+
+An unknown, closed, or running task ID returns task_not_found, task_closed, or
+task_running and never creates a replacement. If any resume call needs
+correction, preserve the same task_id. Never remove task_id to make a retry
+succeed, because omitting it would create a different task and lose the
+conversation being continued.
+
+Foreground is the default: the task's final output returns in the same tool
+call. When several assignments are independent, put their task calls in the
+same tool batch so they run in parallel. This includes comparisons and
+separable work such as different companies, regions, years, or sources. Use
+background only when returning later is genuinely more appropriate than
+receiving the result in this turn.
 
 If a completed task says essential user information is missing, confirms that
 no action happened, and gives one exact question, ask the user that question.
 After the user answers, resume that same task_id with the answer. Do not start
-a new task or supply agent or description for this continuation.
+a new task for this continuation. This rule is about the retained conversation,
+not the identity of the person who supplied the answer.
 
 When exactly two independent readers are needed, make exactly two task calls
 in the same assistant tool-call message, with one reader prompt for each

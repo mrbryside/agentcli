@@ -71,10 +71,12 @@ For a new task, provide `agent`, `description`, and `prompt`:
 {"agent":"researcher","description":"compare options","prompt":"Compare A and B with sources."}
 ```
 
-For a resume, provide only `task_id` and `prompt`. The ID belongs to its
-main-agent session, retains child history, and can resume after a completed,
-incomplete, or failed run. A supplied ID is exact: the runtime never creates a
-replacement when it is unknown or closed. Such calls return
+For a resume, provide `task_id` and `prompt`. The ID belongs to its main-agent
+session, retains child history, and can resume after a completed, incomplete,
+or failed run. Presence of `task_id` authoritatively selects resume mode; if a
+model repeats create-only `agent` or `description` fields, the runtime ignores
+them and continues the identified task. A supplied ID is exact: the runtime
+never creates a replacement when it is unknown or closed. Such calls return
 `error_code: "task_not_found"` or `error_code: "task_closed"`; a task already
 running returns `error_code: "task_running"`.
 
@@ -139,7 +141,9 @@ and the user's answer:
 ```
 
 Do not create a new task for this continuation. The existing task retains the
-child's context, including what it has already gathered and why it asked.
+child's context, including what it has already gathered and why it asked. If a
+resume call must be corrected, keep the same `task_id`; removing it changes the
+call into new-task creation.
 
 ## Host session controls
 

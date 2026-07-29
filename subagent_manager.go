@@ -139,10 +139,20 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 	ctx = nonNilContext(ctx)
 	request.MainAgentSessionID = strings.TrimSpace(request.MainAgentSessionID)
 	request.MainAgentTurnID = strings.TrimSpace(request.MainAgentTurnID)
+	taskIDProvided := request.TaskID != ""
 	request.TaskID = strings.TrimSpace(request.TaskID)
 	request.AgentName = strings.TrimSpace(request.AgentName)
 	request.Description = strings.TrimSpace(request.Description)
 	request.Prompt = normalizeSubagentMessage(request.Prompt)
+	if taskIDProvided && request.TaskID == "" {
+		return TaskResult{}, errors.New("task_id cannot be empty")
+	}
+	if request.TaskID != "" {
+		// task_id is authoritative. Create-only metadata repeated by a model or
+		// API caller cannot retarget a retained task and is ignored.
+		request.AgentName = ""
+		request.Description = ""
+	}
 	if request.MainAgentSessionID == "" || request.MainAgentTurnID == "" {
 		return TaskResult{}, errors.New("main agent session and turn IDs are required")
 	}
@@ -164,12 +174,6 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 		}
 		record, definition, run, err = m.startForegroundTask(ctx, request)
 	} else {
-		if request.AgentName != "" {
-			return TaskResult{}, errors.New("task agent cannot be supplied when resuming a task")
-		}
-		if request.Description != "" {
-			return TaskResult{}, errors.New("task description cannot be supplied when resuming a task")
-		}
 		record, definition, run, err = m.resumeForegroundTask(ctx, request)
 	}
 	if err != nil {
