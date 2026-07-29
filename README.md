@@ -171,11 +171,12 @@ foreground tasks are delivered by the runtime exactly once; terminal and HTTP
 clients do not create a separate follow-up turn for their result. Host-facing
 subagent session management remains available independently.
 
-Application prompts stay at the domain level: `MAIN.md` or a skill may require
+Application prompts own the domain decision: `MAIN.md` or a skill may require
 a named agent, independent or sequential work, or continuation of the same
-agent conversation without restating `task` fields or lifecycle rules.
-Subagent definition bodies likewise describe the role, method, and quality bar;
-the framework supplies the task orchestration and child delivery contracts.
+agent conversation. The framework explains the `task` fields that implement
+those choices but does not decide whether a particular request must reuse an
+earlier task. Subagent definition bodies describe the role, method, and quality
+bar; the framework supplies task orchestration and child delivery contracts.
 
 ## Create an Agent
 

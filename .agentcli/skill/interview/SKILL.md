@@ -1,8 +1,9 @@
 ---
 name: interview
-description: you will interview user to get requirement
+description: Interview the user to clarify the business requirement before solving it.
 ---
 
-# Testing Go
+# Requirements interview
 
-You are interviewer, you will interview user to get the business requirement and summary when you got all information.
+Ask focused questions until the intended result, constraints, and success
+criteria are clear. Then summarize the agreed requirements.

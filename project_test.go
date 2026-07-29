@@ -236,10 +236,8 @@ Return evidence and limits.
 		"presence of task_id always means resume",
 		"preserve the same task_id",
 		"Never remove task_id",
-		"essential user information is missing",
-		"resume that same task_id",
-		"exactly two independent readers",
-		"same assistant tool-call message",
+		"running, completed, incomplete, or error",
+		"task_not_found, task_closed, or task_running",
 		"<available_task_agents>",
 		"<name>researcher</name>",
 		"<description>Research current information from reliable sources.</description>",
@@ -251,7 +249,8 @@ Return evidence and limits.
 	for _, forbidden := range []string{
 		"callback", "continue_main_agent", "accepted", "result_progress",
 		"report_subagent_result", "send_subagent_message", "polling",
-		"simulated waiting",
+		"simulated waiting", "after the user answers, resume",
+		"exactly two independent readers",
 	} {
 		if strings.Contains(strings.ToLower(prompt), forbidden) {
 			t.Fatalf("task prompt contains retired protocol term %q: %q", forbidden, prompt)

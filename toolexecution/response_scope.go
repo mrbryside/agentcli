@@ -824,7 +824,7 @@ func (c *ResponseScopeCoordinator) ExecuteEndResponseScope(
 				"pending_inputs", pendingInputs,
 			)
 		}
-		instruction := "The tool call was handled, but the action did not run because the complete final response is not ready. Treat this call as handled and do not retry it yourself. Finish remaining independent work, or stop if requiredsubagent results are still pending."
+		instruction := "The tool call was handled, but the action did not run because the complete final response is not ready. Treat this call as handled and do not retry it yourself. Finish remaining independent work, or stop if required subagent results are still pending."
 		output, err := json.Marshal(map[string]any{
 			"status":      "succeeded",
 			"action":      "skipped",

@@ -19,9 +19,11 @@ removed.
 These protocol details are framework-owned. `MAIN.md`, skills, and subagent
 definition bodies express domain policy and role behavior without duplicating
 task fields, batching rules, resume mechanics, or generic delivery wording.
-The framework translates instructions such as “use researcher,” “run these
+The framework explains how instructions such as “use researcher,” “run these
 checks independently,” “review after research,” or “continue the same
-researcher conversation” into valid task calls.
+researcher conversation” map to valid task calls. It exposes continuation as a
+capability; application prompts decide whether a particular workflow should
+reuse an earlier task.
 
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in

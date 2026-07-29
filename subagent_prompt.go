@@ -61,7 +61,7 @@ func subagentResultContractPrompt(definition SubagentDefinition) string {
 	}
 	var prompt strings.Builder
 	prompt.WriteString("Return exactly one JSON object and no Markdown or surrounding text. Use only these fields:\n\n")
-	fmt.Fprintf(&prompt, "- %q: required string containing the user-facing final answer.\n", contract.MessageField)
+	fmt.Fprintf(&prompt, "- %q: required string containing the task result for the main agent.\n", contract.MessageField)
 	metadataNames := make([]string, 0, len(contract.Metadata))
 	for name := range contract.Metadata {
 		metadataNames = append(metadataNames, name)

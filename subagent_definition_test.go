@@ -372,6 +372,7 @@ func TestSubagentResultContractPromptIsOptInAndExact(t *testing.T) {
 		"# Final response format",
 		"Return exactly one JSON object",
 		`"message": required string`,
+		"task result for the main agent",
 		`"requires_requester_reply": required boolean`,
 		`"source": optional string`,
 	} {

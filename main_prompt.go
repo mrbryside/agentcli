@@ -11,9 +11,10 @@ not prove the requested work succeeded. For a task result, read these fields:
 
 - task_id: the identity to use if the same task needs another turn;
 - agent: the configured agent that performed the work;
-- state: completed, incomplete, or error;
+- state: running, completed, incomplete, or error;
 - output: the final or partial work result;
-- error_code: a stable reason such as task_not_found or task_closed when present;
+- error_code: a stable reason such as task_not_found, task_closed, or task_running
+  when present;
 - error: why the task could not produce a result.
 
 Use output when it is present. For an incomplete task, decide whether one
@@ -34,8 +35,8 @@ There are exactly two task call modes:
 
 The presence of task_id always means resume. If agent or description are
 accidentally repeated alongside task_id, the runtime ignores them and continues
-the retained task identified by task_id; they can never retarget it. Completed,
-incomplete, and failed runs all remain resumable.
+the retained task identified by task_id; they can never retarget it. Tasks with
+completed, incomplete, or error results all remain resumable.
 
 An unknown, closed, or running task ID returns task_not_found, task_closed, or
 task_running and never creates a replacement. If any resume call needs
@@ -49,16 +50,6 @@ same tool batch so they run in parallel. This includes comparisons and
 separable work such as different companies, regions, years, or sources. Use
 background only when returning later is genuinely more appropriate than
 receiving the result in this turn.
-
-If a completed task says essential user information is missing, confirms that
-no action happened, and gives one exact question, ask the user that question.
-After the user answers, resume that same task_id with the answer. Do not start
-a new task for this continuation. This rule is about the retained conversation,
-not the identity of the person who supplied the answer.
-
-When exactly two independent readers are needed, make exactly two task calls
-in the same assistant tool-call message, with one reader prompt for each
-source. Do not wait for the first reader before starting the second.
 
 Do not call task again merely to see whether work has progressed. Do not make
 tool calls solely to delay a response. Use the returned output, state, and

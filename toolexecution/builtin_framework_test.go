@@ -103,13 +103,13 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"new task", "task_id", "presence of task_id always selects resume mode", "runtime ignores agent or description", "keep the same task_id", "never remove task_id", "Completed, incomplete, and failed runs remain resumable", "error_code task_not_found or task_closed", "essential user information", "resume the same task_id", "Foreground is the default", "same assistant tool-call message", "exactly two independent readers", "researcher: Find evidence.", "reviewer: Review changes.",
+		"new task", "task_id", "presence of task_id always selects resume mode", "runtime ignores agent or description", "keep the same task_id", "never remove task_id", "completed, incomplete, or error results remain available for optional later continuation", "error_code task_not_found, task_closed, or task_running", "Foreground is the default", "same assistant tool-call message", "researcher: Find evidence.", "reviewer: Review changes.",
 	} {
 		if !strings.Contains(tool.Definition.Description, expected) {
 			t.Fatalf("task description does not contain %q: %q", expected, tool.Definition.Description)
 		}
 	}
-	for _, obsolete := range []string{"polling", "simulated waiting"} {
+	for _, obsolete := range []string{"polling", "simulated waiting", "ask its exact question", "exactly two independent readers"} {
 		if strings.Contains(strings.ToLower(tool.Definition.Description), obsolete) {
 			t.Fatalf("task description contains obsolete term %q: %q", obsolete, tool.Definition.Description)
 		}
@@ -118,7 +118,7 @@ func TestTaskToolBridgeOwnsTheOnlyModelFacingSubagentTool(t *testing.T) {
 		t.Fatalf("task must be a normal foreground tool: %#v", tool)
 	}
 	schema := string(marshaledToolSchema(t, tool.Definition.InputSchema))
-	for _, expected := range []string{`"required":["prompt"]`, `"agent"`, `"description"`, `"task_id"`, `"background"`, `"additionalProperties":false`} {
+	for _, expected := range []string{`"required":["prompt"]`, `"agent"`, `"description"`, `"task_id"`, `unknown, closed, or currently running ID`, `"background"`, `"additionalProperties":false`} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("task schema does not contain %q: %s", expected, schema)
 		}

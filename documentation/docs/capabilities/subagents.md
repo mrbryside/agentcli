@@ -50,20 +50,22 @@ callbacks, and client-owned result continuation.
 Application prompts should stay domain-focused. They can name a configured
 agent, require independent or dependent work, or ask to continue the same
 agent conversation without repeating the fields and lifecycle below. The
-framework system prompt translates that language into the task protocol.
+framework system prompt explains how the task protocol represents that intent;
+it does not decide whether application work should continue an earlier task.
 
 | Instruction owner | What belongs there |
 | --- | --- |
 | `MAIN.md` and skills | Product/domain policy: when a named specialist is required, which work is independent or sequential, constraints, and the desired outcome. |
-| Main-agent framework prompt | `task` selection, new-versus-resume fields, foreground/background behavior, parallel batching, saved-ID continuation, and result interpretation. |
+| Main-agent framework prompt | `task` capability, new-versus-resume fields, foreground/background behavior, parallel batching, saved-ID continuation mechanics, and result interpretation. |
 | Concrete `task.prompt` | The current assignment plus all context the child needs for that turn. |
 | Subagent definition body | The specialist role, methods, evidence bar, and domain-specific quality criteria. |
 | Subagent framework prompt | Capability boundaries, secret safety, no task nesting, one final response, missing-input behavior, and optional result-contract formatting. |
 
-Do not copy tool schemas, `task_id` rules, polling rules, or generic
-final-answer boilerplate into application-owned prompts. Keeping these
-concerns separate lets framework contract changes apply to existing projects
-without requiring prompt rewrites.
+Application-owned prompts decide when continuity is required. They may say
+that an unfinished domain operation must continue its existing conversation,
+and may mention the saved `task_id` when an exact continuation is operationally
+important. Keep schemas, polling rules, and generic final-answer boilerplate in
+the framework so protocol changes still apply consistently.
 
 For a new task, provide `agent`, `description`, and `prompt`:
 
@@ -126,24 +128,25 @@ Validated boolean/string metadata is application-only: it is published in
 context or `<task_result>`. An invalid contract result is one task `error` and
 publishes no metadata.
 
-## Requesting essential input
+## Optional continuation after essential input
 
 A child may finish with `state: "completed"` and return a question because it
-needs essential input before it can safely act. Treat that output as the exact
-question to ask the user. Do not guess the missing input and do not perform the
-action first.
+needs essential input before it can safely act. The framework exposes the
+question and retained task ID but does not impose product policy about whether
+the main agent must ask it or resume that task. Application instructions own
+that decision.
 
-When the user answers, resume the existing work with exactly the saved task ID
-and the user's answer:
+When the application chooses to continue that same work after the user answers,
+it can resume with the saved task ID and the user's answer:
 
 ```json
 {"task_id":"subagent_123","prompt":"The user chose the weekly schedule."}
 ```
 
-Do not create a new task for this continuation. The existing task retains the
-child's context, including what it has already gathered and why it asked. If a
-resume call must be corrected, keep the same `task_id`; removing it changes the
-call into new-task creation.
+The existing task retains the child's context, including what it already
+gathered and why it asked. Omitting `task_id` is a separate new-task call. If a
+resume call itself must be corrected, keep the same ID so the correction does
+not accidentally change modes.
 
 ## Host session controls
 
