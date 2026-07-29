@@ -284,12 +284,23 @@ func toolParameterName(field reflect.StructField) (string, bool) {
 			return parts[0], true
 		}
 	}
+	return lowerSnakeCase(field.Name), true
+}
+
+func lowerSnakeCase(name string) string {
+	characters := []rune(name)
 	var builder strings.Builder
-	for index, character := range field.Name {
+	for index, character := range characters {
 		if index > 0 && unicode.IsUpper(character) {
-			builder.WriteByte('_')
+			previous := characters[index-1]
+			hasNext := index+1 < len(characters)
+			nextIsLower := hasNext && unicode.IsLower(characters[index+1])
+			if unicode.IsLower(previous) || unicode.IsDigit(previous) ||
+				(unicode.IsUpper(previous) && nextIsLower) {
+				builder.WriteByte('_')
+			}
 		}
 		builder.WriteRune(unicode.ToLower(character))
 	}
-	return builder.String(), true
+	return builder.String()
 }

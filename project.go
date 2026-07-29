@@ -531,6 +531,10 @@ Load a skill when an applicable instruction requires it, its description directl
 matches the task you are about to perform, or the user asks to read its full
 instructions. Do not load a skill merely to list or describe available skills.
 Do not load an unrelated skill as a substitute for a missing capability.
+The only valid load_skill names are exact <name> values in the current
+<available_skills>. Never copy a skill name from conversation history, an older
+turn, a task agent, a tool name, or user wording unless that exact name is also
+listed in the current <available_skills>.
 
 When another instruction requires a skill, load that skill before the action or
 answer it governs. Explicit requirements take precedence over description
@@ -561,19 +565,24 @@ One load_skill call loads only the skill named in that call.
   action. Follow the loaded instructions and the current request to decide what
   to do next.
 
-Examples:
-
-- status=loaded, name=web-research: web-research is loaded; do not load it
-  again in this turn.
-- status=loaded, name=web-research, instructions_in_context=true: loading still
-  succeeded and its full instructions are already in the conversation.
-- web-research is loaded but discord-live-server now has a separate valid
-  reason: load discord-live-server once.
+`)
+	skills := project.Skills()
+	if len(skills) != 0 {
+		first := html.EscapeString(skills[0].Name)
+		prompt.WriteString("Examples using only names from the current <available_skills>:\n\n")
+		fmt.Fprintf(&prompt, "- status=loaded, name=%s: %s is loaded; do not load it again in this turn.\n", first, first)
+		fmt.Fprintf(&prompt, "- status=loaded, name=%s, instructions_in_context=true: loading succeeded and its full instructions are already in the conversation.\n", first)
+		if len(skills) > 1 {
+			second := html.EscapeString(skills[1].Name)
+			fmt.Fprintf(&prompt, "- If %s is loaded and %s later has a separate valid trigger, call load_skill once with name=%s.\n", first, second, second)
+		}
+	}
+	prompt.WriteString(`
 </skill_rules>
 
 <available_skills>
 `)
-	for _, skill := range project.Skills() {
+	for _, skill := range skills {
 		fmt.Fprintf(&prompt, "  <skill>\n    <name>%s</name>\n    <description>%s</description>\n  </skill>\n", html.EscapeString(skill.Name), html.EscapeString(skill.Description))
 	}
 	prompt.WriteString("</available_skills>")

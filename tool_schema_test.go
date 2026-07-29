@@ -54,6 +54,30 @@ func TestObjectSchemaSupportsEveryTypedSchemaFeature(t *testing.T) {
 	}
 }
 
+func TestObjectSchemaKeepsInitialismsInOneSnakeCaseWord(t *testing.T) {
+	schema := ObjectSchema(struct {
+		TaskID     ToolParameter
+		SourceURL  ToolParameter
+		APIKey     ToolParameter
+		HTTPStatus ToolParameter
+	}{
+		TaskID:     StringParameter("Task identity"),
+		SourceURL:  StringParameter("Source URL"),
+		APIKey:     StringParameter("API key"),
+		HTTPStatus: IntegerParameter("HTTP status"),
+	})
+	for _, name := range []string{"task_id", "source_url", "api_key", "http_status"} {
+		if _, ok := schema.Properties[name]; !ok {
+			t.Fatalf("schema properties %#v do not contain %q", schema.Properties, name)
+		}
+	}
+	for _, invalid := range []string{"task_i_d", "source_u_r_l", "a_p_i_key", "h_t_t_p_status"} {
+		if _, ok := schema.Properties[invalid]; ok {
+			t.Fatalf("schema properties %#v contain split initialism %q", schema.Properties, invalid)
+		}
+	}
+}
+
 func TestTryObjectSchemaRejectsInvalidFields(t *testing.T) {
 	_, err := TryObjectSchema(struct{ Path string }{})
 	if err == nil {

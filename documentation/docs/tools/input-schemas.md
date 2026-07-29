@@ -37,6 +37,10 @@ Exported field names become `lower_snake_case`; a `json` tag can override the
 property name or exclude a field. Parameters are optional unless
 `.Required()` is applied. Use `TryObjectSchema` when a dynamic declaration
 should return an error instead of panicking during initialization.
+Consecutive capitals are treated as one initialism, so `TaskID`, `SourceURL`,
+`APIKey`, and `HTTPStatus` become `task_id`, `source_url`, `api_key`, and
+`http_status`. Add an explicit `json` tag whenever the provider contract needs
+a different spelling.
 
 Keep the schema declaration separate from runtime arguments:
 

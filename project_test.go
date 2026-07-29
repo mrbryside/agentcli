@@ -102,6 +102,8 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"description directly",
 		"user asks to read its full",
 		"Do not load a skill merely to list",
+		"only valid load_skill names are exact <name> values",
+		"Never copy a skill name from conversation history",
 		"Explicit requirements take precedence over description",
 		"## Load once per turn",
 		"<turn_start> message marks a new turn",
@@ -118,8 +120,10 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		"do not claim it is\n  missing",
 		"does not require an\n  action",
 		"Loading a skill only makes its instructions available",
-		"web-research is loaded",
-		"discord-live-server now has a separate valid",
+		"Examples using only names from the current <available_skills>",
+		"status=loaded, name=reviewing-go",
+		"If reviewing-go is loaded and testing-go later has a separate valid trigger",
+		"name=testing-go",
 		"</skill_rules>",
 	} {
 		if !strings.Contains(prompts[1], expected) {
@@ -146,7 +150,10 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	tool := newSkillLoader(project, configuration.messages, configuration.skillReload).tool()
 	for _, expected := range []string{
 		"exactly one skill",
-		"available_skills",
+		"current available_skills",
+		"Use only an exact name listed there",
+		"never copy an unlisted name from conversation history",
+		"If no listed skill applies, do not call load_skill",
 		"applicable instruction requires",
 		"description directly matches",
 		"user asks to read it",
@@ -187,6 +194,43 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	}
 	if _, err := tool.Handler(toolContext, json.RawMessage(`{"name":"missing"}`)); err == nil {
 		t.Fatal("missing skill unexpectedly loaded")
+	} else if !strings.Contains(err.Error(), "current <available_skills>") ||
+		!strings.Contains(err.Error(), "do not retry an unlisted name") {
+		t.Fatalf("missing skill error does not give catalog-safe recovery: %v", err)
+	}
+}
+
+func TestSkillDiscoveryExamplesComeFromCurrentCatalog(t *testing.T) {
+	project, err := LoadProject(projectFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := project.skillDiscoveryPrompt()
+	for _, applicationSpecificName := range []string{"web-research", "discord-live-server"} {
+		if strings.Contains(prompt, applicationSpecificName) {
+			t.Fatalf("framework skill prompt contains application-specific name %q: %q", applicationSpecificName, prompt)
+		}
+	}
+	for _, expected := range []string{
+		"status=loaded, name=reviewing-go",
+		"status=loaded, name=reviewing-go, instructions_in_context=true",
+		"If reviewing-go is loaded and testing-go later has a separate valid trigger",
+		"name=testing-go",
+		"<name>reviewing-go</name>",
+		"<name>testing-go</name>",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("catalog-derived skill example missing %q: %q", expected, prompt)
+		}
+	}
+
+	singleSkillPrompt := project.withSkills([]string{"testing-go"}).skillDiscoveryPrompt()
+	if !strings.Contains(singleSkillPrompt, "status=loaded, name=testing-go") {
+		t.Fatalf("single-skill prompt does not use its catalog name: %q", singleSkillPrompt)
+	}
+	if strings.Contains(singleSkillPrompt, "name=reviewing-go") ||
+		strings.Contains(singleSkillPrompt, "later has a separate valid trigger") {
+		t.Fatalf("single-skill prompt invented a second available skill: %q", singleSkillPrompt)
 	}
 }
 

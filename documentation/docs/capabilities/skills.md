@@ -52,11 +52,20 @@ tool. Its full Markdown instructions become the latest ordinary tool-result
 message. The model should not load a skill merely because the user asks for the
 catalog or repeats words from its description.
 
+Only exact names in the current `<available_skills>` catalog are valid.
+Conversation history, older turns, task-agent names, tool names, and user text
+do not add skills. Framework examples are generated from the current sorted
+catalog; when only one skill is available, the prompt omits the two-skill
+example instead of inventing a second name.
+
 Whenever a real load trigger applies, the model calls `load_skill` for that
 exact skill even when a matching body is already visible in conversation
 history. The model does not decide whether that body is fresh; the runtime owns
 caching. Every successful result uses `status: "loaded"` and names the one
 skill that was loaded.
+
+An unlisted name fails without loading anything. The result tells the model to
+use only the current catalog and not retry the unlisted name.
 
 ## Repeat and refresh behavior
 

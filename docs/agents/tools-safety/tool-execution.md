@@ -32,7 +32,9 @@ The root facade exposes `agentcli.Tool`, `ToolDefinition`, `InputSchema`,
 permission/confirmation aliases, and trigger modes. `ObjectSchema` builds a
 closed schema from a struct of `ToolParameter` descriptors; helpers cover all
 JSON scalar types, objects, arrays, descriptions, required fields, and common
-constraints. `RawInputSchema` is the validated escape hatch.
+constraints. Its default lower-snake-case conversion keeps consecutive-capital
+initialisms together (`TaskID` becomes `task_id`); explicit JSON tags remain
+authoritative. `RawInputSchema` is the validated escape hatch.
 `DecodeArguments` strictly decodes one JSON object, rejects unknown fields, and
 rejects trailing values. There is no typed custom-tool inference wrapper.
 

@@ -70,8 +70,16 @@ When editing these contracts:
 - update the prompt and built-in description together when they expose the same
   protocol;
 - keep application decisions out of framework prompts;
+- keep framework examples capability-valid: a named skill, agent, or tool must
+  come from the current runtime catalog or be registered by the same component;
+  never hardcode an application identifier into a framework example;
+- generate catalog examples from the actual sorted catalog, omit examples that
+  require a second entry when only one exists, and state that historical names
+  are not current capabilities;
 - keep optional result JSON conditional on an explicit result contract;
-- use exact state, error-code, field, and trigger names;
+- use exact state, error-code, field, and trigger names, and verify that
+  provider JSON Schema property names match the names used in prompts and
+  handler decoding;
 - test positive capability wording and negative stale/over-prescriptive wording;
 - run `go test ./...`, `go test -race ./...`, and `make docs-build`.
 
