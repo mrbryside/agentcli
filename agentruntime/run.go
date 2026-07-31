@@ -53,6 +53,10 @@ type Run struct {
 	runtimeInputs             []runtimeMessageInjection
 	completionToolsRestricted bool
 	completionToolAllowlist   []string
+	providerRecoveryAttempts  int
+	providerRecoveryActive    bool
+	providerRecoveryReminder  []ContextReminder
+	offeredToolNames          map[string]struct{}
 	terminalNotify            chan struct{}
 	finished                  chan struct{}
 	finishOnce                sync.Once
@@ -125,7 +129,10 @@ const (
 	stepLimitFinalizationReminder = `<work_limit_reached>
 No more work tools are available in this turn. Finish from existing results. Call each available required completion tool; if none is available, write a concise summary of completed work, confirmed verification, unresolved blockers, and remaining tasks. Do not claim unconfirmed actions or request unavailable tools.
 </work_limit_reached>`
-	stepLimitFinalizationFallback = "The work limit was reached, but the model did not return the required text summary. Review the completed tool results and continue the remaining work in a new turn."
+	stepLimitFinalizationFallback    = "The work limit was reached, but the model did not return the required text summary. Review the completed tool results and continue the remaining work in a new turn."
+	providerResponseRecoveryReminder = `<provider_response_recovery>
+The previous model response contained an invalid, truncated, or unavailable tool call. Nothing from that tool call was executed. Do not repeat or continue that failed call. No tools are available in this recovery round. Using only the existing conversation and completed tool results, return one concise final text response now.
+</provider_response_recovery>`
 	// One initial finalizer, the existing three bounded completion repairs,
 	// and one final text round when a non-terminal completion tool succeeds on
 	// the last repair.
@@ -510,6 +517,29 @@ func (r *Run) runLoop(ctx context.Context, runtime *Runtime, initial Message, in
 				continue
 			}
 			event = r.enforceStepLimitFinalization(event, runtime.stepLimitFinalizationTools)
+			if err := r.validateProviderToolCalls(event); err != nil {
+				event = providerFailureEvent(err)
+			}
+			if event.Type == provider.StreamFailed && isRecoverableProviderResponseError(providerEventError(event)) {
+				recoveryErr := providerEventError(event)
+				if !r.beginProviderResponseRecovery(recoveryErr) {
+					event = providerFailureEvent(fmt.Errorf(
+						"provider response recovery failed after an earlier invalid response: %s",
+						recoveryErr,
+					))
+				} else {
+					runtime.logRepairRequested(
+						ctx,
+						r,
+						"provider_response",
+						r.providerRecoveryAttemptCount(),
+						r.providerSteps(),
+						[]string{},
+					)
+				}
+			} else if event.Type == provider.StreamCompleted {
+				r.finishProviderResponseRecovery()
+			}
 			if !r.processEvent(ctx, runtime, AgentEvent{Type: ProviderEventReceived, ProviderEvent: event}) {
 				return
 			}
@@ -784,8 +814,11 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		reminders = append(reminders, r.takeCompletionReminder()...)
 		reminders = append(reminders, r.takeOutputGuardReminder()...)
 	}
+	reminders = append(reminders, r.takeProviderRecoveryReminder()...)
 	tools := cloneToolDefinitions(runtime.tools)
-	if finalizing {
+	if r.providerResponseRecoveryActive() {
+		tools = nil
+	} else if finalizing {
 		tools = filterCompletionTools(tools, runtime.stepLimitFinalizationTools)
 		if restricted, allowlist := r.completionToolRestriction(); restricted {
 			tools = filterCompletionTools(tools, allowlist)
@@ -839,6 +872,7 @@ func (r *Run) startProvider(ctx context.Context, runtime *Runtime) error {
 		cancel()
 		return errors.New("start provider: model returned a nil stream")
 	}
+	r.setOfferedToolNames(request.Tools)
 	r.mu.Lock()
 	r.providerCancel = cancel
 	r.mu.Unlock()
@@ -1169,6 +1203,89 @@ func (r *Run) completionToolRestriction() (bool, []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.completionToolsRestricted, append([]string(nil), r.completionToolAllowlist...)
+}
+
+func (r *Run) beginProviderResponseRecovery(err error) bool {
+	if err == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.providerRecoveryAttempts > 0 {
+		return false
+	}
+	r.providerRecoveryAttempts++
+	r.providerRecoveryActive = true
+	r.providerRecoveryReminder = []ContextReminder{{Content: providerResponseRecoveryReminder}}
+	return true
+}
+
+func (r *Run) finishProviderResponseRecovery() {
+	r.mu.Lock()
+	r.providerRecoveryActive = false
+	r.providerRecoveryReminder = nil
+	r.mu.Unlock()
+}
+
+func (r *Run) providerResponseRecoveryActive() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.providerRecoveryActive
+}
+
+func (r *Run) providerRecoveryAttemptCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.providerRecoveryAttempts
+}
+
+func (r *Run) takeProviderRecoveryReminder() []ContextReminder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reminders := cloneContextReminders(r.providerRecoveryReminder)
+	r.providerRecoveryReminder = nil
+	return reminders
+}
+
+func (r *Run) setOfferedToolNames(tools []ToolDefinition) {
+	offered := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		offered[tool.Name] = struct{}{}
+	}
+	r.mu.Lock()
+	r.offeredToolNames = offered
+	r.mu.Unlock()
+}
+
+func (r *Run) validateProviderToolCalls(event provider.StreamEvent) error {
+	result, ok := terminalProviderResult(event)
+	if !ok || len(result.CompletedTools) == 0 {
+		return nil
+	}
+	r.mu.RLock()
+	offered := make(map[string]struct{}, len(r.offeredToolNames))
+	for name := range r.offeredToolNames {
+		offered[name] = struct{}{}
+	}
+	r.mu.RUnlock()
+	for _, call := range result.CompletedTools {
+		if _, ok := offered[call.Name]; !ok {
+			return fmt.Errorf("%w: %q", ErrToolNotOffered, call.Name)
+		}
+	}
+	return nil
+}
+
+func isRecoverableProviderResponseError(err error) bool {
+	return errors.Is(err, provider.ErrMalformedToolCall) || errors.Is(err, ErrToolNotOffered)
+}
+
+func providerFailureEvent(err error) provider.StreamEvent {
+	return provider.StreamEvent{
+		Type:    provider.StreamFailed,
+		Error:   err,
+		Payload: provider.StreamFailedPayload{Error: err},
+	}
 }
 
 func filterCompletionTools(tools []ToolDefinition, allowlist []string) []ToolDefinition {

@@ -21,10 +21,12 @@ arguments/results, compaction, and scope/subagent details. Tool JSON is recursiv
 token/secret/password/authorization/API-key fields and bounded in size.
 Reasoning and guard feedback are never written to runtime logs.
 
-Repair records distinguish `output_guard` from `completion_guard`, include the
-one-based attempt, current provider-step count, and completion tool allowlist,
-but deliberately omit context reminders and guard feedback. A failed or
-exhausted guard emits `agent repair failed`, followed by the terminal run
-failure record.
+Repair records distinguish `output_guard`, `completion_guard`, and
+`provider_response`. They include the one-based attempt, current provider-step
+count, and active tool allowlist but deliberately omit context reminders and
+guard feedback. `provider_response` uses an empty allowlist for its one
+text-only recovery after malformed/truncated arguments or a tool call absent
+from the exact provider request. A failed or exhausted repair emits the
+terminal run failure record.
 
 Back to [observability/index.md](index.md).

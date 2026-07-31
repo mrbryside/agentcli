@@ -56,7 +56,7 @@ the nested `sequence` remains the cursor for one turn.
 
 `pre_end_scope` is published when the scope's last active turn reaches its
 final completion-repair boundary and no accepted result is pending, before
-subagent cleanup and final `EndResponseScope` tool handlers.
+any configured scope cleanup and final `EndResponseScope` tool handlers.
 `end_scope` is published after cleanup, handler invocation, and scope removal.
 The nested payload includes `scope_id`, `trigger_turn_id`, `subagent_ids`,
 `tool_names`, and `occurred_at`.
@@ -186,7 +186,7 @@ Queued turns emit nothing until admitted.
 | `compaction_completed` | — | The summarizer checkpoint was appended and the next main-model request is projected from that checkpoint plus a recent verbatim tail. |
 | `compaction_failed` | `error` | Compaction preparation, summarization, or checkpoint persistence failed. The affected main-model round is not started and a terminal `run_failed` follows. |
 | `run_completed` | `result` | Terminal success. `result` contains final text, reasoning, tool results, provider-step count, and completion state. |
-| `run_failed` | `error` | Terminal failure, such as a provider error, closed executor, invalid tool result, or exhausted bounded finalization repairs. Ordinary provider-step exhaustion first enters restricted finalization. |
+| `run_failed` | `error` | Terminal failure, such as an unrecovered provider response, closed executor, invalid tool result, or exhausted bounded finalization repairs. Ordinary provider-step exhaustion first enters restricted finalization. |
 | `agent_interrupted` | `reason` | Terminal cancellation requested by a caller, server shutdown, or context cancellation. |
 
 ## Provider event payload
@@ -232,7 +232,7 @@ validated call and emits `tool_call_requested`.
 | `tool_arguments_received` | `tool.index`, `tool.arguments` | Adds an argument-string fragment; it may not be valid JSON until completion. |
 | `tool_call_completed` | `tool.index` and completed tool metadata | Signals that the provider finished the streamed call. Wait for `tool_call_requested` before execution. |
 | `stream_completed` | `finish_reason` | The provider step ended normally. The runtime may still execute tools. It skips the next provider step only when every result in the completed batch succeeded and uses `end_turn`. |
-| `stream_failed` | `error` | The provider stream failed. A terminal `run_failed` follows unless the runtime has already terminated. |
+| `stream_failed` | `error` | The provider stream failed. Malformed/truncated tool arguments or a completed call for a tool absent from that exact request receive one tools-disabled text recovery; other failures, or failure of that recovery, lead to terminal `run_failed`. |
 
 `stream_completed` also includes the provider-neutral aggregate under
 `payload.result`: `content`, `reasoning`, `completed_tools`, and `finished`.
@@ -240,6 +240,10 @@ Treat this aggregate as the authoritative final value for that provider step;
 incremental content and reasoning events remain useful for live rendering.
 `stream_failed` includes the terminal payload error under `payload.error` in
 addition to the normal `provider_event.error`.
+
+A streamed tool fragment never authorizes execution. AgentRuntime emits
+`tool_call_requested` only after the call is complete, its arguments decode,
+and its name matches a tool definition in that exact provider request.
 
 ## Permission event
 

@@ -140,7 +140,13 @@ diagnostics. Proceeding persists it immediately before `RunCompleted`.
 
 The retry reminder is ephemeral and applies only to the next provider request.
 An optional non-nil allowlist restricts that request and all of its follow-up
-rounds. In v0.1, a subagent step-limit finalizer exposes no tools and accepts
+rounds. The runtime enforces the resulting request catalog before dispatch:
+even a registered tool is rejected when it was not offered in that request.
+Malformed/truncated tool arguments and calls for tools absent from that exact
+request receive one text-only recovery request with no tools; the failed call
+is neither executed nor replayed. The recovery request counts as another
+provider step. In v0.1, a subagent step-limit finalizer exposes no tools and
+accepts
 one text-only final answer as `TaskStateIncomplete`; it does not ask a child to
 call a reporting tool. The provider may return a normal assistant response
 instead.
@@ -168,11 +174,12 @@ appended; it never changes an in-flight provider request. Fallback result
 turns participate in the originating response-scope barrier. Intermediate turns with pending results may complete without an
 `EndResponseScope` call, and their assistant drafts are discarded. When the
 last turn reaches completion with no pending result, runtime repair requests
-the final `EndResponseScope` tools, closes unshared completed/failed subagents,
-and executes those handlers. The first-action guard applies only to the human
+the final `EndResponseScope` tools and executes those handlers. Every task
+touched by the scope remains retained and resumable until an explicit host
+close. The first-action guard applies only to the human
 main-agent turn, so a result continuation may execute a final handler on provider
-step one. Incomplete subagents remain open. The model-facing
-catalog has no destructive close tool. When the application closes a subagent
+step one. The model-facing catalog has no destructive close tool. When the
+application closes a subagent
 through Go, Terminal, or HTTP, the coordinator cancels that subagent's outstanding
 unreserved result obligations and releases the scope's result barrier. A
 terminal cancellation marker also prevents a racing registration or rejected

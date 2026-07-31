@@ -101,3 +101,29 @@ func TestStartStreamPublishesParseErrorAndCloses(t *testing.T) {
 		t.Fatalf("Result error = %v, want %v", err, want)
 	}
 }
+
+func TestStartStreamClassifiesMalformedToolArguments(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	stream, err := StartStream(ctx, fakeProvider{chunks: []fakeChunk{
+		{events: []StreamEvent{{
+			Type: ToolCallStarted,
+			Tool: &ToolEvent{Index: 0, ID: "call_task", Name: "task"},
+		}}},
+		{events: []StreamEvent{{
+			Type: ToolArgumentsReceived,
+			Tool: &ToolEvent{Index: 0, Arguments: `{"prompt":"truncated`},
+		}}},
+		{events: []StreamEvent{{Type: StreamCompleted, FinishReason: "tool_calls"}}},
+	}}, fakeRequest{})
+	if err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	events := collectEvents(t, stream.Subscribe(ctx))
+	if len(events) != 3 || events[len(events)-1].Type != StreamFailed {
+		t.Fatalf("events = %#v, want malformed tool stream failure", events)
+	}
+	if _, err := stream.Result(); !errors.Is(err, ErrMalformedToolCall) {
+		t.Fatalf("Result error = %v, want ErrMalformedToolCall", err)
+	}
+}

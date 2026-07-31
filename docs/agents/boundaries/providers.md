@@ -4,6 +4,14 @@
 
 `agentruntime.Model` is the runtime-facing abstraction. `agentruntime/modeladapter/openai` converts generic transcript messages, system prompts, context reminders, and tool definitions into the OpenAI-compatible request immediately before streaming. It maps trusted runtime events to a provider-legal input role, preserves tool-call/result correlation, and filters legacy blank text messages. Ephemeral repair reminders are appended as provider-legal user-role messages. Rejected assistant candidates are not part of the projected transcript, which preserves tool-call/result adjacency and avoids repeated trailing assistant drafts at OpenAI-compatible endpoints.
 
+Provider tool arguments are accumulated until stream completion and decoded as
+one JSON object. Decode failures wrap `provider.ErrMalformedToolCall`, allowing
+AgentRuntime to request one text-only recovery without executing the partial
+call. Independently, AgentRuntime compares completed tool names with the exact
+definitions sent in that provider request and classifies a mismatch as
+`agentruntime.ErrToolNotOffered`; a provider cannot invoke a registered tool
+that was hidden by a repair or finalization restriction.
+
 Optional `ModelMetadataProvider` supplies provider-neutral context-window and
 maximum-output metadata for models that need capability-aware features such as
 compaction. Optional `ContextEstimatorProvider` lets each main model select the

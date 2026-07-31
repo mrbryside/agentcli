@@ -49,6 +49,10 @@ fails, so retries cannot bypass the limit.
 emits correlated results, and consumes exact-turn interrupts. Calls are keyed
 by session, turn, and call ID; that `ToolInvocation` metadata is attached to
 handler context after admission. Successful handler output must be valid JSON.
+AgentRuntime dispatches a request only when that tool was present in the exact
+provider request that produced the call. This check occurs before the executor,
+so a globally registered tool hidden from a completion repair cannot be
+hallucinated into execution.
 After admission, a tool-call guard can reject the name/arguments before the
 handler executes. Rejection becomes a failed correlated result with feedback
 for the next model round.
@@ -117,8 +121,8 @@ subagent work keeps it open, and intermediate main agent/result assistant drafts
 are discarded until the final scope turn.
 
 The live response-scope event stream emits `PreEndScope` after the scope
-enters its final completion boundary but before subagent cleanup and final
-handlers. It emits
+enters its final completion boundary but before any configured scope cleanup
+and final handlers. It emits
 `EndScope` after cleanup, handler invocation, and scope removal. These are
 scope-level events rather than per-turn `AgentEvent` values.
 

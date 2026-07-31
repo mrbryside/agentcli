@@ -21,6 +21,12 @@ history and are never projected into a later model request. Final user-visible
 delivery tools remain represented by their durable tool-call and tool-result
 records.
 
+A provider `StreamFailed` event is not always terminal. Malformed/truncated
+tool arguments and a completed call for a tool absent from that exact provider
+request start one tools-disabled text recovery round. The invalid call never
+becomes `ToolCallRequested` or conversation history. A second recoverable
+failure, or any other provider failure, ends the run.
+
 When compaction needs to summarize, the run emits `compaction_started` before
 the separate summarizer begins, then `compaction_completed` after its checkpoint
 is persisted. A preparation, summarizer, or checkpoint-persistence failure

@@ -62,7 +62,7 @@ cursor across sessions or subagent views.
 | `compaction_failed` | Preparation, summarization, or checkpoint persistence failed; the main-model round does not start. |
 | `agent_interrupted` | Interruption propagated through the turn. |
 | `run_completed` | A successful final result is available. |
-| `run_failed` | Infrastructure, provider, storage, or loop execution failed. |
+| `run_failed` | Infrastructure, storage, loop execution, or an unrecovered provider response failed. |
 
 Permission and confirmation cancellation/expiry events are also retained.
 
@@ -96,6 +96,11 @@ case agentcli.ToolCallStarted, agentcli.ToolArgumentsReceived, agentcli.ToolCall
 The outer runtime event is always populated consistently for its type; the HTTP
 representation uses optional nested fields because a single stable JSON
 envelope represents every event variant.
+
+A provider failure caused by malformed/truncated tool arguments or a completed
+call for a tool absent from that exact request starts one tools-disabled text
+recovery round. The failed call is neither executed nor stored as a tool call.
+Other provider failures, and failure of that one recovery round, end the run.
 
 ## UI ownership
 

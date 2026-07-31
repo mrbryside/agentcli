@@ -66,6 +66,9 @@ func providerEffects(event AgentEvent) []Effect {
 	providerEvent := event.ProviderEvent
 	switch providerEvent.Type {
 	case provider.StreamFailed:
+		if isRecoverableProviderResponseError(providerEventError(providerEvent)) {
+			return []Effect{{Type: StartProvider}}
+		}
 		return failEffects(event, providerEventError(providerEvent))
 	case provider.StreamCompleted:
 		result, _ := terminalProviderResult(providerEvent)

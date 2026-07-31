@@ -57,6 +57,10 @@ func TestRuntimeInterruptPersistsPendingToolsInCallOrder(t *testing.T) {
 	interrupts := make(chan ToolInterrupt, 8)
 	runtime, err := New(context.Background(), Config{
 		Model: model, Messages: messages, ToolRequests: requests, ToolResults: results,
+		Tools: []ToolDefinition{
+			{Name: "first", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "second", InputSchema: ToolSchema{Type: "object"}},
+		},
 		ToolInterrupts: interrupts, IDGenerator: incrementingRuntimeIDs{}, MaxSteps: 20,
 	})
 	if err != nil {
@@ -178,7 +182,15 @@ func TestStartCancellationPersistsInterruptedPendingTools(t *testing.T) {
 	requests := make(chan ToolRequest, 8)
 	results := make(chan ToolResultEnvelope, 8)
 	interrupts := make(chan ToolInterrupt, 8)
-	runtime, err := New(context.Background(), Config{Model: model, Messages: messages, ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts, IDGenerator: incrementingRuntimeIDs{}})
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: messages,
+		Tools: []ToolDefinition{
+			{Name: "first", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "second", InputSchema: ToolSchema{Type: "object"}},
+		},
+		ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts,
+		IDGenerator: incrementingRuntimeIDs{},
+	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

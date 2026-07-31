@@ -308,6 +308,51 @@ func TestIntegrationFailurePaths(t *testing.T) {
 		assertIntegrationInfrastructureFailure(t, run)
 	})
 
+	t.Run("malformed tool arguments recover with text only", func(t *testing.T) {
+		fixture := newIntegrationSSEFixture(t,
+			integrationToolCallStream(integrationToolCall{
+				ID: "call_task", Name: "task", Arguments: `{"prompt":"truncated`,
+			}),
+			integrationContentStream("I could not safely execute that tool call."),
+		)
+		registry := toolexecution.NewRegistry()
+		handlerCalls := 0
+		if err := registry.Register(toolexecution.Tool{
+			Definition: ToolDefinition{Name: "task", InputSchema: ToolSchema{Type: "object"}},
+			Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
+				handlerCalls++
+				return json.RawMessage(`{"unexpected":true}`), nil
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		runtime, messages := newIntegrationRuntime(t, fixture, registry, 1)
+		run := startIntegrationRun(t, runtime, "session-malformed-tool", "turn-malformed-tool", "delegate safely")
+		events := collectIntegrationRunEvents(t, run)
+		result, err := run.Result()
+		if err != nil || result.Content != "I could not safely execute that tool call." || result.Steps != 2 {
+			t.Fatalf("malformed recovery Result = (%#v, %v)", result, err)
+		}
+		if handlerCalls != 0 || containsIntegrationEvent(events, ToolCallRequested) || containsIntegrationEvent(events, ToolResultReceived) {
+			t.Fatalf("malformed call executed: handlerCalls=%d events=%#v", handlerCalls, events)
+		}
+		if fixture.RequestCount() != 2 {
+			t.Fatalf("provider requests = %d, want initial plus one recovery", fixture.RequestCount())
+		}
+		if tools, ok := fixture.Request(1)["tools"]; ok && tools != nil {
+			values, valid := tools.([]any)
+			if !valid || len(values) != 0 {
+				t.Fatalf("recovery request tools = %#v, want none", tools)
+			}
+		}
+		stored, listErr := messages.List(context.Background(), run.SessionID())
+		if listErr != nil || len(stored) != 2 ||
+			stored[0].Type != MessageTypeUser ||
+			stored[1].Type != MessageTypeAssistant {
+			t.Fatalf("recovery transcript = (%#v, %v), want user and recovered assistant only", stored, listErr)
+		}
+	})
+
 	t.Run("storage failure", func(t *testing.T) {
 		fixture := newIntegrationSSEFixture(t)
 		appendErr := errors.New("fixture append failure")

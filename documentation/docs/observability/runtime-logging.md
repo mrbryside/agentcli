@@ -36,16 +36,24 @@ Selecting a level includes records at that severity and above.
 
 ## Repair records
 
-When an output or completion guard requests another provider round, agentcli
-emits `agent repair requested` with:
+When a guard or recoverable provider response requests another provider round,
+agentcli emits `agent repair requested` with:
 
-- `repair_type`: `output_guard` or `completion_guard`;
+- `repair_type`: `output_guard`, `completion_guard`, or `provider_response`;
 - `attempt`: one-based retry count;
 - `provider_steps`: model rounds consumed by the turn;
-- `tool_allowlist`: restricted completion tools, when configured.
+- `tool_allowlist`: restricted completion tools, or an empty list for
+  `provider_response`.
+
+`provider_response` is one bounded, tools-disabled text round after
+malformed/truncated tool arguments or a completed call for a tool absent from
+that exact provider request. The invalid call is not executed or replayed. If
+the recovery response is also invalid, the run fails instead of requesting a
+second recovery.
 
 Guard feedback and context reminders are intentionally omitted. A failed guard
-emits `agent repair failed` followed by the terminal run failure.
+emits `agent repair failed`; an exhausted provider-response recovery proceeds
+directly to the terminal run failure record.
 
 Rejected assistant drafts remain available through retained run/provider events
 for diagnostics, but they are not written to `MessageStorage` and are not sent
@@ -76,7 +84,7 @@ Formatted payloads are size-bounded. Runtime logs never include:
 
 - provider reasoning;
 - output/completion guard feedback;
-- repair context reminders.
+- guard and provider-response repair context reminders.
 
 Application handlers remain responsible for avoiding sensitive values in
 ordinary error strings and non-framework logs.

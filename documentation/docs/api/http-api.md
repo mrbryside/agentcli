@@ -365,7 +365,7 @@ Common mappings:
 | --- | --- | --- |
 | `400` | `invalid_request`, `invalid_json`, `invalid_cursor` | Missing identity, invalid decision, malformed JSON. |
 | `404` | `run_not_found`, `not_found` | Unknown run, permission, confirmation, or subagent. |
-| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, send before result consumption, or invalid subagent cleanup state. |
+| `409` | `conflict`, `turn_cancelled` | Reused turn ID, cancelled queued stream, already resolved decision, a task that is already running, or a closed task. |
 | `429` | `turn_queue_full` | Per-session waiting-turn bound reached. |
 | `408` | `request_cancelled` | Context cancellation or deadline. |
 | `413` | `request_too_large` | JSON body exceeds configured limit. |

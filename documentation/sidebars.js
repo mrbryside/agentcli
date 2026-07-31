@@ -86,8 +86,10 @@ module.exports = {
       type: 'category',
       label: 'API reference',
       items: [
-        'api/api-reference',
+        'api/go-api',
+        'api/http-api',
         'api/sse-events',
+        'api/api-reference',
       ],
     },
     {

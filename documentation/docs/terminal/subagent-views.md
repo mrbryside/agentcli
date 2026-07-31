@@ -95,8 +95,9 @@ read the complete task-agent transcript or cause a main-agent turn.
 Background task agents run asynchronously relative to the main agent. When a
 background turn ends, AgentCLI delivers a `completed`, `incomplete`, or
 `error` result to the main agent. The result contains task identity and the
-final output or failure information. The UI labels a retained idle lifecycle
-as `resumable`; it never displays the storage layer's blank status.
+final output or failure information. When a retained task has no active turn,
+the UI labels it `resumable`; it never displays the storage layer's blank
+status as a separate lifecycle state.
 
 If the main agent is already running, the result is queued. The main agent may act on a
 completed task while other tasks continue, follow up on an incomplete task, or

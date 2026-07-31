@@ -1,6 +1,10 @@
 package agentruntime
 
-import "github.com/mrbryside/agentcli/provider"
+import (
+	"errors"
+
+	"github.com/mrbryside/agentcli/provider"
+)
 
 // RunResult is the aggregate outcome of a completed agent turn.
 type RunResult struct {
@@ -32,6 +36,13 @@ func Result(events []AgentEvent) (RunResult, error) {
 		case ProviderEventReceived:
 			roundContent += event.ProviderEvent.Content
 			roundReasoning += event.ProviderEvent.Reasoning
+			if event.ProviderEvent.Type == provider.StreamFailed &&
+				(errors.Is(providerEventError(event.ProviderEvent), provider.ErrMalformedToolCall) ||
+					errors.Is(providerEventError(event.ProviderEvent), ErrToolNotOffered)) {
+				result.Steps++
+				roundContent, roundReasoning = "", ""
+				continue
+			}
 			if providerResult, ok := terminalProviderResult(event.ProviderEvent); ok {
 				if providerResult.Content == "" {
 					providerResult.Content = roundContent

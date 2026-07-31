@@ -100,6 +100,16 @@ For `ResponseScopeCallLimit`, send calls from both the main-agent turn and a res
 Assert that the cumulative limit is shared, over-budget calls return controlled
 success, and the handler/network path runs only for admitted calls.
 
+## Provider-response recovery test
+
+Script one malformed/truncated tool call followed by a normal text response.
+Assert that the handler and admission gates never run, no
+`tool_call_requested` or `tool_result_received` event appears, the second
+provider request has no tools, and `RunResult.Steps` is two. Repeat with a
+completed call for a registered tool hidden from that exact provider request.
+Finally, make the recovery response invalid and assert one terminal failure
+after exactly two provider requests rather than another repair loop.
+
 ## HTTP test
 
 Construct without a network listener:

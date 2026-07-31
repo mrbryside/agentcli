@@ -198,6 +198,13 @@ rounds with a reminder naming the missing tools and a tool allowlist containing
 only those trigger tools. A caller-supplied completion guard may add its own
 bounded allowlist entries.
 
+That provider-facing tool set is enforced at runtime before dispatch. Calls to
+registered tools omitted from the current request are not sent to the executor.
+Malformed/truncated tool arguments and calls for tools absent from that exact
+request receive one tools-disabled text recovery round and are never
+automatically replayed. The failed call emits no `ToolCallRequested` event, and
+the recovery request is included in `RunResult.Steps`.
+
 When `ResponseScopeCallLimit` is positive, admitted calls share one counter
 across the main-agent turn and all inline/result continuation work. Exhaustion
 returns a successful non-executing

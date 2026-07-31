@@ -169,10 +169,13 @@ mapping is present, `enabled` defaults to `true` and `level` defaults to
 `info`; supported levels are `debug`, `info`, `warn`, and `error`.
 
 Info logging covers turn and response-scope start/end, repair requests, and
-terminal failures. Repair records identify output-guard versus
-completion-guard retries, their attempt number, provider-step count, and any
-restricted tool allowlist. Debug logging additionally includes provider
-content, tool arguments/results, and compaction details. It also records result-obligation
+terminal failures. Repair records distinguish `output_guard`,
+`completion_guard`, and `provider_response`, and include their attempt number,
+provider-step count, and active tool allowlist. `provider_response` is the
+single tools-disabled recovery after malformed/truncated arguments or a tool
+call absent from the current provider request. Debug logging additionally
+includes provider content, tool arguments/results, and compaction details. It
+also records result-obligation
 cancellation when an application-owned subagent close releases a response-scope
 barrier. Delivery failures are error records. Tool JSON fields that look like tokens,
 secrets, passwords, authorization values, or API keys are redacted and large

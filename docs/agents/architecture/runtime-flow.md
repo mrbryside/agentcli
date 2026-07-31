@@ -53,10 +53,19 @@ it immediately before `RunCompleted`. Terminal tool batches remain durable
 before completion inspection. A configured completion guard may request another
 provider round with ephemeral reminders and an optional tool allowlist. A
 non-nil empty allowlist is distinct from nil and deliberately exposes zero
-tools. The runtime has no provider-level tool-choice abstraction; repair
-behavior is expressed through prompts/reminders and, when explicitly supplied
-by a completion guard, an allowlist. Invalid guard decisions fail the run
-instead of silently weakening the boundary.
+tools. The exact tool definitions sent in each provider request are also a hard
+runtime boundary: a completed call for any other tool is rejected before
+`ToolCallRequested` or handler execution. The runtime has no provider-specific
+tool-choice abstraction; repair behavior is expressed through prompts/reminders
+and, when explicitly supplied by a completion guard, an allowlist. Invalid
+guard decisions fail the run instead of silently weakening the boundary.
+
+Malformed or truncated streamed tool arguments and calls for tools absent from
+that provider request receive one bounded recovery round. The failed call is
+not persisted, dispatched, or replayed. The recovery request exposes no tools
+and asks for one final text response from the existing transcript and completed
+results. If that response is also malformed or requests a tool, the run fails
+instead of entering a recovery loop.
 
 Prompt-backed input guards are one-shot model checks before the main provider loop. An allowed verdict enters the ordinary coordinator. A rejected verdict maps to `InputRespond`: the runtime creates a synthetic completed run, persists the original user message and guard-generated assistant response, and emits content/completion events without exposing tools or starting the main model. Result `InputReject` remains the hard admission path and creates no run or transcript.
 

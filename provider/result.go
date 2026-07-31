@@ -11,6 +11,11 @@ import (
 // event was processed.
 var ErrStreamNotDone = errors.New("stream is not complete")
 
+// ErrMalformedToolCall marks provider output whose streamed tool arguments
+// could not be decoded as one JSON object. Runtimes may use this classification
+// to recover without executing or replaying the incomplete call.
+var ErrMalformedToolCall = errors.New("malformed provider tool call")
+
 // Result folds the event history into a StreamResult.
 func Result(events []StreamEvent) (StreamResult, error) {
 	content := ""
@@ -115,7 +120,7 @@ func parseArguments(raw string) (map[string]any, error) {
 	}
 	var arguments map[string]any
 	if err := json.Unmarshal([]byte(raw), &arguments); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrMalformedToolCall, err)
 	}
 	if arguments == nil {
 		return map[string]any{}, nil

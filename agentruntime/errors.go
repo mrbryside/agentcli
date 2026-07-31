@@ -13,4 +13,5 @@ var (
 	ErrMaxSteps           = errors.New("maximum provider steps reached")
 	ErrToolResultsClosed  = errors.New("tool results channel closed")
 	ErrInputGuardRejected = errors.New("input rejected by guard")
+	ErrToolNotOffered     = errors.New("provider requested a tool that was not offered")
 )

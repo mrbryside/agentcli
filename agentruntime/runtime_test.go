@@ -124,6 +124,7 @@ func TestRuntimeResolvesContextRemindersForEveryProviderRound(t *testing.T) {
 	results := make(chan ToolResultEnvelope, 2)
 	runtime, err := New(context.Background(), Config{
 		Model: model, Messages: messages, ToolRequests: requests, ToolResults: results, ToolInterrupts: make(chan ToolInterrupt, 2),
+		Tools: []ToolDefinition{{Name: "tool", InputSchema: ToolSchema{Type: "object"}}},
 		ContextReminderProvider: func(_ context.Context, request ContextReminderRequest) ([]ContextReminder, error) {
 			resolved = append(resolved, request)
 			return reminders, nil
@@ -598,6 +599,168 @@ func TestRuntimeLoopFailsForProviderStorageAndMalformedResult(t *testing.T) {
 	}
 }
 
+func TestRuntimeRecoversMalformedToolCallWithOneTextOnlyRound(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{
+			Type:  provider.StreamFailed,
+			Error: fmt.Errorf("%w: tool %q arguments: unexpected end of JSON input", provider.ErrMalformedToolCall, "task"),
+		}}},
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "I could not safely run the requested tool.", Finished: true,
+			}},
+		}}},
+	}}
+	requests := make(chan ToolRequest, 8)
+	results := make(chan ToolResultEnvelope, 8)
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: inmemory.NewMessageStorage(),
+		Tools:          []ToolDefinition{{Name: "task", InputSchema: ToolSchema{Type: "object"}}},
+		ToolRequests:   requests,
+		ToolResults:    results,
+		ToolInterrupts: make(chan ToolInterrupt, 8),
+		IDGenerator:    incrementingRuntimeIDs{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "malformed-tool", TurnID: "turn",
+		Message: Message{Type: MessageTypeUser, Content: "delegate this work"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, run)
+	result, err := run.Result()
+	if err != nil || result.Content != "I could not safely run the requested tool." || result.Steps != 2 {
+		t.Fatalf("Result() = (%#v, %v), want one successful recovery round", result, err)
+	}
+	if containsEvent(events, RunFailed) || countEvent(events, RunCompleted) != 1 {
+		t.Fatalf("events = %#v, want completed recovery", events)
+	}
+	providerRequests := model.Requests()
+	if len(providerRequests) != 2 || len(providerRequests[0].Tools) != 1 || len(providerRequests[1].Tools) != 0 {
+		t.Fatalf("provider requests = %#v, want normal request then text-only recovery", providerRequests)
+	}
+	if !remindersContain(providerRequests[1].ContextReminders, "<provider_response_recovery>") {
+		t.Fatalf("recovery reminders = %#v", providerRequests[1].ContextReminders)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("malformed tool call was dispatched: %#v", request)
+	default:
+	}
+}
+
+func TestRuntimeDoesNotLoopWhenTextOnlyRecoveryIsAlsoMalformed(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{
+			Type:  provider.StreamFailed,
+			Error: fmt.Errorf("%w: first invalid call", provider.ErrMalformedToolCall),
+		}}},
+		scriptedStream{events: []provider.StreamEvent{{
+			Type:  provider.StreamFailed,
+			Error: fmt.Errorf("%w: recovery was also invalid", provider.ErrMalformedToolCall),
+		}}},
+	}}
+	runtime, _, _ := newLoopRuntime(t, model, inmemory.NewMessageStorage(), 20)
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "malformed-tool-twice", TurnID: "turn",
+		Message: Message{Type: MessageTypeUser, Content: "delegate this work"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, run)
+	if _, err := run.Result(); err == nil ||
+		!strings.Contains(err.Error(), "provider response recovery failed after an earlier invalid response") {
+		t.Fatalf("Result error = %v, want bounded recovery failure", err)
+	}
+	if countEvent(events, RunFailed) != 1 || len(model.Requests()) != 2 {
+		t.Fatalf("events=%#v requests=%d, want exactly one recovery attempt", events, len(model.Requests()))
+	}
+}
+
+func TestRuntimeRejectsToolNotOfferedByRestrictedProviderRequest(t *testing.T) {
+	model := &scriptedRuntimeModel{streams: []ModelStream{
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "draft", Finished: true,
+			}},
+		}}},
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				CompletedTools: []provider.ToolCall{{
+					ID: "call_domain", Name: "domain_action", Arguments: map[string]any{},
+				}},
+				Finished: true,
+			}},
+		}}},
+		scriptedStream{events: []provider.StreamEvent{{
+			Type: provider.StreamCompleted,
+			Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
+				Content: "safe final response", Finished: true,
+			}},
+		}}},
+	}}
+	requests := make(chan ToolRequest, 8)
+	results := make(chan ToolResultEnvelope, 8)
+	guard := func(_ context.Context, attempt CompletionAttempt) (CompletionDecision, error) {
+		if attempt.RepairCount == 0 {
+			return CompletionDecision{
+				Action:           CompletionRetry,
+				ContextReminders: []ContextReminder{{Content: "report the final response"}},
+				ToolAllowlist:    []string{"report_outcome"},
+			}, nil
+		}
+		return CompletionDecision{Action: CompletionProceed}, nil
+	}
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: inmemory.NewMessageStorage(),
+		Tools: []ToolDefinition{
+			{Name: "domain_action", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "report_outcome", InputSchema: ToolSchema{Type: "object"}},
+		},
+		ToolRequests: requests, ToolResults: results, ToolInterrupts: make(chan ToolInterrupt, 8),
+		CompletionGuard: guard,
+		IDGenerator:     incrementingRuntimeIDs{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.Start(context.Background(), Request{
+		SessionID: "restricted-tools", TurnID: "turn",
+		Message: Message{Type: MessageTypeUser, Content: "finish safely"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectRuntimeEvents(t, run)
+	result, err := run.Result()
+	if err != nil || result.Content != "safe final response" || result.Steps != 3 {
+		t.Fatalf("Result() = (%#v, %v), want text-only recovery", result, err)
+	}
+	if containsEvent(events, ToolCallRequested) || containsEvent(events, ToolResultReceived) {
+		t.Fatalf("unoffered tool reached execution events: %#v", events)
+	}
+	providerRequests := model.Requests()
+	if len(providerRequests) != 3 ||
+		toolDefinitionNames(providerRequests[0].Tools) != "domain_action,report_outcome" ||
+		toolDefinitionNames(providerRequests[1].Tools) != "report_outcome" ||
+		len(providerRequests[2].Tools) != 0 {
+		t.Fatalf("provider requests = %#v, want full, restricted, then text-only", providerRequests)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("unoffered tool was dispatched: %#v", request)
+	default:
+	}
+}
+
 func TestRuntimeStepLimitUsesOneTextOnlyFinalizationRound(t *testing.T) {
 	model := &scriptedRuntimeModel{streams: []ModelStream{
 		scriptedStream{events: []provider.StreamEvent{{Type: provider.StreamCompleted, Payload: provider.StreamCompletedPayload{Result: provider.StreamResult{
@@ -699,6 +862,7 @@ func TestRuntimeHasNoProviderStepLimitByDefault(t *testing.T) {
 	results := make(chan ToolResultEnvelope, 8)
 	runtime, err := New(context.Background(), Config{
 		Model: model, Messages: inmemory.NewMessageStorage(),
+		Tools:        []ToolDefinition{{Name: "tool", InputSchema: ToolSchema{Type: "object"}}},
 		ToolRequests: requests, ToolResults: results, ToolInterrupts: make(chan ToolInterrupt, 8),
 		IDGenerator: incrementingRuntimeIDs{},
 	})
@@ -879,7 +1043,18 @@ func newLoopRuntime(t *testing.T, model Model, messages storage.MessageStorage, 
 	requests := make(chan ToolRequest, 8)
 	results := make(chan ToolResultEnvelope, 8)
 	interrupts := make(chan ToolInterrupt, 8)
-	runtime, err := New(context.Background(), Config{Model: model, Messages: messages, ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts, IDGenerator: incrementingRuntimeIDs{}, MaxSteps: steps})
+	runtime, err := New(context.Background(), Config{
+		Model: model, Messages: messages,
+		Tools: []ToolDefinition{
+			{Name: "tool", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "async", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "first", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "second", InputSchema: ToolSchema{Type: "object"}},
+			{Name: "weather", InputSchema: ToolSchema{Type: "object"}},
+		},
+		ToolRequests: requests, ToolResults: results, ToolInterrupts: interrupts,
+		IDGenerator: incrementingRuntimeIDs{}, MaxSteps: steps,
+	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -911,6 +1086,27 @@ func collectRuntimeEvents(t *testing.T, run *Run) []AgentEvent {
 		}
 	}
 	return run.Events()
+}
+
+func containsEvent(events []AgentEvent, eventType EventType) bool {
+	return countEvent(events, eventType) > 0
+}
+
+func remindersContain(reminders []ContextReminder, fragment string) bool {
+	for _, reminder := range reminders {
+		if strings.Contains(reminder.Content, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolDefinitionNames(tools []ToolDefinition) string {
+	names := make([]string, len(tools))
+	for index, tool := range tools {
+		names[index] = tool.Name
+	}
+	return strings.Join(names, ",")
 }
 
 func receiveToolRequest(t *testing.T, requests <-chan ToolRequest) ToolRequest {
