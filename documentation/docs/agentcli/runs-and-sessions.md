@@ -126,7 +126,9 @@ is still projected when its session resumes.
 
 The selected model needs context-window and output-token metadata. Exact model
 overrides belong under `providers.<name>.models`; otherwise AgentCLI attempts
-provider/model metadata discovery and then uses deterministic defaults.
+provider/model metadata discovery and then uses deterministic defaults. See
+[Model-specific overrides](../getting-started/project-configuration.md#model-specific-overrides)
+for field semantics, discovery order, validation, and `extra_body` examples.
 
 Compaction emits `compaction_started`, `compaction_completed`, or
 `compaction_failed`. Checkpoints are internal memory records and should not be

@@ -84,8 +84,9 @@ counts as `120k` and `65k`.
 When it is enabled, construction requires known valid limits for the main
 model. If the summarizer exposes `ModelMetadataProvider`, its limits are also
 validated at startup; a summarizer without that optional capability uses the
-internal summary cap. Explicit non-positive or partially configured model
-limits fail startup validation.
+internal summary cap. An explicit context window must be positive. The optional
+output limit may be zero when unknown and cannot exceed the context window; an
+output limit without a context window fails startup validation.
 
 The setting is inherited when the project creates subagents. It controls
 only creation of future checkpoints: a resumed session always projects its

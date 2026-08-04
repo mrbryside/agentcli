@@ -36,10 +36,6 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    models:
-      your-model:
-        context_window_tokens: 122880
-        max_output_tokens: 66560
 ```
 
 Provider names such as `primary` are local aliases. Environment references use
@@ -47,9 +43,91 @@ Provider names such as `primary` are local aliases. Environment references use
 supported provider type; any OpenAI-compatible chat-completions endpoint can
 use it.
 
-Entries under `models` are exact-name overrides, not an allowlist. They may
-also set `reasoning` for Qwen-compatible endpoints or `extra_body` for
-provider-specific request fields.
+Entries under `models` are exact-name overrides, not an allowlist. A model not
+listed there can still be selected by `MAIN.md` or a task agent.
+
+## Model-specific overrides
+
+One exact model entry may contain capability metadata and provider-specific
+request fields together:
+
+```yaml title=".agentcli/config.yaml"
+providers:
+  primary:
+    type: openai
+    url: https://your-provider.example/v1
+    api_key: ${API_KEY}
+    models:
+      replace-model:
+        context_window_tokens: 122880
+        max_output_tokens: 66560
+        extra_body:
+          thinking:
+            type: disabled
+```
+
+The key `replace-model` must exactly match the model selected in `MAIN.md`, a
+task-agent definition, or `compaction.model`. Overrides do not affect other
+models using the same provider profile.
+
+### Context and output limits
+
+| Field | What AgentCLI uses it for |
+| --- | --- |
+| `context_window_tokens` | The model's total context capacity. AgentCLI estimates whether the system prompts, transcript, tool schemas, requested output reserve, and current input fit before deciding to compact. |
+| `max_output_tokens` | The model's maximum generation capability. It bounds the output reserve and compaction-summary budget; it does not force every response to generate that many tokens. |
+
+Use limits published for the exact model and endpoint. If configured manually,
+`context_window_tokens` must be positive; `max_output_tokens` may be omitted,
+and zero means that no reliable output limit is known. A positive output limit
+cannot be larger than the context window. Do not configure only
+`max_output_tokens`, because AgentCLI cannot budget a request without a context
+window.
+
+AgentCLI normally reserves a smaller operational output budget rather than the
+entire advertised maximum. That budget is bounded by 16,384 tokens, one eighth
+of the context window, the model output limit, and any lower per-request limit.
+This leaves room for input and avoids compacting small-context models too early.
+
+Manual limits take priority and avoid metadata discovery for that exact model.
+When they are absent, project loading tries these sources in order:
+
+1. the authenticated provider `<url>/models` endpoint;
+2. the public `models.dev` catalog;
+3. deterministic fallbacks of 122,880 context tokens and 66,560 output tokens.
+
+Resolution happens independently for the main model, each task-agent model,
+and the optional compaction model, so models sharing one provider can still
+have different limits.
+
+### Reasoning and `extra_body`
+
+`reasoning: false` is a Qwen-compatible shorthand. AgentCLI converts it to:
+
+```json
+{"chat_template_kwargs":{"enable_thinking":false}}
+```
+
+DeepSeek-compatible gateways commonly use a different top-level request field:
+
+```yaml
+models:
+  replace-model:
+    extra_body:
+      thinking:
+        type: disabled
+```
+
+`extra_body` accepts YAML values representable as JSON and merges them into the
+top level of every chat-completions request for that exact model. Environment
+references such as `${THINKING_TYPE}` are expanded recursively. An
+`extra_body` key overrides a standard request field with the same name, so add
+only fields documented by the selected endpoint. Remove the `thinking` mapping
+when the endpoint does not accept it.
+
+Token metadata and `extra_body` are independent: the former controls local
+budgeting and compaction, while the latter changes the JSON sent to the
+provider.
 
 ## Main agent
 

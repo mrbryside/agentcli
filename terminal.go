@@ -2288,9 +2288,15 @@ func (t terminal) messages(messages []agentruntime.Message) {
 		case agentruntime.MessageTypeUser:
 			t.userMessage(message.Content)
 		case agentruntime.MessageTypeAssistant:
-			t.messageContent(message.Content)
+			if strings.TrimSpace(message.Content) != "" {
+				t.messageContent(message.Content)
+				t.println("")
+			}
 		case agentruntime.MessageTypeToolCall:
-			t.messageContent(message.Content)
+			if strings.TrimSpace(message.Content) != "" {
+				t.messageContent(message.Content)
+				t.println("")
+			}
 			for _, call := range message.ToolCalls {
 				if t.interactive && call.Name == taskToolName {
 					agent, _ := terminalTaskCallProgress(call)
@@ -2470,6 +2476,9 @@ func (t terminal) reasoningHistory(reasoning string) {
 			display = terminalANSIEscape.ReplaceAllString(display, "")
 		}
 		t.println(display)
+		// Live streaming separates reasoning from assistant Markdown with one
+		// blank row. Preserve the same layout when Ctrl+O rebuilds history.
+		t.println("")
 	}
 }
 

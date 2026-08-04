@@ -1,17 +1,31 @@
+# Controls which declared tool risks require approval. default asks when no
+# stored decision or matching policy exists.
 permission_mode: default
 
+# Automatically summarizes older transcript content before the model context
+# fills up. provider and model must match entries configured below.
 compaction:
   auto: true
   provider: openai
   model: qwen3.6-35b
 
+# Provider names are local aliases. type selects the protocol adapter, while
+# url points to an OpenAI-compatible API. Secrets come from the environment.
 providers:
   openai:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    # Model entries are exact-name overrides, not an allowlist. These limits
+    # help AgentCLI budget context and compaction when discovery is unavailable.
     models:
       qwen3.6-35b:
-        context_window_tokens: 122880
-        max_output_tokens: 66560
+        context_window_tokens: 122880 # Total input and output capacity.
+        max_output_tokens: 66560 # Maximum output supported by the endpoint.
+        # Qwen-compatible shorthand sent as enable_thinking: false.
+        reasoning: false
+        # For DeepSeek-compatible APIs, use this instead of reasoning:
+        # extra_body:
+        #   thinking:
+        #     type: disabled

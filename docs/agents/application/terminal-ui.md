@@ -48,10 +48,13 @@ Interactive controls are:
 Switching task-session views changes only the visible subscription and transcript. It does not cancel a running task agent. Background results and queued root messages continue to use their owning session, while only the active view may render live content.
 
 View reconstruction uses the same `❯` user prompt and completed task-progress
-rows as live rendering. Stored tool-call assistant content is rendered before
-the call, preserving transcript order. If the selected main or task session
-still has an active turn, its stored turn messages are excluded and that turn
-is rebuilt once from retained run events; this prevents duplicated or reordered
-content after `/agent`, `/back`, `Ctrl+O`, or leaving the runtime-log view.
+rows as live rendering. It also preserves the live blank row between reasoning
+and assistant content and between a completed response and the next user turn,
+including after a `Ctrl+O` reasoning toggle. Stored tool-call assistant content
+is rendered before the call, preserving transcript order. If the selected main
+or task session still has an active turn, its stored turn messages are excluded
+and that turn is rebuilt once from retained run events; this prevents duplicated
+or reordered content after `/agent`, `/back`, `Ctrl+O`, or leaving the runtime-log
+view.
 
 Back to [application/index.md](index.md).

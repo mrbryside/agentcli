@@ -21,18 +21,24 @@ tool_glob.go
 tool_read.go
 .agentcli/MAIN.md
 .agentcli/config.yaml
+.agentcli/skill/interview/SKILL.md
+.agentcli/agent/researcher/researcher.md
 ```
 
-`MAIN.md` allowlists `glob` and `read`, and its complete Markdown body is
-`You are chatbot.` The generated application registers those same two tools.
-It has no generated skills, task agents, edit/report tools, guard models,
-runtime logger, or observability exporter.
+`MAIN.md` allowlists `glob`, `read`, and the `interview` skill. Its complete
+Markdown body is `You are chatbot.` The generated application registers those
+same two tools. The read-only `researcher` task agent is discovered from its
+description and uses the same provider/model placeholders. The starter has no
+edit/report tools, guard models, runtime logger, or observability exporter.
 
 The generated config contains the permission mode, compaction settings, and
-one OpenAI-compatible provider profile. It references `${API_KEY}` from the
-process environment and intentionally contains no logging, observability, or
-guardrail provider mapping. Keep it free of explanatory comments; setup
-guidance belongs in documentation and installer output.
+one OpenAI-compatible provider profile. Short comments explain each section,
+the role of context/output metadata, and the DeepSeek-compatible
+`extra_body.thinking.type: disabled` override. Public setup guidance tells users
+to replace the example limits and remove or replace incompatible request
+fields. The config references `${API_KEY}` from the process environment and
+intentionally contains no logging, observability, or guardrail provider
+mapping.
 
 `init/templates/tool_read.go` and `init/templates/tool_glob.go` are downloaded
 independently. Tests may replace their URLs with `AGENTCLI_TOOL_READ_URL` and

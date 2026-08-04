@@ -114,6 +114,9 @@ func TestTerminalHistoryKeepsAssistantToolContentInTranscriptOrder(t *testing.T)
 		}
 		previous = index
 	}
+	if !strings.Contains(text, "I will inspect it first.\n\n● read") {
+		t.Fatalf("assistant tool-call content lost its live spacing: %q", text)
+	}
 }
 
 func TestTerminalHistoryExpandsAllReasoning(t *testing.T) {
@@ -136,6 +139,31 @@ func TestTerminalHistoryExpandsAllReasoning(t *testing.T) {
 		if !strings.Contains(plain, wanted) {
 			t.Fatalf("expanded history %q missing %q", plain, wanted)
 		}
+	}
+}
+
+func TestTerminalHistoryPreservesLiveSpacingAfterReasoningToggle(t *testing.T) {
+	var output bytes.Buffer
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	renderer.configureReasoningExpanded(true)
+	terminal := terminal{out: &output, interactive: true, stream: renderer}
+
+	terminal.messages([]agentruntime.Message{
+		{Type: agentruntime.MessageTypeUser, Content: "hello"},
+		{Type: agentruntime.MessageTypeAssistant, Content: "Hello!", Reasoning: "Answer briefly."},
+		{Type: agentruntime.MessageTypeUser, Content: "what are you"},
+		{Type: agentruntime.MessageTypeAssistant, Content: "I'm a chatbot.", Reasoning: "Explain identity."},
+	})
+
+	want := "❯ hello\n" +
+		"⌄ thinking\n  Answer briefly.\n\n" +
+		"Hello!\n\n" +
+		"❯ what are you\n" +
+		"⌄ thinking\n  Explain identity.\n\n" +
+		"I'm a chatbot.\n\n"
+	if got := terminalANSIEscape.ReplaceAllString(output.String(), ""); got != want {
+		t.Fatalf("rebuilt history spacing = %q, want %q", got, want)
 	}
 }
 

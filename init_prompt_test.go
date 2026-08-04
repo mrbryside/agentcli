@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestInstallerGeneratesMinimalMainAgent(t *testing.T) {
+func TestInstallerGeneratesMainAgentWithStarterSkill(t *testing.T) {
 	installer := readInstaller(t)
 	mainDefinition := installerHeredoc(t, installer, `cat >"$target/.agentcli/MAIN.md" <<'EOF'`)
 
@@ -15,6 +15,8 @@ func TestInstallerGeneratesMinimalMainAgent(t *testing.T) {
 ---
 provider: replace-provider
 model: replace-model
+skills:
+  - interview
 tools:
   - glob
   - read
@@ -52,9 +54,9 @@ func TestInstallerIncludesOnlyReadAndGlobTools(t *testing.T) {
 	}
 }
 
-func TestInstallerConfigOmitsLoggingObservabilityAndComments(t *testing.T) {
+func TestInstallerConfigOmitsLoggingAndObservability(t *testing.T) {
 	config := installerHeredoc(t, readInstaller(t), `cat >"$target/.agentcli/config.yaml" <<'EOF'`)
-	for _, forbidden := range []string{"logging:", "observability:", "langfuse:", "#"} {
+	for _, forbidden := range []string{"logging:", "observability:", "langfuse:"} {
 		if strings.Contains(config, forbidden) {
 			t.Fatalf("installer config still contains %q:\n%s", forbidden, config)
 		}
@@ -63,6 +65,10 @@ func TestInstallerConfigOmitsLoggingObservabilityAndComments(t *testing.T) {
 		"permission_mode: criticalOnly",
 		"compaction:\n  auto: true\n  provider: replace-provider\n  model: replace-model",
 		"providers:\n  replace-provider:",
+		"# Controls which declared tool risks require approval.",
+		"# Automatically summarizes older transcript content",
+		"# Provider names are local aliases.",
+		"# Model entries are exact-name overrides, not an allowlist.",
 	} {
 		if !strings.Contains(config, required) {
 			t.Fatalf("installer config does not contain %q:\n%s", required, config)
@@ -76,14 +82,75 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 	}
 }
 
-func TestInstallerIncludesProviderMetadataDefaults(t *testing.T) {
-	const required = `request_timeout: 2m
+func TestInstallerIncludesDocumentedModelOverride(t *testing.T) {
+	const required = `# Model entries are exact-name overrides, not an allowlist. These limits
+    # help AgentCLI budget context and compaction when discovery is unavailable.
     models:
       replace-model:
-        context_window_tokens: 122880
-        max_output_tokens: 66560`
+        context_window_tokens: 122880 # Total input and output capacity.
+        max_output_tokens: 66560 # Maximum output supported by the endpoint.
+        # extra_body is merged into each request for this exact model. This
+        # disables DeepSeek-style thinking; remove it for incompatible APIs.
+        extra_body:
+          thinking:
+            type: disabled`
 	if installer := readInstaller(t); !strings.Contains(installer, required) {
-		t.Fatalf("installer provider metadata does not contain:\n%s", required)
+		t.Fatalf("installer model override does not contain:\n%s", required)
+	}
+}
+
+func TestInstallerIncludesStarterSkillAndTaskAgent(t *testing.T) {
+	installer := readInstaller(t)
+	skill := installerHeredoc(t, installer, `cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'`)
+	for _, required := range []string{
+		"name: interview",
+		"description: Use when the request is unclear",
+		"# Requirements interview",
+	} {
+		if !strings.Contains(skill, required) {
+			t.Fatalf("installer skill does not contain %q:\n%s", required, skill)
+		}
+	}
+
+	taskAgent := installerHeredoc(t, installer, `cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'`)
+	for _, required := range []string{
+		"name: researcher",
+		"description: Use for substantial technical research",
+		"provider: replace-provider",
+		"model: replace-model",
+		"tools:\n  - glob\n  - read",
+	} {
+		if !strings.Contains(taskAgent, required) {
+			t.Fatalf("installer task agent does not contain %q:\n%s", required, taskAgent)
+		}
+	}
+}
+
+func TestInstallerGeneratedProjectLoadsStarterSkillAndTaskAgent(t *testing.T) {
+	t.Setenv("API_KEY", "test-key")
+	installer := readInstaller(t)
+	root := t.TempDir()
+	for path, marker := range map[string]string{
+		".agentcli/config.yaml":                    `cat >"$target/.agentcli/config.yaml" <<'EOF'`,
+		".agentcli/MAIN.md":                        `cat >"$target/.agentcli/MAIN.md" <<'EOF'`,
+		".agentcli/skill/interview/SKILL.md":       `cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'`,
+		".agentcli/agent/researcher/researcher.md": `cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'`,
+	} {
+		content := strings.TrimPrefix(installerHeredoc(t, installer, marker), "\n")
+		writeTestFile(t, filepath.Join(root, path), content)
+	}
+
+	project, err := LoadProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := project.mainAgentDefinition()
+	if len(main.Skills) != 1 || main.Skills[0] != "interview" {
+		t.Fatalf("main skills = %v", main.Skills)
+	}
+	definitions := project.subagentDefinitions()
+	if len(definitions) != 1 || definitions[0].Name != "researcher" {
+		t.Fatalf("task-agent definitions = %#v", definitions)
 	}
 }
 
@@ -115,16 +182,18 @@ func TestPlaygroundSetsDebugLogLevelInCode(t *testing.T) {
 func TestExampleConfigMatchesMainAgent(t *testing.T) {
 	t.Setenv("API_KEY", "test-key")
 	root := t.TempDir()
-	config, err := os.ReadFile(".agentcli/config.example.yaml")
-	if err != nil {
-		t.Fatalf("read example config: %v", err)
+	for source, destination := range map[string]string{
+		".agentcli/config.example.yaml":            ".agentcli/config.yaml",
+		".agentcli/MAIN.md":                        ".agentcli/MAIN.md",
+		".agentcli/skill/interview/SKILL.md":       ".agentcli/skill/interview/SKILL.md",
+		".agentcli/agent/researcher/researcher.md": ".agentcli/agent/researcher/researcher.md",
+	} {
+		content, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("read example project file %s: %v", source, err)
+		}
+		writeTestFile(t, filepath.Join(root, destination), string(content))
 	}
-	mainDefinition, err := os.ReadFile(".agentcli/MAIN.md")
-	if err != nil {
-		t.Fatalf("read main agent: %v", err)
-	}
-	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), string(config))
-	writeTestFile(t, filepath.Join(root, ".agentcli", "MAIN.md"), string(mainDefinition))
 
 	project, err := LoadProject(root)
 	if err != nil {
@@ -132,6 +201,14 @@ func TestExampleConfigMatchesMainAgent(t *testing.T) {
 	}
 	if project.providerName != "openai" || project.modelName != "qwen3.6-35b" {
 		t.Fatalf("example project = %q/%q", project.providerName, project.modelName)
+	}
+	main := project.mainAgentDefinition()
+	if len(main.Skills) != 1 || main.Skills[0] != "interview" {
+		t.Fatalf("example main skills = %v", main.Skills)
+	}
+	definitions := project.subagentDefinitions()
+	if len(definitions) != 1 || definitions[0].Name != "researcher" {
+		t.Fatalf("example task-agent definitions = %#v", definitions)
 	}
 }
 

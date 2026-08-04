@@ -56,7 +56,7 @@ fi
 curl -fsSL "$tool_read_url" >"$temporary_tool_read" || fail 'could not download the starter read tool'
 curl -fsSL "$tool_glob_url" >"$temporary_tool_glob" || fail 'could not download the starter glob tool'
 
-mkdir -p "$target/.agentcli"
+mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
 mv "$temporary_tool_read" "$target/tool_read.go"
 mv "$temporary_tool_glob" "$target/tool_glob.go"
 
@@ -120,6 +120,8 @@ cat >"$target/.agentcli/MAIN.md" <<'EOF'
 ---
 provider: replace-provider
 model: replace-model
+skills:
+  - interview
 tools:
   - glob
   - read
@@ -129,23 +131,64 @@ You are chatbot.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
+# Controls which declared tool risks require approval. criticalOnly allows
+# low/medium-risk calls and asks before high-risk calls.
 permission_mode: criticalOnly
 
+# Automatically summarizes older transcript content before the model context
+# fills up. provider and model must match entries configured below.
 compaction:
   auto: true
   provider: replace-provider
   model: replace-model
 
+# Provider names are local aliases. type selects the protocol adapter, while
+# url points to an OpenAI-compatible API. Secrets come from the environment.
 providers:
   replace-provider:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
+    # Model entries are exact-name overrides, not an allowlist. These limits
+    # help AgentCLI budget context and compaction when discovery is unavailable.
     models:
       replace-model:
-        context_window_tokens: 122880
-        max_output_tokens: 66560
+        context_window_tokens: 122880 # Total input and output capacity.
+        max_output_tokens: 66560 # Maximum output supported by the endpoint.
+        # extra_body is merged into each request for this exact model. This
+        # disables DeepSeek-style thinking; remove it for incompatible APIs.
+        extra_body:
+          thinking:
+            type: disabled
+EOF
+
+cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'
+---
+name: interview
+description: Use when the request is unclear and its goals, constraints, or success criteria need clarification.
+---
+
+# Requirements interview
+
+Ask focused questions until the intended result, constraints, and success
+criteria are clear. Then summarize the agreed requirements before solving it.
+EOF
+
+cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'
+---
+name: researcher
+description: Use for substantial technical research requiring project inspection, evidence, or trade-off comparison; not for simple answers or code generation.
+provider: replace-provider
+model: replace-model
+tools:
+  - glob
+  - read
+---
+
+Investigate the important facts, trade-offs, and uncertainties. Prioritize
+traceable evidence, distinguish findings from inference, and make the practical
+implications clear.
 EOF
 
 if [ "$go_available" = true ]; then

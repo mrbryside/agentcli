@@ -110,6 +110,11 @@ go run ./playground/terminal
 go run ./playground/terminal "Summarize this project"
 ```
 
+The repository playground loads the root `.agentcli` project, including its
+`interview` skill and read-only `researcher` task agent. Matching their
+descriptions is enough for the model to load or spawn them; users do not need
+to name them explicitly.
+
 The one-shot form is non-interactive: permissions that would ask are denied
 and confirmations are declined. For an embedded one-shot client, combine
 `WithNonInteractive(true)` with `WithTerminalInitialPrompt(text)`.

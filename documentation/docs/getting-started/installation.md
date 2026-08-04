@@ -29,7 +29,13 @@ my-agent/
 ├── tool_read.go
 └── .agentcli/
     ├── config.yaml
-    └── MAIN.md
+    ├── MAIN.md
+    ├── skill/
+    │   └── interview/
+    │       └── SKILL.md
+    └── agent/
+        └── researcher/
+            └── researcher.md
 ```
 
 It refuses to overwrite an existing path and never asks for or stores provider
@@ -47,15 +53,23 @@ export API_KEY='your-api-key'
 go run .
 ```
 
+Comments in the generated config explain permissions, compaction, provider
+aliases, model token limits, and the DeepSeek-compatible
+`extra_body.thinking.type: disabled` field. Replace the example limits with the
+values published by your endpoint, and remove or replace `extra_body` when the
+endpoint does not accept it.
+
 Run one non-interactive prompt by passing it as an argument:
 
 ```sh
 go run . "Summarize this project"
 ```
 
-The starter exposes only bounded `glob` and `read` tools. Add tools or task
-agents when the application needs them; do not grant write or shell access by
-default.
+The starter exposes only bounded `glob` and `read` tools. It also includes an
+`interview` skill and a read-only `researcher` task agent. Their descriptions
+show the main model when to load the skill or spawn the task agent, so the user
+does not need to name either capability explicitly. See
+[Skills and Task Agents](../capabilities/skills-and-task-agents.md).
 
 ## Add AgentCLI to an existing app
 
