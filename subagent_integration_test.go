@@ -18,8 +18,8 @@ import (
 
 func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *testing.T) {
 	mainAgentModel := &scriptedModel{toolCalls: []provider.ToolCall{
-		{ID: "research", Name: TaskToolName, Arguments: map[string]any{"agent": "researcher", "description": "Research first", "prompt": "research first"}},
-		{ID: "review", Name: TaskToolName, Arguments: map[string]any{"agent": "reviewer", "description": "Review first", "prompt": "review first"}},
+		{ID: "research", Name: taskToolName, Arguments: map[string]any{"agent": "researcher", "description": "Research first", "prompt": "research first"}},
+		{ID: "review", Name: taskToolName, Arguments: map[string]any{"agent": "reviewer", "description": "Review first", "prompt": "review first"}},
 	}}
 	researchModel := newIntegrationSubagentModel("research complete")
 	reviewModel := newIntegrationSubagentModel("review complete")
@@ -51,19 +51,19 @@ func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *t
 	if len(requests) != 2 {
 		t.Fatalf("main provider requests = %d, want task batch then final response", len(requests))
 	}
-	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != TaskToolName {
+	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != taskToolName {
 		t.Fatalf("main catalog = %#v, want only task", requests[0].Tools)
 	}
 	messages, err := agent.ListMessages(context.Background(), "mainAgent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	results := make(map[string]TaskResult)
+	results := make(map[string]taskResult)
 	for _, message := range messages {
-		if message.ToolResult == nil || message.ToolResult.Name != TaskToolName {
+		if message.ToolResult == nil || message.ToolResult.Name != taskToolName {
 			continue
 		}
-		var result TaskResult
+		var result taskResult
 		if err := json.Unmarshal(message.ToolResult.Output, &result); err != nil {
 			t.Fatal(err)
 		}
@@ -85,14 +85,14 @@ func TestSubagentIntegrationForegroundTasksRunInParallelAndReturnInMainTurn(t *t
 
 func TestSubagentIntegrationStepLimitedTaskFinalizesOnceWithoutReportTool(t *testing.T) {
 	main := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "limited", Name: TaskToolName,
+		ID: "limited", Name: taskToolName,
 		Arguments: map[string]any{"agent": "researcher", "description": "Inspect", "prompt": "inspect"},
 	}}}
 	child := &lateStepLimitFinalTextModel{}
 	agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{
 		"researcher": newIntegrationSubagentModel("unused"),
 	})
-	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	agent.subagents.subagentFactory = func(agentDefinition) (*Agent, error) {
 		return New(context.Background(), withSubagentAgent(), WithModel(child), WithProviderStepLimit(1), WithTool(testTool("work")), WithMessageStorage(agent.messages))
 	}
 
@@ -144,7 +144,7 @@ func TestSubagentIntegrationBackgroundAndPromotionDeliverOneTrustedResult(t *tes
 			if test.background {
 				args["background"] = true
 			}
-			main := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "task", Name: TaskToolName, Arguments: args}}}
+			main := &scriptedModel{toolCalls: []provider.ToolCall{{ID: "task", Name: taskToolName, Arguments: args}}}
 			child := newIntegrationSubagentModel("background complete")
 			agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": child}, WithTaskForegroundWait(test.wait))
 			events := agent.SubscribeSystemEvents(context.Background())
@@ -185,7 +185,7 @@ func TestSubagentIntegrationBackgroundAndPromotionDeliverOneTrustedResult(t *tes
 
 func TestSubagentIntegrationCompactionWhileBackgroundTaskFinishesDeliversResultExactlyOnce(t *testing.T) {
 	script := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "task", Name: TaskToolName,
+		ID: "task", Name: taskToolName,
 		Arguments: map[string]any{
 			"agent": "researcher", "description": "Research", "prompt": "research", "background": true,
 		},
@@ -297,11 +297,11 @@ func TestSubagentIntegrationCompactionWhileBackgroundTaskFinishesDeliversResultE
 
 func TestSubagentIntegrationBackgroundFailureDeliversOneTrustedError(t *testing.T) {
 	main := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "task", Name: TaskToolName,
+		ID: "task", Name: taskToolName,
 		Arguments: map[string]any{"agent": "researcher", "description": "Research", "prompt": "research", "background": true},
 	}}}
 	agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": newIntegrationSubagentModel("unused")})
-	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	agent.subagents.subagentFactory = func(agentDefinition) (*Agent, error) {
 		return New(context.Background(), withSubagentAgent(), WithModel(subagentFailModel{err: errors.New("child unavailable")}), WithMessageStorage(agent.messages))
 	}
 	events := agent.SubscribeSystemEvents(context.Background())
@@ -346,14 +346,14 @@ func TestSubagentIntegrationResultContractsPublishMetadataOnlyWhenValid(t *testi
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			main := &scriptedModel{toolCalls: []provider.ToolCall{{
-				ID: "contract", Name: TaskToolName,
+				ID: "contract", Name: taskToolName,
 				Arguments: map[string]any{"agent": "researcher", "description": "Operate", "prompt": "operate"},
 			}}}
 			child := newIntegrationSubagentModel(test.content)
 			child.release()
 			agent := newIntegrationSubagentAgent(t, main, map[string]*integrationSubagentModel{"researcher": child})
 			definition := agent.subagents.project.subagents["researcher"]
-			definition.Result = &AgentResultContract{MessageField: "message", Metadata: map[string]AgentResultMetadataField{
+			definition.Result = &agentResultContract{MessageField: "message", Metadata: map[string]agentResultMetadataField{
 				"requires_reply": {Type: "boolean", Required: true},
 			}}
 			agent.subagents.project.subagents["researcher"] = definition
@@ -483,13 +483,13 @@ func TestSubagentIntegrationHTTPChatCloseHistoryAndReminderRefresh(t *testing.T)
 
 func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, subagentModels map[string]*integrationSubagentModel, options ...Option) *Agent {
 	t.Helper()
-	definitions := make(map[string]SubagentDefinition, len(subagentModels))
+	definitions := make(map[string]agentDefinition, len(subagentModels))
 	for name := range subagentModels {
-		definitions[name] = SubagentDefinition{Name: name, Description: name + " work", Provider: "test", Model: name + "-model", Instructions: "Return a concise result."}
+		definitions[name] = agentDefinition{Name: name, Description: name + " work", Provider: "test", Model: name + "-model", Instructions: "Return a concise result."}
 	}
 	project := &Project{
-		config: ProjectConfig{PermissionMode: permission.Default, Providers: map[string]ProviderConfig{
-			"test": {Type: ProviderTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
+		config: projectConfig{PermissionMode: permission.Default, Providers: map[string]providerConfig{
+			"test": {Type: providerTypeOpenAI, URL: "http://example.invalid", APIKey: "test"},
 		}},
 		providerName: "test", modelName: "mainAgent-model", subagents: definitions,
 	}
@@ -500,7 +500,7 @@ func newIntegrationSubagentAgent(t *testing.T, mainAgent agentruntime.Model, sub
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = agent.Close() })
-	agent.subagents.subagentFactory = func(definition SubagentDefinition) (*Agent, error) {
+	agent.subagents.subagentFactory = func(definition agentDefinition) (*Agent, error) {
 		model := subagentModels[definition.Name]
 		if model == nil {
 			return nil, errors.New("missing test subagent model")
@@ -587,20 +587,20 @@ func messagesContainTaskResult(messages []agentruntime.Message) bool {
 	return false
 }
 
-func onlyTaskToolResult(t *testing.T, messages []agentruntime.Message, callID string) TaskResult {
+func onlyTaskToolResult(t *testing.T, messages []agentruntime.Message, callID string) taskResult {
 	t.Helper()
 	for _, message := range messages {
-		if message.ToolResult == nil || message.ToolResult.Name != TaskToolName || message.ToolResult.CallID != callID {
+		if message.ToolResult == nil || message.ToolResult.Name != taskToolName || message.ToolResult.CallID != callID {
 			continue
 		}
-		var result TaskResult
+		var result taskResult
 		if err := json.Unmarshal(message.ToolResult.Output, &result); err != nil {
 			t.Fatal(err)
 		}
 		return result
 	}
 	t.Fatalf("missing task result for %q in %#v", callID, messages)
-	return TaskResult{}
+	return taskResult{}
 }
 
 func waitTaskCompleted(t *testing.T, events <-chan SystemEvent) SystemEvent {

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,5 +50,31 @@ func TestClientExportsOTLPHTTPWithLangfuseHeaders(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for OTLP export")
+	}
+}
+
+func TestClientRejectsInvalidCodeConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config Config
+		want   string
+	}{
+		{name: "missing public key", config: Config{SecretKey: "sk"}, want: "public key"},
+		{name: "missing secret key", config: Config{PublicKey: "pk"}, want: "secret key"},
+		{name: "invalid base URL", config: Config{BaseURL: "ftp://example.test", PublicKey: "pk", SecretKey: "sk"}, want: "base URL"},
+		{name: "invalid sample rate", config: Config{PublicKey: "pk", SecretKey: "sk", SampleRate: 1.1}, want: "sample rate"},
+		{name: "invalid environment", config: Config{PublicKey: "pk", SecretKey: "sk", Environment: "Production"}, want: "environment"},
+		{name: "reserved environment", config: Config{PublicKey: "pk", SecretKey: "sk", Environment: "langfuse-prod"}, want: "environment"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := New(context.Background(), test.config)
+			if client != nil {
+				_ = client.Shutdown(context.Background())
+				t.Fatal("New returned a client for invalid configuration")
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("New error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }

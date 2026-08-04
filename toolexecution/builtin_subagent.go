@@ -44,7 +44,7 @@ type TaskToolInput struct {
 
 // TaskToolExecutor is bound by agentcli after its subagent manager exists. It
 // deliberately returns raw JSON so this package stays independent of the root
-// TaskRequest and TaskResult public types.
+// package's private task request and result assembly.
 type TaskToolExecutor func(context.Context, Invocation, TaskToolInput) (json.RawMessage, error)
 
 // TaskToolBridge allows the task tool to be registered before agentcli creates

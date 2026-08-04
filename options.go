@@ -19,6 +19,18 @@ import (
 const defaultChannelBuffer = 64
 const defaultToolWorkers = 4
 
+// LogLevel selects the minimum severity emitted by managed runtime logging.
+type LogLevel = slog.Level
+
+// Managed runtime log levels exposed by AgentCLI so callers do not need to
+// import log/slog just to configure WithLogLevel.
+const (
+	LevelDebug LogLevel = slog.LevelDebug
+	LevelInfo  LogLevel = slog.LevelInfo
+	LevelWarn  LogLevel = slog.LevelWarn
+	LevelError LogLevel = slog.LevelError
+)
+
 // defaultCompletionRepairLimit bounds provider retries when a completion
 // guard requires a trigger or semantic result-report tool. A bounded retry keeps
 // a non-compliant provider from consuming the entire run indefinitely while
@@ -62,6 +74,7 @@ type config struct {
 	compactionModel      agentruntime.Model
 	contextEstimator     agentruntime.ContextEstimator
 	toolCallGuardTimeout time.Duration
+	langfuseConfig       *LangfuseConfig
 	langfuse             *langfuseobs.Client
 	logger               *slog.Logger
 	runtimeLogs          *runtimeLogStore
@@ -149,7 +162,7 @@ func (configuration config) resolveGuardModel(providerName, model string) (agent
 	if configuration.project == nil {
 		return nil, errors.New("guard provider requires a project with provider profiles")
 	}
-	return configuration.project.ModelFor(providerName, model)
+	return configuration.project.modelFor(providerName, model)
 }
 
 func isPermissionMode(mode permission.Mode) bool {
@@ -317,9 +330,20 @@ func WithLogger(logger *slog.Logger) Option {
 // WithLogLevel enables structured runtime lifecycle logging at level. Records
 // normally go to stderr and are captured by RunTerminal while its interactive
 // runtime-log view is attached.
-func WithLogLevel(level slog.Level) Option {
+func WithLogLevel(level LogLevel) Option {
 	return func(configuration *config) error {
 		configuration.logger, configuration.runtimeLogs = managedRuntimeLogger(level)
+		return nil
+	}
+}
+
+// WithLangfuse enables Agent-owned Langfuse LLM-call observability. The
+// resulting client is shared with project-created subagents and flushed by
+// Agent.Close. Omit this option to disable Langfuse.
+func WithLangfuse(langfuseConfig LangfuseConfig) Option {
+	return func(configuration *config) error {
+		clone := langfuseConfig
+		configuration.langfuseConfig = &clone
 		return nil
 	}
 }

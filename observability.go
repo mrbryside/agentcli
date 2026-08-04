@@ -8,36 +8,21 @@ import (
 	langfuseobs "github.com/mrbryside/agentcli/observability/langfuse"
 )
 
-func newProjectLangfuse(ctx context.Context, project *Project) (*langfuseobs.Client, bool, error) {
-	if project == nil || project.config.Observability == nil || project.config.Observability.Langfuse == nil {
-		return nil, false, nil
+// LangfuseConfig configures code-owned Langfuse observability.
+type LangfuseConfig = langfuseobs.Config
+
+// LangfuseCaptureConfig controls potentially sensitive generation payloads.
+type LangfuseCaptureConfig = langfuseobs.CaptureConfig
+
+func newLangfuse(ctx context.Context, config *LangfuseConfig) (*langfuseobs.Client, error) {
+	if config == nil {
+		return nil, nil
 	}
-	config := project.config.Observability.Langfuse
-	if !config.Enabled {
-		return nil, false, nil
-	}
-	sampleRate := 1.0
-	if config.SampleRate != nil {
-		sampleRate = *config.SampleRate
-	}
-	client, err := langfuseobs.New(ctx, langfuseobs.Config{
-		BaseURL:     config.BaseURL,
-		PublicKey:   config.PublicKey,
-		SecretKey:   config.SecretKey,
-		Environment: config.Environment,
-		ServiceName: config.ServiceName,
-		Release:     config.Release,
-		SampleRate:  sampleRate,
-		Capture: langfuseobs.CaptureConfig{
-			Input:     config.Capture.Input,
-			Output:    config.Capture.Output,
-			Reasoning: config.Capture.Reasoning,
-		},
-	})
+	client, err := langfuseobs.New(ctx, *config)
 	if err != nil {
-		return nil, false, fmt.Errorf("create Langfuse observability: %w", err)
+		return nil, fmt.Errorf("create Langfuse observability: %w", err)
 	}
-	return client, true, nil
+	return client, nil
 }
 
 func shutdownOwnedLangfuse(client *langfuseobs.Client, owned bool) {

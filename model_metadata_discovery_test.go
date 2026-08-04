@@ -33,7 +33,7 @@ func TestDiscoverModelMetadataUsesProviderBeforeModelsDev(t *testing.T) {
 	metadata, err := discoverModelMetadata(
 		context.Background(),
 		http.DefaultClient,
-		ProviderConfig{URL: providerServer.URL + "/v1", APIKey: "test-key"},
+		providerConfig{URL: providerServer.URL + "/v1", APIKey: "test-key"},
 		"private",
 		"private-model",
 		modelsDevServer.URL,
@@ -76,7 +76,7 @@ func TestDiscoverModelMetadataFallsBackToModelsDev(t *testing.T) {
 	metadata, err := discoverModelMetadata(
 		context.Background(),
 		http.DefaultClient,
-		ProviderConfig{URL: providerServer.URL + "/v1"},
+		providerConfig{URL: providerServer.URL + "/v1"},
 		"private",
 		"private-model",
 		modelsDevServer.URL,
@@ -113,7 +113,7 @@ func TestFetchModelsDevMetadataPrefersProviderTypeOverGlobalMatches(t *testing.T
 		http.DefaultClient,
 		server.URL,
 		"primary",
-		ProviderTypeOpenAI,
+		providerTypeOpenAI,
 		"shared-model",
 	)
 	if err != nil {
@@ -167,7 +167,7 @@ providers:
 	if mainRequests.Load() != 0 || compactionRequests.Load() != 0 {
 		t.Fatalf("metadata discovery requests: main=%d compaction=%d; want configured providers to skip discovery", mainRequests.Load(), compactionRequests.Load())
 	}
-	model, err := project.Model()
+	model, err := project.model()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ providers:
 	if metadata != (agentruntime.ModelMetadata{ContextWindowTokens: 262144, MaxOutputTokens: 32768}) {
 		t.Fatalf("metadata = %#v", metadata)
 	}
-	compactionModel, err := project.CompactionModel()
+	compactionModel, err := project.compactionModel()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestProjectModelUsesProviderMetadataWithoutCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := project.Model()
+	model, err := project.model()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,30 +238,30 @@ func TestProjectModelUsesProviderMetadataWithoutCompaction(t *testing.T) {
 func TestConfiguredProviderMetadataValidation(t *testing.T) {
 	tests := []struct {
 		name   string
-		config ProviderConfig
+		config providerConfig
 		want   string
 	}{
 		{
 			name:   "not configured",
-			config: ProviderConfig{},
+			config: providerConfig{},
 		},
 		{
 			name: "missing context",
-			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+			config: providerConfig{Models: map[string]providerModelConfig{
 				"selected": {MaxOutputTokens: 1024},
 			}},
 			want: "context window tokens must be positive",
 		},
 		{
 			name: "output exceeds context",
-			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+			config: providerConfig{Models: map[string]providerModelConfig{
 				"selected": {ContextWindowTokens: 1024, MaxOutputTokens: 2048},
 			}},
 			want: "maximum output tokens cannot exceed",
 		},
 		{
 			name: "valid",
-			config: ProviderConfig{Models: map[string]ProviderModelConfig{
+			config: providerConfig{Models: map[string]providerModelConfig{
 				"selected": {ContextWindowTokens: 122880, MaxOutputTokens: 66560},
 			}},
 		},
@@ -287,7 +287,7 @@ func TestConfiguredProviderMetadataValidation(t *testing.T) {
 }
 
 func TestConfiguredProviderMetadataMatchesExactModelName(t *testing.T) {
-	config := ProviderConfig{Models: map[string]ProviderModelConfig{
+	config := providerConfig{Models: map[string]providerModelConfig{
 		"selected": {
 			ContextWindowTokens: 122880,
 			MaxOutputTokens:     66560,
@@ -314,7 +314,7 @@ func TestDiscoverModelMetadataUsesExactDefaultsWhenSourcesFail(t *testing.T) {
 	metadata, err := discoverModelMetadata(
 		context.Background(),
 		http.DefaultClient,
-		ProviderConfig{URL: providerServer.URL + "/v1"},
+		providerConfig{URL: providerServer.URL + "/v1"},
 		"private",
 		"unknown-model",
 		modelsDevServer.URL,

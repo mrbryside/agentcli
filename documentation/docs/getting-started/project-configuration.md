@@ -16,6 +16,10 @@ sidebar_position: 2
 └── agent/*/*.md             # optional
 ```
 
+`Project` is intentionally opaque. Load it and pass it to
+`agentcli.WithProject(project)`; provider construction, prompts, skills, and
+full task-agent definitions remain framework internals.
+
 Unknown fields, missing providers, unknown skills, and unregistered tools fail
 during startup rather than during a model request.
 
@@ -68,38 +72,21 @@ model, and allowlisted tools and skills. Task-agent definitions are discovered
 from `.agentcli/agent/` and exposed through the framework-owned `task` tool;
 they are not listed in `MAIN.md`.
 
-## Optional features
-
-Add only the sections the application uses:
+Optional runtime logging may be enabled here:
 
 ```yaml title=".agentcli/config.yaml"
 logging:
   enabled: true
   level: info
-
-compaction:
-  auto: true
-  provider: primary
-  model: your-model
-
-observability:
-  langfuse:
-    enabled: true
-    base_url: ${LANGFUSE_BASE_URL}
-    public_key: ${LANGFUSE_PUBLIC_KEY}
-    secret_key: ${LANGFUSE_SECRET_KEY}
 ```
 
-- `logging` writes structured runtime records. Interactive Terminal sessions
-  capture project-managed logs in the `Ctrl+L` / `/logs` view instead of
-  printing them through the conversation.
-- `compaction` summarizes old transcript context when the selected model nears
-  its context limit. Omit the section to disable it.
-- `observability.langfuse` exports model-call spans. Prompt, output, and
-  reasoning capture are off by default.
-
-See [Runs, sessions, and events](../agentcli/runs-and-sessions.md#context-compaction) and
-[Observability](../observability/overview.md) for operational details.
+`agentcli.WithLogLevel(...)` is the programmatic alternative and overrides the
+project logger when applied after `agentcli.WithProject(project)`. Langfuse is
+code-configured only through `agentcli.WithLangfuse(...)`; an `observability`
+YAML field is rejected. See
+[Logging and observability](../observability/overview.md). Optional transcript
+compaction remains a project setting; see
+[Runs, sessions, and events](../agentcli/runs-and-sessions.md#context-compaction).
 
 ## Permission modes
 

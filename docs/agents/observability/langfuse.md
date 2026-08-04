@@ -1,26 +1,29 @@
 # Langfuse LLM-call observability
 
-The optional `.agentcli/config.yaml` path is
-`observability.langfuse`. Project decoding remains strict through
-`yaml.Decoder.KnownFields(true)`. `project.go` expands environment references
-and validates enabled credentials, an optional absolute HTTP(S) `base_url`,
-`sample_rate` in `[0,1]`, and Langfuse's environment-name constraints.
+Langfuse is code-configured through `WithLangfuse(LangfuseConfig)`. The root
+aliases expose `observability/langfuse.Config` and `CaptureConfig` without
+requiring applications to import the subpackage. `.agentcli/config.yaml` has
+no `observability` field; strict project decoding rejects that removed path.
 
-`observability.go` converts the project fields into
-`observability/langfuse.Config` when a root `Agent` is constructed. Project
-loading itself has no exporter or network side effect.
+The option stores a defensive configuration copy. `Agent.New` constructs the
+client after the Agent context exists. `observability/langfuse.New` validates
+credentials, an absolute HTTP(S) `BaseURL`, `SampleRate` in `[0,1]`, and
+Langfuse environment-name constraints. Applications read environment variables
+before passing the code configuration; project loading no longer expands
+Langfuse settings.
 
 ## Export and lifecycle
 
 `observability/langfuse.Client` owns a private OpenTelemetry tracer provider
 and a batched OTLP/HTTP exporter. It derives the traces endpoint by appending
 `/api/public/otel/v1/traces` to the configured installation root, uses HTTP
-Basic Auth built from the project public/secret keys, and sends
+Basic Auth built from the configured public/secret keys, and sends
 `x-langfuse-ingestion-version: 4`.
 
-The root `Agent` creates and owns at most one client. Its subagents receive the
-same client through the private `withSharedLangfuse` option and never shut it
-down. `Agent.Close` closes subagents and the executor before giving the owner
+The root `Agent` creates and owns at most one client when `WithLangfuse` is
+present. Its subagents receive the same client through the private
+`withSharedLangfuse` option and never shut it down. `Agent.Close` closes
+subagents and the executor before giving the owner
 five seconds to flush and shut down telemetry. Agent construction error paths
 also shut down a newly owned client.
 
@@ -64,7 +67,8 @@ Focused coverage lives in:
   terminal errors, context propagation, capability preservation, and
   idempotence;
 - `observability/langfuse/client_test.go` for OTLP path and Langfuse headers;
-- `project_test.go` for YAML expansion, strict fields, and validation;
+- root `observability_test.go` for the public option and Agent construction;
+- `project_test.go` for rejection of the removed YAML field;
 - `agentruntime/guardrail_test.go` and `agentruntime/compactor_test.go` for
   session/turn propagation.
 

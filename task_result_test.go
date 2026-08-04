@@ -7,7 +7,7 @@ import (
 )
 
 func TestTaskDeliveryRuntimeMessageContainsOnlyTaskResultFields(t *testing.T) {
-	message := taskDelivery{Result: TaskResult{
+	message := taskDelivery{Result: taskResult{
 		TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done",
 	}, Metadata: map[string]any{"requires_requester_reply": true}}.RuntimeMessage()
 	if message.Type != "runtime_event" || !strings.HasPrefix(message.Content, "<task_result>\n") || !strings.HasSuffix(message.Content, "\n</task_result>") {
@@ -31,11 +31,11 @@ func TestTaskDeliveryRuntimeMessageContainsOnlyTaskResultFields(t *testing.T) {
 }
 
 func TestTaskResultFromFinalOutputUsesContractAndRuntimeState(t *testing.T) {
-	definition := SubagentDefinition{
+	definition := agentDefinition{
 		Name: "operator",
-		Result: &AgentResultContract{
+		Result: &agentResultContract{
 			MessageField: "message",
-			Metadata: map[string]AgentResultMetadataField{
+			Metadata: map[string]agentResultMetadataField{
 				"requires_reply": {Type: "boolean", Required: true},
 			},
 		},
@@ -55,10 +55,10 @@ func TestTaskResultFromFinalOutputUsesContractAndRuntimeState(t *testing.T) {
 }
 
 func TestTaskDeliveryRuntimeMessageIncludesTaskReferenceErrorCode(t *testing.T) {
-	message := taskDelivery{Result: TaskResult{
+	message := taskDelivery{Result: taskResult{
 		TaskID:    "missing-task",
 		State:     TaskStateError,
-		ErrorCode: TaskErrorNotFound,
+		ErrorCode: taskErrorNotFound,
 		Error:     "task not found",
 	}}.RuntimeMessage()
 	contents := strings.TrimSuffix(strings.TrimPrefix(message.Content, "<task_result>\n"), "\n</task_result>")
@@ -67,7 +67,7 @@ func TestTaskDeliveryRuntimeMessageIncludesTaskReferenceErrorCode(t *testing.T) 
 		t.Fatal(err)
 	}
 	if payload["task_id"] != "missing-task" || payload["state"] != string(TaskStateError) ||
-		payload["error_code"] != string(TaskErrorNotFound) {
+		payload["error_code"] != string(taskErrorNotFound) {
 		t.Fatalf("task reference error payload = %#v", payload)
 	}
 }

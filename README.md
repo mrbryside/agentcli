@@ -110,7 +110,7 @@ which registered tools, skills, and task agents each agent may use.
 
 | Path | Purpose |
 | --- | --- |
-| `.agentcli/config.yaml` | Providers, permissions, compaction, logging, and observability. |
+| `.agentcli/config.yaml` | Providers, permission mode, and optional compaction or runtime logging. |
 | `.agentcli/MAIN.md` | Main-agent model, allowed capabilities, and instructions. |
 | `.agentcli/skill/*/SKILL.md` | Optional reusable skill instructions. |
 | `.agentcli/agent/*/*.md` | Optional task-agent definitions. |

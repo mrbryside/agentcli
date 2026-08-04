@@ -61,7 +61,7 @@ func taskAgentsForProject(project *Project) []toolexecution.TaskAgent {
 	if project == nil {
 		return nil
 	}
-	definitions := project.Subagents()
+	definitions := project.subagentDefinitions()
 	agents := make([]toolexecution.TaskAgent, 0, len(definitions))
 	for _, definition := range definitions {
 		// Project validation has already ensured the definition and each of its
@@ -190,14 +190,13 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 
 	langfuseClient := configuration.langfuse
 	ownsLangfuse := false
-	if langfuseClient == nil {
-		var enabled bool
-		langfuseClient, enabled, err = newProjectLangfuse(runContext, configuration.project)
+	if langfuseClient == nil && configuration.langfuseConfig != nil {
+		langfuseClient, err = newLangfuse(runContext, configuration.langfuseConfig)
 		if err != nil {
 			cancel()
 			return nil, err
 		}
-		ownsLangfuse = enabled
+		ownsLangfuse = true
 	}
 	if langfuseClient != nil {
 		configuration.model = langfuseClient.ObserveModel(configuration.model)
@@ -225,7 +224,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			return nil, fmt.Errorf("create subagent manager: %w", err)
 		}
 		taskTools.Bind(func(ctx context.Context, invocation toolexecution.Invocation, input toolexecution.TaskToolInput) (json.RawMessage, error) {
-			request := TaskRequest{
+			request := taskRequest{
 				MainAgentSessionID: invocation.SessionID,
 				MainAgentTurnID:    invocation.TurnID,
 				Prompt:             input.Prompt,
@@ -337,7 +336,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 			if configuration.project == nil {
 				return nil, errors.New("tool-call guard provider requires a project with provider profiles")
 			}
-			model, modelErr := configuration.project.ModelFor(providerName, modelName)
+			model, modelErr := configuration.project.modelFor(providerName, modelName)
 			if modelErr != nil {
 				return nil, modelErr
 			}
@@ -508,7 +507,7 @@ func validateProjectToolAllowlists(project *Project, tools []toolexecution.Tool)
 			}
 		}
 	}
-	for _, definition := range project.Subagents() {
+	for _, definition := range project.subagentDefinitions() {
 		availableSkills := make(map[string]struct{}, len(definition.Skills))
 		for _, name := range definition.Skills {
 			availableSkills[name] = struct{}{}
@@ -889,18 +888,21 @@ func (a *Agent) ListMessages(ctx context.Context, sessionID string) ([]agentrunt
 	return storage.CloneMessages(messages), nil
 }
 
-// SubagentDefinitions returns the immutable project-defined catalog available
-// to this main agent. Subagents expose no management catalog.
+// SubagentDefinitions returns safe discovery metadata for the project-defined
+// catalog available to this main agent. Runtime instructions, local paths, and
+// result-contract details remain private. Subagents expose no management
+// catalog.
 func (a *Agent) SubagentDefinitions() []SubagentDefinition {
 	if a == nil || a.subagents == nil || a.subagents.project == nil {
 		return nil
 	}
-	return a.subagents.project.Subagents()
+	definitions := a.subagents.project.subagentDefinitions()
+	result := make([]SubagentDefinition, len(definitions))
+	for index, definition := range definitions {
+		result[index] = publicSubagentDefinition(definition)
+	}
+	return result
 }
-
-// Definitions is a compact alias for SubagentDefinitions for transports that
-// expose the subagent catalog directly.
-func (a *Agent) Definitions() []SubagentDefinition { return a.SubagentDefinitions() }
 
 // ListSubagents lists instances owned by mainAgentSessionID.
 func (a *Agent) ListSubagents(ctx context.Context, mainAgentSessionID string, includeClosed bool) ([]storage.Subagent, error) {

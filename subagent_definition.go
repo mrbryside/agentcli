@@ -9,26 +9,35 @@ import (
 	"strings"
 )
 
-// AgentDefinition is the normalized definition domain shared by the main
-// agent and project-defined subagent agents. Main fixes Name to "main" and leaves
-// Description empty because neither field is configured in MAIN.md.
-type AgentDefinition struct {
+// SubagentDefinition is the safe discovery metadata for one configured task
+// agent. Runtime instructions, local paths, and result-contract details remain
+// private to the loaded project.
+type SubagentDefinition struct {
+	Name        string
+	Description string
+	Provider    string
+	Model       string
+	Skills      []string
+	Tools       []string
+}
+
+// agentDefinition is the complete normalized project definition. The same
+// shape is used internally for MAIN.md, where Name is fixed to "main" and
+// Description is empty.
+type agentDefinition struct {
 	Name         string
 	Description  string
 	Provider     string
 	Model        string
 	Skills       []string
 	Tools        []string
-	Result       *AgentResultContract
+	Result       *agentResultContract
 	Instructions string
 	Path         string
 }
 
-// SubagentDefinition is retained as the subagent-agent API name.
-type SubagentDefinition = AgentDefinition
-
-func loadSubagentDefinitions(root string, providers map[string]ProviderConfig, skills map[string]Skill) (map[string]SubagentDefinition, error) {
-	definitions := make(map[string]SubagentDefinition)
+func loadSubagentDefinitions(root string, providers map[string]providerConfig, skills map[string]skill) (map[string]agentDefinition, error) {
+	definitions := make(map[string]agentDefinition)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return definitions, nil
@@ -68,11 +77,11 @@ func loadSubagentDefinitions(root string, providers map[string]ProviderConfig, s
 	return definitions, nil
 }
 
-func parseSubagentDefinition(path string, contents []byte) (SubagentDefinition, error) {
+func parseSubagentDefinition(path string, contents []byte) (agentDefinition, error) {
 	return parseAgentDefinition("subagent", path, contents)
 }
 
-func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinition, error) {
+func parseAgentDefinition(kind, path string, contents []byte) (agentDefinition, error) {
 	var metadata struct {
 		Name        string               `yaml:"name"`
 		Description string               `yaml:"description"`
@@ -80,11 +89,11 @@ func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinitio
 		Model       string               `yaml:"model"`
 		Skills      []string             `yaml:"skills"`
 		Tools       []string             `yaml:"tools"`
-		Result      *AgentResultContract `yaml:"result"`
+		Result      *agentResultContract `yaml:"result"`
 	}
 	instructions, err := parseDefinitionDocument(kind, path, contents, &metadata)
 	if err != nil {
-		return SubagentDefinition{}, err
+		return agentDefinition{}, err
 	}
 	metadata.Name = strings.TrimSpace(metadata.Name)
 	metadata.Description = strings.TrimSpace(metadata.Description)
@@ -92,25 +101,25 @@ func parseAgentDefinition(kind, path string, contents []byte) (SubagentDefinitio
 	metadata.Model = strings.TrimSpace(metadata.Model)
 	metadata.Skills, metadata.Tools, err = normalizeDefinitionCapabilities(kind, path, metadata.Skills, metadata.Tools)
 	if err != nil {
-		return SubagentDefinition{}, err
+		return agentDefinition{}, err
 	}
 	metadata.Result, err = normalizeAgentResultContract(kind, path, metadata.Result)
 	if err != nil {
-		return SubagentDefinition{}, err
+		return agentDefinition{}, err
 	}
 	if metadata.Name == "" || metadata.Description == "" || metadata.Provider == "" || metadata.Model == "" {
-		return SubagentDefinition{}, fmt.Errorf("%s %s: name, description, provider, and model are required", kind, path)
+		return agentDefinition{}, fmt.Errorf("%s %s: name, description, provider, and model are required", kind, path)
 	}
 	if len(metadata.Name) > 64 || !skillNamePattern.MatchString(metadata.Name) {
-		return SubagentDefinition{}, fmt.Errorf("%s %s: name must be at most 64 lowercase letters, numbers, or hyphen-separated words", kind, path)
+		return agentDefinition{}, fmt.Errorf("%s %s: name must be at most 64 lowercase letters, numbers, or hyphen-separated words", kind, path)
 	}
 	if strings.Contains(metadata.Name, "anthropic") || strings.Contains(metadata.Name, "claude") {
-		return SubagentDefinition{}, fmt.Errorf("%s %s: name contains a reserved word", kind, path)
+		return agentDefinition{}, fmt.Errorf("%s %s: name contains a reserved word", kind, path)
 	}
 	if len(metadata.Description) > 1024 || strings.ContainsAny(metadata.Description, "<>") {
-		return SubagentDefinition{}, fmt.Errorf("%s %s: description must be at most 1024 characters and cannot contain XML tags", kind, path)
+		return agentDefinition{}, fmt.Errorf("%s %s: description must be at most 1024 characters and cannot contain XML tags", kind, path)
 	}
-	return SubagentDefinition{
+	return agentDefinition{
 		Name: metadata.Name, Description: metadata.Description, Provider: metadata.Provider,
 		Model: metadata.Model, Skills: metadata.Skills, Tools: metadata.Tools, Result: metadata.Result, Instructions: instructions, Path: path,
 	}, nil
@@ -173,23 +182,34 @@ func normalizeDefinitionCapabilities(kind, path string, skills, tools []string) 
 }
 
 // sortedSubagentDefinitions returns metadata in stable name order.
-func sortedSubagentDefinitions(definitions map[string]SubagentDefinition) []SubagentDefinition {
+func sortedSubagentDefinitions(definitions map[string]agentDefinition) []agentDefinition {
 	names := make([]string, 0, len(definitions))
 	for name := range definitions {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	result := make([]SubagentDefinition, len(names))
+	result := make([]agentDefinition, len(names))
 	for index, name := range names {
 		result[index] = cloneSubagentDefinition(definitions[name])
 	}
 	return result
 }
 
-func cloneSubagentDefinition(definition SubagentDefinition) SubagentDefinition {
+func cloneSubagentDefinition(definition agentDefinition) agentDefinition {
 	clone := definition
 	clone.Skills = append([]string{}, definition.Skills...)
 	clone.Tools = append([]string{}, definition.Tools...)
 	clone.Result = cloneAgentResultContract(definition.Result)
 	return clone
+}
+
+func publicSubagentDefinition(definition agentDefinition) SubagentDefinition {
+	return SubagentDefinition{
+		Name:        definition.Name,
+		Description: definition.Description,
+		Provider:    definition.Provider,
+		Model:       definition.Model,
+		Skills:      append([]string{}, definition.Skills...),
+		Tools:       append([]string{}, definition.Tools...),
+	}
 }

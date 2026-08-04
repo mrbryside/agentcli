@@ -81,6 +81,28 @@ func (controller *terminalLoadingController) Stop() {
 	handle.stop()
 }
 
+func (controller *terminalLoadingController) hasTasks() bool {
+	if controller == nil {
+		return false
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	return len(controller.taskOrder) != 0
+}
+
+func (controller *terminalLoadingController) resetTasks() {
+	if controller == nil {
+		return
+	}
+	controller.mu.Lock()
+	handle := controller.handle
+	controller.handle = terminalLoadingHandle{}
+	controller.taskOrder = nil
+	controller.tasks = nil
+	controller.mu.Unlock()
+	handle.stop()
+}
+
 // StartTask replaces the generic loading row with one independently animated
 // row per task call. The call ID keeps completion updates correlated when
 // concurrent task results arrive out of order. Hidden root views retain the

@@ -61,9 +61,9 @@ func TestTaskTypesAndForegroundWaitOption(t *testing.T) {
 	if got := []TaskState{TaskStateRunning, TaskStateCompleted, TaskStateIncomplete, TaskStateError}; !slices.Equal(got, []TaskState{"running", "completed", "incomplete", "error"}) {
 		t.Fatalf("task states = %v", got)
 	}
-	result := TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done", Error: ""}
+	result := taskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done", Error: ""}
 	if result.TaskID != "task_1" || result.AgentName != "researcher" || result.State != TaskStateCompleted || result.Output != "done" || result.Error != "" {
-		t.Fatalf("TaskResult = %#v", result)
+		t.Fatalf("taskResult = %#v", result)
 	}
 
 	configuration := defaultConfig(t.TempDir())
@@ -101,7 +101,7 @@ func TestAgentOwnsBackgroundTaskContinuationAndDoesNotExposeMetadataToProvider(t
 	defer rollback()
 	agent.acceptTaskDelivery(taskDelivery{
 		MainAgentSessionID: "main", MainAgentTurnID: "root-turn", AssignmentID: "child-turn", SubagentTurnID: "child-turn",
-		Result:   TaskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done"},
+		Result:   taskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted, Output: "done"},
 		Metadata: map[string]any{"requires_requester_reply": true},
 	})
 	deadline := time.Now().Add(time.Second)
@@ -245,7 +245,7 @@ func TestNewExposesOnlyExplicitlySuppliedTools(t *testing.T) {
 
 func TestNewRegistersOnlyTaskForMainAgentSubagents(t *testing.T) {
 	model := &scriptedModel{}
-	project := &Project{subagents: map[string]SubagentDefinition{
+	project := &Project{subagents: map[string]agentDefinition{
 		"researcher": {Name: "researcher", Description: "Find current evidence."},
 		"reviewer":   {Name: "reviewer", Description: "Review proposed changes."},
 	}}
@@ -265,7 +265,7 @@ func TestNewRegistersOnlyTaskForMainAgentSubagents(t *testing.T) {
 	}
 	waitRun(t, run)
 	requests := model.Requests()
-	if len(requests) != 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != TaskToolName {
+	if len(requests) != 1 || len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != taskToolName {
 		t.Fatalf("main tool catalog = %#v, want only task", requests)
 	}
 	description := requests[0].Tools[0].Description
@@ -283,7 +283,7 @@ func TestNewRegistersOnlyTaskForMainAgentSubagents(t *testing.T) {
 
 func TestNewDeniesTaskToolToSubagentsAndCustomTaskConflicts(t *testing.T) {
 	taskTool := toolexecution.Tool{
-		Definition: agentruntime.ToolDefinition{Name: TaskToolName, InputSchema: agentruntime.ToolSchema{Type: "object"}},
+		Definition: agentruntime.ToolDefinition{Name: taskToolName, InputSchema: agentruntime.ToolSchema{Type: "object"}},
 		Handler: func(context.Context, json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		},
@@ -297,7 +297,7 @@ func TestNewDeniesTaskToolToSubagentsAndCustomTaskConflicts(t *testing.T) {
 		}
 		t.Fatal("subagent accepted task tool")
 	}
-	project := &Project{subagents: map[string]SubagentDefinition{
+	project := &Project{subagents: map[string]agentDefinition{
 		"researcher": {Name: "researcher", Description: "Find evidence."},
 	}}
 	if agent, err := New(context.Background(), WithModel(&scriptedModel{}), WithTool(taskTool), func(configuration *config) error {

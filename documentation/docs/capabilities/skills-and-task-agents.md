@@ -9,6 +9,23 @@ Skills add reusable instructions. Task agents add isolated child sessions with
 their own model, tools, skills, and transcript. Both are project files loaded
 by `agentcli.LoadProject`.
 
+## Automatic selection by description
+
+The main model initially sees the available skill and task-agent names plus
+their descriptions. Users do not need to mention a capability by name. When a
+prompt matches a description, the model can select it automatically:
+
+- a matching skill causes the model to call `load_skill`, then follow the
+  loaded instructions in the current turn;
+- a matching task agent causes the main model to call `task`, creating an
+  isolated task session for that work.
+
+This selection is a model decision, not a deterministic keyword router. Write
+descriptions as clear trigger conditions—start with language such as “Use when
+...” and state both the work that should match and important cases that should
+not. Explicitly naming a skill or task agent also works, but is not required.
+Only capabilities allowed for the current agent are available for selection.
+
 ## Skills
 
 Create `.agentcli/skill/<name>/SKILL.md`:
@@ -16,7 +33,7 @@ Create `.agentcli/skill/<name>/SKILL.md`:
 ```md
 ---
 name: source-review
-description: Review evidence and separate facts from inference.
+description: Use when reviewing evidence or separating facts from inference.
 ---
 
 Check primary sources first. State uncertainty and conflicting evidence.
@@ -29,9 +46,9 @@ skills:
   - source-review
 ```
 
-The initial model context contains only names and descriptions. The model uses
-the framework `load_skill` tool to load a full body when needed. A skill adds
-instructions only; it does not register or enable application tools.
+When the prompt matches the skill description, the model uses the framework
+`load_skill` tool to load the full body. A skill adds instructions only; it
+does not register or enable application tools.
 
 Tools can require a skill to be loaded in the current turn:
 
@@ -50,7 +67,7 @@ Create `.agentcli/agent/<directory>/<name>.md`:
 ```md
 ---
 name: researcher
-description: Use for substantial research and source comparison.
+description: Use when work requires substantial research or source comparison.
 provider: primary
 model: your-model
 skills:
@@ -65,7 +82,9 @@ Investigate the evidence, state uncertainty, and return a concise conclusion.
 
 `name`, `description`, `provider`, and `model` are required. The Markdown body
 defines the specialist role and quality bar. Framework-owned instructions
-handle task schemas, delivery, and safety boundaries.
+handle task schemas, delivery, and safety boundaries. When the current prompt
+matches this description and specialist work is useful, the main model can
+spawn it without the user writing “use researcher.”
 
 ## Run and resume tasks
 

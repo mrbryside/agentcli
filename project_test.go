@@ -24,22 +24,22 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.Root() != root || project.ProviderName() != "openai" || project.ModelName() != "gpt-test" || project.PermissionMode() != permission.CriticalOnly {
-		t.Fatalf("project = root %q provider %q model %q mode %q", project.Root(), project.ProviderName(), project.ModelName(), project.PermissionMode())
+	if project.root != root || project.providerName != "openai" || project.modelName != "gpt-test" || project.permissionMode() != permission.CriticalOnly {
+		t.Fatalf("project = root %q provider %q model %q mode %q", project.root, project.providerName, project.modelName, project.permissionMode())
 	}
-	main := project.MainAgent()
+	main := project.mainAgentDefinition()
 	if main.Name != "main" || main.Description != "" || main.Provider != "openai" || main.Model != "gpt-test" || !slices.Equal(main.Tools, []string{}) || !strings.Contains(main.Instructions, "Coordinate work") {
 		t.Fatalf("main definition = %#v", main)
 	}
 	main.Skills[0] = "mutated"
-	if project.MainAgent().Skills[0] == "mutated" {
+	if project.mainAgentDefinition().Skills[0] == "mutated" {
 		t.Fatal("main definition was not defensively copied")
 	}
-	skills := project.Skills()
+	skills := project.sortedSkills()
 	if names := []string{skills[0].Name, skills[1].Name}; !slices.Equal(names, []string{"reviewing-go", "testing-go"}) {
 		t.Fatalf("skill names = %v", names)
 	}
-	prompts := project.SystemPrompts()
+	prompts := project.systemPrompts()
 	if len(prompts) != 3 {
 		t.Fatalf("system prompts = %#v", prompts)
 	}
@@ -183,7 +183,7 @@ func TestLoadProjectSeparatesMainInstructionsFromFrameworkPromptAndLoadsSkillsPr
 		t.Fatalf("load_skill input schema does not repeat duplicate guard: %s", schema)
 	}
 	toolContext := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: SkillLoaderToolName,
+		SessionID: "session", TurnID: "turn", CallID: "call", ToolName: skillLoaderToolName,
 	})
 	result, err := tool.Handler(toolContext, json.RawMessage(`{"name":"testing-go"}`))
 	if err != nil {
@@ -248,7 +248,7 @@ func TestLoadProjectDoesNotReadRootAgentsMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProject read AGENTS.md: %v", err)
 	}
-	if got := len(project.SystemPrompts()); got != 3 {
+	if got := len(project.systemPrompts()); got != 3 {
 		t.Fatalf("system prompts = %d, want framework, skills, and MAIN.md instructions", got)
 	}
 }
@@ -267,7 +267,7 @@ Return evidence and limits.
 	if err != nil {
 		t.Fatal(err)
 	}
-	prompt := strings.Join(project.SystemPrompts(), "\n")
+	prompt := strings.Join(project.systemPrompts(), "\n")
 	for _, expected := range []string{
 		"Use task for focused work",
 		"Application instructions may name a configured agent",
@@ -355,7 +355,7 @@ func TestProjectSkillIsSelectedByModelAndRetainedAsToolResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "skill-call", Name: SkillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
+		ID: "skill-call", Name: skillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
 	}}}
 	agent, err := New(context.Background(), WithProject(project), WithModel(model))
 	if err != nil {
@@ -372,7 +372,7 @@ func TestProjectSkillIsSelectedByModelAndRetainedAsToolResult(t *testing.T) {
 	if len(requests) != 2 || len(requests[0].SystemPrompts) != 3 {
 		t.Fatalf("model requests = %#v", requests)
 	}
-	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != SkillLoaderToolName {
+	if len(requests[0].Tools) != 1 || requests[0].Tools[0].Name != skillLoaderToolName {
 		t.Fatalf("available tools = %#v", requests[0].Tools)
 	}
 	foundInstructions := false
@@ -449,7 +449,7 @@ func TestProjectSkillToolDeduplicatesRecentAndRefreshesStaleHistory(t *testing.T
 			}
 			var results []skillToolResult
 			for _, message := range messages {
-				if message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil || message.ToolResult.Name != SkillLoaderToolName {
+				if message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil || message.ToolResult.Name != skillLoaderToolName {
 					continue
 				}
 				var result skillToolResult
@@ -544,10 +544,10 @@ func TestLoadProjectExpandsProviderEnvironmentAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.ProviderName() != "local" || project.PermissionMode() != permission.Default || len(project.SystemPrompts()) != 2 {
-		t.Fatalf("project defaults = provider %q mode %q prompts %v", project.ProviderName(), project.PermissionMode(), project.SystemPrompts())
+	if project.providerName != "local" || project.permissionMode() != permission.Default || len(project.systemPrompts()) != 2 {
+		t.Fatalf("project defaults = provider %q mode %q prompts %v", project.providerName, project.permissionMode(), project.systemPrompts())
 	}
-	if prompt := project.SystemPrompts()[0]; !strings.Contains(prompt, `provider: "local"`) || !strings.Contains(prompt, `model: "model"`) || !strings.Contains(prompt, "# Runtime context") {
+	if prompt := project.systemPrompts()[0]; !strings.Contains(prompt, `provider: "local"`) || !strings.Contains(prompt, `model: "model"`) || !strings.Contains(prompt, "# Runtime context") {
 		t.Fatalf("main runtime prompt = %q", prompt)
 	}
 }
@@ -615,71 +615,19 @@ providers:
 	}
 }
 
-func TestLoadProjectExpandsAndValidatesLangfuseObservability(t *testing.T) {
-	t.Setenv("TEST_LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
-	t.Setenv("TEST_LANGFUSE_PUBLIC_KEY", "pk-test")
-	t.Setenv("TEST_LANGFUSE_SECRET_KEY", "sk-test")
-	t.Setenv("TEST_APP_VERSION", "v1.2.3")
+func TestLoadProjectRejectsRemovedObservabilityYAML(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `observability:
   langfuse:
     enabled: true
-    base_url: ${TEST_LANGFUSE_BASE_URL}
-    public_key: ${TEST_LANGFUSE_PUBLIC_KEY}
-    secret_key: ${TEST_LANGFUSE_SECRET_KEY}
-    environment: testing
-    service_name: agentcli-test
-    release: ${TEST_APP_VERSION}
-    sample_rate: 0.25
-    capture:
-      input: true
-      output: true
-      reasoning: false
 providers:
   openai:
     type: openai
     api_key: key
 `)
 	writeMainAgentDefinition(t, root, "openai", "model", "")
-	project, err := LoadProject(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config := project.config.Observability.Langfuse
-	if config.BaseURL != "https://us.cloud.langfuse.com" || config.PublicKey != "pk-test" ||
-		config.SecretKey != "sk-test" || config.Release != "v1.2.3" {
-		t.Fatalf("expanded Langfuse config = %#v", config)
-	}
-	if config.SampleRate == nil || *config.SampleRate != 0.25 {
-		t.Fatalf("sample rate = %v", config.SampleRate)
-	}
-	if !config.Capture.Input || !config.Capture.Output || config.Capture.Reasoning {
-		t.Fatalf("capture config = %#v", config.Capture)
-	}
-}
-
-func TestLoadProjectRejectsInvalidLangfuseObservability(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		config string
-		want   string
-	}{
-		{name: "missing public key", config: "enabled: true\n    secret_key: sk", want: "public_key"},
-		{name: "missing secret key", config: "enabled: true\n    public_key: pk", want: "secret_key"},
-		{name: "invalid base URL", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    base_url: ftp://example.test", want: "base_url"},
-		{name: "invalid sample rate", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    sample_rate: 1.1", want: "sample_rate"},
-		{name: "invalid environment", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    environment: Production", want: "environment"},
-		{name: "reserved environment", config: "enabled: true\n    public_key: pk\n    secret_key: sk\n    environment: langfuse-prod", want: "environment"},
-		{name: "unknown capture field", config: "enabled: false\n    capture:\n      prompt: true", want: "field prompt"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
-			writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), "observability:\n  langfuse:\n    "+test.config+"\nproviders:\n  openai:\n    type: openai\n    api_key: key\n")
-			writeMainAgentDefinition(t, root, "openai", "model", "")
-			if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("LoadProject error = %v, want %q", err, test.want)
-			}
-		})
+	if _, err := LoadProject(root); err == nil || !strings.Contains(err.Error(), "field observability not found") {
+		t.Fatalf("LoadProject observability error = %v", err)
 	}
 }
 
@@ -712,7 +660,7 @@ func TestProjectProviderReasoningSettingReachesModelRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := project.Model()
+	model, err := project.model()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +710,7 @@ func TestProjectProviderExtraBodyReachesModelRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := project.Model()
+	model, err := project.model()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -786,7 +734,7 @@ func TestProjectProviderExtraBodyReachesModelRequest(t *testing.T) {
 	}
 
 	requestBody = nil
-	unlistedModel, err := project.ModelFor("local", "unlisted-model")
+	unlistedModel, err := project.modelFor("local", "unlisted-model")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -828,7 +776,7 @@ providers:
 	}
 
 	model := &scriptedModel{toolCalls: []provider.ToolCall{{
-		ID: "skill-call", Name: SkillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
+		ID: "skill-call", Name: skillLoaderToolName, Arguments: map[string]any{"name": "testing-go"},
 	}}}
 	agent, err := New(context.Background(), WithProject(project), WithModel(model), WithProviderStepLimit(1))
 	if err != nil {
@@ -895,12 +843,12 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	compaction, configured := project.Compaction()
+	compaction, configured := project.compactionSettings()
 	if !configured || !compaction.Auto || compaction.Provider != "openai" || compaction.Model != "compact-model" {
 		t.Fatalf("compaction = %#v, configured = %t", compaction, configured)
 	}
 	compaction.Provider = "mutated"
-	if current, _ := project.Compaction(); current.Provider != "openai" {
+	if current, _ := project.compactionSettings(); current.Provider != "openai" {
 		t.Fatal("compaction config was not defensively copied")
 	}
 	configuration := defaultConfig(root)
@@ -1032,7 +980,7 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	compaction, configured := project.Compaction()
+	compaction, configured := project.compactionSettings()
 	if !configured || compaction.Auto {
 		t.Fatalf("compaction = %#v, configured = %t", compaction, configured)
 	}
@@ -1070,8 +1018,8 @@ func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				if project.ProviderName() != "custom-profile" {
-					t.Fatalf("provider alias = %q", project.ProviderName())
+				if project.providerName != "custom-profile" {
+					t.Fatalf("provider alias = %q", project.providerName)
 				}
 				return
 			}
@@ -1083,10 +1031,10 @@ func TestLoadProjectRequiresSupportedProviderTypeIndependentOfAlias(t *testing.T
 }
 
 func TestValidateProviderConfigRejectsNonJSONExtraBody(t *testing.T) {
-	_, err := validateProviderConfig("custom-profile", ProviderConfig{
-		Type:   ProviderTypeOpenAI,
+	_, err := validateProviderConfig("custom-profile", providerConfig{
+		Type:   providerTypeOpenAI,
 		APIKey: "key",
-		Models: map[string]ProviderModelConfig{
+		Models: map[string]providerModelConfig{
 			"selected": {ExtraBody: map[string]any{"invalid": func() {}}},
 		},
 	})
@@ -1110,10 +1058,10 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.ProviderName() != "openai" || project.ModelName() != "root-model" || !slices.Equal(project.ToolNames(), []string{"search"}) {
-		t.Fatalf("main-agent selection = provider %q model %q tools %v", project.ProviderName(), project.ModelName(), project.ToolNames())
+	if project.providerName != "openai" || project.modelName != "root-model" || !slices.Equal(project.configuredToolNames(), []string{"search"}) {
+		t.Fatalf("main-agent selection = provider %q model %q tools %v", project.providerName, project.modelName, project.configuredToolNames())
 	}
-	if skills := project.Skills(); len(skills) != 1 || skills[0].Name != "testing-go" {
+	if skills := project.sortedSkills(); len(skills) != 1 || skills[0].Name != "testing-go" {
 		t.Fatalf("root skills = %#v", skills)
 	}
 	if _, err := New(context.Background(), WithProject(project), WithModel(&scriptedModel{})); err == nil || !strings.Contains(err.Error(), `main agent requires custom tool "search"`) {
@@ -1142,7 +1090,7 @@ providers:
 	for index, tool := range requests[0].Tools {
 		names[index] = tool.Name
 	}
-	if !slices.Equal(names, []string{"search", SkillLoaderToolName}) {
+	if !slices.Equal(names, []string{"search", skillLoaderToolName}) {
 		t.Fatalf("root provider tools = %v", names)
 	}
 }
@@ -1232,7 +1180,7 @@ func (model *skillEveryTurnModel) Start(_ context.Context, request agentruntime.
 		if message.TurnID != request.TurnID || message.Type != agentruntime.MessageTypeToolResult || message.ToolResult == nil {
 			continue
 		}
-		if message.ToolResult.Name == SkillLoaderToolName {
+		if message.ToolResult.Name == skillLoaderToolName {
 			loadedThisTurn = true
 			break
 		}
@@ -1240,7 +1188,7 @@ func (model *skillEveryTurnModel) Start(_ context.Context, request agentruntime.
 	if !loadedThisTurn {
 		return scriptedStream{result: provider.StreamResult{
 			CompletedTools: []provider.ToolCall{{
-				ID: "skill-" + request.TurnID, Name: SkillLoaderToolName,
+				ID: "skill-" + request.TurnID, Name: skillLoaderToolName,
 				Arguments: map[string]any{"name": "testing-go"},
 			}},
 			Finished: true,

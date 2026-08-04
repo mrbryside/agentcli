@@ -9,22 +9,22 @@ import (
 	"strings"
 )
 
-// AgentResultContract declares the one final-response object an agent must
+// agentResultContract declares the one final-response object an agent must
 // produce when its host needs application-only metadata. Agents without a
 // contract continue to return ordinary final text.
-type AgentResultContract struct {
+type agentResultContract struct {
 	MessageField string                              `yaml:"message_field"`
-	Metadata     map[string]AgentResultMetadataField `yaml:"metadata"`
+	Metadata     map[string]agentResultMetadataField `yaml:"metadata"`
 }
 
-// AgentResultMetadataField describes one application-only field in a final
+// agentResultMetadataField describes one application-only field in a final
 // result contract. Type is either "boolean" or "string".
-type AgentResultMetadataField struct {
+type agentResultMetadataField struct {
 	Type     string `yaml:"type"`
 	Required bool   `yaml:"required"`
 }
 
-func normalizeAgentResultContract(kind, path string, contract *AgentResultContract) (*AgentResultContract, error) {
+func normalizeAgentResultContract(kind, path string, contract *agentResultContract) (*agentResultContract, error) {
 	if contract == nil {
 		return nil, nil
 	}
@@ -33,7 +33,7 @@ func normalizeAgentResultContract(kind, path string, contract *AgentResultContra
 	if clone.MessageField == "" {
 		return nil, fmt.Errorf("%s %s: result.message_field is required", kind, path)
 	}
-	clone.Metadata = make(map[string]AgentResultMetadataField, len(contract.Metadata))
+	clone.Metadata = make(map[string]agentResultMetadataField, len(contract.Metadata))
 	for rawName, rawField := range contract.Metadata {
 		name := strings.TrimSpace(rawName)
 		field := rawField
@@ -55,12 +55,12 @@ func normalizeAgentResultContract(kind, path string, contract *AgentResultContra
 	return &clone, nil
 }
 
-func cloneAgentResultContract(contract *AgentResultContract) *AgentResultContract {
+func cloneAgentResultContract(contract *agentResultContract) *agentResultContract {
 	if contract == nil {
 		return nil
 	}
 	clone := *contract
-	clone.Metadata = make(map[string]AgentResultMetadataField, len(contract.Metadata))
+	clone.Metadata = make(map[string]agentResultMetadataField, len(contract.Metadata))
 	for name, field := range contract.Metadata {
 		clone.Metadata[name] = field
 	}
@@ -72,7 +72,7 @@ type taskFinalResult struct {
 	Metadata map[string]any
 }
 
-func parseTaskFinalResult(definition SubagentDefinition, text string) (taskFinalResult, error) {
+func parseTaskFinalResult(definition agentDefinition, text string) (taskFinalResult, error) {
 	if definition.Result == nil {
 		return taskFinalResult{Output: text}, nil
 	}
@@ -140,7 +140,7 @@ func parseTaskFinalResult(definition SubagentDefinition, text string) (taskFinal
 	return taskFinalResult{Output: output, Metadata: metadata}, nil
 }
 
-func parseTaskMetadataField(name string, field AgentResultMetadataField, raw json.RawMessage) (any, error) {
+func parseTaskMetadataField(name string, field agentResultMetadataField, raw json.RawMessage) (any, error) {
 	switch field.Type {
 	case "boolean":
 		var decoded any

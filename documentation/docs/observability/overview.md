@@ -12,14 +12,24 @@ AgentCLI has two independent surfaces:
 
 ## Runtime logging
 
+```go
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithLogLevel(agentcli.LevelInfo),
+)
+```
+
+For project-driven setup, the equivalent configuration is:
+
 ```yaml title=".agentcli/config.yaml"
 logging:
   enabled: true
   level: info
 ```
 
-Omit `logging` to disable it. A present mapping defaults to `enabled: true`
-and `level: info`.
+Omit both `WithLogLevel` and the `logging` mapping to disable managed runtime
+logs. An option applied after `WithProject` takes precedence. Use `WithLogger`
+when the application owns a custom `*slog.Logger` and its output routing.
 
 | Level | Typical records |
 | --- | --- |
@@ -28,10 +38,9 @@ and `level: info`.
 | `warn` | Recoverable framework warnings. |
 | `error` | Failed/interrupted turns, repairs, and delivery. |
 
-Records normally go to stderr. An interactive Terminal captures project logs
-and logs enabled with `WithLogLevel`; use `Ctrl+L` or `/logs` to view them
-without interrupting the conversation. A custom `WithLogger` remains
-caller-owned and is not captured.
+Managed records normally go to stderr. An interactive Terminal captures them;
+use `Ctrl+L` or `/logs` to view them without interrupting the conversation. A
+custom `WithLogger` remains caller-owned and is not captured.
 
 Debug tool payloads redact credential-like fields and truncate large values.
 Runtime logs never include provider reasoning, guard feedback, or repair
@@ -43,31 +52,37 @@ custom logs.
 Langfuse uses its OpenTelemetry OTLP/HTTP endpoint and does not replace the
 application's global tracer provider.
 
-```yaml title=".agentcli/config.yaml"
-observability:
-  langfuse:
-    enabled: true
-    base_url: ${LANGFUSE_BASE_URL}
-    public_key: ${LANGFUSE_PUBLIC_KEY}
-    secret_key: ${LANGFUSE_SECRET_KEY}
-    environment: production
-    service_name: agentcli
-    release: ${APP_VERSION}
-    sample_rate: 1.0
-    capture:
-      input: false
-      output: false
-      reasoning: false
+```go
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithLangfuse(agentcli.LangfuseConfig{
+        BaseURL:     os.Getenv("LANGFUSE_BASE_URL"),
+        PublicKey:   os.Getenv("LANGFUSE_PUBLIC_KEY"),
+        SecretKey:   os.Getenv("LANGFUSE_SECRET_KEY"),
+        Environment: "production",
+        ServiceName: "agentcli",
+        Release:     os.Getenv("APP_VERSION"),
+        SampleRate:  1.0,
+        Capture: agentcli.LangfuseCaptureConfig{
+            Input:     false,
+            Output:    false,
+            Reasoning: false,
+        },
+    }),
+)
 ```
 
-`base_url` defaults to `https://cloud.langfuse.com`; select the correct Cloud
-region or self-hosted root. Enabled configurations require matching public and
-secret keys. `sample_rate` accepts `0` through `1`.
+Langfuse is not accepted in `.agentcli/config.yaml`. Omit `WithLangfuse` to
+disable tracing. `BaseURL` defaults to
+`https://cloud.langfuse.com`; select the correct Cloud region or self-hosted
+root. Public and secret keys are required. `SampleRate` accepts `0` through
+`1`; set it explicitly.
 
 Input, output, and reasoning capture default to `false`. Enable them only when
 the project's retention and data-residency policy permits sending those
 payloads to Langfuse.
 
+The Agent owns one exporter and shares it with project-created task agents.
 Each model call becomes one generation, including main-agent, task-agent,
 guard, and compaction calls. Session/turn IDs, provider/model labels, latency,
 first-output time, finish reason, and error status are correlated. Tool

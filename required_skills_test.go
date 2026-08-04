@@ -14,7 +14,7 @@ func TestValidateToolRequiredSkillsUsesSkillsAvailableToCurrentAgent(t *testing.
 		RequiredSkills: []string{"web-research"},
 	}
 	if err := validateToolRequiredSkills(
-		&Project{skills: map[string]Skill{"web-research": {Name: "web-research"}}},
+		&Project{skills: map[string]skill{"web-research": {Name: "web-research"}}},
 		[]toolexecution.Tool{tool},
 	); err != nil {
 		t.Fatalf("validateToolRequiredSkills() error = %v", err)
@@ -24,7 +24,7 @@ func TestValidateToolRequiredSkillsUsesSkillsAvailableToCurrentAgent(t *testing.
 		t.Fatalf("nil project error = %v", err)
 	}
 	if err := validateToolRequiredSkills(
-		&Project{skills: map[string]Skill{}},
+		&Project{skills: map[string]skill{}},
 		[]toolexecution.Tool{tool},
 	); err == nil || !strings.Contains(err.Error(), "not available to this agent") {
 		t.Fatalf("missing skill error = %v", err)
@@ -36,7 +36,7 @@ func TestValidateProjectToolAllowlistsChecksSubagentRequiredSkillsAtStartup(t *t
 		Definition:     agentruntime.ToolDefinition{Name: "fetch_web"},
 		RequiredSkills: []string{"web-reading"},
 	}
-	project := &Project{subagents: map[string]SubagentDefinition{
+	project := &Project{subagents: map[string]agentDefinition{
 		"reader": {
 			Name:   "reader",
 			Tools:  []string{"fetch_web"},

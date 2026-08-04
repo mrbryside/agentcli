@@ -14,8 +14,9 @@ text-only with no `report_subagent_result` repair.
 Skills live at `.agentcli/skill/{name}/SKILL.md`. Their name and description are
 discovery metadata; full instructions load progressively through the
 framework-owned `load_skill` tool. A model may load a skill after selecting it
-by description, and any applicable instruction may explicitly require loading
-one before the governed action or answer. Tool, subagent, and other capability
+by description without the user naming it, and any applicable instruction may
+explicitly require loading one before the governed action or answer. Tool,
+subagent, and other capability
 descriptions help selection but do not replace a required skill load. Whenever
 a load trigger first applies in a turn, the model calls `load_skill` instead of
 inferring that a visible historical body is still current. A successful load
@@ -49,8 +50,9 @@ Subagents live at `.agentcli/agent/{name}/{name}.md` with validated name, descri
 The main-agent subagent prompt separates catalog metadata, trigger selection,
 instance addressing, assignment-result handling, results, lifecycle, and
 safety. A direct description match may trigger delegation when the focused
-work materially benefits from a configured subagent; an applicable instruction
-or explicit user request may require delegation independently. Topic overlap
+work materially benefits from a configured subagent without the user naming
+it; an applicable instruction or explicit user request may require delegation
+independently. Topic overlap
 alone and discovery-only questions do not trigger a subagent.
 
 Application `MAIN.md`, skills, and subagent role prompts may stay in domain

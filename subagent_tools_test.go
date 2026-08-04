@@ -21,7 +21,7 @@ func TestTaskToolBridgeValidatesInvocationAndExecutesForegroundTask(t *testing.T
 		t.Fatalf("task without invocation error = %v", err)
 	}
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "mainAgent-a", TurnID: "turn", CallID: "call", ToolName: TaskToolName,
+		SessionID: "mainAgent-a", TurnID: "turn", CallID: "call", ToolName: taskToolName,
 	})
 	results := make(chan json.RawMessage, 1)
 	errs := make(chan error, 1)
@@ -48,7 +48,7 @@ func TestTaskToolBridgeValidatesInvocationAndExecutesForegroundTask(t *testing.T
 	case err := <-errs:
 		t.Fatal(err)
 	case output := <-results:
-		var result TaskResult
+		var result taskResult
 		if err := json.Unmarshal(output, &result); err != nil {
 			t.Fatal(err)
 		}
@@ -65,7 +65,7 @@ func TestTaskToolBridgeRejectsInvalidNewForms(t *testing.T) {
 	defer manager.Close()
 	bridge := newTestTaskToolBridge(manager)
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName,
+		SessionID: "main", TurnID: "turn", CallID: "call", ToolName: taskToolName,
 	})
 	for _, test := range []struct {
 		name      string
@@ -94,13 +94,13 @@ func TestTaskToolBridgeResumeIgnoresCreateOnlyFields(t *testing.T) {
 		return json.RawMessage(`{"task_id":"task_1","agent":"researcher","state":"completed","output":"continued","error":""}`), nil
 	})
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: "main", TurnID: "turn", CallID: "call", ToolName: TaskToolName,
+		SessionID: "main", TurnID: "turn", CallID: "call", ToolName: taskToolName,
 	})
 	output, err := callTaskTool(bridge, ctx, json.RawMessage(`{"task_id":"task_1","agent":"wrong-agent","description":"replacement","prompt":"continue"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result TaskResult
+	var result taskResult
 	if err := json.Unmarshal(output, &result); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestTaskToolBridgeResumeIgnoresCreateOnlyFields(t *testing.T) {
 }
 
 func TestTaskToolIsTheOnlyReservedMainModelSubagentTool(t *testing.T) {
-	if !isSubagentToolName(TaskToolName) {
+	if !isSubagentToolName(taskToolName) {
 		t.Fatal("task is not reserved")
 	}
 	for _, name := range []string{"start_subagent", "send_subagent_message", "list_subagents", "subagent_status", "wait_subagent"} {
@@ -119,7 +119,7 @@ func TestTaskToolIsTheOnlyReservedMainModelSubagentTool(t *testing.T) {
 		}
 	}
 	tools := toolexecution.NewTaskToolBridge([]toolexecution.TaskAgent{{Name: "researcher", Description: "Find facts."}}).Tools()
-	if len(tools) != 1 || tools[0].Definition.Name != TaskToolName {
+	if len(tools) != 1 || tools[0].Definition.Name != taskToolName {
 		t.Fatalf("main model tools = %#v, want only task", tools)
 	}
 }
@@ -127,7 +127,7 @@ func TestTaskToolIsTheOnlyReservedMainModelSubagentTool(t *testing.T) {
 func newTestTaskToolBridge(manager *subagentManager) *toolexecution.TaskToolBridge {
 	bridge := toolexecution.NewTaskToolBridge([]toolexecution.TaskAgent{{Name: "researcher", Description: "Research facts."}})
 	bridge.Bind(func(ctx context.Context, invocation toolexecution.Invocation, input toolexecution.TaskToolInput) (json.RawMessage, error) {
-		request := TaskRequest{MainAgentSessionID: invocation.SessionID, MainAgentTurnID: invocation.TurnID, Prompt: input.Prompt, Background: input.Background}
+		request := taskRequest{MainAgentSessionID: invocation.SessionID, MainAgentTurnID: invocation.TurnID, Prompt: input.Prompt, Background: input.Background}
 		if input.Agent != nil {
 			request.AgentName = *input.Agent
 		}
@@ -148,7 +148,7 @@ func newTestTaskToolBridge(manager *subagentManager) *toolexecution.TaskToolBrid
 
 func callTaskTool(bridge *toolexecution.TaskToolBridge, ctx context.Context, arguments json.RawMessage) (json.RawMessage, error) {
 	for _, tool := range bridge.Tools() {
-		if tool.Definition.Name == TaskToolName {
+		if tool.Definition.Name == taskToolName {
 			return tool.Handler(ctx, arguments)
 		}
 	}

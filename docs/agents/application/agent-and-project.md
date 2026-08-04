@@ -11,7 +11,10 @@ tools, and verification flow are documented in
 `.agentcli/skill/*/SKILL.md`, and `.agentcli/agent/*/*.md`. Provider map keys
 are arbitrary connection aliases; each profile requires a supported `type`
 (`openai` currently). Environment references are expanded, but `.env` is not
-loaded. Retained subagent task sessions have no count quota; completed runtime
+loaded. `Project` is deliberately opaque outside the package: callers load it
+and pass it to `WithProject`, while YAML decoding, model assembly, prompts,
+skills, and full agent definitions stay private. Retained subagent task
+sessions have no count quota; completed runtime
 instances are unloaded while their task records and transcripts remain
 resumable.
 

@@ -81,10 +81,10 @@ func TestSubagentManagerExecuteTaskWaitsForFinalAssistantResponse(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	results := make(chan TaskResult, 1)
+	results := make(chan taskResult, 1)
 	errs := make(chan error, 1)
 	go func() {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "mainAgent", MainAgentTurnID: "main-turn",
 			AgentName: "researcher", Description: "Find the answer", Prompt: "research this",
 		})
@@ -146,12 +146,12 @@ func TestSubagentManagerRehydratesRetainedTaskByExactID(t *testing.T) {
 	}
 
 	type taskOutcome struct {
-		result TaskResult
+		result taskResult
 		err    error
 	}
 	firstResult := make(chan taskOutcome, 1)
 	go func() {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "mainAgent", MainAgentTurnID: "first-turn",
 			AgentName: "researcher", Description: "Retained work", Prompt: "first request",
 		})
@@ -180,7 +180,7 @@ func TestSubagentManagerRehydratesRetainedTaskByExactID(t *testing.T) {
 	}
 	resumedResult := make(chan taskOutcome, 1)
 	go func() {
-		result, err := resumedManager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := resumedManager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "mainAgent", MainAgentTurnID: "second-turn",
 			TaskID: first.TaskID, Prompt: "second request",
 		})
@@ -249,13 +249,13 @@ func TestSubagentManagerExecuteTaskRunsIndependentlyAcrossManagers(t *testing.T)
 	defer secondManager.Close()
 
 	type taskOutcome struct {
-		result TaskResult
+		result taskResult
 		err    error
 	}
 	firstDone := make(chan taskOutcome, 1)
 	secondDone := make(chan taskOutcome, 1)
 	runTask := func(manager *subagentManager, session, turn string, done chan<- taskOutcome) {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: session, MainAgentTurnID: turn, AgentName: "researcher",
 			Description: "Independent work", Prompt: "wait for the gate",
 		})
@@ -319,7 +319,7 @@ func TestSubagentManagerExecuteTaskHandlesInstantChildCompletion(t *testing.T) {
 	manager := newTestSubagentManager(t, &scriptedModel{}, 32)
 	defer manager.Close()
 	for index := 0; index < 16; index++ {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "mainAgent", MainAgentTurnID: fmt.Sprintf("turn-%d", index),
 			AgentName: "researcher", Description: "Instant work", Prompt: "finish immediately",
 		})
@@ -340,7 +340,7 @@ func TestSubagentManagerExecuteTaskBackgroundRegistersOneDeliveryAndPublishesOne
 		t.Fatal(err)
 	}
 	events := manager.subscribeSystemEvents(context.Background())
-	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	result, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
 		Description: "Long work", Prompt: "wait", Background: true,
 	})
@@ -405,7 +405,7 @@ func TestSubagentManagerExecuteTaskPromotionRegistersDeliveryExactlyOnce(t *test
 		t.Fatal(err)
 	}
 	events := manager.subscribeSystemEvents(context.Background())
-	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	result, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
 		Description: "Long work", Prompt: "wait",
 	})
@@ -441,7 +441,7 @@ func TestSubagentManagerExecuteTaskBackgroundResumeUsesLatestDeliveryTurn(t *tes
 		}
 	}
 	events := manager.subscribeSystemEvents(context.Background())
-	first, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	first, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "owner", MainAgentTurnID: "first-turn", AgentName: "researcher",
 		Description: "Initial work", Prompt: "first", Background: true,
 	})
@@ -456,7 +456,7 @@ func TestSubagentManagerExecuteTaskBackgroundResumeUsesLatestDeliveryTurn(t *tes
 	}
 	awaitSubagentStatus(t, manager, first.TaskID, "")
 
-	resumed, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	resumed, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "owner", MainAgentTurnID: "latest-turn", TaskID: first.TaskID,
 		Prompt: "continue", Background: true,
 	})
@@ -485,15 +485,15 @@ func TestSubagentManagerTaskCompletionPublishesContractMetadataOnlyAsSystemEvent
 	manager := newTestSubagentManager(t, taskFinalModel{content: `{"message":"Need your confirmation","requires_requester_reply":true}`}, 1)
 	defer manager.Close()
 	definition := manager.project.subagents["researcher"]
-	definition.Result = &AgentResultContract{
+	definition.Result = &agentResultContract{
 		MessageField: "message",
-		Metadata: map[string]AgentResultMetadataField{
+		Metadata: map[string]agentResultMetadataField{
 			"requires_requester_reply": {Type: "boolean", Required: true},
 		},
 	}
 	manager.project.subagents["researcher"] = definition
 	events := manager.subscribeSystemEvents(context.Background())
-	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	result, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "root-turn", AgentName: "researcher",
 		Description: "Ask one question", Prompt: "work",
 	})
@@ -518,9 +518,9 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 	manager := newTestSubagentManager(t, model, 2)
 	defer manager.Close()
 
-	firstResults := make(chan TaskResult, 1)
+	firstResults := make(chan taskResult, 1)
 	go func() {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "owner", MainAgentTurnID: "first", AgentName: "researcher",
 			Description: "Initial research", Prompt: "first question",
 		})
@@ -534,7 +534,7 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	model.releases <- struct{}{}
-	var first TaskResult
+	var first taskResult
 	select {
 	case first = <-firstResults:
 	case <-time.After(time.Second):
@@ -550,15 +550,15 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 	if !firstRuntimeReleased {
 		t.Fatal("completed task retained a live subagent runtime")
 	}
-	crossSession, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	crossSession, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "other", MainAgentTurnID: "other-turn", TaskID: first.TaskID, Prompt: "continue",
 	})
-	if err != nil || crossSession.State != TaskStateError || crossSession.ErrorCode != TaskErrorNotFound {
+	if err != nil || crossSession.State != TaskStateError || crossSession.ErrorCode != taskErrorNotFound {
 		t.Fatalf("cross-session resume result = %#v, err = %v", crossSession, err)
 	}
-	resumedResults := make(chan TaskResult, 1)
+	resumedResults := make(chan taskResult, 1)
 	go func() {
-		result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+		result, err := manager.ExecuteTask(context.Background(), taskRequest{
 			MainAgentSessionID: "owner", MainAgentTurnID: "second", TaskID: first.TaskID,
 			AgentName: "reviewer", Description: "replacement metadata", Prompt: "continue",
 		})
@@ -596,7 +596,7 @@ func TestSubagentManagerExecuteTaskResumesOnlyOwnedRetainedTask(t *testing.T) {
 func TestSubagentManagerRejectsPresentButEmptyTaskID(t *testing.T) {
 	manager := newTestSubagentManager(t, &scriptedModel{}, 1)
 	defer manager.Close()
-	_, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	_, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "owner",
 		MainAgentTurnID:    "turn",
 		TaskID:             " ",
@@ -617,9 +617,9 @@ func TestSubagentManagerExecuteTaskCancellationInterruptsChild(t *testing.T) {
 	events := manager.subscribeSystemEvents(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	results := make(chan TaskResult, 1)
+	results := make(chan taskResult, 1)
 	go func() {
-		result, err := manager.ExecuteTask(ctx, TaskRequest{
+		result, err := manager.ExecuteTask(ctx, taskRequest{
 			MainAgentSessionID: "mainAgent", MainAgentTurnID: "main-turn", AgentName: "researcher",
 			Description: "Long work", Prompt: "wait",
 		})
@@ -664,7 +664,7 @@ func TestSubagentManagerExecuteTaskReportsUnknownRunningAndClosedTaskIDs(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, request := range []TaskRequest{
+	for _, request := range []taskRequest{
 		{MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: "unknown", Prompt: "continue"},
 		{MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: record.ID, Prompt: "continue"},
 	} {
@@ -673,20 +673,20 @@ func TestSubagentManagerExecuteTaskReportsUnknownRunningAndClosedTaskIDs(t *test
 			t.Fatalf("resume returned outer error: %v", err)
 		}
 		if request.TaskID == "unknown" {
-			if result.State != TaskStateError || result.ErrorCode != TaskErrorNotFound {
+			if result.State != TaskStateError || result.ErrorCode != taskErrorNotFound {
 				t.Fatalf("unknown task resume result = %#v", result)
 			}
-		} else if result.State != TaskStateError || result.ErrorCode != TaskErrorRunning {
+		} else if result.State != TaskStateError || result.ErrorCode != taskErrorRunning {
 			t.Fatalf("running task resume result = %#v", result)
 		}
 	}
 	if _, err := manager.CloseSubagent(context.Background(), "mainAgent", record.ID); err != nil {
 		t.Fatal(err)
 	}
-	closed, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	closed, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "resume", TaskID: record.ID, Prompt: "continue",
 	})
-	if err != nil || closed.State != TaskStateError || closed.ErrorCode != TaskErrorClosed {
+	if err != nil || closed.State != TaskStateError || closed.ErrorCode != taskErrorClosed {
 		t.Fatalf("closed task resume result = %#v, err = %v", closed, err)
 	}
 }
@@ -1090,7 +1090,7 @@ func newTestSubagentManagerWithStores(t *testing.T, model agentruntime.Model, me
 	}
 	t.Cleanup(func() { _ = mainAgent.Close() })
 	manager, err := newSubagentManager(mainAgent, config{
-		project: &Project{subagents: map[string]SubagentDefinition{
+		project: &Project{subagents: map[string]agentDefinition{
 			"researcher": {Name: "researcher", Description: "Research", Provider: "test", Model: "test", Instructions: "be useful"},
 			"reviewer":   {Name: "reviewer", Description: "Review", Provider: "test", Model: "test", Instructions: "review carefully"},
 		}},
@@ -1101,7 +1101,7 @@ func newTestSubagentManagerWithStores(t *testing.T, model agentruntime.Model, me
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	manager.subagentFactory = func(agentDefinition) (*Agent, error) {
 		return New(context.Background(), WithModel(model), WithMessageStorage(messages), WithPermissionStorage(permissions))
 	}
 	return manager

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,88 +26,58 @@ import (
 
 const (
 	maxProjectFileSize = 1 << 20
-	// SkillLoaderToolName is reserved for the framework's progressive skill
+	// skillLoaderToolName is reserved for the framework's progressive skill
 	// loader. Applications must not register a custom tool with this name.
-	SkillLoaderToolName = toolexecution.SkillLoaderToolName
+	skillLoaderToolName = toolexecution.SkillLoaderToolName
 )
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// ProjectConfig is loaded from .agentcli/config.yaml. Main-agent identity and
+// projectConfig is loaded from .agentcli/config.yaml. Main-agent identity and
 // capabilities live in .agentcli/MAIN.md.
-type ProjectConfig struct {
+type projectConfig struct {
 	PermissionMode permission.Mode           `yaml:"permission_mode"`
-	Providers      map[string]ProviderConfig `yaml:"providers"`
-	Compaction     *CompactionConfig         `yaml:"compaction"`
-	Logging        *LoggingConfig            `yaml:"logging"`
-	Observability  *ObservabilityConfig      `yaml:"observability"`
+	Providers      map[string]providerConfig `yaml:"providers"`
+	Compaction     *compactionConfig         `yaml:"compaction"`
+	Logging        *loggingConfig            `yaml:"logging"`
 }
 
-// LoggingConfig controls structured runtime lifecycle logs. Records normally
+// loggingConfig controls structured runtime lifecycle logs. Records normally
 // go to stderr; an interactive RunTerminal captures them for its log view.
 // Omitting the section disables runtime logging. When the section is present,
 // enabled defaults to true and level defaults to info.
-type LoggingConfig struct {
+type loggingConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Level   string `yaml:"level"`
 }
 
 // UnmarshalYAML applies useful opt-in defaults while keeping the section
 // strict even though custom YAML unmarshalling bypasses Decoder.KnownFields.
-func (config *LoggingConfig) UnmarshalYAML(value *yaml.Node) error {
+func (config *loggingConfig) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
 		return errors.New("logging must be a mapping")
 	}
 	for index := 0; index < len(value.Content); index += 2 {
 		key := value.Content[index].Value
 		if key != "enabled" && key != "level" {
-			return fmt.Errorf("field %s not found in type agentcli.LoggingConfig", key)
+			return fmt.Errorf("field %s not found in logging config", key)
 		}
 	}
-	type rawLoggingConfig LoggingConfig
+	type rawLoggingConfig loggingConfig
 	decoded := rawLoggingConfig{Enabled: true, Level: "info"}
 	if err := value.Decode(&decoded); err != nil {
 		return err
 	}
-	*config = LoggingConfig(decoded)
+	*config = loggingConfig(decoded)
 	return nil
 }
 
-// ObservabilityConfig contains optional project-wide telemetry backends.
-// A nil backend leaves model calls uninstrumented.
-type ObservabilityConfig struct {
-	Langfuse *LangfuseConfig `yaml:"langfuse"`
-}
-
-// LangfuseConfig sends LLM-call spans to Langfuse through its OTLP/HTTP
-// endpoint. Credentials may contain ${VARIABLE} references and are expanded
-// when the project is loaded.
-type LangfuseConfig struct {
-	Enabled     bool                  `yaml:"enabled"`
-	BaseURL     string                `yaml:"base_url"`
-	PublicKey   string                `yaml:"public_key"`
-	SecretKey   string                `yaml:"secret_key"`
-	Environment string                `yaml:"environment"`
-	ServiceName string                `yaml:"service_name"`
-	Release     string                `yaml:"release"`
-	SampleRate  *float64              `yaml:"sample_rate"`
-	Capture     LangfuseCaptureConfig `yaml:"capture"`
-}
-
-// LangfuseCaptureConfig controls potentially sensitive generation payloads.
-// All fields default to false.
-type LangfuseCaptureConfig struct {
-	Input     bool `yaml:"input"`
-	Output    bool `yaml:"output"`
-	Reasoning bool `yaml:"reasoning"`
-}
-
-// CompactionConfig selects the project provider profile and model used to
-// compact an agent transcript. Model limits belong to ProviderConfig so every
+// compactionConfig selects the project provider profile and model used to
+// compact an agent transcript. Model limits belong to providerConfig so every
 // main, subagent, and compaction model uses its own provider profile's metadata.
 // A nil value means compaction is disabled; when the section is present Auto
 // defaults to true.
-type CompactionConfig struct {
+type compactionConfig struct {
 	Auto     bool   `yaml:"auto"`
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
@@ -117,47 +86,47 @@ type CompactionConfig struct {
 // UnmarshalYAML makes an explicitly configured compaction section opt in by
 // default while preserving auto: false as an explicit disable. Custom YAML
 // unmarshalling bypasses Decoder.KnownFields, so keep this section strict.
-func (config *CompactionConfig) UnmarshalYAML(value *yaml.Node) error {
+func (config *compactionConfig) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
 		return errors.New("compaction must be a mapping")
 	}
 	for index := 0; index < len(value.Content); index += 2 {
 		key := value.Content[index].Value
 		if key != "auto" && key != "provider" && key != "model" {
-			return fmt.Errorf("field %s not found in type agentcli.CompactionConfig", key)
+			return fmt.Errorf("field %s not found in compaction config", key)
 		}
 	}
-	type rawCompactionConfig CompactionConfig
+	type rawCompactionConfig compactionConfig
 	decoded := rawCompactionConfig{Auto: true}
 	if err := value.Decode(&decoded); err != nil {
 		return err
 	}
-	*config = CompactionConfig(decoded)
+	*config = compactionConfig(decoded)
 	return nil
 }
 
-// ProviderType selects the protocol adapter used by a named connection
+// providerType selects the protocol adapter used by a named connection
 // profile. Map keys under providers are application-defined aliases.
-type ProviderType string
+type providerType string
 
 const (
-	// ProviderTypeOpenAI selects the OpenAI-compatible chat-completions adapter.
-	ProviderTypeOpenAI ProviderType = "openai"
+	// providerTypeOpenAI selects the OpenAI-compatible chat-completions adapter.
+	providerTypeOpenAI providerType = "openai"
 )
 
-type ProviderConfig struct {
-	Type           ProviderType `yaml:"type"`
+type providerConfig struct {
+	Type           providerType `yaml:"type"`
 	URL            string       `yaml:"url"`
 	APIKey         string       `yaml:"api_key"`
 	RequestTimeout string       `yaml:"request_timeout"`
 	// Models contains optional exact-name overrides. It does not restrict which
 	// model names agents may select.
-	Models map[string]ProviderModelConfig `yaml:"models"`
+	Models map[string]providerModelConfig `yaml:"models"`
 }
 
-// ProviderModelConfig contains capability and request overrides for one exact
+// providerModelConfig contains capability and request overrides for one exact
 // model name within a provider profile.
-type ProviderModelConfig struct {
+type providerModelConfig struct {
 	// Reasoning controls the Qwen-compatible enable_thinking switch. Nil
 	// preserves the provider default; use ExtraBody for other wire formats.
 	Reasoning *bool `yaml:"reasoning"`
@@ -171,9 +140,9 @@ type ProviderModelConfig struct {
 	MaxOutputTokens     int `yaml:"max_output_tokens"`
 }
 
-// Skill is one .agentcli/skill/<name>/SKILL.md file. Only name and
+// skill is one .agentcli/skill/<name>/SKILL.md file. Only name and
 // description are YAML metadata; Instructions is the Markdown body.
-type Skill struct {
+type skill struct {
 	Name         string
 	Description  string
 	Instructions string
@@ -184,14 +153,14 @@ type Skill struct {
 // provider configuration.
 type Project struct {
 	root          string
-	main          AgentDefinition
-	config        ProjectConfig
-	skills        map[string]Skill // skills available to this main-agent/subagent view
-	allSkills     map[string]Skill // complete project catalog for subagent allowlists
-	subagents     map[string]SubagentDefinition
+	main          agentDefinition
+	config        projectConfig
+	skills        map[string]skill // skills available to this main-agent/subagent view
+	allSkills     map[string]skill // complete project catalog for subagent allowlists
+	subagents     map[string]agentDefinition
 	providerName  string
 	modelName     string
-	compaction    *CompactionConfig
+	compaction    *compactionConfig
 	modelMetadata map[projectModelReference]agentruntime.ModelMetadata
 	toolNames     []string
 	restrictTools bool
@@ -227,7 +196,7 @@ func LoadProjectContext(ctx context.Context, root string) (*Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load project config: %w", err)
 	}
-	var config ProjectConfig
+	var config projectConfig
 	if err := decodeYAML(configBytes, &config); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", configPath, err)
 	}
@@ -290,19 +259,19 @@ func WithProject(project *Project) Option {
 		if project == nil {
 			return errors.New("project is required")
 		}
-		model, err := project.Model()
+		model, err := project.model()
 		if err != nil {
 			return err
 		}
 		configuration.model = model
 		configuration.projectRoot = project.root
-		configuration.systemPrompts = append(configuration.systemPrompts, project.SystemPrompts()...)
+		configuration.systemPrompts = append(configuration.systemPrompts, project.systemPrompts()...)
 		configuration.project = project
-		configuration.permissionMode = project.PermissionMode()
-		configuration.permissionPolicy.Mode = project.PermissionMode()
+		configuration.permissionMode = project.permissionMode()
+		configuration.permissionPolicy.Mode = project.permissionMode()
 		configuration.logger, configuration.runtimeLogs = projectLogger(project.config.Logging)
 		if project.compaction != nil && project.compaction.Auto {
-			compactionModel, err := project.CompactionModel()
+			compactionModel, err := project.compactionModel()
 			if err != nil {
 				return fmt.Errorf("resolve compaction model: %w", err)
 			}
@@ -312,18 +281,18 @@ func WithProject(project *Project) Option {
 	}
 }
 
-// Model constructs the configured OpenAI-compatible model adapter.
-func (project *Project) Model() (agentruntime.Model, error) {
+// model constructs the configured OpenAI-compatible model adapter.
+func (project *Project) model() (agentruntime.Model, error) {
 	if project == nil {
 		return nil, errors.New("project is nil")
 	}
-	return project.ModelFor(project.providerName, project.ModelName())
+	return project.modelFor(project.providerName, project.modelName)
 }
 
-// ModelFor constructs a model for a named project provider profile and model.
+// modelFor constructs a model for a named project provider profile and model.
 // The profile's type selects the protocol adapter; URL, credential, and
 // timeout always remain in project config.
-func (project *Project) ModelFor(providerName, model string) (agentruntime.Model, error) {
+func (project *Project) modelFor(providerName, model string) (agentruntime.Model, error) {
 	if project == nil {
 		return nil, errors.New("project is nil")
 	}
@@ -344,7 +313,7 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 		return nil, err
 	}
 	switch providerConfig.Type {
-	case ProviderTypeOpenAI:
+	case providerTypeOpenAI:
 		modelConfig := providerConfig.Models[model]
 		adapterConfig := openaiadapter.Config{
 			Provider:  providerName,
@@ -378,66 +347,44 @@ func (project *Project) ModelFor(providerName, model string) (agentruntime.Model
 	}
 }
 
-func (project *Project) Root() string {
-	if project == nil {
-		return ""
-	}
-	return project.root
-}
-
-func (project *Project) ProviderName() string {
-	if project == nil {
-		return ""
-	}
-	return project.providerName
-}
-
-func (project *Project) ModelName() string {
-	if project == nil {
-		return ""
-	}
-	return project.modelName
-}
-
-// Compaction returns the configured transcript-compaction policy. Its boolean
-// result reports whether the compaction section is present. The returned value
-// is safe for callers to modify.
-func (project *Project) Compaction() (CompactionConfig, bool) {
+// compactionSettings returns the configured transcript-compaction policy. Its
+// boolean result reports whether the compaction section is present.
+func (project *Project) compactionSettings() (compactionConfig, bool) {
 	if project == nil || project.compaction == nil {
-		return CompactionConfig{}, false
+		return compactionConfig{}, false
 	}
 	return *cloneCompactionConfig(project.compaction), true
 }
 
-// CompactionModel constructs the configured compaction model through the same
+// compactionModel constructs the configured compaction model through the same
 // provider-profile factory used for agent models.
-func (project *Project) CompactionModel() (agentruntime.Model, error) {
+func (project *Project) compactionModel() (agentruntime.Model, error) {
 	if project == nil {
 		return nil, errors.New("project is nil")
 	}
 	if project.compaction == nil || !project.compaction.Auto {
 		return nil, errors.New("compaction is disabled")
 	}
-	return project.ModelFor(project.compaction.Provider, project.compaction.Model)
+	return project.modelFor(project.compaction.Provider, project.compaction.Model)
 }
 
-// ToolNames returns the main agent's configured custom-tool allowlist.
-func (project *Project) ToolNames() []string {
+// configuredToolNames returns the main agent's custom-tool allowlist.
+func (project *Project) configuredToolNames() []string {
 	if project == nil || !project.restrictTools {
 		return nil
 	}
 	return append([]string{}, project.toolNames...)
 }
 
-func (project *Project) PermissionMode() permission.Mode {
+func (project *Project) permissionMode() permission.Mode {
 	if project == nil {
 		return ""
 	}
 	return project.config.PermissionMode
 }
 
-// Skills returns discovered skills in stable name order.
-func (project *Project) Skills() []Skill {
+// sortedSkills returns discovered skills in stable name order.
+func (project *Project) sortedSkills() []skill {
 	if project == nil {
 		return nil
 	}
@@ -446,34 +393,34 @@ func (project *Project) Skills() []Skill {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	skills := make([]Skill, len(names))
+	skills := make([]skill, len(names))
 	for index, name := range names {
 		skills[index] = project.skills[name]
 	}
 	return skills
 }
 
-// Main agent returns the main-agent definition loaded from .agentcli/MAIN.md.
-func (project *Project) MainAgent() AgentDefinition {
+// mainAgentDefinition returns the definition loaded from .agentcli/MAIN.md.
+func (project *Project) mainAgentDefinition() agentDefinition {
 	if project == nil {
-		return AgentDefinition{}
+		return agentDefinition{}
 	}
 	return cloneSubagentDefinition(project.main)
 }
 
-// Subagents returns discovered subagent definitions in stable name order.
-func (project *Project) Subagents() []SubagentDefinition {
+// subagentDefinitions returns complete definitions in stable name order.
+func (project *Project) subagentDefinitions() []agentDefinition {
 	if project == nil {
 		return nil
 	}
 	return sortedSubagentDefinitions(project.subagents)
 }
 
-// SystemPrompts returns the framework prompt, optional focused skill and
+// systemPrompts returns the framework prompt, optional focused skill and
 // subagent prompts, and MAIN.md instructions as separate ordered system
 // messages. Full skill bodies are loaded only through load_skill after the
 // model selects a skill by description or follows an explicit load requirement.
-func (project *Project) SystemPrompts() []string {
+func (project *Project) systemPrompts() []string {
 	if project == nil {
 		return nil
 	}
@@ -503,14 +450,14 @@ func (project *Project) subagentDiscoveryPrompt() string {
 
 <available_task_agents>
 `)
-	for _, definition := range project.Subagents() {
+	for _, definition := range project.subagentDefinitions() {
 		fmt.Fprintf(&prompt, "  <task_agent>\n    <name>%s</name>\n    <description>%s</description>\n  </task_agent>\n", html.EscapeString(definition.Name), html.EscapeString(definition.Description))
 	}
 	prompt.WriteString("</available_task_agents>")
 	return prompt.String()
 }
 
-func validateProjectTaskAgents(definitions map[string]SubagentDefinition) error {
+func validateProjectTaskAgents(definitions map[string]agentDefinition) error {
 	for _, definition := range definitions {
 		for _, toolName := range definition.Tools {
 			if toolName == toolexecution.TaskToolName {
@@ -567,7 +514,7 @@ One load_skill call loads only the skill named in that call.
   to do next.
 
 `)
-	skills := project.Skills()
+	skills := project.sortedSkills()
 	if len(skills) != 0 {
 		first := html.EscapeString(skills[0].Name)
 		prompt.WriteString("Examples using only names from the current <available_skills>:\n\n")
@@ -590,15 +537,12 @@ One load_skill call loads only the skill named in that call.
 	return prompt.String()
 }
 
-func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, string, ProviderConfig, time.Duration, error) {
+func validateProjectConfig(config projectConfig, main agentDefinition) (string, string, providerConfig, time.Duration, error) {
 	if err := validateLoggingConfig(config.Logging); err != nil {
-		return "", "", ProviderConfig{}, 0, err
-	}
-	if err := validateObservabilityConfig(config.Observability); err != nil {
-		return "", "", ProviderConfig{}, 0, err
+		return "", "", providerConfig{}, 0, err
 	}
 	if len(config.Providers) == 0 {
-		return "", "", ProviderConfig{}, 0, errors.New("providers must contain at least one provider")
+		return "", "", providerConfig{}, 0, errors.New("providers must contain at least one provider")
 	}
 	providerNames := make([]string, 0, len(config.Providers))
 	for providerName := range config.Providers {
@@ -606,49 +550,49 @@ func validateProjectConfig(config ProjectConfig, main AgentDefinition) (string, 
 	}
 	sort.Strings(providerNames)
 	for _, providerName := range providerNames {
-		providerConfig := config.Providers[providerName]
+		currentProvider := config.Providers[providerName]
 		if strings.TrimSpace(providerName) == "" {
-			return "", "", ProviderConfig{}, 0, errors.New("provider name is required")
+			return "", "", providerConfig{}, 0, errors.New("provider name is required")
 		}
-		if _, err := validateProviderConfig(providerName, providerConfig); err != nil {
-			return "", "", ProviderConfig{}, 0, err
+		if _, err := validateProviderConfig(providerName, currentProvider); err != nil {
+			return "", "", providerConfig{}, 0, err
 		}
 	}
 	if compaction := config.Compaction; compaction != nil && compaction.Auto {
 		providerName := strings.TrimSpace(compaction.Provider)
 		if providerName == "" {
-			return "", "", ProviderConfig{}, 0, errors.New("compaction provider is required when compaction is enabled")
+			return "", "", providerConfig{}, 0, errors.New("compaction provider is required when compaction is enabled")
 		}
 		if strings.TrimSpace(compaction.Model) == "" {
-			return "", "", ProviderConfig{}, 0, errors.New("compaction model is required when compaction is enabled")
+			return "", "", providerConfig{}, 0, errors.New("compaction model is required when compaction is enabled")
 		}
-		providerConfig, found := config.Providers[providerName]
+		compactionProvider, found := config.Providers[providerName]
 		if !found {
-			return "", "", ProviderConfig{}, 0, fmt.Errorf("compaction provider %q is not configured", providerName)
+			return "", "", providerConfig{}, 0, fmt.Errorf("compaction provider %q is not configured", providerName)
 		}
-		if _, err := validateProviderConfig(providerName, providerConfig); err != nil {
-			return "", "", ProviderConfig{}, 0, err
+		if _, err := validateProviderConfig(providerName, compactionProvider); err != nil {
+			return "", "", providerConfig{}, 0, err
 		}
 	}
 	providerName := strings.TrimSpace(main.Provider)
-	providerConfig, found := config.Providers[providerName]
+	selectedProvider, found := config.Providers[providerName]
 	if !found {
-		return "", "", ProviderConfig{}, 0, fmt.Errorf("main agent provider %q is not configured", providerName)
+		return "", "", providerConfig{}, 0, fmt.Errorf("main agent provider %q is not configured", providerName)
 	}
 	modelName := strings.TrimSpace(main.Model)
-	timeout, err := validateProviderConfig(providerName, providerConfig)
+	timeout, err := validateProviderConfig(providerName, selectedProvider)
 	if err != nil {
-		return "", "", ProviderConfig{}, 0, err
+		return "", "", providerConfig{}, 0, err
 	}
 	if !permission.IsValidMode(config.PermissionMode) {
-		return "", "", ProviderConfig{}, 0, fmt.Errorf("unknown permission_mode %q", config.PermissionMode)
+		return "", "", providerConfig{}, 0, fmt.Errorf("unknown permission_mode %q", config.PermissionMode)
 	}
-	return providerName, modelName, providerConfig, timeout, nil
+	return providerName, modelName, selectedProvider, timeout, nil
 }
 
-func expandProjectConfig(config *ProjectConfig) {
+func expandProjectConfig(config *projectConfig) {
 	for name, providerConfig := range config.Providers {
-		providerConfig.Type = ProviderType(strings.ToLower(os.ExpandEnv(strings.TrimSpace(string(providerConfig.Type)))))
+		providerConfig.Type = providerType(strings.ToLower(os.ExpandEnv(strings.TrimSpace(string(providerConfig.Type)))))
 		providerConfig.URL = os.ExpandEnv(strings.TrimSpace(providerConfig.URL))
 		providerConfig.APIKey = os.ExpandEnv(strings.TrimSpace(providerConfig.APIKey))
 		providerConfig.RequestTimeout = os.ExpandEnv(strings.TrimSpace(providerConfig.RequestTimeout))
@@ -661,15 +605,6 @@ func expandProjectConfig(config *ProjectConfig) {
 	if config.Compaction != nil {
 		config.Compaction.Provider = os.ExpandEnv(strings.TrimSpace(config.Compaction.Provider))
 		config.Compaction.Model = os.ExpandEnv(strings.TrimSpace(config.Compaction.Model))
-	}
-	if config.Observability != nil && config.Observability.Langfuse != nil {
-		langfuse := config.Observability.Langfuse
-		langfuse.BaseURL = os.ExpandEnv(strings.TrimSpace(langfuse.BaseURL))
-		langfuse.PublicKey = os.ExpandEnv(strings.TrimSpace(langfuse.PublicKey))
-		langfuse.SecretKey = os.ExpandEnv(strings.TrimSpace(langfuse.SecretKey))
-		langfuse.Environment = os.ExpandEnv(strings.TrimSpace(langfuse.Environment))
-		langfuse.ServiceName = os.ExpandEnv(strings.TrimSpace(langfuse.ServiceName))
-		langfuse.Release = os.ExpandEnv(strings.TrimSpace(langfuse.Release))
 	}
 }
 
@@ -701,7 +636,7 @@ func expandEnvironmentJSONValue(value any) any {
 	}
 }
 
-func cloneCompactionConfig(config *CompactionConfig) *CompactionConfig {
+func cloneCompactionConfig(config *compactionConfig) *compactionConfig {
 	if config == nil {
 		return nil
 	}
@@ -717,11 +652,11 @@ func cloneBool(value *bool) *bool {
 	return &clone
 }
 
-func validateProviderConfig(providerName string, providerConfig ProviderConfig) (time.Duration, error) {
+func validateProviderConfig(providerName string, providerConfig providerConfig) (time.Duration, error) {
 	if providerConfig.Type == "" {
 		return 0, fmt.Errorf("provider %q type is required", providerName)
 	}
-	if providerConfig.Type != ProviderTypeOpenAI {
+	if providerConfig.Type != providerTypeOpenAI {
 		return 0, unsupportedProviderType(providerName, providerConfig.Type)
 	}
 	if strings.TrimSpace(providerConfig.APIKey) == "" {
@@ -753,35 +688,7 @@ func validateProviderConfig(providerName string, providerConfig ProviderConfig) 
 	return timeout, nil
 }
 
-func validateObservabilityConfig(config *ObservabilityConfig) error {
-	if config == nil || config.Langfuse == nil || !config.Langfuse.Enabled {
-		return nil
-	}
-	langfuse := config.Langfuse
-	if langfuse.PublicKey == "" {
-		return errors.New("observability langfuse public_key is required when enabled")
-	}
-	if langfuse.SecretKey == "" {
-		return errors.New("observability langfuse secret_key is required when enabled")
-	}
-	if langfuse.BaseURL != "" {
-		parsed, err := url.Parse(langfuse.BaseURL)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return errors.New("observability langfuse base_url must be an absolute HTTP(S) URL without query or fragment")
-		}
-	}
-	if langfuse.SampleRate != nil && (*langfuse.SampleRate < 0 || *langfuse.SampleRate > 1) {
-		return errors.New("observability langfuse sample_rate must be between 0 and 1")
-	}
-	if environment := langfuse.Environment; environment != "" {
-		if len(environment) > 40 || strings.HasPrefix(environment, "langfuse") || !regexp.MustCompile(`^[a-z0-9_-]+$`).MatchString(environment) {
-			return errors.New("observability langfuse environment must be at most 40 lowercase letters, numbers, hyphens, or underscores and must not start with langfuse")
-		}
-	}
-	return nil
-}
-
-func validateLoggingConfig(config *LoggingConfig) error {
+func validateLoggingConfig(config *loggingConfig) error {
 	if config == nil {
 		return nil
 	}
@@ -793,12 +700,12 @@ func validateLoggingConfig(config *LoggingConfig) error {
 	}
 }
 
-func unsupportedProviderType(providerName string, providerType ProviderType) error {
-	return fmt.Errorf("provider %q has unsupported type %q; supported types: %s", providerName, providerType, ProviderTypeOpenAI)
+func unsupportedProviderType(providerName string, providerType providerType) error {
+	return fmt.Errorf("provider %q has unsupported type %q; supported types: %s", providerName, providerType, providerTypeOpenAI)
 }
 
-func selectProjectSkills(all map[string]Skill, names []string) (map[string]Skill, error) {
-	selected := make(map[string]Skill, len(names))
+func selectProjectSkills(all map[string]skill, names []string) (map[string]skill, error) {
+	selected := make(map[string]skill, len(names))
 	for _, name := range names {
 		skill, found := all[name]
 		if !found {
@@ -809,8 +716,8 @@ func selectProjectSkills(all map[string]Skill, names []string) (map[string]Skill
 	return selected, nil
 }
 
-func loadSkills(root string) (map[string]Skill, error) {
-	skills := make(map[string]Skill)
+func loadSkills(root string) (map[string]skill, error) {
+	skills := make(map[string]skill)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return skills, nil
@@ -842,14 +749,14 @@ func loadSkills(root string) (map[string]Skill, error) {
 	return skills, nil
 }
 
-func parseSkill(path string, contents []byte) (Skill, error) {
+func parseSkill(path string, contents []byte) (skill, error) {
 	text := strings.ReplaceAll(string(contents), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
-		return Skill{}, fmt.Errorf("skill %s: YAML front matter must start with ---", path)
+		return skill{}, fmt.Errorf("skill %s: YAML front matter must start with ---", path)
 	}
 	end := strings.Index(text[4:], "\n---\n")
 	if end < 0 {
-		return Skill{}, fmt.Errorf("skill %s: YAML front matter is not closed", path)
+		return skill{}, fmt.Errorf("skill %s: YAML front matter is not closed", path)
 	}
 	end += 4
 	var metadata struct {
@@ -857,27 +764,27 @@ func parseSkill(path string, contents []byte) (Skill, error) {
 		Description string `yaml:"description"`
 	}
 	if err := decodeYAML([]byte(text[4:end]), &metadata); err != nil {
-		return Skill{}, fmt.Errorf("skill %s metadata: %w", path, err)
+		return skill{}, fmt.Errorf("skill %s metadata: %w", path, err)
 	}
 	metadata.Name = strings.TrimSpace(metadata.Name)
 	metadata.Description = strings.TrimSpace(metadata.Description)
 	instructions := strings.TrimSpace(text[end+5:])
 	if metadata.Name == "" || metadata.Description == "" {
-		return Skill{}, fmt.Errorf("skill %s: name and description are required", path)
+		return skill{}, fmt.Errorf("skill %s: name and description are required", path)
 	}
 	if len(metadata.Name) > 64 || !skillNamePattern.MatchString(metadata.Name) {
-		return Skill{}, fmt.Errorf("skill %s: name must be at most 64 lowercase letters, numbers, or hyphen-separated words", path)
+		return skill{}, fmt.Errorf("skill %s: name must be at most 64 lowercase letters, numbers, or hyphen-separated words", path)
 	}
 	if strings.Contains(metadata.Name, "anthropic") || strings.Contains(metadata.Name, "claude") {
-		return Skill{}, fmt.Errorf("skill %s: name contains a reserved word", path)
+		return skill{}, fmt.Errorf("skill %s: name contains a reserved word", path)
 	}
 	if len(metadata.Description) > 1024 || strings.ContainsAny(metadata.Description, "<>") {
-		return Skill{}, fmt.Errorf("skill %s: description must be at most 1024 characters and cannot contain XML tags", path)
+		return skill{}, fmt.Errorf("skill %s: description must be at most 1024 characters and cannot contain XML tags", path)
 	}
 	if instructions == "" {
-		return Skill{}, fmt.Errorf("skill %s: Markdown instructions are required", path)
+		return skill{}, fmt.Errorf("skill %s: Markdown instructions are required", path)
 	}
-	return Skill{Name: metadata.Name, Description: metadata.Description, Instructions: instructions, Path: path}, nil
+	return skill{Name: metadata.Name, Description: metadata.Description, Instructions: instructions, Path: path}, nil
 }
 
 func readProjectFile(path string, required bool) ([]byte, error) {

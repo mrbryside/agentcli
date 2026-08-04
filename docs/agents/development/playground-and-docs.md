@@ -21,7 +21,7 @@ shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
 
 The playground inherits the single framework-owned main-agent `task` tool from
 `LoadProject`; it has no local copy of its schema or orchestration prompt.
-Foreground work returns its terminal `TaskResult` in the same tool call.
+Foreground work returns its terminal task-result JSON in the same tool call.
 Background or foreground-wait-promoted work is delivered exactly once by
 `Agent`, either at a compatible provider boundary or in an Agent-owned
 continuation turn. Terminal subagent view/status/message/interrupt/close

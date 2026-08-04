@@ -40,7 +40,7 @@ func TestSubagentStepLimitFinalizerReturnsPartialTextWithoutTools(t *testing.T) 
 	if result.Content != "partial final answer" || result.Steps != 2 {
 		t.Fatalf("result = %#v, want partial final answer after two provider steps", result)
 	}
-	task := taskResultFromFinalOutput("task-1", SubagentDefinition{Name: "researcher"}, result.Content, run.StepLimitFinalized())
+	task := taskResultFromFinalOutput("task-1", agentDefinition{Name: "researcher"}, result.Content, run.StepLimitFinalized())
 	if task.State != TaskStateIncomplete || task.Output != "partial final answer" {
 		t.Fatalf("task result = %#v, want incomplete partial output", task)
 	}

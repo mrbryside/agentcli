@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/mrbryside/agentcli/agentruntime"
@@ -23,6 +25,8 @@ const (
 	defaultBaseURL      = "https://cloud.langfuse.com"
 	instrumentationName = "github.com/mrbryside/agentcli/observability/langfuse"
 )
+
+var environmentPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // CaptureConfig controls generation payloads that may contain sensitive data.
 type CaptureConfig struct {
@@ -155,6 +159,15 @@ func validateConfig(config Config) error {
 	}
 	if config.SampleRate < 0 || config.SampleRate > 1 {
 		return errors.New("Langfuse sample rate must be between 0 and 1")
+	}
+	parsedBaseURL, err := url.Parse(config.BaseURL)
+	if err != nil || parsedBaseURL.Host == "" || (parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
+		return errors.New("Langfuse base URL must be an absolute HTTP(S) URL without query or fragment")
+	}
+	if environment := config.Environment; environment != "" {
+		if len(environment) > 40 || strings.HasPrefix(environment, "langfuse") || !environmentPattern.MatchString(environment) {
+			return errors.New("Langfuse environment must be at most 40 lowercase letters, numbers, hyphens, or underscores and must not start with langfuse")
+		}
 	}
 	return nil
 }

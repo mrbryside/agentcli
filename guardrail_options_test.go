@@ -93,11 +93,11 @@ func TestToolGuardModelConfigResolvesProjectProvider(t *testing.T) {
 		root:         t.TempDir(),
 		providerName: "primary",
 		modelName:    "main-model",
-		config: ProjectConfig{
+		config: projectConfig{
 			PermissionMode: permission.Default,
-			Providers: map[string]ProviderConfig{
-				"primary": {Type: ProviderTypeOpenAI, APIKey: "primary-key"},
-				"policy":  {Type: ProviderTypeOpenAI, APIKey: "policy-key"},
+			Providers: map[string]providerConfig{
+				"primary": {Type: providerTypeOpenAI, APIKey: "primary-key"},
+				"policy":  {Type: providerTypeOpenAI, APIKey: "policy-key"},
 			},
 		},
 	}

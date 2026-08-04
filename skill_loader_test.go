@@ -148,14 +148,14 @@ func TestSkillLoaderRequiresInvocationContext(t *testing.T) {
 }
 
 func skillLoaderProject(instructions string) *Project {
-	skill := Skill{Name: "testing-go", Description: "Use when testing Go.", Instructions: instructions}
-	return &Project{skills: map[string]Skill{skill.Name: skill}}
+	entry := skill{Name: "testing-go", Description: "Use when testing Go.", Instructions: instructions}
+	return &Project{skills: map[string]skill{entry.Name: entry}}
 }
 
 func callSkillLoader(t *testing.T, loader *skillLoader, sessionID, turnID, callID string) skillToolResult {
 	t.Helper()
 	ctx := toolexecution.WithInvocation(context.Background(), toolexecution.Invocation{
-		SessionID: sessionID, TurnID: turnID, CallID: callID, ToolName: SkillLoaderToolName,
+		SessionID: sessionID, TurnID: turnID, CallID: callID, ToolName: skillLoaderToolName,
 	})
 	output, err := loader.handle(ctx, json.RawMessage(`{"name":"testing-go"}`))
 	if err != nil {
@@ -177,7 +177,7 @@ func appendSkillResult(t *testing.T, messages *inmemory.MessageStorage, sessionI
 	err = messages.Append(context.Background(), agentruntime.Message{
 		ID: messageID, SessionID: sessionID, TurnID: turnID, Type: agentruntime.MessageTypeToolResult,
 		ToolResult: &agentruntime.ToolResult{
-			CallID: callID, Name: SkillLoaderToolName, Status: agentruntime.ToolResultSucceeded, Output: output,
+			CallID: callID, Name: skillLoaderToolName, Status: agentruntime.ToolResultSucceeded, Output: output,
 		},
 	})
 	if err != nil {

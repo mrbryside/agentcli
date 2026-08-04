@@ -16,7 +16,7 @@ type taskDelivery struct {
 	AssignmentID       string
 	SubagentSessionID  string
 	SubagentTurnID     string
-	Result             TaskResult
+	Result             taskResult
 	Metadata           map[string]any
 }
 
@@ -29,7 +29,7 @@ func (delivery taskDelivery) RuntimeMessage() agentruntime.Message {
 		Agent     string        `json:"agent"`
 		State     TaskState     `json:"state"`
 		Output    string        `json:"output"`
-		ErrorCode TaskErrorCode `json:"error_code,omitempty"`
+		ErrorCode taskErrorCode `json:"error_code,omitempty"`
 		Error     string        `json:"error"`
 	}{
 		TaskID: delivery.Result.TaskID, Agent: delivery.Result.AgentName,
@@ -42,8 +42,8 @@ func (delivery taskDelivery) RuntimeMessage() agentruntime.Message {
 	}
 }
 
-func taskFinalResultFromOutput(taskID string, definition SubagentDefinition, output string, incomplete bool) (TaskResult, map[string]any) {
-	result := TaskResult{TaskID: taskID, AgentName: definition.Name}
+func taskFinalResultFromOutput(taskID string, definition agentDefinition, output string, incomplete bool) (taskResult, map[string]any) {
+	result := taskResult{TaskID: taskID, AgentName: definition.Name}
 	final, err := parseTaskFinalResult(definition, output)
 	if err != nil {
 		result.State = TaskStateError
@@ -59,7 +59,7 @@ func taskFinalResultFromOutput(taskID string, definition SubagentDefinition, out
 	return result, cloneTaskMetadata(final.Metadata)
 }
 
-func taskResultFromFinalOutput(taskID string, definition SubagentDefinition, output string, incomplete bool) TaskResult {
+func taskResultFromFinalOutput(taskID string, definition agentDefinition, output string, incomplete bool) taskResult {
 	result, _ := taskFinalResultFromOutput(taskID, definition, output, incomplete)
 	return result
 }

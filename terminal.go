@@ -117,12 +117,12 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 	defer signal.Stop(interrupts)
 
 	modelName := "agent"
-	var skills []Skill
+	var skills []skill
 	if a.project != nil {
-		if configured := strings.TrimSpace(a.project.ModelName()); configured != "" {
+		if configured := strings.TrimSpace(a.project.modelName); configured != "" {
 			modelName = configured
 		}
-		skills = a.project.Skills()
+		skills = a.project.sortedSkills()
 	}
 	modelName = terminalModelLabel(modelName, a.model)
 	client := &terminalClient{
@@ -319,7 +319,7 @@ type terminalClient struct {
 	agent                  terminalAgent
 	terminal               terminal
 	modelName              string
-	skills                 []Skill
+	skills                 []skill
 	sessionID              string
 	subagentID             string
 	interrupts             <-chan os.Signal
@@ -839,6 +839,9 @@ func (c *terminalClient) openSubagent(id string) error {
 	if err != nil {
 		return fmt.Errorf("load task session %s messages: %w", id, err)
 	}
+	if record.Status == storage.SubagentStatusRunning && record.CurrentSubagentTurnID != "" {
+		messages = terminalMessagesExcludingTurn(messages, record.CurrentSubagentTurnID)
+	}
 	viewContext := c.switchView(record.ID)
 	c.terminal.clear()
 	c.terminal.subagent(record)
@@ -1282,23 +1285,24 @@ func (c *terminalClient) showMainAgentView() {
 		c.terminal.error(err)
 		return
 	}
+	run := c.currentMainAgentRun()
+	if run != nil {
+		messages = terminalMessagesExcludingTurn(messages, run.TurnID())
+	}
 	c.terminal.messages(messages)
 	for _, notice := range c.mainAgentNoticeSnapshot() {
 		c.terminal.status(notice.label, notice.value)
 	}
-	run := c.currentMainAgentRun()
 	if run == nil {
 		c.renderActiveApproval()
 		return
 	}
 	wroteContent := false
+	loading := c.currentMainAgentLoading()
+	loading.resetTasks()
 	events := run.Events()
 	for _, event := range events {
-		if run.Done() {
-			c.renderBackfillAlertEvent(event, &wroteContent)
-		} else {
-			c.renderBackfillEvent(event, &wroteContent)
-		}
+		c.renderBackfillEventWithLoading(event, &wroteContent, loading)
 	}
 	if len(events) != 0 {
 		c.stateMu.Lock()
@@ -1312,7 +1316,7 @@ func (c *terminalClient) showMainAgentView() {
 	if _, approvalActive := c.activeApprovalSnapshot(); approvalActive {
 		return
 	}
-	if loading := c.currentMainAgentLoading(); loading != nil && !wroteContent {
+	if loading != nil && (!wroteContent || loading.hasTasks()) {
 		loading.Start("")
 	}
 }
@@ -1447,6 +1451,17 @@ func (c *terminalClient) renderRuntimeLogEntry(entry runtimeLogEntry) {
 }
 
 func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wroteContent *bool) {
+	c.renderBackfillEventWithLoading(event, wroteContent, nil)
+}
+
+func (c *terminalClient) renderBackfillEventWithLoading(event agentruntime.AgentEvent, wroteContent *bool, loading *terminalLoadingController) {
+	if event.Type == agentruntime.RunStarted {
+		c.renderBackfillAlertEvent(event, wroteContent)
+		if event.Message != nil && event.Message.Type == agentruntime.MessageTypeUser {
+			c.terminal.userMessage(event.Message.Content)
+		}
+		return
+	}
 	if event.Type == agentruntime.ProviderEventReceived {
 		switch event.ProviderEvent.Type {
 		case provider.ContentReceived:
@@ -1455,6 +1470,35 @@ func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wrot
 		case provider.ReasoningReceived:
 			c.terminal.reasoning(event.ProviderEvent.Reasoning)
 		}
+		return
+	}
+	if event.Type == agentruntime.ToolCallRequested && event.ToolRequest != nil {
+		call := event.ToolRequest.Call
+		if call.Name == taskToolName && loading != nil {
+			agent, activity := terminalTaskCallProgress(call)
+			if loading.StartTask(call.CallID, agent, activity, false) {
+				return
+			}
+		}
+		c.terminal.ensureNewline(*wroteContent)
+		*wroteContent = false
+		c.terminal.toolCall(call.Name, terminalToolCallDetails(call))
+		return
+	}
+	if event.Type == agentruntime.ToolResultReceived && event.ToolResult != nil {
+		result := event.ToolResult.Result
+		if result.Name == taskToolName && loading != nil {
+			agent, state := terminalTaskResultProgress(result)
+			if handled, allDone := loading.FinishTask(result.CallID, agent, state, true); handled {
+				if allDone {
+					*wroteContent = false
+				}
+				return
+			}
+		}
+		c.terminal.ensureNewline(*wroteContent)
+		*wroteContent = false
+		c.terminal.toolResult(result)
 		return
 	}
 	c.renderBackfillAlertEvent(event, wroteContent)
@@ -1647,16 +1691,16 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 	c.setRunActive(true)
 	defer c.setRunActive(false)
 	wroteContent := false
+	loading := c.terminal.loadingController()
 	for _, event := range events {
-		if !c.renderInView(id, func() { c.renderBackfillEvent(event, &wroteContent) }) {
+		if !c.renderInView(id, func() { c.renderBackfillEventWithLoading(event, &wroteContent, loading) }) {
 			return nil
 		}
 	}
 	if !c.renderInView(id, func() { c.renderActiveApproval() }) {
 		return nil
 	}
-	loading := c.terminal.loadingController()
-	if _, approvalActive := c.activeApprovalSnapshot(); !approvalActive && !wroteContent {
+	if _, approvalActive := c.activeApprovalSnapshot(); !approvalActive && (!wroteContent || loading.hasTasks()) {
 		if !c.renderInView(id, func() { loading.Start("") }) {
 			return nil
 		}
@@ -1783,7 +1827,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 	case agentruntime.ToolCallRequested:
 		if event.ToolRequest != nil {
 			call := event.ToolRequest.Call
-			if call.Name == TaskToolName && loading != nil {
+			if call.Name == taskToolName && loading != nil {
 				agent, activity := terminalTaskCallProgress(call)
 				if loading.StartTask(call.CallID, agent, activity, visible) {
 					break
@@ -1801,7 +1845,7 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 	case agentruntime.ToolResultReceived:
 		if event.ToolResult != nil {
 			result := event.ToolResult.Result
-			if result.Name == TaskToolName && loading != nil {
+			if result.Name == taskToolName && loading != nil {
 				agent, state := terminalTaskResultProgress(result)
 				if handled, allDone := loading.FinishTask(result.CallID, agent, state, visible); handled {
 					if visible && allDone {
@@ -2072,7 +2116,7 @@ func (t terminal) runtimeLogEntry(entry runtimeLogEntry) {
 	}
 }
 
-func (t terminal) skills(skills []Skill) {
+func (t terminal) skills(skills []skill) {
 	if len(skills) == 0 {
 		t.println("No skills discovered.")
 		return
@@ -2164,7 +2208,7 @@ func terminalTaskResultLabel(instance storage.Subagent) string {
 }
 
 func terminalToolCallDetails(call agentruntime.ToolCall) string {
-	if call.Name != TaskToolName {
+	if call.Name != taskToolName {
 		return ""
 	}
 	var input struct {
@@ -2221,7 +2265,7 @@ func terminalTaskResultProgress(result agentruntime.ToolResult) (agent string, s
 	if result.Status != agentruntime.ToolResultSucceeded {
 		return "", TaskStateError
 	}
-	var taskResult TaskResult
+	var taskResult taskResult
 	if json.Unmarshal(result.Output, &taskResult) != nil {
 		return "", TaskStateCompleted
 	}
@@ -2235,32 +2279,70 @@ func terminalTaskResultProgress(result agentruntime.ToolResult) (agent string, s
 }
 
 func (t terminal) messages(messages []agentruntime.Message) {
+	taskAgents := make(map[string]string)
 	for _, message := range messages {
 		if message.Reasoning != "" {
 			t.reasoningHistory(message.Reasoning)
 		}
 		switch message.Type {
 		case agentruntime.MessageTypeUser:
-			t.println(t.paint("36", "You · ") + message.Content)
+			t.userMessage(message.Content)
 		case agentruntime.MessageTypeAssistant:
-			content := message.Content
-			if strings.TrimSpace(content) == "" {
-				continue
-			}
-			if t.interactive {
-				content = renderTerminalMarkdown(content, readline.GetScreenWidth())
-			}
-			t.println(content)
+			t.messageContent(message.Content)
 		case agentruntime.MessageTypeToolCall:
+			t.messageContent(message.Content)
 			for _, call := range message.ToolCalls {
+				if t.interactive && call.Name == taskToolName {
+					agent, _ := terminalTaskCallProgress(call)
+					taskAgents[call.CallID] = agent
+					continue
+				}
 				t.toolCall(call.Name, terminalToolCallDetails(call))
 			}
 		case agentruntime.MessageTypeToolResult:
 			if message.ToolResult != nil {
+				if t.interactive && message.ToolResult.Name == taskToolName {
+					agent, state := terminalTaskResultProgress(*message.ToolResult)
+					if agent == "" {
+						agent = taskAgents[message.ToolResult.CallID]
+					}
+					if agent == "" {
+						agent = "task"
+					}
+					t.println(terminalLoadingRowsDisplay([]terminalLoadingRow{terminalTaskFinishedRow(agent, state)}, 0, t.color))
+					continue
+				}
 				t.toolResult(*message.ToolResult)
 			}
 		}
 	}
+}
+
+func terminalMessagesExcludingTurn(messages []agentruntime.Message, turnID string) []agentruntime.Message {
+	if strings.TrimSpace(turnID) == "" {
+		return messages
+	}
+	filtered := make([]agentruntime.Message, 0, len(messages))
+	for _, message := range messages {
+		if message.TurnID != turnID {
+			filtered = append(filtered, message)
+		}
+	}
+	return filtered
+}
+
+func (t terminal) userMessage(content string) {
+	t.println(terminalInputDisplay(t.promptValue(), []rune(content)))
+}
+
+func (t terminal) messageContent(content string) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	if t.interactive {
+		content = renderTerminalMarkdown(content, readline.GetScreenWidth())
+	}
+	t.println(content)
 }
 
 func (t terminal) permission(request permission.Request) {
@@ -2330,8 +2412,8 @@ func (t terminal) toolCall(name, details string) {
 }
 
 func (t terminal) toolResult(result agentruntime.ToolResult) {
-	if result.Name == TaskToolName && result.Status == agentruntime.ToolResultSucceeded {
-		var taskResult TaskResult
+	if result.Name == taskToolName && result.Status == agentruntime.ToolResultSucceeded {
+		var taskResult taskResult
 		if json.Unmarshal(result.Output, &taskResult) == nil && taskResult.TaskID != "" {
 			t.taskResult(taskResult)
 			return
@@ -2348,7 +2430,7 @@ func (t terminal) toolResult(result agentruntime.ToolResult) {
 	t.println(t.paint(color, "  "+icon+" "+result.Name) + t.paint("2", " · "+detail))
 }
 
-func (t terminal) taskResult(result TaskResult) {
+func (t terminal) taskResult(result taskResult) {
 	icon, color := "✓", "32"
 	switch result.State {
 	case TaskStateRunning:

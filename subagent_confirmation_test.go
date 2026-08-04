@@ -17,7 +17,7 @@ func TestSubagentConfirmationIsPublishedToMainAgentAndDurablyRecoverable(t *test
 	confirmations := inmemory.NewConfirmationStorage()
 	manager.config.confirmations = confirmations
 	var executed atomic.Int32
-	manager.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	manager.subagentFactory = func(agentDefinition) (*Agent, error) {
 		return New(context.Background(),
 			withSubagentAgent(),
 			WithModel(newConfirmationModel()),
@@ -76,7 +76,7 @@ func TestSubagentConfirmationIsPublishedToMainAgentAndDurablyRecoverable(t *test
 func TestSubagentPermissionIsPublishedToMainAgentAndDurablyRecoverable(t *testing.T) {
 	manager := newTestSubagentManager(t, newConfirmationModel(), 1)
 	var executed atomic.Int32
-	manager.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	manager.subagentFactory = func(agentDefinition) (*Agent, error) {
 		tool := confirmationTool(func() { executed.Add(1) })
 		tool.Confirmation = nil
 		tool.Permission = toolexecution.StaticPermission(toolexecution.PermissionConfig{

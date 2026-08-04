@@ -32,7 +32,7 @@ type subagentManager struct {
 	instances       map[string]*managedSubagent
 	closed          bool
 	changed         chan struct{}
-	subagentFactory func(SubagentDefinition) (*Agent, error)
+	subagentFactory func(agentDefinition) (*Agent, error)
 
 	// taskDeliverySeen makes completion handoff exactly-once even when a child
 	// finishes while a foreground wait is being promoted. The durable delivery
@@ -116,11 +116,11 @@ func (m *subagentManager) Start(ctx context.Context, mainAgentSessionID, mainAge
 	return m.startLocked(ctx, mainAgentSessionID, mainAgentTurnID, message, label, definition, existing, true)
 }
 
-// TaskRequest is the manager-owned form of one model-facing task request.
+// taskRequest is the manager-owned form of one model-facing task request.
 // It deliberately carries the calling main-agent turn identity because task
 // ownership is scoped to the main-agent session, while a task ID remains
 // resumable across later turns in that same session.
-type TaskRequest struct {
+type taskRequest struct {
 	MainAgentSessionID string
 	MainAgentTurnID    string
 	TaskID             string
@@ -135,7 +135,7 @@ type TaskRequest struct {
 // it returns the child's final response to the invoking tool call and creates
 // no response-scope result obligation. Background delivery is added separately
 // once the task tool is the only model-facing protocol.
-func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) (TaskResult, error) {
+func (m *subagentManager) ExecuteTask(ctx context.Context, request taskRequest) (taskResult, error) {
 	ctx = nonNilContext(ctx)
 	request.MainAgentSessionID = strings.TrimSpace(request.MainAgentSessionID)
 	request.MainAgentTurnID = strings.TrimSpace(request.MainAgentTurnID)
@@ -145,7 +145,7 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 	request.Description = strings.TrimSpace(request.Description)
 	request.Prompt = normalizeSubagentMessage(request.Prompt)
 	if taskIDProvided && request.TaskID == "" {
-		return TaskResult{}, errors.New("task_id cannot be empty")
+		return taskResult{}, errors.New("task_id cannot be empty")
 	}
 	if request.TaskID != "" {
 		// task_id is authoritative. Create-only metadata repeated by a model or
@@ -154,23 +154,23 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 		request.Description = ""
 	}
 	if request.MainAgentSessionID == "" || request.MainAgentTurnID == "" {
-		return TaskResult{}, errors.New("main agent session and turn IDs are required")
+		return taskResult{}, errors.New("main agent session and turn IDs are required")
 	}
 	if request.Prompt == "" {
-		return TaskResult{}, errors.New("task prompt is required")
+		return taskResult{}, errors.New("task prompt is required")
 	}
 	var (
 		record     storage.Subagent
-		definition SubagentDefinition
+		definition agentDefinition
 		run        *agentruntime.Run
 		err        error
 	)
 	if request.TaskID == "" {
 		if request.AgentName == "" {
-			return TaskResult{}, errors.New("task agent is required for a new task")
+			return taskResult{}, errors.New("task agent is required for a new task")
 		}
 		if request.Description == "" {
-			return TaskResult{}, errors.New("task description is required for a new task")
+			return taskResult{}, errors.New("task description is required for a new task")
 		}
 		record, definition, run, err = m.startForegroundTask(ctx, request)
 	} else {
@@ -180,23 +180,23 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 		if request.TaskID != "" {
 			switch {
 			case errors.Is(err, storage.ErrSubagentNotFound):
-				return TaskResult{
-					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorNotFound,
+				return taskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: taskErrorNotFound,
 					Error: "No task exists with this task_id.",
 				}, nil
 			case errors.Is(err, storage.ErrSubagentClosed):
-				return TaskResult{
-					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorClosed,
+				return taskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: taskErrorClosed,
 					Error: "This task was closed and cannot be resumed. Start a new task without task_id.",
 				}, nil
 			case errors.Is(err, storage.ErrSubagentRunning):
-				return TaskResult{
-					TaskID: request.TaskID, State: TaskStateError, ErrorCode: TaskErrorRunning,
+				return taskResult{
+					TaskID: request.TaskID, State: TaskStateError, ErrorCode: taskErrorRunning,
 					Error: "This task already has a running turn.",
 				}, nil
 			}
 		}
-		return TaskResult{}, err
+		return taskResult{}, err
 	}
 	if request.Background {
 		return m.backgroundTask(ctx, request, record, definition, run)
@@ -209,78 +209,78 @@ func (m *subagentManager) ExecuteTask(ctx context.Context, request TaskRequest) 
 	return result, waitErr
 }
 
-func (m *subagentManager) startForegroundTask(ctx context.Context, request TaskRequest) (storage.Subagent, SubagentDefinition, *agentruntime.Run, error) {
+func (m *subagentManager) startForegroundTask(ctx context.Context, request taskRequest) (storage.Subagent, agentDefinition, *agentruntime.Run, error) {
 	if err := m.ensureOpen(); err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	definition, found := m.project.subagents[request.AgentName]
 	if !found {
-		return storage.Subagent{}, SubagentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", request.AgentName)
+		return storage.Subagent{}, agentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", request.AgentName)
 	}
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
 	existing, err := m.store.ListByMainAgent(ctx, request.MainAgentSessionID)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	record, err := m.startLocked(ctx, request.MainAgentSessionID, request.MainAgentTurnID, request.Prompt, request.Description, definition, existing, false)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	instance, err := m.instanceForRecord(record)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	instance.mu.Lock()
 	run := taskRunForRecord(instance, record)
 	instance.mu.Unlock()
 	if run == nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, errors.New("started task has no active run")
+		return storage.Subagent{}, agentDefinition{}, nil, errors.New("started task has no active run")
 	}
 	return record, definition, run, nil
 }
 
-func (m *subagentManager) resumeForegroundTask(ctx context.Context, request TaskRequest) (storage.Subagent, SubagentDefinition, *agentruntime.Run, error) {
+func (m *subagentManager) resumeForegroundTask(ctx context.Context, request taskRequest) (storage.Subagent, agentDefinition, *agentruntime.Run, error) {
 	record, err := m.getOwned(ctx, request.MainAgentSessionID, request.TaskID)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentClosed
+		return storage.Subagent{}, agentDefinition{}, nil, storage.ErrSubagentClosed
 	}
 	if record.Status == storage.SubagentStatusRunning {
-		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentRunning
+		return storage.Subagent{}, agentDefinition{}, nil, storage.ErrSubagentRunning
 	}
 	definition, found := m.project.subagents[record.DefinitionName]
 	if !found {
-		return storage.Subagent{}, SubagentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", record.DefinitionName)
+		return storage.Subagent{}, agentDefinition{}, nil, fmt.Errorf("subagent definition %q is not available", record.DefinitionName)
 	}
 	instance, err := m.instanceForRecord(record)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 	record, err = m.getOwned(ctx, request.MainAgentSessionID, request.TaskID)
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	if record.Status == storage.SubagentStatusClosed {
-		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentClosed
+		return storage.Subagent{}, agentDefinition{}, nil, storage.ErrSubagentClosed
 	}
 	if record.Status == storage.SubagentStatusRunning {
-		return storage.Subagent{}, SubagentDefinition{}, nil, storage.ErrSubagentRunning
+		return storage.Subagent{}, agentDefinition{}, nil, storage.ErrSubagentRunning
 	}
 	if err := m.ensureAgentLocked(instance, definition); err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	turnID, err := newSubagentID("turn_")
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	running, err := m.transition(ctx, record.ID, storage.SubagentStatusRunning, turnID, "", "", "", "", "")
 	if err != nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	m.markTaskExecution(record.ID, turnID, request.MainAgentTurnID)
 	if err := m.startTurnLocked(instance, running, turnID, request.Prompt); err != nil {
@@ -290,11 +290,11 @@ func (m *subagentManager) resumeForegroundTask(ctx context.Context, request Task
 			instance.agent = nil
 			_ = subagent.Close()
 		}
-		return storage.Subagent{}, SubagentDefinition{}, nil, err
+		return storage.Subagent{}, agentDefinition{}, nil, err
 	}
 	run := instance.runs[turnID]
 	if run == nil {
-		return storage.Subagent{}, SubagentDefinition{}, nil, errors.New("resumed task has no active run")
+		return storage.Subagent{}, agentDefinition{}, nil, errors.New("resumed task has no active run")
 	}
 	m.signalChanged()
 	return running, definition, run, nil
@@ -316,8 +316,8 @@ func taskRunForRecord(instance *managedSubagent, record storage.Subagent) *agent
 	return instance.runs[turnID]
 }
 
-func (m *subagentManager) waitForTask(ctx context.Context, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
-	result := TaskResult{TaskID: record.ID, AgentName: definition.Name}
+func (m *subagentManager) waitForTask(ctx context.Context, record storage.Subagent, definition agentDefinition, run *agentruntime.Run) (taskResult, error) {
+	result := taskResult{TaskID: record.ID, AgentName: definition.Name}
 	subscription := run.Subscribe(context.Background())
 	events := subscription.Events
 	ticker := time.NewTicker(time.Millisecond)
@@ -363,12 +363,12 @@ func (m *subagentManager) waitForTask(ctx context.Context, record storage.Subage
 // waitOrPromoteTask gives foreground work a bounded opportunity to finish. A
 // timeout changes only delivery ownership, never the child run: the same
 // assignment is atomically registered before ExecuteTask returns running.
-func (m *subagentManager) waitOrPromoteTask(ctx context.Context, request TaskRequest, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
-	completed := make(chan TaskResult, 1)
+func (m *subagentManager) waitOrPromoteTask(ctx context.Context, request taskRequest, record storage.Subagent, definition agentDefinition, run *agentruntime.Run) (taskResult, error) {
+	completed := make(chan taskResult, 1)
 	go func() {
 		result, err := m.waitForTask(context.Background(), record, definition, run)
 		if err != nil {
-			result = TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}
+			result = taskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}
 		}
 		completed <- result
 	}()
@@ -380,7 +380,7 @@ func (m *subagentManager) waitOrPromoteTask(ctx context.Context, request TaskReq
 		return result, nil
 	case <-ctx.Done():
 		_ = run.Interrupt(context.Background(), "task request cancelled")
-		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: ctx.Err().Error()}, nil
+		return taskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: ctx.Err().Error()}, nil
 	case <-timer.C:
 		// Prefer a result that completed at the timeout boundary. This avoids
 		// turning a completed foreground response into an unnecessary later
@@ -395,19 +395,19 @@ func (m *subagentManager) waitOrPromoteTask(ctx context.Context, request TaskReq
 	}
 }
 
-func (m *subagentManager) backgroundTask(ctx context.Context, request TaskRequest, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, error) {
+func (m *subagentManager) backgroundTask(ctx context.Context, request taskRequest, record storage.Subagent, definition agentDefinition, run *agentruntime.Run) (taskResult, error) {
 	delivery := storage.TaskDelivery{MainAgentTurnID: request.MainAgentTurnID, AssignmentID: run.TurnID()}
 	if err := m.registerTaskDelivery(ctx, record, definition, run, delivery); err != nil {
-		return TaskResult{}, err
+		return taskResult{}, err
 	}
-	return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateRunning}, nil
+	return taskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateRunning}, nil
 }
 
 // registerTaskDelivery records a response-scope barrier before exposing a
 // running result to the main model. If completion won the race with
 // registration, the post-registration check enqueues the retained terminal
 // result through the same exactly-once path as monitor.
-func (m *subagentManager) registerTaskDelivery(ctx context.Context, record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run, delivery storage.TaskDelivery) error {
+func (m *subagentManager) registerTaskDelivery(ctx context.Context, record storage.Subagent, definition agentDefinition, run *agentruntime.Run, delivery storage.TaskDelivery) error {
 	if run == nil || run.TurnID() == "" || delivery.MainAgentTurnID == "" || delivery.AssignmentID == "" {
 		return errors.New("task delivery identity is required")
 	}
@@ -473,7 +473,7 @@ func (m *subagentManager) setTaskDelivery(ctx context.Context, id string, delive
 	return storage.Subagent{}, storage.ErrSubagentVersionConflict
 }
 
-func (m *subagentManager) publishTaskTerminal(record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) {
+func (m *subagentManager) publishTaskTerminal(record storage.Subagent, definition agentDefinition, run *agentruntime.Run) {
 	delivery := record.ActiveTaskDelivery
 	if delivery == nil || delivery.AssignmentID == "" || delivery.MainAgentTurnID == "" {
 		return
@@ -482,8 +482,6 @@ func (m *subagentManager) publishTaskTerminal(record storage.Subagent, definitio
 	if !m.claimTaskCompletion(key) {
 		return
 	}
-	m.unmarkTaskExecution(record.ID, delivery.AssignmentID)
-	m.signalChanged()
 
 	result, metadata := m.terminalTaskResult(record, definition, run)
 	m.publishTaskCompleted(record, delivery.MainAgentTurnID, delivery.AssignmentID, result, metadata)
@@ -496,9 +494,14 @@ func (m *subagentManager) publishTaskTerminal(record storage.Subagent, definitio
 	// the active identity permits a later task_id resume to install a new latest
 	// delivery without ever routing its result to the original main-agent turn.
 	_, _ = m.setTaskDelivery(context.Background(), record.ID, nil)
+	// Completion waiters use taskExecutions as their terminal bookkeeping fence.
+	// Release it only after the active delivery is cleared, so reminder reads
+	// cannot observe a completed task as result_pending after the fence returns.
+	m.unmarkTaskExecution(record.ID, delivery.AssignmentID)
+	m.signalChanged()
 }
 
-func (m *subagentManager) publishTaskCompleted(record storage.Subagent, mainAgentTurnID, subagentTurnID string, result TaskResult, metadata map[string]any) {
+func (m *subagentManager) publishTaskCompleted(record storage.Subagent, mainAgentTurnID, subagentTurnID string, result taskResult, metadata map[string]any) {
 	completed := TaskCompletedEvent{
 		TaskID: record.ID, SubagentSessionID: record.SubagentSessionID,
 		SubagentTurnID: subagentTurnID, AgentName: result.AgentName,
@@ -573,13 +576,13 @@ func (m *subagentManager) waitForTaskCompletionPublication(ctx context.Context, 
 	}
 }
 
-func (m *subagentManager) terminalTaskResult(record storage.Subagent, definition SubagentDefinition, run *agentruntime.Run) (TaskResult, map[string]any) {
+func (m *subagentManager) terminalTaskResult(record storage.Subagent, definition agentDefinition, run *agentruntime.Run) (taskResult, map[string]any) {
 	if record.LastResultError != "" {
-		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: record.LastResultError}, nil
+		return taskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: record.LastResultError}, nil
 	}
 	output, err := m.lastTaskAssistantOutput(record.SubagentSessionID, record.LastSubagentTurnID, "")
 	if err != nil {
-		return TaskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}, nil
+		return taskResult{TaskID: record.ID, AgentName: definition.Name, State: TaskStateError, Error: err.Error()}, nil
 	}
 	incomplete := record.LastResultStatus == storage.SubagentResultIncomplete
 	if run != nil && run.StepLimitFinalized() {
@@ -632,32 +635,32 @@ func (m *subagentManager) lastTaskAssistantOutput(sessionID, turnID, fallback st
 	return fallback, nil
 }
 
-func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message string) (context.Context, SubagentDefinition, string, error) {
+func (m *subagentManager) prepareStart(ctx context.Context, mainAgentSessionID, mainAgentTurnID, name, message string) (context.Context, agentDefinition, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return ctx, SubagentDefinition{}, "", err
+		return ctx, agentDefinition{}, "", err
 	}
 	if strings.TrimSpace(mainAgentSessionID) == "" || strings.TrimSpace(mainAgentTurnID) == "" {
-		return ctx, SubagentDefinition{}, "", errors.New("main agent session and turn IDs are required")
+		return ctx, agentDefinition{}, "", errors.New("main agent session and turn IDs are required")
 	}
 	name = strings.TrimSpace(name)
 	message = strings.TrimSpace(message)
 	if message == "" {
-		return ctx, SubagentDefinition{}, "", errors.New("subagent message is required")
+		return ctx, agentDefinition{}, "", errors.New("subagent message is required")
 	}
 	definition, found := m.project.subagents[name]
 	if !found {
-		return ctx, SubagentDefinition{}, "", fmt.Errorf("subagent definition %q is not available", name)
+		return ctx, agentDefinition{}, "", fmt.Errorf("subagent definition %q is not available", name)
 	}
 	if err := m.ensureOpen(); err != nil {
-		return ctx, SubagentDefinition{}, "", err
+		return ctx, agentDefinition{}, "", err
 	}
 	return ctx, definition, message, nil
 }
 
-func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition SubagentDefinition, existing []storage.Subagent, registerScopeAssignment bool) (storage.Subagent, error) {
+func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, mainAgentTurnID, message, label string, definition agentDefinition, existing []storage.Subagent, registerScopeAssignment bool) (storage.Subagent, error) {
 	displayName, err := newSubagentDisplayName(existing)
 	if err != nil {
 		return storage.Subagent{}, err
@@ -749,11 +752,11 @@ func (m *subagentManager) startLocked(ctx context.Context, mainAgentSessionID, m
 	return m.getOwned(context.Background(), mainAgentSessionID, id)
 }
 
-func (m *subagentManager) createSubagent(definition SubagentDefinition) (*Agent, error) {
+func (m *subagentManager) createSubagent(definition agentDefinition) (*Agent, error) {
 	if m.subagentFactory != nil {
 		return m.subagentFactory(definition)
 	}
-	model, err := m.project.ModelFor(definition.Provider, definition.Model)
+	model, err := m.project.modelFor(definition.Provider, definition.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -792,7 +795,7 @@ func (m *subagentManager) createSubagent(definition SubagentDefinition) (*Agent,
 	return New(m.ctx, options...)
 }
 
-func filterSubagentTools(definition SubagentDefinition, tools []toolexecution.Tool) []toolexecution.Tool {
+func filterSubagentTools(definition agentDefinition, tools []toolexecution.Tool) []toolexecution.Tool {
 	allowed := make(map[string]struct{}, len(definition.Tools))
 	for _, name := range definition.Tools {
 		allowed[name] = struct{}{}
@@ -812,7 +815,7 @@ func (project *Project) withSkills(names []string) *Project {
 	if available == nil {
 		available = project.skills
 	}
-	clone.skills = make(map[string]Skill, len(names))
+	clone.skills = make(map[string]skill, len(names))
 	for _, name := range names {
 		clone.skills[name] = available[name]
 	}
@@ -829,8 +832,8 @@ func withSubagentProject(project *Project) Option {
 		}
 		configuration.project = project
 		configuration.projectRoot = project.root
-		configuration.permissionMode = project.PermissionMode()
-		configuration.permissionPolicy.Mode = project.PermissionMode()
+		configuration.permissionMode = project.permissionMode()
+		configuration.permissionPolicy.Mode = project.permissionMode()
 		return nil
 	}
 }
@@ -1670,7 +1673,7 @@ func (m *subagentManager) instanceForRecord(record storage.Subagent) (*managedSu
 
 // ensureAgentLocked rehydrates the live runtime for one retained task session.
 // The caller holds instance.mu.
-func (m *subagentManager) ensureAgentLocked(instance *managedSubagent, definition SubagentDefinition) error {
+func (m *subagentManager) ensureAgentLocked(instance *managedSubagent, definition agentDefinition) error {
 	if instance == nil {
 		return storage.ErrSubagentNotFound
 	}

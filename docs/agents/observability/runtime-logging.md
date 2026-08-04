@@ -16,7 +16,9 @@ to `enabled: true` and `level: info`. Supported levels are `debug`, `info`,
 stderr. While an interactive Terminal UI is attached, it captures up to 2,000
 recent records and exposes them with `Ctrl+L` or `/logs` instead of letting them
 interleave with the conversation. `WithLogLevel` provides the same managed
-routing for programmatic configuration. `WithLogger` overrides project logging
+routing for programmatic configuration through `agentcli.LevelDebug`,
+`agentcli.LevelInfo`, `agentcli.LevelWarn`, or `agentcli.LevelError`.
+`WithLogger` overrides project logging
 when applied after `WithProject`; its handler remains caller-owned and is not
 rerouted by the Terminal. Subagents share the selected main-agent logger.
 

@@ -52,18 +52,23 @@ can finish independently without replacing the status of the others.
 
 ## Runtime logs
 
-Enable logging in `.agentcli/config.yaml`:
+Enable managed logging when constructing the Agent:
 
-```yaml
-logging:
-  enabled: true
-  level: info
+```go
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithLogLevel(agentcli.LevelInfo),
+)
 ```
 
 Interactive sessions capture these records instead of printing them into the
 conversation. Press `Ctrl+L` or run `/logs` to open a live view of the latest
 2,000 records. Press it again to return to the conversation while the run
 continues.
+
+The optional `.agentcli/config.yaml` `logging` mapping enables the same managed
+logger and is captured by the Terminal as well. `WithLogLevel` applied after
+`WithProject` overrides that project setting.
 
 Non-interactive sessions still write managed logs to stderr. A caller-owned
 logger passed with `WithLogger` keeps its own output routing.

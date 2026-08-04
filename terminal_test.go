@@ -69,6 +69,53 @@ func TestTerminalHistorySkipsEmptyAssistantMessages(t *testing.T) {
 	}
 }
 
+func TestTerminalHistoryUsesTheLiveInputPromptForUserMessages(t *testing.T) {
+	var output bytes.Buffer
+	terminal{out: &output}.messages([]agentruntime.Message{{
+		Type:    agentruntime.MessageTypeUser,
+		Content: "first line\nsecond line",
+	}})
+
+	if got, want := output.String(), "❯ first line\n  second line\n"; got != want {
+		t.Fatalf("user history = %q, want %q", got, want)
+	}
+	if strings.Contains(output.String(), "You ·") {
+		t.Fatalf("user history changed labels after redraw: %q", output.String())
+	}
+}
+
+func TestTerminalHistoryKeepsAssistantToolContentInTranscriptOrder(t *testing.T) {
+	var output bytes.Buffer
+	terminal{out: &output}.messages([]agentruntime.Message{
+		{Type: agentruntime.MessageTypeUser, Content: "Inspect it."},
+		{
+			Type:    agentruntime.MessageTypeToolCall,
+			Content: "I will inspect it first.",
+			ToolCalls: []agentruntime.ToolCall{{
+				CallID: "call_1", Name: "read",
+			}},
+		},
+		{
+			Type: agentruntime.MessageTypeToolResult,
+			ToolResult: &agentruntime.ToolResult{
+				CallID: "call_1", Name: "read", Status: agentruntime.ToolResultSucceeded,
+			},
+		},
+		{Type: agentruntime.MessageTypeAssistant, Content: "Inspection complete."},
+	})
+
+	text := output.String()
+	ordered := []string{"❯ Inspect it.", "I will inspect it first.", "● read", "✓ read", "Inspection complete."}
+	previous := -1
+	for _, value := range ordered {
+		index := strings.Index(text, value)
+		if index <= previous {
+			t.Fatalf("history order = %q; %q index %d after %d", text, value, index, previous)
+		}
+		previous = index
+	}
+}
+
 func TestTerminalHistoryExpandsAllReasoning(t *testing.T) {
 	var output bytes.Buffer
 	renderer := &terminalStreamRenderer{}
@@ -116,7 +163,7 @@ func TestPermissionChoice(t *testing.T) {
 func TestTerminalListsSkills(t *testing.T) {
 	var output bytes.Buffer
 	terminal := terminal{out: &output}
-	terminal.skills([]Skill{{Name: "testing-go", Description: "Runs Go tests when requested."}})
+	terminal.skills([]skill{{Name: "testing-go", Description: "Runs Go tests when requested."}})
 	if got := output.String(); !strings.Contains(got, "testing-go") || !strings.Contains(got, "Runs Go tests") {
 		t.Fatalf("output = %q", got)
 	}
@@ -228,6 +275,45 @@ func TestTerminalBackfillRestoresAlertEvents(t *testing.T) {
 	}
 }
 
+func TestTerminalBackfillReplaysOneActiveTurnInEventOrder(t *testing.T) {
+	var output bytes.Buffer
+	client := terminalClient{terminal: terminal{out: &output}}
+	wrote := false
+	events := []agentruntime.AgentEvent{
+		{Type: agentruntime.RunStarted, Message: &agentruntime.Message{Type: agentruntime.MessageTypeUser, Content: "Inspect it."}},
+		{Type: agentruntime.ProviderEventReceived, ProviderEvent: provider.StreamEvent{Type: provider.ContentReceived, Content: "I will inspect it first."}},
+		{Type: agentruntime.ToolCallRequested, ToolRequest: &agentruntime.ToolRequest{Call: agentruntime.ToolCall{CallID: "call_1", Name: "read"}}},
+		{Type: agentruntime.ToolResultReceived, ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{CallID: "call_1", Name: "read", Status: agentruntime.ToolResultSucceeded}}},
+		{Type: agentruntime.ProviderEventReceived, ProviderEvent: provider.StreamEvent{Type: provider.ContentReceived, Content: "Inspection complete."}},
+	}
+	for _, event := range events {
+		client.renderBackfillEvent(event, &wrote)
+	}
+
+	text := output.String()
+	ordered := []string{"❯ Inspect it.", "I will inspect it first.", "● read", "✓ read", "Inspection complete."}
+	previous := -1
+	for _, value := range ordered {
+		index := strings.Index(text, value)
+		if index <= previous {
+			t.Fatalf("backfill order = %q; %q index %d after %d", text, value, index, previous)
+		}
+		previous = index
+	}
+}
+
+func TestTerminalMessagesExcludingTurnLeavesOneTimelineOwner(t *testing.T) {
+	messages := []agentruntime.Message{
+		{TurnID: "old", Type: agentruntime.MessageTypeAssistant, Content: "before"},
+		{TurnID: "active", Type: agentruntime.MessageTypeUser, Content: "current"},
+		{TurnID: "active", Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{Name: "read"}}},
+	}
+	filtered := terminalMessagesExcludingTurn(messages, "active")
+	if len(filtered) != 1 || filtered[0].TurnID != "old" || filtered[0].Content != "before" {
+		t.Fatalf("filtered messages = %#v", filtered)
+	}
+}
+
 func TestTerminalReasoningToggleRestoresNoticesAndActiveApproval(t *testing.T) {
 	var output bytes.Buffer
 	renderer := &terminalStreamRenderer{}
@@ -330,9 +416,9 @@ func TestTerminalRendersTaskToolResult(t *testing.T) {
 			var output bytes.Buffer
 			client := terminalClient{terminal: terminal{out: &output}}
 			wrote := false
-			result, err := json.Marshal(TaskResult{
+			result, err := json.Marshal(taskResult{
 				TaskID: "task_1", AgentName: "researcher", State: test.state,
-				ErrorCode: TaskErrorCode(test.extra), Error: "details",
+				ErrorCode: taskErrorCode(test.extra), Error: "details",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -340,7 +426,7 @@ func TestTerminalRendersTaskToolResult(t *testing.T) {
 			client.renderEvent(agentruntime.AgentEvent{
 				Type: agentruntime.ToolResultReceived,
 				ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
-					Name: TaskToolName, Status: agentruntime.ToolResultSucceeded, Output: result,
+					Name: taskToolName, Status: agentruntime.ToolResultSucceeded, Output: result,
 				}},
 			}, &wrote)
 			for _, wanted := range []string{test.icon + " task", string(test.state), "researcher", "task_1"} {
@@ -362,10 +448,10 @@ func TestTerminalRendersNewAndResumedTaskCallsDistinctly(t *testing.T) {
 	var output bytes.Buffer
 	terminal{out: &output}.messages([]agentruntime.Message{
 		{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{
-			Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"full private prompt"}`),
+			Name: taskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"full private prompt"}`),
 		}}},
 		{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{
-			Name: TaskToolName, Arguments: json.RawMessage(`{"task_id":"task_1","prompt":"continue"}`),
+			Name: taskToolName, Arguments: json.RawMessage(`{"task_id":"task_1","prompt":"continue"}`),
 		}}},
 	})
 	for _, wanted := range []string{
@@ -378,6 +464,27 @@ func TestTerminalRendersNewAndResumedTaskCallsDistinctly(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "full private prompt") {
 		t.Fatalf("task prompt leaked into terminal summary: %q", output.String())
+	}
+}
+
+func TestTerminalInteractiveTaskHistoryMatchesCompletedProgressRows(t *testing.T) {
+	var output bytes.Buffer
+	result, err := json.Marshal(taskResult{TaskID: "task_1", AgentName: "researcher", State: TaskStateCompleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal{out: &output, interactive: true}.messages([]agentruntime.Message{
+		{Type: agentruntime.MessageTypeToolCall, ToolCalls: []agentruntime.ToolCall{{
+			CallID: "call_1", Name: taskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"work"}`),
+		}}},
+		{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{
+			CallID: "call_1", Name: taskToolName, Status: agentruntime.ToolResultSucceeded, Output: result,
+		}},
+	})
+
+	plain := terminalANSIEscape.ReplaceAllString(output.String(), "")
+	if !strings.Contains(plain, "✓ researcher · completed") || strings.Contains(plain, "● task") {
+		t.Fatalf("interactive task history did not match live progress rows: %q", plain)
 	}
 }
 
@@ -621,8 +728,13 @@ func TestTerminalBackDetachesSubagentRendererWithoutStoppingSubagent(t *testing.
 			Status: storage.SubagentStatusRunning, CurrentSubagentTurnID: "subagent-turn",
 		}},
 		messages: map[string][]agentruntime.Message{
-			"mainAgent": {{Type: agentruntime.MessageTypeAssistant, Content: "mainAgent-only"}},
-			"subagent":  {{Type: agentruntime.MessageTypeAssistant, Content: "subagent-only"}},
+			"mainAgent": {
+				{Type: agentruntime.MessageTypeUser, Content: "Inspect it."},
+				{Type: agentruntime.MessageTypeToolCall, Content: "I will inspect it first.", ToolCalls: []agentruntime.ToolCall{{CallID: "call_1", Name: "read"}}},
+				{Type: agentruntime.MessageTypeToolResult, ToolResult: &agentruntime.ToolResult{CallID: "call_1", Name: "read", Status: agentruntime.ToolResultSucceeded}},
+				{Type: agentruntime.MessageTypeAssistant, Content: "mainAgent-only"},
+			},
+			"subagent": {{Type: agentruntime.MessageTypeAssistant, Content: "subagent-only"}},
 		},
 	}
 	client := terminalClient{agent: agent, terminal: terminal{out: &output, color: true, interactive: true}, modelName: "test", sessionID: "mainAgent"}
@@ -655,6 +767,18 @@ func TestTerminalBackDetachesSubagentRendererWithoutStoppingSubagent(t *testing.
 	}
 	if !strings.Contains(visibleMainAgent, "mainAgent-only") || strings.Contains(visibleMainAgent, "subagent-only") {
 		t.Fatalf("mainAgent view was not isolated: %q", visibleMainAgent)
+	}
+	if strings.Contains(visibleMainAgent, "You ·") {
+		t.Fatalf("mainAgent user label changed after /back: %q", visibleMainAgent)
+	}
+	plainMainAgent := terminalANSIEscape.ReplaceAllString(visibleMainAgent, "")
+	previous := -1
+	for _, value := range []string{"❯ Inspect it.", "I will inspect it first.", "● read", "✓ read", "mainAgent-only"} {
+		index := strings.Index(plainMainAgent, value)
+		if index <= previous {
+			t.Fatalf("mainAgent order after /back = %q; %q index %d after %d", plainMainAgent, value, index, previous)
+		}
+		previous = index
 	}
 	if err := client.openSubagent("subagent_1"); err != nil {
 		t.Fatal(err)

@@ -28,7 +28,7 @@ type runtimeLogStore struct {
 	subscribers    map[chan runtimeLogEntry]struct{}
 }
 
-func projectLogger(config *LoggingConfig) (*slog.Logger, *runtimeLogStore) {
+func projectLogger(config *loggingConfig) (*slog.Logger, *runtimeLogStore) {
 	if config == nil || !config.Enabled {
 		return nil, nil
 	}

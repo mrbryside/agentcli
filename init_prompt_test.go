@@ -107,7 +107,7 @@ func TestPlaygroundSetsDebugLogLevelInCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read terminal playground: %v", err)
 	}
-	if !strings.Contains(string(content), "agentcli.WithLogLevel(slog.LevelDebug)") {
+	if !strings.Contains(string(content), "agentcli.WithLogLevel(agentcli.LevelDebug)") {
 		t.Fatal("terminal playground does not set debug logging in code")
 	}
 }
@@ -130,8 +130,8 @@ func TestExampleConfigMatchesMainAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.ProviderName() != "openai" || project.ModelName() != "qwen3.6-35b" {
-		t.Fatalf("example project = %q/%q", project.ProviderName(), project.ModelName())
+	if project.providerName != "openai" || project.modelName != "qwen3.6-35b" {
+		t.Fatalf("example project = %q/%q", project.providerName, project.modelName)
 	}
 }
 

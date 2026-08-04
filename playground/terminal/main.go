@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -35,7 +34,7 @@ func run() (runErr error) {
 		// The task tool returns foreground task output in the current turn; the
 		// terminal never starts a result-continuation turn.
 		agentcli.WithProject(project),
-		agentcli.WithLogLevel(slog.LevelDebug),
+		agentcli.WithLogLevel(agentcli.LevelDebug),
 		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),

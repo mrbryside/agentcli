@@ -23,14 +23,14 @@ func TestBackgroundTaskReminderIsSessionScopedAndEphemeral(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	first, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent-a", MainAgentTurnID: "turn-a",
 		AgentName: "researcher", Description: "<label>", Prompt: "<subagent answer>", Background: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	second, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent-b", MainAgentTurnID: "turn-b",
 		AgentName: "researcher", Description: "other", Prompt: "other", Background: true,
 	})
@@ -81,7 +81,7 @@ func TestForegroundAndRetainedTasksAreNotInjected(t *testing.T) {
 	model := &scriptedModel{}
 	manager := newTestSubagentManager(t, model, 0)
 	defer manager.Close()
-	result, err := manager.ExecuteTask(context.Background(), TaskRequest{
+	result, err := manager.ExecuteTask(context.Background(), taskRequest{
 		MainAgentSessionID: "mainAgent", MainAgentTurnID: "turn",
 		AgentName: "researcher", Description: "research", Prompt: "work",
 	})

@@ -44,7 +44,7 @@ Use sources and explain uncertainty.
 	if err != nil {
 		t.Fatal(err)
 	}
-	definitions := project.Subagents()
+	definitions := project.subagentDefinitions()
 	if names := []string{definitions[0].Name, definitions[1].Name}; !slices.Equal(names, []string{"researcher", "reviewer"}) {
 		t.Fatalf("definition names = %v", names)
 	}
@@ -64,7 +64,7 @@ Use sources and explain uncertainty.
 		t.Fatalf("definition path = %q", definitions[0].Path)
 	}
 
-	prompts := project.SystemPrompts()
+	prompts := project.systemPrompts()
 	if len(prompts) != 4 {
 		t.Fatalf("system prompts = %#v", prompts)
 	}
@@ -133,6 +133,30 @@ Use sources and explain uncertainty.
 	}
 }
 
+func TestPublicSubagentDefinitionContainsDiscoveryMetadataOnly(t *testing.T) {
+	typeOfDefinition := reflect.TypeFor[SubagentDefinition]()
+	fields := make([]string, typeOfDefinition.NumField())
+	for index := range fields {
+		fields[index] = typeOfDefinition.Field(index).Name
+	}
+	want := []string{"Name", "Description", "Provider", "Model", "Skills", "Tools"}
+	if !slices.Equal(fields, want) {
+		t.Fatalf("public definition fields = %v, want %v", fields, want)
+	}
+
+	internal := agentDefinition{
+		Name: "researcher", Description: "Researches.", Provider: "openai", Model: "gpt-test",
+		Skills: []string{"testing-go"}, Tools: []string{"search"},
+		Instructions: "private prompt", Path: "/private/definition.md",
+	}
+	public := publicSubagentDefinition(internal)
+	public.Skills[0] = "changed"
+	public.Tools[0] = "changed"
+	if internal.Skills[0] != "testing-go" || internal.Tools[0] != "search" {
+		t.Fatalf("public discovery metadata aliases private project slices: %#v", internal)
+	}
+}
+
 func TestParseSubagentDefinitionNormalizesResultContract(t *testing.T) {
 	definition, err := parseSubagentDefinition("researcher.md", []byte(`---
 name: researcher
@@ -159,7 +183,7 @@ Return one final response.
 	if definition.Result.MessageField != "message" {
 		t.Fatalf("message field = %q", definition.Result.MessageField)
 	}
-	if got, want := definition.Result.Metadata, map[string]AgentResultMetadataField{
+	if got, want := definition.Result.Metadata, map[string]agentResultMetadataField{
 		"requires_requester_reply": {Type: "boolean", Required: true},
 		"source":                   {Type: "string"},
 	}; !reflect.DeepEqual(got, want) {
@@ -268,17 +292,17 @@ func TestSubagentProjectContainsOnlyAllowedSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	subagent := project.withSkills([]string{"testing-go"})
-	if skills := subagent.Skills(); len(skills) != 1 || skills[0].Name != "testing-go" {
+	if skills := subagent.sortedSkills(); len(skills) != 1 || skills[0].Name != "testing-go" {
 		t.Fatalf("subagent skills = %#v", skills)
 	}
-	prompts := subagent.SystemPrompts()
+	prompts := subagent.systemPrompts()
 	joinedPrompts := strings.Join(prompts, "\n")
 	if len(prompts) == 0 || !strings.Contains(joinedPrompts, "testing-go") || strings.Contains(joinedPrompts, "reviewing-go") {
 		t.Fatalf("subagent skill prompt = %#v", prompts)
 	}
 	withoutSkills := project.withSkills(nil)
-	if len(withoutSkills.Skills()) != 0 || strings.Contains(strings.Join(withoutSkills.SystemPrompts(), "\n"), "available_skills") {
-		t.Fatalf("subagent without skills = %#v", withoutSkills.SystemPrompts())
+	if len(withoutSkills.sortedSkills()) != 0 || strings.Contains(strings.Join(withoutSkills.systemPrompts(), "\n"), "available_skills") {
+		t.Fatalf("subagent without skills = %#v", withoutSkills.systemPrompts())
 	}
 }
 
@@ -288,7 +312,7 @@ func TestSubagentSystemPromptsKeepAssignmentSeparateFromFramework(t *testing.T) 
 		t.Fatal(err)
 	}
 	subagentProject := project.withSkills([]string{"testing-go"})
-	definition := SubagentDefinition{
+	definition := agentDefinition{
 		Name:         "researcher",
 		Provider:     "openai",
 		Model:        "gpt-research",
@@ -352,16 +376,16 @@ func TestSubagentResultContractPromptIsOptInAndExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain := subagentSystemPrompt(project, SubagentDefinition{Name: "reader", Provider: "openai", Model: "gpt-test"})
+	plain := subagentSystemPrompt(project, agentDefinition{Name: "reader", Provider: "openai", Model: "gpt-test"})
 	if strings.Contains(plain, "# Final response format") || strings.Contains(plain, "exactly one JSON object") {
 		t.Fatalf("plain subagent unexpectedly received result contract prompt: %q", plain)
 	}
 
-	definition := SubagentDefinition{
+	definition := agentDefinition{
 		Name: "operator", Provider: "openai", Model: "gpt-test",
-		Result: &AgentResultContract{
+		Result: &agentResultContract{
 			MessageField: "message",
-			Metadata: map[string]AgentResultMetadataField{
+			Metadata: map[string]agentResultMetadataField{
 				"requires_requester_reply": {Type: "boolean", Required: true},
 				"source":                   {Type: "string"},
 			},
@@ -401,7 +425,7 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			agent, err := New(context.Background(),
 				withSubagentAgent(),
 				withSubagentProject(subagentProject),
-				withSubagentSystemPrompts(subagentProject, SubagentDefinition{Name: "researcher", Instructions: "Research the delegated task."}),
+				withSubagentSystemPrompts(subagentProject, agentDefinition{Name: "researcher", Instructions: "Research the delegated task."}),
 				WithModel(model),
 			)
 			if err != nil {
@@ -420,7 +444,7 @@ func TestSubagentRuntimeRegistersSkillLoaderOnlyForAllowedSkills(t *testing.T) {
 			if len(requests[0].SystemPrompts) != 2 {
 				t.Fatalf("provider system prompts = %#v", requests[0].SystemPrompts)
 			}
-			if len(test.skills) != 0 && requests[0].Tools[0].Name != SkillLoaderToolName {
+			if len(test.skills) != 0 && requests[0].Tools[0].Name != skillLoaderToolName {
 				t.Fatalf("provider tools = %#v", requests[0].Tools)
 			}
 			assertSubagentTextOnlyRequests(t, requests)
@@ -453,7 +477,7 @@ Use the registered search tool.
 	}
 	defer rootAgent.Close()
 
-	definition := project.Subagents()[0]
+	definition := project.subagentDefinitions()[0]
 	selected := filterSubagentTools(definition, []toolexecution.Tool{testTool("write"), testTool("search")})
 	if len(selected) != 1 || selected[0].Definition.Name != "search" {
 		t.Fatalf("selected tools = %#v", selected)
@@ -518,7 +542,7 @@ func TestProjectModelForUsesDefinitionProviderAndModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := project.ModelFor("subagent", "subagent-selected")
+	model, err := project.modelFor("subagent", "subagent-selected")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,10 +558,10 @@ func TestProjectModelForUsesDefinitionProviderAndModel(t *testing.T) {
 	if requestModel != "subagent-selected" {
 		t.Fatalf("model request = %q", requestModel)
 	}
-	if _, err := project.ModelFor("missing", "subagent-selected"); err == nil {
+	if _, err := project.modelFor("missing", "subagent-selected"); err == nil {
 		t.Fatal("unknown provider unexpectedly constructed a model")
 	}
-	if _, err := project.ModelFor("subagent", ""); err == nil {
+	if _, err := project.modelFor("subagent", ""); err == nil {
 		t.Fatal("empty model unexpectedly constructed a model")
 	}
 }

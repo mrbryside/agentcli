@@ -91,7 +91,8 @@ Pure transition and folding duties live in `state.go`, `transition.go`, `effect.
 ## Tasks
 
 The main-model framework catalog has one child-work tool: `task`. Foreground
-calls wait for the child final response and return `TaskResult` in the same
+calls wait for the child final response and return the framework's task-result
+JSON in the same
 main turn; independent same-batch calls occupy executor workers concurrently.
 Task IDs are resumable only by their owning main session while retained and
 not running or closed.

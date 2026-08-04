@@ -11,7 +11,7 @@ const subagentCapabilityBoundaryPrompt = "Use only information present in the co
 
 const subagentCompletionPrompt = "Assignment instructions may describe only the domain goal, method, and expected result; this delivery contract still applies. After completing the assigned work, respond once with a concise, self-contained final answer. Include the result, material evidence, and any important limitation or next step. Do not reproduce the full tool trace. If essential information is missing, do not guess or take the action. State that no action happened and return one exact question for the user. The same task can receive the user's answer later."
 
-func withSubagentSystemPrompts(project *Project, definition SubagentDefinition) Option {
+func withSubagentSystemPrompts(project *Project, definition agentDefinition) Option {
 	return func(configuration *config) error {
 		if project == nil {
 			return errors.New("project is required")
@@ -24,7 +24,7 @@ func withSubagentSystemPrompts(project *Project, definition SubagentDefinition) 
 	}
 }
 
-func subagentSystemPrompt(project *Project, definition SubagentDefinition) string {
+func subagentSystemPrompt(project *Project, definition agentDefinition) string {
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "You are the configured %q subagent. Complete the assigned work independently and return a useful result to the main agent.", definition.Name)
 
@@ -54,7 +54,7 @@ func subagentSystemPrompt(project *Project, definition SubagentDefinition) strin
 	return prompt.String()
 }
 
-func subagentResultContractPrompt(definition SubagentDefinition) string {
+func subagentResultContractPrompt(definition agentDefinition) string {
 	contract := definition.Result
 	if contract == nil {
 		return ""

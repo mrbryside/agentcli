@@ -231,7 +231,7 @@ func newTestSubagentHTTPServer(t *testing.T, subagentModel *subagentGateModel) (
 	}
 	// Avoid a real provider while keeping production manager ownership and
 	// mailbox behavior intact.
-	agent.subagents.subagentFactory = func(SubagentDefinition) (*Agent, error) {
+	agent.subagents.subagentFactory = func(agentDefinition) (*Agent, error) {
 		return New(context.Background(), WithModel(subagentModel), WithMessageStorage(agent.messages))
 	}
 	server, err := NewServer(agent, WithServerHeartbeat(time.Millisecond))

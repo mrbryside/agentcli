@@ -148,7 +148,7 @@ func (project *Project) resolveModelMetadata(ctx context.Context, reference proj
 func discoverModelMetadata(
 	ctx context.Context,
 	client *http.Client,
-	providerConfig ProviderConfig,
+	providerConfig providerConfig,
 	providerName string,
 	modelName string,
 	modelsDevURL string,
@@ -176,7 +176,7 @@ func discoverModelMetadata(
 func fetchProviderModelMetadata(
 	ctx context.Context,
 	client *http.Client,
-	providerConfig ProviderConfig,
+	providerConfig providerConfig,
 	modelName string,
 ) (agentruntime.ModelMetadata, error) {
 	endpoint, err := providerModelsEndpoint(providerConfig.URL)
@@ -216,7 +216,7 @@ func fetchModelsDevMetadata(
 	client *http.Client,
 	endpoint string,
 	providerName string,
-	providerType ProviderType,
+	providerType providerType,
 	modelName string,
 ) (agentruntime.ModelMetadata, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -303,7 +303,7 @@ func fetchModelMetadataJSON(client *http.Client, request *http.Request, target a
 	return nil
 }
 
-func configuredProviderMetadata(providerName, modelName string, config ProviderConfig) (agentruntime.ModelMetadata, bool, error) {
+func configuredProviderMetadata(providerName, modelName string, config providerConfig) (agentruntime.ModelMetadata, bool, error) {
 	modelConfig, configured := config.Models[modelName]
 	if !configured || modelConfig.ContextWindowTokens == 0 && modelConfig.MaxOutputTokens == 0 {
 		return agentruntime.ModelMetadata{}, false, nil

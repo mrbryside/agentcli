@@ -158,7 +158,7 @@ func TestWithLoggerKeepsCallerOwnedRouting(t *testing.T) {
 
 func TestWithLogLevelConfiguresTerminalLogCapture(t *testing.T) {
 	configuration := defaultConfig(t.TempDir())
-	if err := WithLogLevel(slog.LevelDebug)(&configuration); err != nil {
+	if err := WithLogLevel(LevelDebug)(&configuration); err != nil {
 		t.Fatal(err)
 	}
 	if configuration.logger == nil || configuration.runtimeLogs == nil {

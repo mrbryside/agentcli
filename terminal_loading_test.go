@@ -141,8 +141,8 @@ func TestTerminalLoadingTracksConcurrentTasksIndependently(t *testing.T) {
 	wroteContent := false
 
 	for _, call := range []agentruntime.ToolCall{
-		{CallID: "research", Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"work"}`)},
-		{CallID: "review", Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"reviewer","description":"Review safety","prompt":"work"}`)},
+		{CallID: "research", Name: taskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"work"}`)},
+		{CallID: "review", Name: taskToolName, Arguments: json.RawMessage(`{"agent":"reviewer","description":"Review safety","prompt":"work"}`)},
 	} {
 		client.renderEventWithLoading(agentruntime.AgentEvent{
 			Type:        agentruntime.ToolCallRequested,
@@ -169,6 +169,7 @@ func TestTerminalLoadingTracksConcurrentTasksIndependently(t *testing.T) {
 	if status != terminalLoadingFrames[0] {
 		t.Fatalf("post-task loading status = %q", status)
 	}
+	loading.Stop()
 	rendered := terminalANSIEscape.ReplaceAllString(output.String(), "")
 	if !strings.Contains(rendered, "✓ researcher · completed") || !strings.Contains(rendered, "✓ reviewer · completed") {
 		t.Fatalf("final task rows were not committed: %q", rendered)
@@ -208,7 +209,7 @@ func TestTerminalLoadingRetainsTaskProgressWhileRootViewIsHidden(t *testing.T) {
 
 func taskResultEvent(t *testing.T, callID, agent string, state TaskState) agentruntime.AgentEvent {
 	t.Helper()
-	output, err := json.Marshal(TaskResult{
+	output, err := json.Marshal(taskResult{
 		TaskID: callID, AgentName: agent, State: state,
 	})
 	if err != nil {
@@ -217,7 +218,7 @@ func taskResultEvent(t *testing.T, callID, agent string, state TaskState) agentr
 	return agentruntime.AgentEvent{
 		Type: agentruntime.ToolResultReceived,
 		ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
-			CallID: callID, Name: TaskToolName,
+			CallID: callID, Name: taskToolName,
 			Status: agentruntime.ToolResultSucceeded, Output: output,
 		}},
 	}

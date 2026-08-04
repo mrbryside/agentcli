@@ -23,7 +23,7 @@ func renderPromptRuntimeContext(project *Project, context promptRuntimeContext) 
 	if project != nil {
 		fmt.Fprintf(&prompt, "working_directory: %s\n", strconv.Quote(project.root))
 		fmt.Fprintf(&prompt, "workspace_root: %s\n", strconv.Quote(project.root))
-		fmt.Fprintf(&prompt, "permission_mode: %s\n", strconv.Quote(string(project.PermissionMode())))
+		fmt.Fprintf(&prompt, "permission_mode: %s\n", strconv.Quote(string(project.permissionMode())))
 	}
 	fmt.Fprintf(&prompt, "platform: %s\n", strconv.Quote(runtime.GOOS+"/"+runtime.GOARCH))
 	fmt.Fprintf(&prompt, "date: %s\n", strconv.Quote(time.Now().Format("2006-01-02")))
