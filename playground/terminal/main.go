@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -31,11 +32,10 @@ func run() (runErr error) {
 		return fmt.Errorf("load agent project: %w", err)
 	}
 	agent, err := agentcli.New(ctx,
-		// WithProject also applies optional logging.enabled/logging.level from
-		// .agentcli/config.yaml to this playground and task subagents. The
-		// framework-provided task tool returns foreground task output in the
-		// current turn; the terminal never starts a result-continuation turn.
+		// The task tool returns foreground task output in the current turn; the
+		// terminal never starts a result-continuation turn.
 		agentcli.WithProject(project),
+		agentcli.WithLogLevel(slog.LevelDebug),
 		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),

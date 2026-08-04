@@ -43,6 +43,7 @@ type Agent struct {
 
 	langfuse     *langfuseobs.Client
 	ownsLangfuse bool
+	runtimeLogs  *runtimeLogStore
 
 	subagents      *subagentManager
 	responseScopes *toolexecution.ResponseScopeCoordinator
@@ -211,7 +212,7 @@ func New(ctx context.Context, options ...Option) (*Agent, error) {
 		model: configuration.model, messages: configuration.messages, project: configuration.project,
 		context: runContext, cancel: cancel, closing: closing, closingCancel: closeSignal,
 		executorDone: make(chan struct{}), responseScopes: toolexecution.NewResponseScopeCoordinator(runContext),
-		langfuse: langfuseClient, ownsLangfuse: ownsLangfuse,
+		langfuse: langfuseClient, ownsLangfuse: ownsLangfuse, runtimeLogs: configuration.runtimeLogs,
 	}
 	agent.responseScopes.SetLogger(configuration.logger)
 	var manager *subagentManager

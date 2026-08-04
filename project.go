@@ -44,7 +44,8 @@ type ProjectConfig struct {
 	Observability  *ObservabilityConfig      `yaml:"observability"`
 }
 
-// LoggingConfig controls structured runtime lifecycle logs written to stderr.
+// LoggingConfig controls structured runtime lifecycle logs. Records normally
+// go to stderr; an interactive RunTerminal captures them for its log view.
 // Omitting the section disables runtime logging. When the section is present,
 // enabled defaults to true and level defaults to info.
 type LoggingConfig struct {
@@ -299,7 +300,7 @@ func WithProject(project *Project) Option {
 		configuration.project = project
 		configuration.permissionMode = project.PermissionMode()
 		configuration.permissionPolicy.Mode = project.PermissionMode()
-		configuration.logger = projectLogger(project.config.Logging)
+		configuration.logger, configuration.runtimeLogs = projectLogger(project.config.Logging)
 		if project.compaction != nil && project.compaction.Auto {
 			compactionModel, err := project.CompactionModel()
 			if err != nil {

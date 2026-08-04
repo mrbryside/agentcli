@@ -576,6 +576,9 @@ providers:
 	if configuration.logger == nil {
 		t.Fatal("enabled project logging did not configure a logger")
 	}
+	if configuration.runtimeLogs == nil {
+		t.Fatal("enabled project logging did not configure terminal log capture")
+	}
 
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `logging:
   enabled: false
@@ -595,6 +598,9 @@ providers:
 	}
 	if configuration.logger != nil {
 		t.Fatal("disabled project logging configured a logger")
+	}
+	if configuration.runtimeLogs != nil {
+		t.Fatal("disabled project logging configured terminal log capture")
 	}
 
 	writeTestFile(t, filepath.Join(root, ".agentcli", "config.yaml"), `logging:

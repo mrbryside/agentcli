@@ -1,61 +1,17 @@
-# Copy this file to .agentcli/config.yaml. Keep live provider keys in process
-# environment variables; ${VARIABLE} references are expanded at load time.
 permission_mode: default
-max_provider_steps: 20
 
-# Main-agent identity, model, and capability allowlists live in MAIN.md.
-
-# Optional structured runtime, tool, response-scope, repair, and canonical
-# transcript lifecycle logs. Omit this mapping to disable console logging.
-# logging:
-#   enabled: true
-#   level: debug # debug, info, warn, or error
-
-# Optional LLM-call observability. Credentials are used to construct Langfuse
-# Basic Auth and are never sent to the configured model provider. Prompt,
-# response, and reasoning capture are opt-in because they may be sensitive.
-# observability:
-#   langfuse:
-#     enabled: true
-#     base_url: ${LANGFUSE_BASE_URL} # Defaults to https://cloud.langfuse.com
-#     public_key: ${LANGFUSE_PUBLIC_KEY}
-#     secret_key: ${LANGFUSE_SECRET_KEY}
-#     environment: development
-#     service_name: agentcli
-#     release: ${APP_VERSION}
-#     sample_rate: 1.0
-#     capture:
-#       input: true
-#       output: true
-#       reasoning: false
-
-# Automatic transcript compaction. provider must name one of the profiles
-# below. Remove this mapping or set auto: false to disable new compactions.
 compaction:
   auto: true
-  provider: your_provider_name
-  model: your-compaction-model
+  provider: openai
+  model: qwen3.6-35b
 
-# Provider names are application-defined connection profile aliases. The
-# required type selects the protocol adapter independently from that alias.
-# Model entries are optional exact-name overrides, not an allowlist.
 providers:
-  your_provider_name:
+  openai:
     type: openai
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
     models:
-      your-compaction-model:
-        context_window_tokens: 122880 # Remove when provider discovery is available.
+      qwen3.6-35b:
+        context_window_tokens: 122880
         max_output_tokens: 66560
-        # reasoning: false # Optional Qwen-compatible shorthand.
-        # extra_body: # Optional model-specific top-level request JSON.
-        #   thinking:
-        #     type: disabled
-
-  # openrouter:
-  #   type: openai
-  #   url: https://openrouter.ai/api/v1
-  #   api_key: ${OPENROUTER_API_KEY}
-  #   request_timeout: 2m

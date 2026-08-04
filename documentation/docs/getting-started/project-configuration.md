@@ -27,10 +27,8 @@ reuse an earlier task.
 
 Projects created by the curl bootstrapper begin with `replace-provider` and
 `replace-model` placeholders. Replace the provider alias consistently in
-the config's compaction/provider mappings, `MAIN.md`, and every subagent
-definition, then replace each main, summarizer, and subagent model value before
-running the project. The generated `report_discord` tool separately selects
-the `guardrails` provider profile and `replace-guard-model`. See
+the config's compaction/provider mappings and `MAIN.md`, then replace the main
+and summarizer model values before running the project. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout.
 
 `agentcli.LoadProject(root)` takes an immutable snapshot of project-owned
@@ -163,10 +161,13 @@ the loader does not silently send an empty credential.
 
 ## Runtime logging
 
-The optional `logging` mapping emits structured runtime lifecycle records to
-stderr. Omitting it or setting `enabled: false` disables the records. When the
-mapping is present, `enabled` defaults to `true` and `level` defaults to
-`info`; supported levels are `debug`, `info`, `warn`, and `error`.
+The optional `logging` mapping emits structured runtime lifecycle records.
+They normally go to stderr. While an interactive Terminal UI is attached,
+project-managed records are captured instead and available with `Ctrl+L` or
+`/logs`, so they cannot interrupt the conversation. Omitting the mapping or
+setting `enabled: false` disables the records. When the mapping is present,
+`enabled` defaults to `true` and `level` defaults to `info`; supported levels
+are `debug`, `info`, `warn`, and `error`.
 
 Info logging covers turn and response-scope start/end, repair requests, and
 terminal failures. Repair records distinguish `output_guard`,
@@ -184,9 +185,11 @@ reminders are never logged. Rejected repair drafts remain in retained run
 events for diagnostics but never enter conversation storage or the next model
 request.
 
-Programmatic agents can use `WithLogger` to supply their own `*slog.Logger`.
-When applied after `WithProject`, it overrides project logging. Subagents
-reuse the selected main-agent logger automatically.
+Programmatic agents can use `WithLogLevel` to enable a level in code while
+retaining the Terminal log view, or `WithLogger` to supply a caller-owned
+`*slog.Logger`. When applied after `WithProject`, either option overrides
+project logging. Subagents reuse the selected main-agent logger automatically.
+A caller-owned logger is not captured by the Terminal UI.
 
 See [Runtime logging](../observability/runtime-logging.md) for the event and
 privacy reference.
@@ -314,9 +317,8 @@ main agent requires custom tool "publish_report", but it is not registered
 
 Registration makes a handler available to the application catalog; each agent
 allowlist determines whether that model can see it. A required end-of-turn tool
-is required only for agents whose allowlist exposes it. The generated
-researcher intentionally exposes `glob` and `read`, not `edit` or
-`report_discord`.
+is required only for agents whose allowlist exposes it. The generated starter
+registers and exposes only `glob` and `read`.
 
 ## Project instructions
 

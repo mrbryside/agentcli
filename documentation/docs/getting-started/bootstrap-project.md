@@ -5,74 +5,50 @@ sidebar_position: 2
 
 # Bootstrap a project
 
-Create a runnable terminal-agent project with one command:
+Create a minimal terminal-agent project:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
 ```
 
-The installer reads from your terminal and asks for:
-
-```text
-Project folder name (for example my-agent):
-Go module path (for example github.com/you/my-agent):
-```
-
-No `sh -s --` argument is required. The selected project folder must not
-already exist; the installer refuses to overwrite it.
+The installer asks for a new project folder and a Go module path. It refuses to
+overwrite an existing path and never asks for or stores provider credentials.
 
 ## Generated project
-
-The starter contains:
 
 ```text
 my-agent/
 ├── go.mod
 ├── main.go
-├── tool_edit.go
 ├── tool_glob.go
 ├── tool_read.go
-├── tool_report_discord.go
 └── .agentcli/
     ├── config.yaml
-    ├── MAIN.md
-    ├── skill/
-    │   └── interview/SKILL.md
-    └── agent/
-        └── researcher/researcher.md
+    └── MAIN.md
 ```
 
-The installer never asks for, writes, or loads provider credentials.
-`${API_KEY}` and `${GUARDRAILS_API_KEY}` in the generated configuration are
-resolved only from the process environment.
+The starter is intentionally read-only. The application registers only
+`glob` and `read`, and `MAIN.md` allowlists those same tools:
 
-The generated prompts demonstrate the framework/application contract boundary.
-`MAIN.md` contains the application's domain and user-delivery policy, but does
-not repeat `task` fields, foreground/background behavior, parallel batching,
-or resume rules. The researcher definition contains research methods and an
-evidence bar, but does not restate the generic child final-answer contract.
-AgentCLI injects both protocol layers separately at runtime, so generated
-projects inherit future framework contract fixes without copying them into
-project prompts.
-
-The installer detects the local `go env GOVERSION` for `go.mod`. When Go is
-available, it resolves `github.com/mrbryside/agentcli@latest` directly from Git
-and then runs `go mod tidy`, so the generated project uses the newest published
-semver tag without a lagging module proxy. Set `AGENTCLI_VERSION` to pin a
-release or test an unreleased branch. If Go is not installed yet, the module
-falls back to Go `1.26.3`, pins `agentcli` `v0.0.40` in `go.mod`, and prints the
-commands to run later.
-
-## Replace provider and model placeholders
-
-Generated agent definitions intentionally use conspicuous placeholders:
-
-```yaml
+```md
+---
 provider: replace-provider
 model: replace-model
+tools:
+  - glob
+  - read
+---
+
+You are chatbot.
 ```
 
-`.agentcli/config.yaml` defines the matching provider alias:
+There are no generated guardrails, edit/report tools, skills, task agents,
+runtime logging settings, or observability settings.
+
+## Configure the provider
+
+The generated `.agentcli/config.yaml` contains one provider profile and an
+enabled compaction mapping:
 
 ```yaml
 permission_mode: criticalOnly
@@ -90,158 +66,29 @@ providers:
     request_timeout: 2m
     models:
       replace-model:
-        context_window_tokens: 122880 # Remove when provider discovery is available.
+        context_window_tokens: 122880
         max_output_tokens: 66560
-
-  guardrails:
-    type: openai
-    url: https://api.openai.com/v1
-    api_key: ${GUARDRAILS_API_KEY}
-    request_timeout: 30s
 ```
 
-The generated compaction mapping is enabled explicitly and initially reuses
-the starter's provider/model placeholders for its separate summarizer. Replace
-those placeholders before running the project. Remove the mapping or set
-`auto: false` to prevent new checkpoints. The two optional token-limit fields
-apply only to the exact `replace-model` entry. Main, summarizer, and subagent
-definitions remain free to select other model names. The summarizer receives
-no application tools, and the full original transcript remains stored. See
-[Context compaction](../capabilities/context-compaction.md) for model metadata,
-request projection, events, subagent behavior, and resume semantics.
-
-Provider-specific `reasoning` and `extra_body` overrides may be added beside
-the two token-limit fields under the same exact model name. Do not place those
-fields directly on the provider profile.
-
-Replace `replace-provider` consistently in the compaction mapping, provider
-profiles, `MAIN.md`, and every file under `.agentcli/agent/`. Replace
-`replace-model` in the compaction mapping, `MAIN.md`, and every subagent
-definition with a model supported by that provider. The starter includes
-exact 122,880-token context and 66,560-token output limits for a custom
-`replace-model`, displayed as `120k` and `65k`; remove the inline-commented
-limits from its model entry when provider discovery is
-available.
-`tool_report_discord.go` separately selects the `guardrails` profile and
-`replace-guard-model`; replace its connection settings and model without
-changing the main agent configuration. Provider aliases are
-application-defined; `type: openai` selects the OpenAI-compatible adapter and
-does not require an alias itself to be `openai`.
-
-For example, the two profiles may use different services:
-
-```yaml
-# .agentcli/config.yaml
-providers:
-  primary:
-    type: openai
-    url: https://api.openai.com/v1
-    api_key: ${API_KEY}
-
-  guardrails:
-    type: openai
-    url: https://guard-provider.example/v1
-    api_key: ${GUARDRAILS_API_KEY}
-```
-
-```yaml
-# .agentcli/MAIN.md and researcher.md frontmatter
-provider: primary
-model: your-model-name
-```
-
-## Starter tools
-
-The main agent selects only `report_discord`; the sample researcher selects
-`glob` and `read`. The generated application also registers `edit` as an opt-in
-starter tool, but neither generated agent exposes it by default:
-
-- `glob` searches only below the project root, supports recursive `**`,
-  excludes sensitive paths, defaults to 100 matches, and returns at most 500.
-- `read` returns UTF-8 text only, excludes sensitive paths, reads at most 2,000
-  lines and 256 KiB per call, and returns `next_offset` when more lines remain.
-- `edit` replaces exactly one occurrence of `old_string` with `new_string` in
-  an existing UTF-8 file. It rejects missing or ambiguous matches, symlinks,
-  sensitive paths, and writes outside the project. Each call requires high-risk
-  `filesystem.write` permission and a separate confirmation; neither generated
-  agent is allowed to use it until its name is explicitly added to an
-  allowlist.
-- `report_discord` is a deterministic mock trigger tool. Calls made before the
-  final response-scope boundary are skipped and continue the model; runtime
-  completion repair requests the executable final call with the complete
-  user-facing response. The generated prompt forbids sending user-facing conversational,
-  progress, or final messages outside the tool; all such content must be
-  delivered through the final call's `message` argument. It explicitly keeps
-  ordinary assistant content empty and targets at most 1,800 Unicode characters
-  so the tool's 2,000-character limit has headroom. Useful in-progress status
-  is valid reportable content. The agent sets `skipReport: true` only
-  when there is no meaningful user-facing action, progress, status, finding, or
-  conclusion; omitting it or setting it to `false` records the message. The tool
-  performs no network I/O and appends each reported payload to
-  `report/{session}.json`, and is not available to the researcher. Its public
-  result only reports completion; the session/turn/call metadata remains in the
-  local log. A built-in prompt tool-call guard checks message bounds,
-  disclosure policy, direct standalone reporting, and the `skipReport`
-  decision before the handler runs. A reported message must present actions,
-  current progress, status, findings, and conclusions as if the main agent
-  performed the work itself. It must not mention delegation, another
-  agent/subagent/researcher, waiting for one, or a promised later update.
-  Internally delegated work is phrased as the main agent's own action.
-  Rejection leaves the report file unchanged and becomes a failed tool result.
-  Its feedback preserves useful progress, removes internal attribution, and
-  provides a concrete corrected-message suggestion instead of recommending a
-  skip.
-
-The report decision has explicit positive skip semantics:
-
-| `skipReport` | Result status | Report file |
-| --- | --- | --- |
-| omitted or `false` | `reported` | Appends `message` to `report/{session}.json`. |
-| `true` | `skipped` | Does not create or append a report entry. |
-
-`message` remains required in both cases. When skipping, it briefly states why
-no report is necessary, but the handler does not record it. The old `report`
-field is not accepted; strict argument decoding rejects it so an inverted
-boolean cannot silently select the wrong behavior.
-
-For example, `"A researcher is analyzing main.go; results will follow"` is
-rejected. During ongoing work, rewrite it as `"Analyzing main.go to prepare a
-summary of its purpose, architecture, and key components."` A completed result
-such as `"main.go loads the project, registers four tools, and starts the
-terminal runtime"` is also eligible for reporting. The guard should recommend
-`skipReport: true` only when the submitted message contains no meaningful
-user-facing progress or result.
-
-Read and glob declare low-risk filesystem-read permission. Edit uses a bounded
-atomic replacement after both gates succeed. The generated project
-starts in `criticalOnly`, which allows low-risk requests unless an explicit
-policy rule says otherwise. When a subagent permission or confirmation needs a
-decision, the request is surfaced in the main agent Terminal session; you do not
-need to open the subagent view.
-
-The generated tools use the public explicit schema API: `agentcli.Tool`,
-`agentcli.ToolDefinition`, `agentcli.ToolParameter`, and
-`agentcli.ObjectSchema`. Their raw handlers use `agentcli.DecodeArguments`,
-and `main.go` registers each one with `agentcli.WithTool`, so generated code
-does not import runtime implementation packages.
-
-The `report_discord` prompt check uses the separate `guardrails` provider and
-`replace-guard-model`, adding one model request for each requested call it
-evaluates before handler execution. It is a demonstration policy, not a network
-or process sandbox. See
-[Tool-call guards](../guardrails/tool-call.md) before replacing the mock
-with an external integration.
-
-## Run the project
-
-After replacing the placeholders, export the provider key and run the app:
+Replace `replace-provider` and `replace-model` consistently in `config.yaml`
+and `MAIN.md`. Remove the `compaction` mapping if automatic transcript
+compaction is not wanted. Keep the API key in the process environment:
 
 ```sh
 cd my-agent
 export API_KEY='replace-with-a-real-key'
-export GUARDRAILS_API_KEY='replace-with-a-real-guard-key'
 go run .
 ```
 
+## Starter tools
+
+- `glob` searches below the project root, supports recursive `**`, excludes
+  protected paths, defaults to 100 matches, and returns at most 500.
+- `read` returns bounded UTF-8 project text, excludes protected paths, and
+  provides `next_offset` when more content remains.
+
+Both tools declare low-risk filesystem-read permission and use strict public
+`agentcli` schemas and argument decoding.
+
 Continue with [Project configuration](project-configuration.md) for provider,
-agent, skill, and tool allowlist details.
+agent, compaction, skill, and tool allowlist details.

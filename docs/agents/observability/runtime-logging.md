@@ -12,8 +12,13 @@ repair diagnostics, payload redaction, or root/subagent logger ownership.
 
 Omitting `logging` disables runtime console logging. A present mapping defaults
 to `enabled: true` and `level: info`. Supported levels are `debug`, `info`,
-`warn`, and `error`. `WithLogger` overrides project logging when applied after
-`WithProject`; subagents share the selected main-agent logger.
+`warn`, and `error`. Project-managed and `WithLogLevel` records normally go to
+stderr. While an interactive Terminal UI is attached, it captures up to 2,000
+recent records and exposes them with `Ctrl+L` or `/logs` instead of letting them
+interleave with the conversation. `WithLogLevel` provides the same managed
+routing for programmatic configuration. `WithLogger` overrides project logging
+when applied after `WithProject`; its handler remains caller-owned and is not
+rerouted by the Terminal. Subagents share the selected main-agent logger.
 
 Info records cover turn, response-scope, subagent-close lifecycle, and
 requested repair rounds. Debug adds completed provider content, tool

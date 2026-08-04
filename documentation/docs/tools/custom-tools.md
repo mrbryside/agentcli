@@ -306,8 +306,9 @@ independent conditions below before executing an
 | Last active turn; no result/input pending | Maybe | Required | Required | Required |
 | Handler executes and trigger is satisfied | No | Yes | Yes | Yes |
 
-Therefore, even if `report_discord` is the first tool the model calls, its
-request receives the successful skipped result above and the model continues.
+Therefore, even if an end-of-scope delivery tool is the first tool the model
+calls, its request receives the successful skipped result above and the model
+continues.
 The model-facing instruction says not to retry the tool itself. It finishes the
 remaining work and attempts normal completion, at which point runtime repair
 requests the final call. A result continuation is already past the human

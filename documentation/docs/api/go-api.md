@@ -79,6 +79,8 @@ Common options:
 | `WithToolWorkers` | Set handler worker concurrency; default 4. |
 | `WithToolCallGuardTimeout` | Bound each tool-call guard; default 30 seconds. |
 | `WithChannelBuffer` | Set internal transport buffer; default 64. |
+| `WithLogLevel` | Enable managed runtime logging to stderr, captured by the interactive Terminal log view. |
+| `WithLogger` | Supply a caller-owned structured logger whose routing is not changed by the Terminal. |
 | `WithInputGuard` | Validate or replace normalized input with application code before persistence. |
 | `WithOutputGuard` | Validate final assistant output and return repair feedback. |
 | `WithInputGuardPrompt` | Evaluate input with a policy prompt and the main model by default. |

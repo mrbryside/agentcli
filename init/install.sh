@@ -20,13 +20,9 @@ target=$folder
 
 tool_read_url=${AGENTCLI_TOOL_READ_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_read.go}
 tool_glob_url=${AGENTCLI_TOOL_GLOB_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_glob.go}
-tool_edit_url=${AGENTCLI_TOOL_EDIT_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_edit.go}
-tool_report_discord_url=${AGENTCLI_TOOL_REPORT_DISCORD_URL:-https://raw.githubusercontent.com/mrbryside/agentcli/main/init/templates/tool_report_discord.go}
 temporary_tool_read=$(mktemp)
 temporary_tool_glob=$(mktemp)
-temporary_tool_edit=$(mktemp)
-temporary_tool_report_discord=$(mktemp)
-trap 'rm -f "$temporary_tool_read" "$temporary_tool_glob" "$temporary_tool_edit" "$temporary_tool_report_discord"' 0 1 2 3 15
+trap 'rm -f "$temporary_tool_read" "$temporary_tool_glob"' 0 1 2 3 15
 
 printf '%s' 'Go module path (for example github.com/you/my-agent): ' >/dev/tty
 IFS= read -r module </dev/tty || fail 'could not read the Go module path'
@@ -59,14 +55,10 @@ fi
 
 curl -fsSL "$tool_read_url" >"$temporary_tool_read" || fail 'could not download the starter read tool'
 curl -fsSL "$tool_glob_url" >"$temporary_tool_glob" || fail 'could not download the starter glob tool'
-curl -fsSL "$tool_edit_url" >"$temporary_tool_edit" || fail 'could not download the starter edit tool'
-curl -fsSL "$tool_report_discord_url" >"$temporary_tool_report_discord" || fail 'could not download the starter report_discord tool'
 
-mkdir -p "$target/.agentcli/skill/interview" "$target/.agentcli/agent/researcher"
+mkdir -p "$target/.agentcli"
 mv "$temporary_tool_read" "$target/tool_read.go"
 mv "$temporary_tool_glob" "$target/tool_glob.go"
-mv "$temporary_tool_edit" "$target/tool_edit.go"
-mv "$temporary_tool_report_discord" "$target/tool_report_discord.go"
 
 cat >"$target/go.mod" <<EOF
 module $module
@@ -114,8 +106,6 @@ func run() (runErr error) {
 		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
-		agentcli.WithTool(newEditTool(projectRoot)),
-		agentcli.WithTool(newReportDiscordTool(projectRoot)),
 	)
 	if err != nil {
 		return fmt.Errorf("create agent CLI: %w", err)
@@ -130,92 +120,22 @@ cat >"$target/.agentcli/MAIN.md" <<'EOF'
 ---
 provider: replace-provider
 model: replace-model
-skills:
-  - interview
 tools:
-  - report_discord
+  - glob
+  - read
 ---
 
-Understand the requested result and use the available capabilities deliberately.
-
-## Answer or communicate with user
-
-IMPORTANT — `report_discord` is the only user-visible response channel:
-
-- Every model response must contain tool calls only. Leave normal assistant
-  content empty, even when you already know the answer.
-- Before writing any greeting, progress update, answer, finding, or conclusion,
-  call `report_discord` and put the complete text in `arguments.message`.
-  Never write that text first and call the tool afterward.
-- Instructions elsewhere to "answer", "respond", or "give the user" something
-  always mean to deliver it through `report_discord`, never as assistant text.
-- Use other tools first when work is needed. After the last tool result, make
-  one standalone `report_discord` call containing the complete user-facing
-  response, then stop and emit nothing else.
-- If `report_discord` is rejected, immediately retry it with corrected
-  arguments from the tool feedback. Emit no explanation or other content.
-
-Write `arguments.message` naturally. It may be ordinary conversation, a
-greeting, a question, current progress, status, findings, or a conclusion.
-When describing work, phrase it directly as your own work. Never mention
-internal execution details or promise a later update. Set `skipReport=true`
-only when no meaningful user-facing response
-exists; greetings, answers, progress, and results are meaningful and must be
-reported. Otherwise omit `skipReport` or set it to false.
-
-Before each `report_discord` call, silently check the message:
-
-- Keep the complete message at or below 1800 Unicode characters. Summarize
-  aggressively instead of copying a long subagent result or tool result.
-- For ongoing work, use present-tense wording such as "Researching `.agentcli`
-  to understand its purpose and usage."
-- Do not describe internal execution, waiting, or a promised later update.
-- For completed work, report the findings directly without saying who produced
-  them.
+You are chatbot.
 EOF
 
 cat >"$target/.agentcli/config.yaml" <<'EOF'
-# API_KEY and GUARDRAILS_API_KEY are loaded from the process environment.
-# Keep live provider keys out of this file.
 permission_mode: criticalOnly
 
-# Main-agent identity, model, and capability allowlists live in MAIN.md.
-
-# Optional structured runtime, tool, response-scope, repair, and canonical
-# transcript lifecycle logs.
-# Omit this mapping to disable console logging.
-# logging:
-#   enabled: true
-#   level: info # debug, info, warn, or error
-
-# Optional LLM-call observability. Credentials are used to construct Langfuse
-# Basic Auth and are never sent to the configured model provider. Prompt,
-# response, and reasoning capture are opt-in because they may be sensitive.
-# observability:
-#   langfuse:
-#     enabled: true
-#     base_url: ${LANGFUSE_BASE_URL} # Defaults to https://cloud.langfuse.com
-#     public_key: ${LANGFUSE_PUBLIC_KEY}
-#     secret_key: ${LANGFUSE_SECRET_KEY}
-#     environment: development
-#     service_name: agentcli
-#     release: ${APP_VERSION}
-#     sample_rate: 1.0
-#     capture:
-#       input: true
-#       output: true
-#       reasoning: false
-
-# Automatic transcript compaction. provider must name one of the profiles
-# below. Remove this mapping or set auto: false to disable new compactions.
 compaction:
   auto: true
   provider: replace-provider
   model: replace-model
 
-# Provider names are application-defined connection profile aliases. The
-# required type selects the protocol adapter independently from that alias.
-# Model entries are optional exact-name overrides, not an allowlist.
 providers:
   replace-provider:
     type: openai
@@ -224,60 +144,14 @@ providers:
     request_timeout: 2m
     models:
       replace-model:
-        context_window_tokens: 122880 # Remove when provider discovery is available.
+        context_window_tokens: 122880
         max_output_tokens: 66560
-        # reasoning: false # Optional Qwen-compatible shorthand.
-        # extra_body: # Optional model-specific top-level request JSON.
-        #   thinking:
-        #     type: disabled
-
-  guardrails:
-    type: openai
-    url: https://api.openai.com/v1
-    api_key: ${GUARDRAILS_API_KEY}
-    request_timeout: 30s
-
-  # openrouter:
-  #   type: openai
-  #   url: https://openrouter.ai/api/v1
-  #   api_key: ${OPENROUTER_API_KEY}
-  #   request_timeout: 2m
-EOF
-
-cat >"$target/.agentcli/skill/interview/SKILL.md" <<'EOF'
----
-name: interview
-description: Interview the user to clarify the business requirement before solving it.
----
-
-# Requirements interview
-
-Ask focused questions until the intended result, constraints, and success
-criteria are clear. Then summarize the agreed requirements.
-EOF
-
-cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'
----
-name: researcher
-description: Use for substantial technical research requiring evidence or trade-off comparison; not for simple answers or code generation.
-provider: replace-provider
-model: replace-model
-tools:
-  - glob
-  - read
----
-
-Investigate the important facts, trade-offs, and uncertainties. Prioritize
-traceable evidence, distinguish findings from inference, and make the practical
-implications clear.
 EOF
 
 if [ "$go_available" = true ]; then
-	# Resolve the requested tag/branch directly so a lagging GOPROXY cannot
-	# silently install an older API without DecodeArguments.
 	(cd "$target" && GOPROXY=direct GONOSUMDB=github.com/mrbryside/agentcli go get "github.com/mrbryside/agentcli@$agentcli_version") || fail 'could not resolve the current agentcli module'
   (cd "$target" && go mod tidy) || fail 'could not resolve Go module dependencies'
-  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (go %s)\n\nNext steps:\n  cd %s\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 else
-  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  # Replace replace-guard-model in tool_report_discord.go if needed\n  export API_KEY=...\n  export GUARDRAILS_API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
+  printf '\nCreated agentcli starter in %s (fallback go %s)\n\nGo was not found. After installing Go:\n  cd %s\n  go mod tidy\n  # Replace every replace-provider/replace-model placeholder in .agentcli/\n  export API_KEY=...\n  go run .\n' "$target" "$go_version" "$target"
 fi

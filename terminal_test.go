@@ -261,6 +261,59 @@ func TestTerminalReasoningToggleRestoresNoticesAndActiveApproval(t *testing.T) {
 	}
 }
 
+func TestTerminalRuntimeLogToggleIsModalAndRestoresMainView(t *testing.T) {
+	var output bytes.Buffer
+	logs := newRuntimeLogStore(nil)
+	_, _ = logs.Write([]byte("time=test level=INFO msg=started\n"))
+	client := terminalClient{
+		agent:       &terminalAgentStub{},
+		terminal:    terminal{out: &output},
+		modelName:   "test-model",
+		sessionID:   "mainAgent",
+		runtimeLogs: logs,
+	}
+
+	client.toggleRuntimeLogs()
+	if !client.runtimeLogViewActive() {
+		t.Fatal("runtime-log view did not open")
+	}
+	for _, wanted := range []string{"Runtime logs", "Ctrl+L to return", "msg=started"} {
+		if !strings.Contains(output.String(), wanted) {
+			t.Fatalf("runtime-log view %q missing %q", output.String(), wanted)
+		}
+	}
+	renderedTranscript := false
+	if client.renderInView("", func() { renderedTranscript = true }) {
+		t.Fatal("main view rendered over the runtime-log view")
+	}
+	if renderedTranscript {
+		t.Fatal("suppressed transcript callback was invoked")
+	}
+	if !client.handleRuntimeLogInput("ordinary prompt") {
+		t.Fatal("runtime-log view did not consume ordinary input")
+	}
+
+	client.toggleRuntimeLogs()
+	if client.runtimeLogViewActive() {
+		t.Fatal("runtime-log view did not close")
+	}
+	if !strings.Contains(output.String(), "test-model") || !strings.Contains(output.String(), "mainAgent") {
+		t.Fatalf("main view was not restored: %q", output.String())
+	}
+}
+
+func TestTerminalRuntimeLogViewRendersLiveRecords(t *testing.T) {
+	var output bytes.Buffer
+	logs := newRuntimeLogStore(nil)
+	client := terminalClient{terminal: terminal{out: &output}, runtimeLogs: logs}
+	client.toggleRuntimeLogs()
+	client.renderRuntimeLogEntry(runtimeLogEntry{sequence: 1, text: "live record\n"})
+
+	if got := output.String(); !strings.Contains(got, "live record") {
+		t.Fatalf("runtime-log view did not render live record: %q", got)
+	}
+}
+
 func TestTerminalRendersTaskToolResult(t *testing.T) {
 	tests := []struct {
 		state TaskState
@@ -801,6 +854,9 @@ func TestTerminalInputFallsBackForNonInteractiveReaders(t *testing.T) {
 	}
 	if inputSession.reasoningToggles != nil {
 		t.Fatal("non-terminal input unexpectedly enabled reasoning toggles")
+	}
+	if inputSession.logToggles != nil {
+		t.Fatal("non-terminal input unexpectedly enabled runtime-log toggles")
 	}
 	if got := <-inputSession.lines; got != "hello" {
 		t.Fatalf("line = %q, want hello", got)

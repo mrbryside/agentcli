@@ -64,6 +64,7 @@ type config struct {
 	toolCallGuardTimeout time.Duration
 	langfuse             *langfuseobs.Client
 	logger               *slog.Logger
+	runtimeLogs          *runtimeLogStore
 }
 
 func defaultConfig(projectRoot string) config {
@@ -306,6 +307,19 @@ func WithLogger(logger *slog.Logger) Option {
 			return errors.New("logger is required")
 		}
 		configuration.logger = logger
+		// Caller-owned handlers retain caller-owned routing. Managed loggers
+		// created by WithLogLevel or project config can be captured by RunTerminal.
+		configuration.runtimeLogs = nil
+		return nil
+	}
+}
+
+// WithLogLevel enables structured runtime lifecycle logging at level. Records
+// normally go to stderr and are captured by RunTerminal while its interactive
+// runtime-log view is attached.
+func WithLogLevel(level slog.Level) Option {
+	return func(configuration *config) error {
+		configuration.logger, configuration.runtimeLogs = managedRuntimeLogger(level)
 		return nil
 	}
 }

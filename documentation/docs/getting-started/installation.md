@@ -44,24 +44,12 @@ curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/instal
 
 The installer prompts only for the target folder and Go module path. It never
 requests or persists provider credentials. It creates a Terminal application,
-project configuration, example skill, researcher subagent, and bounded
-`read`/`glob`/`edit` tools. The researcher receives `read` and `glob`; `edit`
-is registered as an opt-in tool but is not exposed to either generated agent.
-The main agent receives only a network-free `report_discord` mock that is
-required once as the standalone final action of each turn. The agent omits
-`skipReport` or
-sets it to `false` to record the final message, and may set it to `true` after
-deciding the turn has no meaningful user-facing action, progress, status,
-finding, or conclusion. Useful ongoing progress is reported directly as the
-main agent's own action rather than skipped. Its prompt tool-call guard prevents
-handler execution and returns a failed tool result with a concrete rewrite
-suggestion when the requested payload is non-compliant. Reported messages must
-state progress or results directly without mentioning delegated agents, waiting
-for them, or future updates. See
+minimal project configuration, and bounded read-only `glob` and `read` tools.
+The main agent allowlists those two tools and uses the complete prompt
+`You are chatbot.` The starter includes no guardrail provider, edit/report
+tools, skills, task agents, runtime logging, or observability. See
 [Bootstrap a project](bootstrap-project.md) for the generated layout and the
-required `replace-provider`, `replace-model`, and `replace-guard-model`
-substitutions. The guard model uses the separately configured `guardrails`
-provider profile.
+required `replace-provider` and `replace-model` substitutions.
 
 ## Configure a live provider
 
@@ -78,9 +66,9 @@ Project loading expands environment-variable references but intentionally does
 not load or ask for a `.env` file.
 
 The tracked example and curl-generated starter include an enabled
-`compaction` mapping. Replace its provider/model placeholders together with the
-agent definitions, or remove the mapping when automatic compaction is not
-wanted.
+`compaction` mapping. The tracked example already matches the repository
+`MAIN.md`; replace the generated starter's provider/model placeholders, or
+remove the mapping when automatic compaction is not wanted.
 
 Run the interactive terminal playground:
 

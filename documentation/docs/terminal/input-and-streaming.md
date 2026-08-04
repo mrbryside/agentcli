@@ -21,6 +21,7 @@ state, so streamed output can update without deleting the draft.
 | `Home` / `End` | Move to the start or end of the current draft line. |
 | `Backspace` / `Delete` | Remove text before or after the cursor. |
 | `Ctrl+O` | Expand or collapse all provider reasoning in the active view. |
+| `Ctrl+L` | Open or close the managed runtime-log view. |
 | `Esc` | Interrupt the active main-agent or task-session response. |
 | `Ctrl+C` twice | Exit the terminal. The second press must occur within two seconds. |
 
@@ -81,6 +82,15 @@ same behavior, and stored reasoning can be restored when a view is reopened.
 The redraw also restores runtime alerts, retained notifications, and the active
 permission or confirmation prompt. Toggling reasoning therefore does not hide
 actionable state.
+
+## Runtime-log view
+
+When project logging or `WithLogLevel` is enabled, press `Ctrl+L` or enter
+`/logs` to replace the conversation with a modal view of up to 2,000 recent
+runtime records. New records appear there while the agent continues running.
+Press `Ctrl+L` again to reconstruct the selected main-agent or task-session view
+from its transcript and retained events. Ordinary prompt input is held out of
+the conversation while the log view is open.
 
 ## Send input while a response is active
 

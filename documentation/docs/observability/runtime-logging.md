@@ -5,9 +5,12 @@ sidebar_position: 2
 
 # Runtime logging
 
-Agentcli can write structured framework lifecycle records to stderr. Logging is
-owned by the runtime, so applications do not need to duplicate model-round,
-tool, response-scope, repair, or subagent lifecycle logs.
+Agentcli can write structured framework lifecycle records. They normally go to
+stderr. During an interactive Terminal UI session, project-managed records are
+captured in a dedicated view instead, so they do not interrupt the prompt or a
+streaming response. Logging is owned by the runtime, so applications do not
+need to duplicate model-round, tool, response-scope, repair, or subagent
+lifecycle logs.
 
 Runtime logging is separate from [Langfuse](langfuse.md). Console logs describe
 agent execution; Langfuse exports model-call telemetry.
@@ -91,6 +94,19 @@ ordinary error strings and non-framework logs.
 
 ## Programmatic logger
 
+Use `WithLogLevel` for the same Terminal-aware routing without project logging
+configuration:
+
+```go
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithLogLevel(slog.LevelDebug),
+)
+```
+
+These records go to stderr outside an interactive Terminal and move into the
+runtime-log view while it is attached.
+
 Use `WithLogger` when the host application already owns a `*slog.Logger`:
 
 ```go
@@ -105,17 +121,20 @@ agent, err := agentcli.New(ctx,
 ```
 
 Option order matters: applying `WithLogger` after `WithProject` overrides the
-project logger. Subagents share the selected main-agent logger. Passing `nil`
-disables logging.
+project logger. Subagents share the selected main-agent logger. A
+caller-supplied handler keeps its caller-owned routing and is not captured by
+the Terminal UI.
 
 ## Terminal playground
 
-The repository terminal playground uses the same project configuration:
+The repository terminal playground enables managed debug logging with
+`WithLogLevel`:
 
 ```bash
 cp .agentcli/config.example.yaml .agentcli/config.yaml
 go run ./playground/terminal
 ```
 
-Uncomment the `logging` example and choose a level. Runtime records go to stderr
-while the Terminal UI continues to use stdout.
+In an interactive Terminal, press `Ctrl+L` (or enter `/logs`) to open or close the runtime-log view. It
+retains up to 2,000 recent records and follows new records while the agent runs.
+Non-interactive terminal runs continue to write records to stderr.

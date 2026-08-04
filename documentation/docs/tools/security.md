@@ -39,30 +39,9 @@ modify the original project file unless another operation copies, renames, or
 uses that temporary artifact. Temp access is useful for compilation and
 intermediate artifacts, but it is still host access and needs quotas and cleanup.
 
-The generated `edit` tool is intentionally narrower than a general file
-writer. It requires an existing regular file, rejects symlinks and protected
-paths, matches one exact `old_string` occurrence, and refuses zero or ambiguous
-matches. It checks the file snapshot again before an atomic same-directory
-rename, so it does not silently overwrite a concurrent change. The handler
-never uses remove-then-rename and preserves ordinary permission bits.
-
 Permission and confirmation descriptors must normalize and bound
 argument-derived display text. The handler must revalidate target state after
 approval because descriptors and schemas are not execution boundaries.
-
-The generated `report_discord` trigger tool is a deterministic local mock and
-therefore declares no network permission. Its prompt tool-call guard checks
-the requested arguments before handler execution; rejection leaves the report
-file unchanged. It also requires a direct standalone message without
-delegation, other-agent attribution, waiting language, or promises of a later
-update. Useful ongoing progress must be rewritten as the main agent's own
-current action and reported rather than hidden with `skipReport`. The agent may
-choose `skipReport: true` only when there is no meaningful user-facing action,
-progress, status, finding, or conclusion; it returns `skipped` without appending
-a local entry. Omitting it or setting it to `false` records the message. The
-guard is policy, not authorization or containment. Replacing the mock with a
-real Discord integration requires an explicit network permission design,
-credential handling, confirmation policy, idempotency, and retry strategy.
 
 ## Shell tools
 

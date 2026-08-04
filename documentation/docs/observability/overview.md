@@ -8,7 +8,8 @@ sidebar_position: 1
 Agentcli provides two independent observability surfaces:
 
 - [Runtime logging](runtime-logging.md) writes structured agent, tool,
-  response-scope, repair, and delivery lifecycle records to stderr.
+  response-scope, repair, and delivery lifecycle records to stderr, or to the
+  dedicated log view while an interactive Terminal UI is attached.
 - [Langfuse](langfuse.md) exports model-call traces through OpenTelemetry.
 
 Runtime logging belongs to the execution framework. Langfuse instrumentation

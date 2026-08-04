@@ -10,7 +10,7 @@ Go library for provider-neutral, event-sourced agent runs with tool execution, s
 | --- | --- |
 | `.agentcli/` | Example project definitions: `MAIN.md`, provider config template, skills, and subagents. |
 | `.github/workflows/` | GitHub Actions automation, including Docusaurus deployment to GitHub Pages. |
-| `init/` | Curl bootstrap installer and separately downloadable `read`/`glob`/`edit`/`report_discord` Go tool templates for generated starter projects. |
+| `init/` | Curl bootstrap installer and separately downloadable read-only `read`/`glob` Go tool templates for generated starter projects. |
 | Root `*.go` files | Public `agentcli` package: Agent assembly, project loading, raw tools, scope events, subagents, Terminal UI, and Echo HTTP/SSE server. |
 | `Makefile` | Convenience entry points for the terminal playground and documentation install/build/dev workflows. |
 | `agentruntime/` | Session/turn coordination, context compaction, retained agent events, input/output guardrails, live subscriptions, interruption, and state/effect/result folding. |

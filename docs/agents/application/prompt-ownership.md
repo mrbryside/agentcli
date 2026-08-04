@@ -58,10 +58,10 @@ The framework owns two built-in descriptions:
 a cloned application description. The application retains ownership of the
 tool's domain purpose and argument semantics.
 
-The bootstrap templates own the model descriptions for `glob`, `read`, `edit`,
-and `report_discord`; the Terminal playground separately owns `glob`, `read`,
-and `confirm_demo`. Keep each description aligned with its schema, bounds,
-permission/confirmation behavior, handler result, and trigger mode.
+The bootstrap templates own the model descriptions for `glob` and `read`; the
+Terminal playground separately owns `glob`, `read`, and `confirm_demo`. Keep
+each description aligned with its schema, bounds, permission behavior, handler
+result, and trigger mode.
 
 ## Consistency checks
 

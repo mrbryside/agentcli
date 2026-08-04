@@ -40,6 +40,9 @@ var (
 	terminalControlOKeys = [][]byte{
 		[]byte("\x1b[111;5u"),
 	}
+	terminalControlLKeys = [][]byte{
+		[]byte("\x1b[108;5u"),
+	}
 	terminalInterruptKeys = [][]byte{
 		[]byte("\x1b[99;5u"),
 	}
@@ -97,7 +100,7 @@ var (
 )
 
 var terminalInputSequences = func() [][]byte {
-	sequences := make([][]byte, 0, 1+len(terminalShiftEnterKeys)+len(terminalSubmitKeys)+len(terminalBackspaceKeys)+len(terminalEOFKeys)+len(terminalEscapeKeys)+len(terminalControlOKeys)+len(terminalInterruptKeys)+len(terminalLeftKeys)+len(terminalRightKeys)+len(terminalUpKeys)+len(terminalDownKeys)+len(terminalHomeKeys)+len(terminalEndKeys)+len(terminalDeleteKeys)+len(terminalIgnoredKeys))
+	sequences := make([][]byte, 0, 1+len(terminalShiftEnterKeys)+len(terminalSubmitKeys)+len(terminalBackspaceKeys)+len(terminalEOFKeys)+len(terminalEscapeKeys)+len(terminalControlOKeys)+len(terminalControlLKeys)+len(terminalInterruptKeys)+len(terminalLeftKeys)+len(terminalRightKeys)+len(terminalUpKeys)+len(terminalDownKeys)+len(terminalHomeKeys)+len(terminalEndKeys)+len(terminalDeleteKeys)+len(terminalIgnoredKeys))
 	sequences = append(sequences, terminalBracketedPasteStart)
 	sequences = append(sequences, terminalShiftEnterKeys...)
 	sequences = append(sequences, terminalSubmitKeys...)
@@ -105,6 +108,7 @@ var terminalInputSequences = func() [][]byte {
 	sequences = append(sequences, terminalEOFKeys...)
 	sequences = append(sequences, terminalEscapeKeys...)
 	sequences = append(sequences, terminalControlOKeys...)
+	sequences = append(sequences, terminalControlLKeys...)
 	sequences = append(sequences, terminalInterruptKeys...)
 	sequences = append(sequences, terminalLeftKeys...)
 	sequences = append(sequences, terminalRightKeys...)
@@ -132,6 +136,7 @@ type terminalInputEditor struct {
 	errors           chan error
 	escapes          chan struct{}
 	reasoningToggles chan struct{}
+	logToggles       chan struct{}
 	bytes            chan byte
 	readDone         chan error
 	stop             chan struct{}
@@ -162,6 +167,7 @@ func newInteractiveTerminalInput(inputFile *os.File, output *terminal) (terminal
 		errors:           make(chan error, 1),
 		escapes:          make(chan struct{}, 1),
 		reasoningToggles: make(chan struct{}, 1),
+		logToggles:       make(chan struct{}, 1),
 		bytes:            make(chan byte, 256),
 		readDone:         make(chan error, 1),
 		stop:             make(chan struct{}),
@@ -186,6 +192,7 @@ func newInteractiveTerminalInput(inputFile *os.File, output *terminal) (terminal
 		errors:           editor.errors,
 		escapes:          editor.escapes,
 		reasoningToggles: editor.reasoningToggles,
+		logToggles:       editor.logToggles,
 		promptManaged:    true,
 		close: func() {
 			output.stopLoading()
@@ -386,6 +393,13 @@ func (editor *terminalInputEditor) consumeKnownSequence() bool {
 			return true
 		}
 	}
+	for _, key := range terminalControlLKeys {
+		if bytes.HasPrefix(editor.pending, key) {
+			editor.pending = editor.pending[len(key):]
+			editor.signal(editor.logToggles)
+			return true
+		}
+	}
 	for _, key := range terminalInterruptKeys {
 		if bytes.HasPrefix(editor.pending, key) {
 			editor.pending = editor.pending[len(key):]
@@ -468,6 +482,8 @@ func (editor *terminalInputEditor) consumeControl(value byte) bool {
 		editor.backspace()
 	case 15:
 		editor.signal(editor.reasoningToggles)
+	case 12:
+		editor.signal(editor.logToggles)
 	default:
 		return value < 32
 	}

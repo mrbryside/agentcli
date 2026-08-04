@@ -24,33 +24,13 @@ import "github.com/mrbryside/agentcli"
 
 ### Scaffold a terminal agent project
 
-The bootstrap script creates a minimal terminal application plus a `.agentcli`
-project with an example skill and researcher subagent. The main agent receives
-only the network-free `report_discord` trigger tool with a pre-execution prompt
-tool-call guard; the researcher stays read-only with bounded `glob` and `read`.
-The generated application also registers double-gated exact-match `edit`, but
-neither generated agent exposes it by default. `read` returns at most 2,000
-lines and a `next_offset` when more content remains. Tool source is generated
-separately as `tool_read.go`, `tool_glob.go`, `tool_edit.go`, and
-`tool_report_discord.go`. A trigger call made as the model's first provider
-action is skipped with a successful continue result and must not be retried by
-the model. The agent decides whether a response is useful: omitting
-`skipReport` or setting it to `false` records `message`, while
-`skipReport: true` returns `skipped` without writing a report entry. A rejected
-tool call also leaves the report file unchanged. Reported messages must present
-actions, current progress, status, findings, and conclusions directly as the
-agent's own work. Useful progress is reported instead of skipped: for example,
-`Analyzing main.go to prepare its architecture summary.` The guard rejects
-references to delegation, other agents, waiting for them, or promised future
-updates and returns feedback with a direct rewrite suggestion. The installer
-asks for the project folder name and then the Go module path used in `go.mod`.
-It detects the installed Go version for that file, falling back to `1.26.3`
-when Go is not installed. Generated projects start in `criticalOnly` permission
-mode, cap each main agent at four open subagents, and read provider credentials
-only from the process environment. The generated config includes disabled,
-commented examples for Langfuse observability and an OpenRouter-compatible
-provider. When Go is available, the installer also runs `go mod tidy` so the
-project can start immediately.
+The bootstrap script creates a minimal read-only terminal application. It
+registers only bounded `glob` and `read` tools, and the generated main agent
+allowlists those same tools with the complete prompt `You are chatbot.` The
+starter has no generated guardrails, edit/report tools, skills, task agents,
+logging settings, or observability settings. It asks for the project folder and
+Go module path, detects the installed Go version, reads provider credentials
+only from the process environment, and runs `go mod tidy` when Go is available.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mrbryside/agentcli/main/init/install.sh | sh
@@ -62,7 +42,6 @@ start the app. Go is only needed at this point:
 ```sh
 cd my-agent
 export API_KEY='replace-with-a-real-key'
-export GUARDRAILS_API_KEY='replace-with-a-real-guard-key'
 go run .
 ```
 
@@ -215,11 +194,9 @@ err := agent.RunTerminal(
 ```
 
 The included playground registers example `glob`, `read`, and confirmation
-tools. Its `.agentcli/config.example.yaml` also shows the current runtime
-logging, compaction, model metadata, OpenRouter-compatible provider, and
-disabled Langfuse observability settings. Uncomment `logging` and select
-`debug`, `info`, `warn`, or `error` to inspect framework lifecycle records on
-stderr:
+tools and enables debug runtime logging with `WithLogLevel`. In the interactive
+Terminal, press `Ctrl+L` or enter `/logs` to inspect framework lifecycle
+records:
 
 ```sh
 make terminal

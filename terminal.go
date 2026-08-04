@@ -128,6 +128,7 @@ func (a *Agent) RunTerminal(options ...TerminalOption) error {
 	client := &terminalClient{
 		agent:                a,
 		terminal:             newTerminal(config.output),
+		runtimeLogs:          a.runtimeLogs,
 		modelName:            modelName,
 		skills:               skills,
 		sessionID:            config.sessionID,
@@ -340,6 +341,11 @@ type terminalClient struct {
 	mainAgentNotices       []terminalNotice
 	escapeInput            <-chan struct{}
 	reasoningToggleInput   <-chan struct{}
+	logToggleInput         <-chan struct{}
+	logUpdates             <-chan runtimeLogEntry
+	runtimeLogs            *runtimeLogStore
+	logView                bool
+	logSequence            uint64
 	exitArmedUntil         time.Time
 }
 
@@ -504,6 +510,15 @@ func (c *terminalClient) runInteractive(
 	defer inputSession.close()
 	c.escapeInput = inputSession.escapes
 	c.reasoningToggleInput = inputSession.reasoningToggles
+	c.logToggleInput = inputSession.logToggles
+	if inputSession.promptManaged && c.runtimeLogs != nil {
+		updates, detach := c.runtimeLogs.attachTerminal()
+		c.logUpdates = updates
+		defer func() {
+			c.logUpdates = nil
+			detach()
+		}()
+	}
 	c.switchView("")
 	c.terminal.banner(c.modelName, c.sessionID)
 	for _, event := range pendingPermissions {
@@ -518,11 +533,13 @@ func (c *terminalClient) runInteractive(
 	for {
 		if c.activeView() == "" {
 			if queuedPrompt, ok := c.dequeueMainAgentPrompt(); ok {
-				c.terminal.status("Queued message", "starting")
+				if !c.runtimeLogViewActive() {
+					c.terminal.status("Queued message", "starting")
+				}
 				if err := c.runTurn(ctx, queuedPrompt, lines); errors.Is(err, errTerminalExit) {
 					return nil
 				} else if err != nil && !errors.Is(err, agentruntime.ErrRunInterrupted) {
-					if c.activeView() == "" {
+					if c.activeView() == "" && !c.runtimeLogViewActive() {
 						c.terminal.error(err)
 					} else {
 						c.mainAgentNotice("Error", err.Error())
@@ -545,6 +562,14 @@ func (c *terminalClient) runInteractive(
 			c.interruptActiveView()
 		case <-c.reasoningToggleInput:
 			c.toggleReasoning()
+		case <-c.logToggleInput:
+			c.toggleRuntimeLogs()
+		case entry, open := <-c.logUpdates:
+			if !open {
+				c.logUpdates = nil
+				continue
+			}
+			c.renderRuntimeLogEntry(entry)
 		case err := <-inputSession.errors:
 			if err != nil {
 				return fmt.Errorf("read prompt: %w", err)
@@ -564,6 +589,9 @@ func (c *terminalClient) runInteractive(
 			c.disarmExitInterrupt()
 			prompt := strings.TrimSpace(line)
 			if prompt == "" {
+				continue
+			}
+			if c.handleRuntimeLogInput(prompt) {
 				continue
 			}
 			if handled, exit := c.command(prompt); handled {
@@ -779,6 +807,9 @@ func (c *terminalClient) command(input string) (handled, exit bool) {
 		return true, false
 	case "/help":
 		c.terminal.help()
+		return true, false
+	case "/logs":
+		c.toggleRuntimeLogs()
 		return true, false
 	default:
 		return false, false
@@ -1079,7 +1110,7 @@ func (c *terminalClient) switchView(subagentID string) context.Context {
 func (c *terminalClient) renderInView(subagentID string, render func()) bool {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
-	if !c.isActiveView(subagentID) {
+	if !c.isActiveView(subagentID) || c.runtimeLogViewActive() {
 		return false
 	}
 	render()
@@ -1290,7 +1321,7 @@ func (c *terminalClient) mainAgentNotice(label, value string) {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
 	c.stateMu.Lock()
-	visible := c.subagentID == ""
+	visible := c.subagentID == "" && !c.logView
 	c.mainAgentNotices = append(c.mainAgentNotices, terminalNotice{label: label, value: value})
 	if overflow := len(c.mainAgentNotices) - terminalMainAgentNoticeLimit; overflow > 0 {
 		copy(c.mainAgentNotices, c.mainAgentNotices[overflow:])
@@ -1317,6 +1348,9 @@ func (c *terminalClient) clearMainAgentNotices() {
 func (c *terminalClient) toggleReasoning() {
 	expanded := !c.terminal.reasoningExpanded()
 	c.terminal.configureReasoningExpanded(expanded)
+	if c.runtimeLogViewActive() {
+		return
+	}
 	if id := c.activeView(); id != "" {
 		if err := c.openSubagent(id); err != nil {
 			c.terminal.error(err)
@@ -1324,6 +1358,92 @@ func (c *terminalClient) toggleReasoning() {
 		return
 	}
 	c.showMainAgentView()
+}
+
+func (c *terminalClient) runtimeLogViewActive() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.logView
+}
+
+// toggleRuntimeLogs treats the log screen as a modal view. The underlying
+// main/task-session selection and live run continue unchanged; toggling back
+// reconstructs that view from its transcript and retained events.
+func (c *terminalClient) toggleRuntimeLogs() {
+	if c.runtimeLogs == nil {
+		c.terminal.status("Runtime logs", "disabled")
+		return
+	}
+
+	c.renderMu.Lock()
+	c.stateMu.Lock()
+	show := !c.logView
+	c.logView = show
+	if !show {
+		c.logSequence = 0
+	}
+	c.stateMu.Unlock()
+	if show {
+		c.terminal.stopLoading()
+		entries := c.runtimeLogs.snapshot()
+		c.terminal.clear()
+		c.terminal.runtimeLogs(entries)
+		if len(entries) != 0 {
+			c.stateMu.Lock()
+			c.logSequence = entries[len(entries)-1].sequence
+			c.stateMu.Unlock()
+		}
+	}
+	c.renderMu.Unlock()
+
+	if show {
+		return
+	}
+	if id := c.activeView(); id != "" {
+		if err := c.openSubagent(id); err != nil {
+			c.terminal.error(err)
+		}
+		return
+	}
+	c.showMainAgentView()
+}
+
+func (c *terminalClient) handleRuntimeLogInput(input string) bool {
+	if !c.runtimeLogViewActive() {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(input), "/logs") {
+		c.toggleRuntimeLogs()
+		return true
+	}
+	c.terminal.status("Runtime logs", "press Ctrl+L or enter /logs to return")
+	return true
+}
+
+func (c *terminalClient) renderRuntimeLogEntry(entry runtimeLogEntry) {
+	c.renderMu.Lock()
+	defer c.renderMu.Unlock()
+	c.stateMu.Lock()
+	if !c.logView || entry.sequence <= c.logSequence {
+		c.stateMu.Unlock()
+		return
+	}
+	gap := entry.sequence != c.logSequence+1
+	c.logSequence = entry.sequence
+	c.stateMu.Unlock()
+
+	if !gap {
+		c.terminal.runtimeLogEntry(entry)
+		return
+	}
+	entries := c.runtimeLogs.snapshot()
+	c.terminal.clear()
+	c.terminal.runtimeLogs(entries)
+	if len(entries) != 0 {
+		c.stateMu.Lock()
+		c.logSequence = entries[len(entries)-1].sequence
+		c.stateMu.Unlock()
+	}
 }
 
 func (c *terminalClient) renderBackfillEvent(event agentruntime.AgentEvent, wroteContent *bool) {
@@ -1411,6 +1531,14 @@ func (c *terminalClient) runMainAgentTurn(ctx context.Context, input <-chan stri
 			}
 		case <-c.reasoningToggleInput:
 			c.toggleReasoning()
+		case <-c.logToggleInput:
+			c.toggleRuntimeLogs()
+		case entry, open := <-c.logUpdates:
+			if !open {
+				c.logUpdates = nil
+				continue
+			}
+			c.renderRuntimeLogEntry(entry)
 		case line, open := <-input:
 			if !open {
 				input = nil
@@ -1425,6 +1553,9 @@ func (c *terminalClient) runMainAgentTurn(ctx context.Context, input <-chan stri
 			c.disarmExitInterrupt()
 			value := strings.TrimSpace(line)
 			if value == "" {
+				continue
+			}
+			if c.handleRuntimeLogInput(value) {
 				continue
 			}
 			if handled, _ := c.command(value); handled {
@@ -1534,6 +1665,8 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 	interrupts := c.interrupts
 	escapes := c.escapeInput
 	reasoningToggles := c.reasoningToggleInput
+	logToggles := c.logToggleInput
+	logUpdates := c.logUpdates
 	if input == nil {
 		// The interactive loop owns global key handling while this renderer runs
 		// in the background. Keeping these channels here as well could let the
@@ -1541,6 +1674,8 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 		interrupts = nil
 		escapes = nil
 		reasoningToggles = nil
+		logToggles = nil
+		logUpdates = nil
 	}
 	for {
 		select {
@@ -1556,6 +1691,14 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 			}
 		case <-reasoningToggles:
 			c.toggleReasoning()
+		case <-logToggles:
+			c.toggleRuntimeLogs()
+		case entry, open := <-logUpdates:
+			if !open {
+				logUpdates = nil
+				continue
+			}
+			c.renderRuntimeLogEntry(entry)
 		case line, open := <-input:
 			if !open {
 				input = nil
@@ -1570,6 +1713,9 @@ func (c *terminalClient) renderSubagentRun(ctx context.Context, mainAgentSession
 			}
 			c.disarmExitInterrupt()
 			if value == "" {
+				continue
+			}
+			if c.handleRuntimeLogInput(value) {
 				continue
 			}
 			if handled, _ := c.command(value); handled {
@@ -1778,6 +1924,7 @@ type terminalInputSession struct {
 	errors           <-chan error
 	escapes          <-chan struct{}
 	reasoningToggles <-chan struct{}
+	logToggles       <-chan struct{}
 	promptManaged    bool
 	close            func()
 }
@@ -1850,6 +1997,7 @@ func (t terminal) help() {
 	t.println("  /session  show the current session ID")
 	t.println("  /skills   show skills available for automatic selection")
 	t.println("  /clear    clear and redraw the terminal")
+	t.println("  /logs     open or close the runtime-log view")
 	t.println("  /exit     quit")
 	t.println("  /allow ID allow a pending permission once")
 	t.println("  /allow-session ID allow this capability for the session")
@@ -1866,8 +2014,41 @@ func (t terminal) help() {
 	t.println("  Shift+Enter add a new line without sending")
 	t.println("  Up/Down   recall prompts entered in this terminal")
 	t.println("  Ctrl+O    expand or collapse all reasoning")
+	t.println("  Ctrl+L    open or close the runtime-log view")
 	t.println("  Esc       interrupt an active response")
 	t.println("  Ctrl+C    press twice to quit")
+}
+
+func (t terminal) runtimeLogs(entries []runtimeLogEntry) {
+	var display strings.Builder
+	display.WriteString(t.paint("1;36", "╭─ Runtime logs"))
+	display.WriteByte('\n')
+	display.WriteString(t.paint("2", fmt.Sprintf("│  showing up to %d recent records · Ctrl+L to return", runtimeLogEntryLimit)))
+	display.WriteByte('\n')
+	display.WriteString(t.paint("1;36", "╰─"))
+	display.WriteByte('\n')
+	if len(entries) == 0 {
+		display.WriteString(t.paint("2", "No runtime logs yet."))
+		display.WriteByte('\n')
+	} else {
+		for _, entry := range entries {
+			display.WriteString(entry.text)
+			if entry.text != "" && !strings.HasSuffix(entry.text, "\n") {
+				display.WriteByte('\n')
+			}
+		}
+	}
+	fmt.Fprint(t.out, display.String())
+}
+
+func (t terminal) runtimeLogEntry(entry runtimeLogEntry) {
+	if entry.text == "" {
+		return
+	}
+	fmt.Fprint(t.out, entry.text)
+	if !strings.HasSuffix(entry.text, "\n") {
+		fmt.Fprintln(t.out)
+	}
 }
 
 func (t terminal) skills(skills []Skill) {

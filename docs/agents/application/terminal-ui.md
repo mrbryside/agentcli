@@ -8,6 +8,14 @@ The live renderer in `terminal_stream.go` appends provider fragments to Markdown
 
 Reasoning is stored separately from assistant content. It is collapsed by default, rendered dimly only when present, and toggled globally with `Ctrl+O`. A toggle rebuilds the selected view from stored messages plus safe visual events, retained notifications, and the active approval; alerts must not disappear during that redraw. Loading is a transient status indicator rather than synthetic reasoning or assistant text, and it must not restart while an approval is active.
 
+Managed runtime logging from project config or `WithLogLevel` is captured while
+an interactive Terminal is attached, so records do not interleave with the
+prompt or streaming response.
+`Ctrl+L` (or `/logs`) opens a modal view containing up to the latest 2,000
+records and follows new records live; toggling back reconstructs the selected
+root or task-session view while its run continues. Non-interactive terminal
+runs and caller-supplied `WithLogger` handlers retain their existing output.
+
 The Terminal keeps `/agents`, `/agent`, `/agent-status`, `/back`, and `/close`
 as compatibility commands. User-facing output calls definitions “task agents”
 and persisted instances “task sessions.” Task tool calls render `new` or
@@ -27,6 +35,7 @@ Interactive controls are:
 - `Up` / `Down`: navigate prompts entered during the current Terminal UI process.
 - `Esc`: interrupt the active root or task-session run without exiting.
 - `Ctrl+O`: expand or collapse all reasoning.
+- `Ctrl+L`: open or close the runtime-log view.
 - `Ctrl+C`: arm exit; a second press within two seconds exits immediately.
 
 Switching task-session views changes only the visible subscription and transcript. It does not cancel a running task agent. Background results and queued root messages continue to use their owning session, while only the active view may render live content.

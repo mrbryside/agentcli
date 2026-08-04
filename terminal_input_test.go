@@ -49,6 +49,18 @@ func TestTerminalInputControlOTogglesReasoning(t *testing.T) {
 	}
 }
 
+func TestTerminalInputControlLTogglesRuntimeLogs(t *testing.T) {
+	editor, _ := newTerminalInputEditorForTest()
+	editor.pending = append(editor.pending, byte(12))
+	editor.consumePending()
+
+	select {
+	case <-editor.logToggles:
+	default:
+		t.Fatal("Ctrl+L did not emit a runtime-log toggle")
+	}
+}
+
 func TestTerminalInputEditsAtCursorAndRestoresHistory(t *testing.T) {
 	editor, _ := newTerminalInputEditorForTest()
 	editor.pending = append(editor.pending, []byte("ac")...)
@@ -122,6 +134,7 @@ func newTerminalInputEditorForTest() (*terminalInputEditor, *bytes.Buffer) {
 		errors:           make(chan error, 1),
 		escapes:          make(chan struct{}, 1),
 		reasoningToggles: make(chan struct{}, 1),
+		logToggles:       make(chan struct{}, 1),
 		stop:             make(chan struct{}),
 		historyIndex:     0,
 	}

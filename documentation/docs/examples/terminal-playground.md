@@ -52,24 +52,19 @@ construct the Agent with `WithNonInteractive(true)` as well.
 
 The executable in `playground/terminal` demonstrates the same API. Its files
 contain the caller-owned `glob`, `read`, and `confirm_demo` tools used for
-manual testing, while `main.go` only loads the project, registers those tools,
-and calls `agent.RunTerminal`. It reads provider, model, and compaction
+manual testing, while `main.go` loads the project, registers those tools,
+enables managed debug logging, and calls `agent.RunTerminal`. It reads provider, model, and compaction
 settings from the repository root `.agentcli/config.yaml`; there is no separate
 playground config. For a clean setup, copy `.agentcli/config.example.yaml` and
-replace both its main-agent and compaction model placeholders. That template
-also includes commented examples for Langfuse and OpenRouter; observability
-stays disabled unless the Langfuse block is uncommented. Runtime logging is
-also disabled by default; uncomment `logging` to send structured framework
-records to stderr while the TUI remains on stdout:
-
-```yaml
-logging:
-  enabled: true
-  level: debug
-```
+set `API_KEY`. The playground
+uses `WithLogLevel(slog.LevelDebug)` to capture structured framework records in
+the interactive TUI's dedicated log view.
 
 Debug mode is useful for watching provider rounds, tool execution,
 response-scope delivery, and repair attempts.
+Press `Ctrl+L` (or enter `/logs`) to open the runtime-log view, and use the same
+control to return while the active run continues. Non-interactive runs still
+send records to stderr.
 The repository
 playground compaction mapping declares an exact 122,880-token context window
 and 66,560-token output limit for its custom model. When the Terminal UI opens,
@@ -103,6 +98,7 @@ go run ./playground/terminal "Explain this repository"
 | `/confirmations` | List unresolved confirmations. |
 | `/mode MODE` | Exercise a permission mode. |
 | `/clear` | Redraw the active example view. |
+| `/logs` | Open or close the managed runtime-log view. |
 | `/exit` | Stop the example. |
 
 The Terminal shows one global FIFO approval across main-agent/subagent permissions and

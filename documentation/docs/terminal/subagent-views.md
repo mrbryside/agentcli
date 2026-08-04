@@ -139,6 +139,7 @@ Main-agent and task-session views share the same renderer features:
 - Markdown streaming
 - spinner-only loading state
 - collapsed provider reasoning and `Ctrl+O`
+- managed runtime logs and `Ctrl+L`
 - multiline input and bracketed paste
 - prompt history with Up and Down
 - `Esc` interruption
