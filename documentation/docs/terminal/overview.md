@@ -1,109 +1,113 @@
 ---
-title: Terminal UI overview
-sidebar_position: 1
+title: Terminal UI
+sidebar_position: 2
 ---
 
-# Terminal UI overview
+# Terminal UI
 
-`Agent.RunTerminal` opens AgentCLI's reference interactive client over an
-existing `Agent`. It is useful for testing an agent configuration before
-building a web, desktop, or mobile interface.
-
-The terminal is not a separate runtime. It uses the same model, tools,
-permission policy, storage, skills, subagents, sessions, turns, and events as
-the Go and HTTP APIs.
-
-The main model uses the `task` tool for child work. Foreground task output is
-part of the current main turn; background or `WithTaskForegroundWait`-promoted
-work is completed exactly once by Agent. Terminal renders the resulting normal
-main-agent activity and never runs a client-side result continuation.
-
-The opening banner shows the model and its resolved context window, for example
-`qwen3.6-35b · 120k context`. If the active model does not expose valid
-metadata, the field remains visible as `- context`.
-
-## Start an interactive terminal
+`Agent.RunTerminal` is the reference interactive client. It uses the same
+agent, tools, storage, permissions, task sessions, and event stream as the Go
+and HTTP surfaces.
 
 ```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/mrbryside/agentcli"
-)
-
-func main() {
-    ctx := context.Background()
-    project, err := agentcli.LoadProject(".")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    agent, err := agentcli.New(ctx,
-        agentcli.WithProject(project),
-        agentcli.WithTool(myTool()),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer agent.Close()
-
-    if err := agent.RunTerminal(
-        agentcli.WithTerminalSessionID("manual-test"),
-    ); err != nil {
-        log.Fatal(err)
-    }
+project, err := agentcli.LoadProject(".")
+if err != nil {
+    return err
 }
+
+agent, err := agentcli.New(ctx,
+    agentcli.WithProject(project),
+    agentcli.WithTool(myTool()),
+)
+if err != nil {
+    return err
+}
+defer agent.Close()
+
+return agent.RunTerminal(
+    agentcli.WithTerminalSessionID("manual-test"),
+)
 ```
 
-`RunTerminal` blocks until the user exits, input reaches EOF, the Agent is
-closed, or an error occurs. Exiting the terminal does not close the Agent.
-The caller may inspect messages, start another turn, or run the HTTP server
-afterward.
+`RunTerminal` blocks until exit or error, but exiting does not close the
+`Agent`.
 
-## Run the repository playground
+## Keyboard shortcuts
 
-The repository includes a runnable terminal with example `glob`, `read`, and
-confirmation tools:
+| Key | Action |
+| --- | --- |
+| `Enter` | Send the current prompt. |
+| `Shift+Enter` | Insert a newline. |
+| `Up` / `Down` | Navigate prompt history. |
+| `Ctrl+O` | Expand or collapse provider reasoning. |
+| `Ctrl+L` | Open or close the runtime-log view. |
+| `Esc` | Interrupt the active response without exiting. |
+| `Ctrl+C` twice | Exit; the second press must occur within two seconds. |
 
-```bash
-make terminal
+The editor supports cursor movement, bracketed paste, multiline prompts, and
+Markdown streaming without erasing a draft being typed.
+
+Concurrent `task` calls appear as separate progress rows, so each task agent
+can finish independently without replacing the status of the others.
+
+## Runtime logs
+
+Enable logging in `.agentcli/config.yaml`:
+
+```yaml
+logging:
+  enabled: true
+  level: info
 ```
 
-This is equivalent to:
+Interactive sessions capture these records instead of printing them into the
+conversation. Press `Ctrl+L` or run `/logs` to open a live view of the latest
+2,000 records. Press it again to return to the conversation while the run
+continues.
 
-```bash
+Non-interactive sessions still write managed logs to stderr. A caller-owned
+logger passed with `WithLogger` keeps its own output routing.
+
+## Useful commands
+
+| Command | Action |
+| --- | --- |
+| `/help` | Show commands and shortcuts. |
+| `/session` | Show the selected session and streaming state. |
+| `/new` | Switch to a new main-agent session. |
+| `/clear` | Clear and redraw the current view. |
+| `/skills` | List available skills without loading them. |
+| `/logs` | Toggle the runtime-log view. |
+| `/mode MODE` | Read or change the permission mode. |
+| `/permissions` / `/confirmations` | List pending safety decisions. |
+| `/agents` | List task-agent definitions and retained task sessions. |
+| `/agent REF` | Open a task session by ID or display name. |
+| `/agent-status REF` | Show task lifecycle and result. |
+| `/back` | Return to the main-agent view. |
+| `/close REF` | Close a task session and stop its pending work. |
+| `/exit` | Exit immediately. |
+
+Permission prompts accept `1` allow once, `2` allow for the session, `3` allow
+for the project, and `4` deny. Confirmation prompts accept `y` or `n`. Use the
+explicit `/allow ID`, `/deny ID`, `/confirm ID`, and `/decline ID` forms when
+several decisions are pending.
+
+Switching between the main view and a task session changes only what is shown;
+it does not interrupt background work. Input submitted while a view is busy is
+queued for that same session.
+
+## Playground and one-shot mode
+
+From this repository:
+
+```sh
 go run ./playground/terminal
-```
-
-To run one prompt without opening the interactive editor:
-
-```bash
 go run ./playground/terminal "Summarize this project"
 ```
 
-The playground constructs the Agent with `WithNonInteractive(true)` for this
-one-shot form. A permission that would require user input is denied, and a
-confirmation is declined instead of waiting forever.
+The one-shot form is non-interactive: permissions that would ask are denied
+and confirmations are declined. For an embedded one-shot client, combine
+`WithNonInteractive(true)` with `WithTerminalInitialPrompt(text)`.
 
-## Terminal options
-
-| Option | Behavior |
-| --- | --- |
-| `WithTerminalSessionID(id)` | Use a stable main-agent session ID so the transcript can be inspected or continued later. |
-| `WithTerminalInput(reader)` | Replace stdin for embedding or scripted tests. |
-| `WithTerminalOutput(writer)` | Replace stdout for embedding or output assertions. |
-| `WithTerminalInitialPrompt(text)` | Run one prompt and return without starting the interactive editor. |
-
-If no session ID is supplied, AgentCLI generates one. `/new` generates a new
-main-agent session while the terminal remains open.
-
-## What to read next
-
-- [Input, streaming, and keyboard shortcuts](./input-and-streaming.md)
-- [Complete command reference](./commands.md)
-- [Work with task-session views](./subagent-views.md)
-- [Safety and troubleshooting](./safety-and-troubleshooting.md)
-- [Run the complete playground example](../examples/terminal-playground.md)
+If raw shortcuts do not work, run directly in a TTY. A non-TTY
+`WithTerminalInput` uses a line scanner intended for embedding and tests.

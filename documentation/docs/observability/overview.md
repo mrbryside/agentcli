@@ -1,68 +1,89 @@
 ---
-title: LLM observability
-sidebar_position: 1
+title: Logging & Observability
+sidebar_position: 4
 ---
 
-# Observability
+# Logging and Observability
 
-Agentcli provides two independent observability surfaces:
+AgentCLI has two independent surfaces:
 
-- [Runtime logging](runtime-logging.md) writes structured agent, tool,
-  response-scope, repair, and delivery lifecycle records to stderr, or to the
-  dedicated log view while an interactive Terminal UI is attached.
-- [Langfuse](langfuse.md) exports model-call traces through OpenTelemetry.
+- runtime logging for agent, tool, repair, and response-scope lifecycle;
+- optional Langfuse traces for model calls.
 
-Runtime logging belongs to the execution framework. Langfuse instrumentation
-wraps the provider-neutral `agentruntime.Model` boundary and keeps each
-observation open until its stream completes or fails.
+## Runtime logging
 
-The current Langfuse scope is deliberately narrow:
-
-- one generation observation per LLM call;
-- main-agent, subagent, prompt-guard, tool-call guard, and compaction calls;
-- session and turn correlation;
-- provider/model labels, latency, first-output time, finish reason, and errors;
-- optional prompt, response, and reasoning capture.
-
-Tool handlers, permission checks, confirmations, storage operations, and other
-runtime events are not traced. A tool loop that calls the model several times
-therefore creates several generation traces. They are grouped by the runtime
-session ID in the backend rather than nested below an agent-run root span.
-
-## Provider-neutral model boundary
-
-The observability decorator receives `ModelRequest`, starts an OpenTelemetry
-client span, and passes the resulting context to the configured model. A
-background subscriber observes the same replayable model stream as the
-runtime. It records the first generated event and closes the span exactly once
-on `StreamCompleted`, `StreamFailed`, startup failure, or cancellation.
-
-Optional model capabilities such as `ModelMetadataProvider` and
-`ContextEstimatorProvider` are preserved by the decorator. Enabling
-observability therefore does not change context-compaction behavior.
-
-## Session correlation
-
-Each generation uses:
-
-```text
-langfuse.session.id                      = ModelRequest.SessionID
-langfuse.observation.metadata.turn_id    = ModelRequest.TurnID
-langfuse.observation.metadata.provider   = configured provider profile
-langfuse.observation.model.name          = configured model
+```yaml title=".agentcli/config.yaml"
+logging:
+  enabled: true
+  level: info
 ```
 
-Prompt guards and compaction requests carry the same session and turn IDs as
-the initiating run. Subagents have their own runtime session IDs and therefore
-appear as separate sessions.
+Omit `logging` to disable it. A present mapping defaults to `enabled: true`
+and `level: info`.
 
-## Data and failure boundaries
+| Level | Typical records |
+| --- | --- |
+| `debug` | Provider, tool, compaction, and response-scope details. |
+| `info` | Turns, response scopes, task closure, and repair requests. |
+| `warn` | Recoverable framework warnings. |
+| `error` | Failed/interrupted turns, repairs, and delivery. |
 
-Prompt, response, and reasoning payloads are disabled by default. Metadata and
-timing remain available without them. Export happens asynchronously and an
-export failure never changes a model result or runtime event.
+Records normally go to stderr. An interactive Terminal captures project logs
+and logs enabled with `WithLogLevel`; use `Ctrl+L` or `/logs` to view them
+without interrupting the conversation. A custom `WithLogger` remains
+caller-owned and is not captured.
 
-The main `Agent` owns one exporter shared by its subagents. Call
-`Agent.Close()` during graceful shutdown so queued observations are flushed.
+Debug tool payloads redact credential-like fields and truncate large values.
+Runtime logs never include provider reasoning, guard feedback, or repair
+reminders. Application tools must still avoid secrets in ordinary errors and
+custom logs.
 
-For setup and field reference, see [Langfuse](langfuse.md).
+## Langfuse
+
+Langfuse uses its OpenTelemetry OTLP/HTTP endpoint and does not replace the
+application's global tracer provider.
+
+```yaml title=".agentcli/config.yaml"
+observability:
+  langfuse:
+    enabled: true
+    base_url: ${LANGFUSE_BASE_URL}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    environment: production
+    service_name: agentcli
+    release: ${APP_VERSION}
+    sample_rate: 1.0
+    capture:
+      input: false
+      output: false
+      reasoning: false
+```
+
+`base_url` defaults to `https://cloud.langfuse.com`; select the correct Cloud
+region or self-hosted root. Enabled configurations require matching public and
+secret keys. `sample_rate` accepts `0` through `1`.
+
+Input, output, and reasoning capture default to `false`. Enable them only when
+the project's retention and data-residency policy permits sending those
+payloads to Langfuse.
+
+Each model call becomes one generation, including main-agent, task-agent,
+guard, and compaction calls. Session/turn IDs, provider/model labels, latency,
+first-output time, finish reason, and error status are correlated. Tool
+handlers and storage operations are not model traces.
+
+AgentCLI currently does not report token usage or model cost because the
+provider-neutral stream result does not expose usage.
+
+## Shutdown
+
+Always close the Agent:
+
+```go
+defer agent.Close()
+```
+
+Close stops live task agents and the executor, then gives the shared exporter
+up to five seconds to flush. Telemetry export failure does not change model or
+runtime results.

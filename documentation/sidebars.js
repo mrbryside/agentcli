@@ -2,104 +2,42 @@ module.exports = {
   docs: [
     {
       type: 'category',
-      label: 'Getting started',
+      label: 'Getting Started',
+      collapsed: false,
       items: [
         'getting-started/installation',
-        'getting-started/bootstrap-project',
         'getting-started/project-configuration',
-        'getting-started/first-agent',
       ],
     },
     {
       type: 'category',
-      label: 'Agent CLI',
-      items: [
-        'agentcli/runs-and-sessions',
-        'agentcli/events-and-history',
-        'agentcli/subagent-views',
-        'agentcli/server',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Use cases',
-      link: {
-        type: 'generated-index',
-        title: 'Use cases',
-        description: 'Small, end-to-end applications built with agentcli.',
-      },
-      items: [
-        'use-cases/discord-bot',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Terminal UI',
-      items: [
-        'terminal/overview',
-        'terminal/input-and-streaming',
-        'terminal/commands',
-        'terminal/subagent-views',
-        'terminal/safety-and-troubleshooting',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Guardrails',
-      items: [
-        'guardrails/overview',
-        'guardrails/agent-input-output',
-        'guardrails/tool-call',
-        'guardrails/prompt-contract',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Tools and safety',
+      label: 'Build Agents',
       items: [
         'tools/custom-tools',
-        'tools/input-schemas',
         'tools/permissions-and-confirmations',
-        'tools/security',
+        'capabilities/skills-and-task-agents',
       ],
     },
     {
       type: 'category',
-      label: 'Capabilities',
+      label: 'Run & Integrate',
       items: [
-        'capabilities/skills',
-        'capabilities/subagents',
-        'capabilities/subagent-lifecycle-control',
-        'capabilities/context-compaction',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Observability',
-      items: [
+        'agentcli/runs-and-sessions',
+        'terminal/overview',
+        'agentcli/server',
         'observability/overview',
-        'observability/runtime-logging',
-        'observability/langfuse',
       ],
     },
     {
       type: 'category',
-      label: 'API reference',
+      label: 'Reference',
       items: [
-        'api/go-api',
-        'api/http-api',
-        'api/sse-events',
+        {
+          type: 'link',
+          label: 'Go API (pkg.go.dev)',
+          href: 'https://pkg.go.dev/github.com/mrbryside/agentcli',
+        },
         'api/api-reference',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Examples',
-      items: [
-        'examples/agentcli-application',
-        'examples/api-client-integration',
-        'examples/terminal-playground',
-        'examples/testing',
       ],
     },
   ],

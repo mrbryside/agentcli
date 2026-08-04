@@ -1,72 +1,30 @@
 ---
-title: Project configuration
+title: Project Configuration
 sidebar_position: 2
 ---
 
-# Project configuration
+# Project Configuration
 
-## Tasks and result contracts (v0.1)
-
-The main agent selects configured child definitions through the single `task`
-tool. New work supplies agent/description/prompt; resume supplies task ID and
-prompt. Child definitions can declare `result.message_field` and named
-`boolean`/`string` metadata. A valid final JSON object yields the message as
-task output and metadata only in `SystemTaskCompleted`/`task_completed`.
-Child agents cannot invoke `task`. At a provider step limit they receive a
-text-only finalization and return `incomplete`; `report_subagent_result` is
-removed.
-
-These protocol details are framework-owned. `MAIN.md`, skills, and subagent
-definition bodies express domain policy and role behavior without duplicating
-task fields, batching rules, resume mechanics, or generic delivery wording.
-The framework explains how instructions such as “use researcher,” “run these
-checks independently,” “review after research,” or “continue the same
-researcher conversation” map to valid task calls. It exposes continuation as a
-capability; application prompts decide whether a particular workflow should
-reuse an earlier task.
-
-Projects created by the curl bootstrapper begin with `replace-provider` and
-`replace-model` placeholders. Replace the provider alias consistently in
-the config's compaction/provider mappings and `MAIN.md`, then replace the main
-and summarizer model values before running the project. See
-[Bootstrap a project](bootstrap-project.md) for the generated layout.
-
-`agentcli.LoadProject(root)` takes an immutable snapshot of project-owned
-inputs:
+`agentcli.LoadProject(root)` reads an immutable project snapshot from
+`.agentcli/`:
 
 ```text
 .agentcli/
-├── config.yaml
-├── MAIN.md
-├── skill/
-│   └── interview/SKILL.md
-└── agent/
-    └── researcher/researcher.md
+├── config.yaml              # required
+├── MAIN.md                  # required
+├── skill/*/SKILL.md         # optional
+└── agent/*/*.md             # optional
 ```
 
-`config.yaml` and `MAIN.md` are required. Skill and subagent directories are
-optional. Invalid YAML, unknown frontmatter fields, missing provider profiles, unknown
-skills, or unregistered tool allowlist entries cause initialization to fail.
-This makes configuration mistakes visible before the first model request.
+Unknown fields, missing providers, unknown skills, and unregistered tools fail
+during startup rather than during a model request.
 
-## Provider configuration
+## Provider settings
 
-`.agentcli/config.yaml` owns connections, the initial permission mode, runtime
-logging, LLM observability, and optional transcript compaction:
+Start with one OpenAI-compatible provider:
 
-```yaml
+```yaml title=".agentcli/config.yaml"
 permission_mode: default
-
-# Omit this mapping to disable runtime console logs.
-logging:
-  enabled: true
-  level: info
-
-# Omit this mapping to disable new compactions. When present, auto defaults to true.
-compaction:
-  auto: true
-  provider: primary
-  model: gpt-4.1-mini
 
 providers:
   primary:
@@ -75,299 +33,91 @@ providers:
     api_key: ${API_KEY}
     request_timeout: 2m
     models:
-      gpt-4.1-mini:
+      your-model:
         context_window_tokens: 122880
         max_output_tokens: 66560
-        # reasoning: false # Optional Qwen-compatible shorthand.
-        # extra_body: # Optional model-specific top-level request JSON.
-        #   thinking:
-        #     type: disabled
-
-  openrouter:
-    type: openai
-    url: https://openrouter.ai/api/v1
-    api_key: ${OPENROUTER_API_KEY}
-    request_timeout: 90s
 ```
 
-Provider names are application-defined aliases. `MAIN.md` and subagent files
-refer to the alias, while the required `type` field selects the adapter. Both
-`primary` and `openrouter` above use `type: openai`, so their names can change
-without changing protocol behavior. `openai` is currently the only supported
-type; missing or unsupported types fail during `LoadProject`.
+Provider names such as `primary` are local aliases. Environment references use
+`${NAME}` and missing variables are load errors. `openai` is currently the
+supported provider type; any OpenAI-compatible chat-completions endpoint can
+use it.
 
-The optional `models` mapping holds overrides keyed by the exact model name
-used in `MAIN.md`, a subagent definition, or `compaction.model`. It is not an
-allowlist: agents may select unlisted model names, which continue through
-metadata discovery/defaults without request overrides.
+Entries under `models` are exact-name overrides, not an allowlist. They may
+also set `reasoning` for Qwen-compatible endpoints or `extra_body` for
+provider-specific request fields.
 
-Within a matching model entry, the optional `reasoning` boolean is a
-Qwen-compatible shorthand for `chat_template_kwargs.enable_thinking`. Omit it
-to preserve the backend default. Provider extensions that use another wire
-shape belong in the optional `extra_body` mapping. Its arbitrary YAML values
-are encoded as JSON and merged into the top level of chat-completions requests
-for that exact model. For example, a DeepSeek-compatible gateway can disable
-thinking with `extra_body: {thinking: {type: disabled}}`, while a gateway using
-a flat effort field can set `extra_body: {reasoning_effort: none}`. Environment
-references are expanded recursively inside `extra_body`. Extra-body values
-override standard request fields with the same names.
+## Main agent
 
-For example, one OpenAI-compatible gateway can configure DeepSeek and Qwen
-independently while leaving every other model unmodified:
+```md title=".agentcli/MAIN.md"
+---
+provider: primary
+model: your-model
+tools:
+  - glob
+  - read
+skills:
+  - code-review
+---
 
-```yaml
-providers:
-  openzen:
-    type: openai
-    url: https://gateway.example/v1
-    api_key: ${OPENZEN_API_KEY}
-    models:
-      deepseek-model-id:
-        context_window_tokens: 122880
-        max_output_tokens: 66560
-        extra_body:
-          thinking:
-            type: disabled
-
-      qwen-model-id:
-        reasoning: false
+You are a coding assistant. Inspect the project before proposing changes.
 ```
 
-If `MAIN.md` or a subagent selects `deepseek-model-id`, only the DeepSeek
-entry is added to its requests. Selecting `qwen-model-id` sends only
-`chat_template_kwargs.enable_thinking: false`. Selecting any other model name
-still works and receives neither override.
+The body contains product instructions. The frontmatter selects the provider,
+model, and allowlisted tools and skills. Task-agent definitions are discovered
+from `.agentcli/agent/` and exposed through the framework-owned `task` tool;
+they are not listed in `MAIN.md`.
 
-Provider-step limits are programmatic rather than project configuration.
-Without `WithProviderStepLimit`, main and subagent turns have no provider-round
-ceiling. `WithProviderStepLimit(n)` allows `n` agentic provider rounds, then
-enters a restricted finalization phase. Ordinary work tools are unavailable.
-The finalizer sees only registered `EndTurn` and `EndResponseScope` completion
-tools; a subagent sees no tools and returns one text-only final response as an
-`incomplete` task result. If no required completion tool is available, the
-model must return a text summary from existing results.
-If it returns neither a permitted completion tool nor text, the runtime inserts
-a deterministic fallback summary rather than starting more agentic work.
+## Optional features
 
-Missing required completion tools reuse the existing bounded completion repair,
-which exposes only the missing tools. This preserves end-of-response delivery
-without allowing new domain work after the budget. Finalization and repair
-rounds are included in `RunResult.Steps`;
-`Run.StepLimitFinalized()` reports whether the restricted phase was entered.
-The option requires a positive value and is inherited by subagents.
+Add only the sections the application uses:
 
-Environment substitutions use `${NAME}`. A missing variable is a load error;
-the loader does not silently send an empty credential.
+```yaml title=".agentcli/config.yaml"
+logging:
+  enabled: true
+  level: info
 
-## Runtime logging
+compaction:
+  auto: true
+  provider: primary
+  model: your-model
 
-The optional `logging` mapping emits structured runtime lifecycle records.
-They normally go to stderr. While an interactive Terminal UI is attached,
-project-managed records are captured instead and available with `Ctrl+L` or
-`/logs`, so they cannot interrupt the conversation. Omitting the mapping or
-setting `enabled: false` disables the records. When the mapping is present,
-`enabled` defaults to `true` and `level` defaults to `info`; supported levels
-are `debug`, `info`, `warn`, and `error`.
-
-Info logging covers turn and response-scope start/end, repair requests, and
-terminal failures. Repair records distinguish `output_guard`,
-`completion_guard`, and `provider_response`, and include their attempt number,
-provider-step count, and active tool allowlist. `provider_response` is the
-single tools-disabled recovery after malformed/truncated arguments or a tool
-call absent from the current provider request. Debug logging additionally
-includes provider content, tool arguments/results, and compaction details. It
-also records result-obligation
-cancellation when an application-owned subagent close releases a response-scope
-barrier. Delivery failures are error records. Tool JSON fields that look like tokens,
-secrets, passwords, authorization values, or API keys are redacted and large
-values are truncated. Model reasoning, guard feedback, and completion
-reminders are never logged. Rejected repair drafts remain in retained run
-events for diagnostics but never enter conversation storage or the next model
-request.
-
-Programmatic agents can use `WithLogLevel` to enable a level in code while
-retaining the Terminal log view, or `WithLogger` to supply a caller-owned
-`*slog.Logger`. When applied after `WithProject`, either option overrides
-project logging. Subagents reuse the selected main-agent logger automatically.
-A caller-owned logger is not captured by the Terminal UI.
-
-See [Runtime logging](../observability/runtime-logging.md) for the event and
-privacy reference.
-
-## Langfuse LLM observability
-
-The optional `observability.langfuse` mapping exports one OpenTelemetry
-generation span for every model call. It instruments the provider-neutral
-model boundary, so main-agent, subagent, prompt-guard, tool-call guard, and
-compaction model calls use the same exporter. Tool handler execution and other
-runtime events are not traced.
-
-```yaml
 observability:
   langfuse:
     enabled: true
     base_url: ${LANGFUSE_BASE_URL}
     public_key: ${LANGFUSE_PUBLIC_KEY}
     secret_key: ${LANGFUSE_SECRET_KEY}
-    environment: production
-    service_name: agentcli
-    release: ${APP_VERSION}
-    sample_rate: 1.0
-    capture:
-      input: true
-      output: true
-      reasoning: false
 ```
 
-`base_url` defaults to `https://cloud.langfuse.com`. Use the matching Langfuse
-Cloud region or the root URL of a self-hosted installation. Agentcli appends
-`/api/public/otel/v1/traces`, authenticates with the configured project keys,
-and requests Langfuse ingestion version 4. `sample_rate` defaults to `1.0` and
-accepts values from `0` through `1`.
+- `logging` writes structured runtime records. Interactive Terminal sessions
+  capture project-managed logs in the `Ctrl+L` / `/logs` view instead of
+  printing them through the conversation.
+- `compaction` summarizes old transcript context when the selected model nears
+  its context limit. Omit the section to disable it.
+- `observability.langfuse` exports model-call spans. Prompt, output, and
+  reasoning capture are off by default.
 
-Every generation carries the runtime `SessionID` as `langfuse.session.id`, so
-multiple turns and provider rounds appear in the same Langfuse session.
-`TurnID`, provider profile, model, finish reason, release, environment,
-latency, first-output time, and errors are attached automatically; they do not
-belong in YAML.
+See [Runs, sessions, and events](../agentcli/runs-and-sessions.md#context-compaction) and
+[Observability](../observability/overview.md) for operational details.
 
-Input, output, and reasoning capture all default to `false`. Enable only the
-payloads that the project's data policy permits. Input includes system
-prompts, messages, context reminders, and tool schemas. Reasoning is controlled
-separately from normal output and remains omitted in the example above.
+## Permission modes
 
-The main agent owns one asynchronous exporter shared by its subagents.
-Always call `Agent.Close()` during graceful shutdown so queued observations are
-flushed. Export failures do not change model-call results.
+`permission_mode` controls declared tool permissions:
 
-## Automatic transcript compaction
+| Mode | Behavior |
+| --- | --- |
+| `default` | Ask when no stored decision or matching policy exists. |
+| `acceptEdits` | Allow filesystem-write-only calls; ask for others. |
+| `criticalOnly` | Allow low/medium risk; ask for high risk. |
+| `dontAsk` | Deny calls that would require a question. |
+| `plan` | Deny executable capabilities while planning. |
+| `unrestricted` | Allow declared permissions unless a rule asks or denies. |
 
-The optional `compaction` mapping accepts `auto`, `provider`, and `model`;
-unknown keys are rejected. Omitting it disables new compactions. If the mapping
-is present, `auto` defaults to `true`; use `auto: false` to keep the mapping but
-disable creation of future checkpoints.
+Confirmations remain separate Yes/No decisions and are never bypassed by a
+permission mode. See [Safety, permissions, and confirmations](../tools/permissions-and-confirmations.md).
 
-`provider` must be an existing provider-profile alias such as `primary`, and
-`model` is the separate summarizer model. It is resolved through the same
-factory as the main agent and subagents; the alias's `type` still chooses the
-adapter. Optional `context_window_tokens` and `max_output_tokens` live on each
-exact model entry. This lets main, subagent, and summarizer models carry
-independent limits even when they share a provider profile. The runtime derives
-compaction budgets from the active main model's metadata.
-
-With compaction enabled, the main model must expose valid context-window and
-output metadata. Explicit limits on its exact model entry take priority and
-avoid metadata requests for that model. Without them, each distinct
-model requests its authenticated provider `/models` endpoint first, then
-`https://models.dev/api.json`; the final defaults are 122,880 context tokens
-and 66,560 output tokens. The Terminal UI displays those binary token counts
-as `120k` and `65k`. Explicit non-positive or partially configured limits
-remain validation errors.
-Applications can still override project-selected adapters with
-`agentcli.WithModel` or `agentcli.WithCompactionModel`. The optional
-`ContextEstimatorProvider` capability selects a provider-aware estimator per
-main model. `agentcli.WithContextEstimator` remains an explicit override when
-the default selection is not precise enough.
-
-Compaction preserves full transcript storage. When a request needs shrinking,
-the runtime appends a cumulative checkpoint and sends the main model that
-summary, serialized recent context, and a recent verbatim tail. Resuming the session continues projecting
-the latest stored checkpoint even if `auto` is later disabled; disabling it
-only prevents new checkpoints. See
-[Context compaction](../capabilities/context-compaction.md) for request
-projection, lifecycle events, subagent behavior, and provider-neutral sizing.
-
-## Main-agent definition
-
-`.agentcli/MAIN.md` is always loaded, so it does not need `name` or
-`description`:
-
-```markdown
----
-provider: primary
-model: gpt-4.1-mini
-skills:
-  - interview
-tools:
-  - lookup_topic
-  - publish_report
----
-
-Understand the requested result, use capabilities deliberately, and provide a
-clear self-contained result.
-```
-
-`skills` and `tools` are strict allowlists. Omit a key when the main agent gets
-none of that capability. An explicit empty list is rejected to avoid confusing
-"configured empty" state.
-
-Keep the Markdown body application-specific. It may require a configured agent,
-parallel or sequential domain work, or continuation of the same agent
-conversation. It should not teach the model the `task` JSON fields,
-foreground/background lifecycle, polling prohibition, or result parsing; the
-framework prompt owns those rules.
-
-Listing a custom tool does not create its handler. The Go application must also
-register that exact name with `agentcli.WithTool`; otherwise
-`agentcli.New` returns an error such as:
-
-```text
-main agent requires custom tool "publish_report", but it is not registered
-```
-
-Registration makes a handler available to the application catalog; each agent
-allowlist determines whether that model can see it. A required end-of-turn tool
-is required only for agents whose allowlist exposes it. The generated starter
-registers and exposes only `glob` and `read`.
-
-## Project instructions
-
-Project loading builds these ordered main-agent system-message layers:
-
-1. One core framework message containing runtime rules and environment/model
-   context.
-2. When skills exist, one framework-owned skill discovery and loading message.
-3. When subagents exist, one framework-owned task orchestration message and
-   discovery-only task-agent catalog.
-4. One application-owned main-agent instruction message containing the body of
-   `MAIN.md`.
-
-Root `AGENTS.md` is not loaded. These messages are not persisted in
-conversation storage; they are rebuilt for provider calls from the loaded
-project snapshot. A subagent receives a framework message containing runtime,
-capability, safety, skill-discovery, delivery, and optional result-format rules,
-followed by a separate application-owned assignment-role message containing
-its definition body.
-
-This separation is a contract boundary. Application instructions define
-domain intent and quality; framework messages define protocol mechanics and
-delivery semantics. A task assignment can therefore contain only the concrete
-goal, method, context, and expected result while the child still receives the
-framework delivery contract.
-
-## Programmatic overrides
-
-`WithProject` applies the loaded model, prompts, main-agent identity, permission mode,
-skills, and subagents. Later scalar options can override it:
-
-```go
-agent, err := agentcli.New(ctx,
-    agentcli.WithProject(project),
-    agentcli.WithPermissionMode(permission.CriticalOnly),
-    agentcli.WithToolWorkers(8),
-)
-```
-
-Use `WithProjectRoot` only when constructing without a loaded project. It sets
-the identity used for project-scoped permission grants; it does not sandbox or
-register tools.
-
-## Configuration checklist
-
-- Keep API keys in the process environment.
-- Keep Langfuse payload capture aligned with the project's data policy.
-- Give every main/subagent tool an exact registered-name match.
-- Keep tool allowlists minimal.
-- Describe skills and subagents narrowly enough that the model can avoid
-  unnecessary activation.
-- Start in `default` while testing safety classifications.
+Programmatic options passed after `agentcli.WithProject(project)` can override
+project defaults such as the model, logger, storage, permission policy, and
+provider-step limit. The
+[Go API](https://pkg.go.dev/github.com/mrbryside/agentcli) lists those options.

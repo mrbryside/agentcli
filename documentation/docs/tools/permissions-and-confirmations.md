@@ -1,18 +1,14 @@
 ---
-title: Permissions and confirmations
-sidebar_position: 3
+title: Safety & Permissions
+sidebar_position: 2
 ---
 
-# Permissions and confirmations
+# Safety, Permissions, and Confirmations
 
-Permissions answer **may this capability execute?** Confirmations answer **does
-the user want this specific invocation after seeing its details?** They are
-independent gates.
+Permissions answer “may this capability execute?” Confirmations answer “does
+the user want this specific invocation?” They are separate gates.
 
-## Permission declarations
-
-A tool declares capability actions, `low`/`medium`/`high` risk, a reason, and
-optional invocation details.
+## Declare capability risk
 
 ```go
 tool := agentcli.Tool{
@@ -30,193 +26,161 @@ tool := agentcli.Tool{
 }
 ```
 
-Actions are `FilesystemRead`, `FilesystemWrite`, `ProcessExecute`,
-`NetworkAccess`, and `SandboxBypass`. Omitting both permission fields creates
-an unguarded tool; do this only when appropriate for the host trust model.
+Actions include filesystem read/write, process execution, network access, and
+sandbox bypass. Omitting permission creates an unguarded tool; do that only
+when it fits the application's trust model.
 
-## Dynamic permission and confirmation
-
-Share strict decoding and normalization across the handler and descriptors:
-
-```go
-type publishArguments struct {
-    Destination *string `json:"destination"`
-    Message     *string `json:"message"`
-}
-
-func decodePublishArguments(raw json.RawMessage) (publishArguments, error) {
-    var input publishArguments
-    if err := agentcli.DecodeArguments(raw, &input); err != nil {
-        return publishArguments{}, err
-    }
-    if input.Destination == nil || strings.TrimSpace(*input.Destination) == "" {
-        return publishArguments{}, errors.New("destination is required")
-    }
-    if input.Message == nil || strings.TrimSpace(*input.Message) == "" {
-        return publishArguments{}, errors.New("message is required")
-    }
-    return input, nil
-}
-```
+For argument-dependent risk, use a `Permission` function. Add `Confirmation`
+when the user should inspect the exact target immediately before execution:
 
 ```go
-tool := agentcli.Tool{
-    Definition: agentcli.ToolDefinition{
-        Name:        "publish_report",
-        Description: "Publish one report after user approval.",
-        InputSchema: agentcli.ObjectSchema(struct {
-            Destination agentcli.ToolParameter
-            Message     agentcli.ToolParameter
-        }{
-            Destination: agentcli.StringParameter("Configured destination").
-                Required().
-                MinLength(1).
-                MaxLength(120),
-            Message: agentcli.StringParameter("Report body").
-                Required().
-                MinLength(1).
-                MaxLength(4000),
-        }),
-    },
-    Handler: publishReport,
-    Permission: func(raw json.RawMessage) (
-        agentcli.ToolPermissionDescription,
-        error,
-    ) {
-        input, err := decodePublishArguments(raw)
-        if err != nil {
-            return agentcli.ToolPermissionDescription{}, err
-        }
-        return agentcli.ToolPermissionDescription{
-            Actions: []agentcli.PermissionAction{agentcli.NetworkAccess},
-            Risk:    agentcli.RiskHigh,
-            Reason:  "Publishes a report to an external destination.",
-            Details: "Destination: " + strings.TrimSpace(*input.Destination),
-        }, nil
-    },
-    Confirmation: func(raw json.RawMessage) (
-        agentcli.ToolConfirmationDescription,
-        error,
-    ) {
-        input, err := decodePublishArguments(raw)
-        if err != nil {
-            return agentcli.ToolConfirmationDescription{}, err
-        }
-        return agentcli.ToolConfirmationDescription{
-            Title:   "Confirm report publication",
-            Message: "Publish this report now?",
-            Details: "Destination: " + strings.TrimSpace(*input.Destination),
-        }, nil
-    },
-}
-```
-
-The handler must validate again because a descriptor is not the execution
-boundary. Normalize control characters, bound display text, and never include
-secrets or unnecessary full content in permission/confirmation details.
-
-`PermissionWithPolicy` is the alternative when classification needs the
-immutable policy snapshot:
-
-```go
-PermissionWithPolicy: func(
-    raw json.RawMessage,
-    policy permission.Policy,
-) (permission.Description, error) {
+Permission: func(raw json.RawMessage) (agentcli.ToolPermissionDescription, error) {
     input, err := decodePublishArguments(raw)
     if err != nil {
-        return permission.Description{}, err
+        return agentcli.ToolPermissionDescription{}, err
     }
-    return classifyPublish(input, policy)
+    return agentcli.ToolPermissionDescription{
+        Actions: []agentcli.PermissionAction{agentcli.NetworkAccess},
+        Risk:    agentcli.RiskHigh,
+        Reason:  "Publishes a report externally.",
+        Details: "Destination: " + input.Destination,
+    }, nil
+},
+Confirmation: func(raw json.RawMessage) (agentcli.ToolConfirmationDescription, error) {
+    input, err := decodePublishArguments(raw)
+    if err != nil {
+        return agentcli.ToolConfirmationDescription{}, err
+    }
+    return agentcli.ToolConfirmationDescription{
+        Title:   "Publish report",
+        Message: "Publish this report now?",
+        Details: "Destination: " + input.Destination,
+    }, nil
 },
 ```
 
-A tool may set `Permission` or `PermissionWithPolicy`, not both.
+Decode and normalize arguments again in the handler. Never put credentials or
+unbounded model content in decision details.
 
 ## Permission modes
 
 | Mode | Default behavior |
 | --- | --- |
 | `default` | Ask for guarded calls. |
-| `acceptEdits` | Allow exclusively filesystem-write calls; ask for others. |
-| `criticalOnly` | Ask for high-risk calls; allow low/medium risk. |
-| `dontAsk` | Deny calls that would need a question. |
+| `acceptEdits` | Allow filesystem-write-only calls; ask for others. |
+| `criticalOnly` | Allow low/medium risk; ask for high risk. |
+| `dontAsk` | Deny calls that would ask. |
 | `plan` | Deny executable capabilities while planning. |
-| `unrestricted` | Allow declared permissions without a question. This is host access, not a sandbox. |
+| `unrestricted` | Allow declared permissions unless a rule asks or denies. |
 
-Explicit rules use `deny > ask > allow > default` precedence. Change the mode
-at runtime with `agent.SetPermissionMode`. Existing pending prompts stay
-pending; new requests use the new policy epoch.
+Explicit rules use `deny > ask > allow > default` precedence. Mode changes
+affect new requests; existing pending requests remain correlated and pending.
 
-## Non-interactive execution
+### Non-interactive execution
 
-`WithNonInteractive(true)` is an execution flag, not a permission mode.
-Admission still evaluates mode, rules, and grants:
+`WithNonInteractive(true)` is not a mode. It preserves policy evaluation, then
+denies anything that would ask and declines confirmations. Even
+`unrestricted` does not bypass confirmations.
 
-```text
-permission allow  → allow
-permission deny   → deny
-permission ask    → deny
-confirmation      → No / declined
-```
+## Decision lifecycle
 
-It does not change `Agent.PermissionMode()` or emit a mode-change event.
-`criticalOnly` therefore allows low/medium risk but denies a high-risk request
-that would ask. `unrestricted` allows declared permissions unless an explicit
-rule asks or denies, but confirmation is still declined.
+Permission runs before confirmation. An allowed permission may be remembered
+once, for the session, or for the project; every invocation can still require
+its own confirmation.
 
-## Permission before confirmation
+Resolve requests with their full permission/confirmation ID, session ID, turn
+ID, and call ID. Duplicate, mismatched, expired, cancelled, and
+post-interruption answers fail safely.
 
-For a tool with both gates, permission admission runs first. Only an allowed
-permission produces the invocation-specific confirmation. A session/project
-grant may suppress a later permission question, but every invocation can still
-require confirmation. Yes runs the handler; No produces a `declined` tool
-result. Interruption cancels pending admission.
+The Terminal presents one FIFO across main and task sessions. The executor
+publishes at most one admission prompt per session, and waiting decisions do
+not consume tool-worker slots.
 
-## Resolve decisions
+## Security boundary
 
-Preserve every correlation ID:
+Permissions and confirmations are application policy, not containment. Tool
+handlers must still:
+
+- resolve and constrain filesystem paths;
+- parse shell commands instead of relying on substring checks;
+- enforce authorization and destination allowlists;
+- limit time, bytes, result counts, and output size;
+- support cancellation and idempotency where side effects are possible;
+- keep HTTP APIs on loopback until authentication, TLS, CORS, and rate limits
+  are configured.
+
+The optional `toolexecution/bashsecure` package helps classify and scope shell
+commands, but the host remains responsible for the final operating-system
+sandbox and deployment policy.
+
+## Guardrails
+
+Guardrails inspect input, pending output, or a requested tool call. Use
+function guards for deterministic rules and prompt guards for narrow semantic
+policies. They complement permissions and handler validation.
+
+### Input and output
 
 ```go
-err := agent.ResolvePermission(ctx, permission.Decision{
-    PermissionID: request.ID,
-    SessionID:    request.SessionID,
-    TurnID:       request.TurnID,
-    CallID:       request.CallID,
-    Type:         permission.AllowOnce,
-})
+func checkInput(ctx context.Context, attempt agentcli.InputGuardAttempt) (
+    agentcli.InputGuardDecision,
+    error,
+) {
+    if strings.Contains(attempt.Message.Content, "blocked-value") {
+        return agentcli.InputGuardDecision{
+            Action:   agentcli.InputRespond,
+            Response: "I can help with a safer version of that request.",
+        }, nil
+    }
+    return agentcli.InputGuardDecision{Action: agentcli.InputAccept}, nil
+}
+
+func checkOutput(ctx context.Context, attempt agentcli.OutputGuardAttempt) (
+    agentcli.OutputGuardDecision,
+    error,
+) {
+    if strings.Contains(attempt.Output.Content, "private-value") {
+        return agentcli.OutputGuardDecision{
+            Action:   agentcli.OutputRetry,
+            Feedback: "Rewrite without private values.",
+        }, nil
+    }
+    return agentcli.OutputGuardDecision{Action: agentcli.OutputProceed}, nil
+}
 ```
 
-Decision types are `AllowOnce`, `AllowSession`, `AllowProject`, and `Deny`.
+Register them with `WithInputGuard` and `WithOutputGuard`. Input can be
+accepted, replaced, answered without the main model, or rejected. Output can
+proceed or request a repair round. Rejected output stays in run events for
+diagnostics but is not stored in the conversation.
+
+Prompt-backed equivalents use `WithInputGuardPrompt` and
+`WithOutputGuardPrompt`; an optional configured provider/model can isolate the
+policy call. Do not configure function and prompt modes for the same direction.
+
+### Tool calls
 
 ```go
-err := agent.ResolveConfirmation(ctx, confirmation.Decision{
-    ConfirmationID: request.ID,
-    SessionID:      request.SessionID,
-    TurnID:         request.TurnID,
-    CallID:         request.CallID,
-    Answer:         confirmation.Yes,
-})
+ToolCallGuard: func(ctx context.Context, attempt agentcli.ToolCallGuardAttempt) (
+    agentcli.ToolCallGuardDecision,
+    error,
+) {
+    if !argumentsAreAllowed(attempt.Arguments) {
+        return agentcli.ToolCallGuardDecision{
+            Action:   agentcli.ToolCallReject,
+            Feedback: "Retry with one specific, allowed query.",
+        }, nil
+    }
+    return agentcli.ToolCallGuardDecision{Action: agentcli.ToolCallAllow}, nil
+},
 ```
 
-## Interactive decision ordering
+`ToolCallGuardPrompt` provides a semantic alternative and may select a model
+with `ToolCallGuardModel`. Rejection happens before the handler, becomes a
+failed tool result, and lets the main model issue a corrected call. It is not
+an automatic executor retry.
 
-The reference Terminal presents one global FIFO across main-agent sessions,
-subagents, permissions, and confirmations. It shows one actionable question at
-a time; after it resolves, the next oldest request becomes visible. A numeric
-permission shortcut cannot consume a visible confirmation, and `y`/`n` cannot
-consume a visible permission. Explicit ID commands remain available.
-
-The executor itself publishes at most one admission prompt per session. Other
-sessions can continue independently, and waiting requests do not occupy worker
-slots.
-
-## Late answers
-
-Requests remain correlated by decision ID, session, turn, and call. A client
-may answer later while the process and pending run still exist. Duplicate,
-mismatched, expired, cancelled, and post-interruption answers fail safely.
-
-Generated starter edits demonstrate both gates with a high-risk
-`filesystem.write` permission followed by confirmation. See
-[Bootstrap a project](../getting-started/bootstrap-project.md).
+Prompt guards use one isolated, tools-disabled model request and require a
+strict `allowed`, `reason`, and `feedback` JSON verdict. Malformed or
+unavailable guard results fail closed. Keep policies narrow, avoid secrets in
+feedback, and test rejection, malformed output, timeout, and cancellation.
