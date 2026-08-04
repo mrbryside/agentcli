@@ -1,6 +1,8 @@
 package agentcli
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,14 +85,14 @@ func TestInstallerFallbackVersionTracksCurrentRelease(t *testing.T) {
 }
 
 func TestInstallerIncludesDocumentedModelOverride(t *testing.T) {
-	const required = `# Model entries are exact-name overrides, not an allowlist. These limits
-    # help AgentCLI budget context and compaction when discovery is unavailable.
+	const required = `# Model entries are exact-name overrides, not an allowlist. Limits are
+    # discovered automatically; uncomment them only for an unknown custom LLM.
     models:
       replace-model:
-        context_window_tokens: 122880 # Total input and output capacity.
-        max_output_tokens: 66560 # Maximum output supported by the endpoint.
-        # extra_body is merged into each request for this exact model. This
-        # disables DeepSeek-style thinking; remove it for incompatible APIs.
+        # context_window_tokens: 122880 # Total input and output capacity.
+        # max_output_tokens: 66560 # Maximum output supported by the endpoint.
+        # extra_body is an example of model-specific request JSON. Remove or
+        # replace fields that are not supported by your selected endpoint.
         extra_body:
           thinking:
             type: disabled`
@@ -128,6 +130,16 @@ func TestInstallerIncludesStarterSkillAndTaskAgent(t *testing.T) {
 
 func TestInstallerGeneratedProjectLoadsStarterSkillAndTaskAgent(t *testing.T) {
 	t.Setenv("API_KEY", "test-key")
+	metadataServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/models" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":[{"id":"replace-model","context_window_tokens":262144,"max_output_tokens":32768}]}`))
+	}))
+	defer metadataServer.Close()
+
 	installer := readInstaller(t)
 	root := t.TempDir()
 	for path, marker := range map[string]string{
@@ -137,6 +149,9 @@ func TestInstallerGeneratedProjectLoadsStarterSkillAndTaskAgent(t *testing.T) {
 		".agentcli/agent/researcher/researcher.md": `cat >"$target/.agentcli/agent/researcher/researcher.md" <<'EOF'`,
 	} {
 		content := strings.TrimPrefix(installerHeredoc(t, installer, marker), "\n")
+		if path == ".agentcli/config.yaml" {
+			content = strings.Replace(content, "https://api.openai.com/v1", metadataServer.URL+"/v1", 1)
+		}
 		writeTestFile(t, filepath.Join(root, path), content)
 	}
 
@@ -151,6 +166,10 @@ func TestInstallerGeneratedProjectLoadsStarterSkillAndTaskAgent(t *testing.T) {
 	definitions := project.subagentDefinitions()
 	if len(definitions) != 1 || definitions[0].Name != "researcher" {
 		t.Fatalf("task-agent definitions = %#v", definitions)
+	}
+	metadata := project.modelMetadata[projectModelReference{provider: "replace-provider", model: "replace-model"}]
+	if metadata.ContextWindowTokens != 262144 || metadata.MaxOutputTokens != 32768 {
+		t.Fatalf("discovered model metadata = %#v", metadata)
 	}
 }
 
@@ -183,6 +202,16 @@ func TestPlaygroundSetsDebugLogLevelInCode(t *testing.T) {
 
 func TestExampleConfigMatchesMainAgent(t *testing.T) {
 	t.Setenv("API_KEY", "test-key")
+	metadataServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/models" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":[{"id":"qwen3.6-35b","context_length":131072,"max_output_tokens":16384}]}`))
+	}))
+	defer metadataServer.Close()
+
 	root := t.TempDir()
 	for source, destination := range map[string]string{
 		".agentcli/config.example.yaml":            ".agentcli/config.yaml",
@@ -194,7 +223,11 @@ func TestExampleConfigMatchesMainAgent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read example project file %s: %v", source, err)
 		}
-		writeTestFile(t, filepath.Join(root, destination), string(content))
+		text := string(content)
+		if source == ".agentcli/config.example.yaml" {
+			text = strings.Replace(text, "https://api.openai.com/v1", metadataServer.URL+"/v1", 1)
+		}
+		writeTestFile(t, filepath.Join(root, destination), text)
 	}
 
 	project, err := LoadProject(root)
@@ -211,6 +244,10 @@ func TestExampleConfigMatchesMainAgent(t *testing.T) {
 	definitions := project.subagentDefinitions()
 	if len(definitions) != 1 || definitions[0].Name != "researcher" {
 		t.Fatalf("example task-agent definitions = %#v", definitions)
+	}
+	metadata := project.modelMetadata[projectModelReference{provider: "openai", model: "qwen3.6-35b"}]
+	if metadata.ContextWindowTokens != 131072 || metadata.MaxOutputTokens != 16384 {
+		t.Fatalf("example discovered model metadata = %#v", metadata)
 	}
 }
 

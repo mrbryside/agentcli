@@ -35,12 +35,11 @@ edit/report tools, guard models, runtime logger, or observability exporter.
 
 The generated config contains the permission mode, compaction settings, and
 one OpenAI-compatible provider profile. Short comments explain each section,
-the role of context/output metadata, and the DeepSeek-compatible
-`extra_body.thinking.type: disabled` override. Public setup guidance tells users
-to replace the example limits and remove or replace incompatible request
-fields. The config references `${API_KEY}` from the process environment and
-intentionally contains no logging, observability, or guardrail provider
-mapping.
+automatic context/output metadata discovery, optional manual limits for unknown
+custom models, and a generic `extra_body` request-field example. Public setup
+guidance tells users to remove or replace incompatible request fields. The
+config references `${API_KEY}` from the process environment and intentionally
+contains no logging, observability, or guardrail provider mapping.
 
 `init/templates/tool_read.go` and `init/templates/tool_glob.go` are downloaded
 independently. Tests may replace their URLs with `AGENTCLI_TOOL_READ_URL` and

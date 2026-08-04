@@ -59,8 +59,9 @@ providers:
     api_key: ${API_KEY}
     models:
       replace-model:
-        context_window_tokens: 122880
-        max_output_tokens: 66560
+        # Usually discovered automatically. Uncomment for an unknown custom LLM.
+        # context_window_tokens: 122880
+        # max_output_tokens: 66560
         extra_body:
           thinking:
             type: disabled
@@ -77,7 +78,9 @@ models using the same provider profile.
 | `context_window_tokens` | The model's total context capacity. AgentCLI estimates whether the system prompts, transcript, tool schemas, requested output reserve, and current input fit before deciding to compact. |
 | `max_output_tokens` | The model's maximum generation capability. It bounds the output reserve and compaction-summary budget; it does not force every response to generate that many tokens. |
 
-Use limits published for the exact model and endpoint. If configured manually,
+Normally, leave both fields unset so AgentCLI can discover them. Specify limits
+only for a custom model that the endpoint and public catalog cannot describe,
+using values published or configured for that exact runtime. If set manually,
 `context_window_tokens` must be positive; `max_output_tokens` may be omitted,
 and zero means that no reliable output limit is known. A positive output limit
 cannot be larger than the context window. Do not configure only
@@ -108,7 +111,7 @@ have different limits.
 {"chat_template_kwargs":{"enable_thinking":false}}
 ```
 
-DeepSeek-compatible gateways commonly use a different top-level request field:
+Some OpenAI-compatible gateways use a top-level request field instead:
 
 ```yaml
 models:

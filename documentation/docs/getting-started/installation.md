@@ -54,10 +54,10 @@ go run .
 ```
 
 Comments in the generated config explain permissions, compaction, provider
-aliases, model token limits, and the DeepSeek-compatible
-`extra_body.thinking.type: disabled` field. Replace the example limits with the
-values published by your endpoint, and remove or replace `extra_body` when the
-endpoint does not accept it.
+aliases, model token limits, and an `extra_body` request-field example. Model
+limits are discovered automatically. Uncomment and replace the example limits
+only for a custom LLM that the provider and public catalog cannot describe;
+remove or replace `extra_body` when the endpoint does not accept it.
 
 The starter exposes only bounded `glob` and `read` tools. It also includes an
 `interview` skill and a read-only `researcher` task agent. Their descriptions

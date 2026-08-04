@@ -13,12 +13,12 @@ no second playground-specific config format: provider, model, and compaction
 settings all come from the root `.agentcli/config.yaml`. The tracked
 `.agentcli/config.example.yaml` includes an enabled compaction mapping; copy it
 and set `API_KEY` for a clean manual setup. Its comments explain permission,
-compaction, provider, model-limit, Qwen reasoning, and DeepSeek `extra_body`
-settings. The repository playground's exact-name model entry declares limits of
-122,880 context tokens and 66,560 output tokens for its custom model. The
-Terminal formats those binary values as `120k` and `65k`, so the opening banner
-shows `qwen3.6-35b · 120k context`. Those tools and their tests belong in
-`playground/terminal`, not in the reusable `agentcli` package.
+compaction, provider, model-limit, reasoning, and generic `extra_body`
+settings. Model limits remain commented so the configured provider `/models`
+endpoint or `models.dev` resolves them first; users enable the manual values
+only for an unknown custom model. The opening banner formats whichever context
+limit was resolved. Those tools and their tests belong in `playground/terminal`,
+not in the reusable `agentcli` package.
 
 The playground inherits the single framework-owned main-agent `task` tool from
 `LoadProject`; it has no local copy of its schema or orchestration prompt. Its

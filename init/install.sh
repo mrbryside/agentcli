@@ -147,14 +147,14 @@ providers:
     url: https://api.openai.com/v1
     api_key: ${API_KEY}
     request_timeout: 2m
-    # Model entries are exact-name overrides, not an allowlist. These limits
-    # help AgentCLI budget context and compaction when discovery is unavailable.
+    # Model entries are exact-name overrides, not an allowlist. Limits are
+    # discovered automatically; uncomment them only for an unknown custom LLM.
     models:
       replace-model:
-        context_window_tokens: 122880 # Total input and output capacity.
-        max_output_tokens: 66560 # Maximum output supported by the endpoint.
-        # extra_body is merged into each request for this exact model. This
-        # disables DeepSeek-style thinking; remove it for incompatible APIs.
+        # context_window_tokens: 122880 # Total input and output capacity.
+        # max_output_tokens: 66560 # Maximum output supported by the endpoint.
+        # extra_body is an example of model-specific request JSON. Remove or
+        # replace fields that are not supported by your selected endpoint.
         extra_body:
           thinking:
             type: disabled
