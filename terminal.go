@@ -1759,7 +1759,7 @@ func (c *terminalClient) renderSubagentEventWithLoading(subagentID string, event
 
 func (c *terminalClient) observeEvent(event agentruntime.AgentEvent) {
 	wroteContent := false
-	c.renderEventForSubagent("", event, &wroteContent, false, nil)
+	c.renderEventForSubagent("", event, &wroteContent, false, c.currentMainAgentLoading())
 }
 
 func (c *terminalClient) renderEventForSubagent(subagentID string, event agentruntime.AgentEvent, wroteContent *bool, visible bool, loading *terminalLoadingController) bool {
@@ -1781,18 +1781,39 @@ func (c *terminalClient) renderEventForSubagent(subagentID string, event agentru
 			c.terminal.reasoning(event.ProviderEvent.Reasoning)
 		}
 	case agentruntime.ToolCallRequested:
-		if visible && event.ToolRequest != nil {
+		if event.ToolRequest != nil {
+			call := event.ToolRequest.Call
+			if call.Name == TaskToolName && loading != nil {
+				agent, activity := terminalTaskCallProgress(call)
+				if loading.StartTask(call.CallID, agent, activity, visible) {
+					break
+				}
+			}
+			if !visible {
+				break
+			}
 			loading.Stop()
 			c.terminal.ensureNewline(*wroteContent)
 			*wroteContent = false
-			c.terminal.toolCall(event.ToolRequest.Call.Name, terminalToolCallDetails(event.ToolRequest.Call))
-			loading.Start("Running " + event.ToolRequest.Call.Name)
+			c.terminal.toolCall(call.Name, terminalToolCallDetails(call))
+			loading.Start("Running " + call.Name)
 		}
 	case agentruntime.ToolResultReceived:
 		if event.ToolResult != nil {
+			result := event.ToolResult.Result
+			if result.Name == TaskToolName && loading != nil {
+				agent, state := terminalTaskResultProgress(result)
+				if handled, allDone := loading.FinishTask(result.CallID, agent, state, visible); handled {
+					if visible && allDone {
+						*wroteContent = false
+						loading.Start("")
+					}
+					break
+				}
+			}
 			if visible {
 				loading.Stop()
-				c.terminal.toolResult(event.ToolResult.Result)
+				c.terminal.toolResult(result)
 			}
 			if visible {
 				loading.Start("")
@@ -2171,6 +2192,46 @@ func terminalToolCallDetails(call agentruntime.ToolCall) string {
 		}
 	}
 	return strings.Join(details, " · ")
+}
+
+func terminalTaskCallProgress(call agentruntime.ToolCall) (agent, activity string) {
+	var input struct {
+		Agent       *string `json:"agent"`
+		Description *string `json:"description"`
+		TaskID      *string `json:"task_id"`
+	}
+	if json.Unmarshal(call.Arguments, &input) != nil {
+		return "task", ""
+	}
+	if input.TaskID != nil {
+		if taskID := strings.TrimSpace(*input.TaskID); taskID != "" {
+			return taskID, "resume"
+		}
+	}
+	if input.Agent != nil {
+		agent = strings.TrimSpace(*input.Agent)
+	}
+	if input.Description != nil {
+		activity = strings.TrimSpace(*input.Description)
+	}
+	return agent, activity
+}
+
+func terminalTaskResultProgress(result agentruntime.ToolResult) (agent string, state TaskState) {
+	if result.Status != agentruntime.ToolResultSucceeded {
+		return "", TaskStateError
+	}
+	var taskResult TaskResult
+	if json.Unmarshal(result.Output, &taskResult) != nil {
+		return "", TaskStateCompleted
+	}
+	state = taskResult.State
+	switch state {
+	case TaskStateRunning, TaskStateCompleted, TaskStateIncomplete, TaskStateError:
+	default:
+		state = TaskStateCompleted
+	}
+	return strings.TrimSpace(taskResult.AgentName), state
 }
 
 func (t terminal) messages(messages []agentruntime.Message) {

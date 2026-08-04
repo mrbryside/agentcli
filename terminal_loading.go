@@ -18,8 +18,20 @@ type terminalLoadingState struct {
 	generation uint64
 	active     bool
 	stop       chan struct{}
-	label      string
+	rows       []terminalLoadingRow
 	color      bool
+}
+
+type terminalLoadingRow struct {
+	label   string
+	running bool
+	icon    string
+	color   string
+}
+
+type terminalTaskLoadingEntry struct {
+	agent string
+	row   terminalLoadingRow
 }
 
 type terminalLoadingHandle struct {
@@ -28,9 +40,11 @@ type terminalLoadingHandle struct {
 }
 
 type terminalLoadingController struct {
-	mu       sync.Mutex
-	terminal terminal
-	handle   terminalLoadingHandle
+	mu        sync.Mutex
+	terminal  terminal
+	handle    terminalLoadingHandle
+	taskOrder []string
+	tasks     map[string]terminalTaskLoadingEntry
 }
 
 func (t terminal) loadingController() *terminalLoadingController {
@@ -49,7 +63,11 @@ func (controller *terminalLoadingController) Start(label string) {
 	}
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
-	controller.handle = controller.terminal.startLoading(label)
+	rows := controller.taskRowsLocked()
+	if len(rows) == 0 || strings.TrimSpace(label) != "" {
+		rows = append(rows, terminalLoadingRow{label: label, running: true})
+	}
+	controller.handle = controller.terminal.startLoadingRows(rows)
 }
 
 func (controller *terminalLoadingController) Stop() {
@@ -63,11 +81,129 @@ func (controller *terminalLoadingController) Stop() {
 	handle.stop()
 }
 
-func (t terminal) startLoading(label string) terminalLoadingHandle {
+// StartTask replaces the generic loading row with one independently animated
+// row per task call. The call ID keeps completion updates correlated when
+// concurrent task results arrive out of order. Hidden root views retain the
+// rows without redrawing the currently selected view.
+func (controller *terminalLoadingController) StartTask(callID, agent, activity string, visible bool) bool {
+	if controller == nil || !controller.terminal.interactive || controller.terminal.loading == nil {
+		return false
+	}
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return false
+	}
+	agent = strings.TrimSpace(agent)
+	activity = strings.TrimSpace(activity)
+	if agent == "" {
+		agent = "task"
+	}
+
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.tasks == nil {
+		controller.tasks = make(map[string]terminalTaskLoadingEntry)
+	}
+	if _, exists := controller.tasks[callID]; !exists {
+		controller.taskOrder = append(controller.taskOrder, callID)
+	}
+	controller.tasks[callID] = terminalTaskLoadingEntry{
+		agent: agent,
+		row:   terminalLoadingRow{label: terminalTaskLoadingLabel(agent, activity), running: true},
+	}
+	if visible {
+		controller.handle = controller.terminal.startLoadingRows(controller.taskRowsLocked())
+	}
+	return true
+}
+
+// FinishTask updates one task row without disturbing other running rows. Once
+// every task call has returned, the final rows are committed to scrollback.
+func (controller *terminalLoadingController) FinishTask(callID, agent string, state TaskState, visible bool) (handled, allDone bool) {
+	if controller == nil {
+		return false, false
+	}
+	callID = strings.TrimSpace(callID)
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+
+	entry, exists := controller.tasks[callID]
+	if !exists {
+		return false, false
+	}
+	if agent = strings.TrimSpace(agent); agent != "" {
+		entry.agent = agent
+	}
+	entry.row = terminalTaskFinishedRow(entry.agent, state)
+	controller.tasks[callID] = entry
+
+	rows := controller.taskRowsLocked()
+	allDone = true
+	for _, row := range rows {
+		if row.running {
+			allDone = false
+			break
+		}
+	}
+	if !allDone {
+		if visible {
+			controller.handle = controller.terminal.startLoadingRows(rows)
+		}
+		return true, false
+	}
+
+	if visible {
+		handle := controller.handle
+		controller.handle = terminalLoadingHandle{}
+		handle.stop()
+		controller.terminal.println(terminalLoadingRowsDisplay(rows, 0, controller.terminal.color))
+	}
+	controller.taskOrder = nil
+	controller.tasks = nil
+	return true, true
+}
+
+func (controller *terminalLoadingController) taskRowsLocked() []terminalLoadingRow {
+	if len(controller.taskOrder) == 0 {
+		return nil
+	}
+	rows := make([]terminalLoadingRow, 0, len(controller.taskOrder))
+	for _, callID := range controller.taskOrder {
+		entry, exists := controller.tasks[callID]
+		if exists {
+			rows = append(rows, entry.row)
+		}
+	}
+	return rows
+}
+
+func terminalTaskLoadingLabel(agent, activity string) string {
+	if activity == "" {
+		return agent
+	}
+	return agent + " · " + activity
+}
+
+func terminalTaskFinishedRow(agent string, state TaskState) terminalLoadingRow {
+	row := terminalLoadingRow{label: terminalTaskLoadingLabel(agent, string(state))}
+	switch state {
+	case TaskStateRunning:
+		row.icon, row.color = "↗", "36"
+	case TaskStateIncomplete:
+		row.icon, row.color = "!", "33"
+	case TaskStateError:
+		row.icon, row.color = "✗", "31"
+	default:
+		row.icon, row.color = "✓", "32"
+	}
+	return row
+}
+
+func (t terminal) startLoadingRows(rows []terminalLoadingRow) terminalLoadingHandle {
 	if !t.interactive || t.loading == nil {
 		return terminalLoadingHandle{}
 	}
-	return t.loading.start(label, t.color)
+	return t.loading.startRows(rows, t.color)
 }
 
 func (state *terminalLoadingState) attach(renderer *terminalStreamRenderer, output io.Writer) {
@@ -93,8 +229,11 @@ func (state *terminalLoadingState) detach(renderer *terminalStreamRenderer) {
 	state.mu.Unlock()
 }
 
-func (state *terminalLoadingState) start(label string, color bool) terminalLoadingHandle {
-	label = strings.TrimSpace(label)
+func (state *terminalLoadingState) startRows(rows []terminalLoadingRow, color bool) terminalLoadingHandle {
+	rows = append([]terminalLoadingRow(nil), rows...)
+	for index := range rows {
+		rows[index].label = strings.TrimSpace(rows[index].label)
+	}
 	state.mu.Lock()
 	if state.renderer == nil || state.output == nil {
 		state.mu.Unlock()
@@ -107,7 +246,7 @@ func (state *terminalLoadingState) start(label string, color bool) terminalLoadi
 	generation := state.generation
 	state.active = true
 	state.stop = make(chan struct{})
-	state.label = label
+	state.rows = rows
 	state.color = color
 	stop := state.stop
 	state.renderLocked(0)
@@ -139,17 +278,35 @@ func (state *terminalLoadingState) animate(generation uint64, stop <-chan struct
 }
 
 func (state *terminalLoadingState) renderLocked(frame int) {
-	status := terminalLoadingFrames[frame]
-	if state.label != "" {
-		status += " " + state.label
-	}
-	if state.color {
-		status = "\033[36m" + terminalLoadingFrames[frame] + "\033[0m"
-		if state.label != "" {
-			status += " \033[2m" + state.label + "\033[0m"
+	state.renderer.setStatus(state.output, terminalLoadingRowsDisplay(state.rows, frame, state.color))
+}
+
+func terminalLoadingRowsDisplay(rows []terminalLoadingRow, frame int, color bool) string {
+	lines := make([]string, 0, len(rows))
+	for index, row := range rows {
+		icon := row.icon
+		iconColor := row.color
+		if row.running {
+			icon = terminalLoadingFrames[(frame+index)%len(terminalLoadingFrames)]
+			iconColor = "36"
 		}
+		if icon == "" {
+			continue
+		}
+		line := icon
+		if color {
+			line = "\033[" + iconColor + "m" + icon + "\033[0m"
+		}
+		if row.label != "" {
+			if color {
+				line += " \033[2m" + row.label + "\033[0m"
+			} else {
+				line += " " + row.label
+			}
+		}
+		lines = append(lines, line)
 	}
-	state.renderer.setStatus(state.output, status)
+	return strings.Join(lines, "\n")
 }
 
 func (state *terminalLoadingState) stopCurrent() {

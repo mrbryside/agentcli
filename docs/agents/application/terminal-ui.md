@@ -24,6 +24,13 @@ and persisted instances “task sessions.” Task tool calls render `new` or
 lifecycle is rendered as `resumable`; storage `failed` is rendered as the
 model-facing `error`.
 
+Interactive root views render concurrent `task` calls as one animated row per
+call ID. Each row shows the agent and task description while running, updates
+independently when results arrive out of order, and is committed to scrollback
+with its terminal task state after the whole task batch finishes. Other tool
+calls retain the shared loading row, and non-interactive output retains the
+ordinary tool call/result transcript.
+
 The opening and redrawn root banner appends the context-window size reported by
 the active model's `ModelMetadataProvider` to the configured model name, for
 example `qwen3.6-35b · 120k context`. Missing or invalid metadata is visible as

@@ -2,6 +2,7 @@ package agentcli
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,101 @@ func TestTerminalLoadingFollowsAgentEventPhases(t *testing.T) {
 	}, &wroteContent, loading)
 	if _, status := terminalRendererSnapshot(renderer); status != "" {
 		t.Fatalf("permission status = %q", status)
+	}
+}
+
+func TestTerminalLoadingTracksConcurrentTasksIndependently(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	state := &terminalLoadingState{}
+	var output bytes.Buffer
+	state.attach(renderer, &output)
+	client := terminalClient{terminal: terminal{
+		out: &output, interactive: true, loading: state, stream: renderer,
+	}}
+	loading := client.terminal.loadingController()
+	wroteContent := false
+
+	for _, call := range []agentruntime.ToolCall{
+		{CallID: "research", Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"researcher","description":"Inspect queues","prompt":"work"}`)},
+		{CallID: "review", Name: TaskToolName, Arguments: json.RawMessage(`{"agent":"reviewer","description":"Review safety","prompt":"work"}`)},
+	} {
+		client.renderEventWithLoading(agentruntime.AgentEvent{
+			Type:        agentruntime.ToolCallRequested,
+			ToolRequest: &agentruntime.ToolRequest{Call: call},
+		}, &wroteContent, loading)
+	}
+
+	_, status := terminalRendererSnapshot(renderer)
+	if !strings.Contains(status, "researcher · Inspect queues") || !strings.Contains(status, "reviewer · Review safety") {
+		t.Fatalf("concurrent task status = %q", status)
+	}
+	if strings.Count(status, "\n") != 1 {
+		t.Fatalf("concurrent tasks did not render on separate rows: %q", status)
+	}
+
+	client.renderEventWithLoading(taskResultEvent(t, "review", "reviewer", TaskStateCompleted), &wroteContent, loading)
+	_, status = terminalRendererSnapshot(renderer)
+	if !strings.Contains(status, "researcher · Inspect queues") || !strings.Contains(status, "✓ reviewer · completed") {
+		t.Fatalf("out-of-order task completion status = %q", status)
+	}
+
+	client.renderEventWithLoading(taskResultEvent(t, "research", "researcher", TaskStateCompleted), &wroteContent, loading)
+	_, status = terminalRendererSnapshot(renderer)
+	if status != terminalLoadingFrames[0] {
+		t.Fatalf("post-task loading status = %q", status)
+	}
+	rendered := terminalANSIEscape.ReplaceAllString(output.String(), "")
+	if !strings.Contains(rendered, "✓ researcher · completed") || !strings.Contains(rendered, "✓ reviewer · completed") {
+		t.Fatalf("final task rows were not committed: %q", rendered)
+	}
+}
+
+func TestTerminalLoadingRetainsTaskProgressWhileRootViewIsHidden(t *testing.T) {
+	renderer := &terminalStreamRenderer{}
+	renderer.attach(func() int { return 80 })
+	state := &terminalLoadingState{}
+	var output bytes.Buffer
+	state.attach(renderer, &output)
+	loading := (&terminal{out: &output, interactive: true, loading: state, stream: renderer}).loadingController()
+	client := terminalClient{
+		terminal:         loading.terminal,
+		mainAgentLoading: loading,
+	}
+
+	if !loading.StartTask("research", "researcher", "Inspect queues", false) ||
+		!loading.StartTask("review", "reviewer", "Review safety", false) {
+		t.Fatal("hidden task calls were not tracked")
+	}
+	client.observeEvent(taskResultEvent(t, "review", "reviewer", TaskStateCompleted))
+	loading.Start("")
+	_, status := terminalRendererSnapshot(renderer)
+	if !strings.Contains(status, "researcher · Inspect queues") || !strings.Contains(status, "✓ reviewer · completed") {
+		t.Fatalf("restored root task status = %q", status)
+	}
+
+	client.observeEvent(taskResultEvent(t, "research", "researcher", TaskStateCompleted))
+	loading.Start("")
+	_, status = terminalRendererSnapshot(renderer)
+	if status != terminalLoadingFrames[0] {
+		t.Fatalf("completed hidden task batch left stale rows: %q", status)
+	}
+}
+
+func taskResultEvent(t *testing.T, callID, agent string, state TaskState) agentruntime.AgentEvent {
+	t.Helper()
+	output, err := json.Marshal(TaskResult{
+		TaskID: callID, AgentName: agent, State: state,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agentruntime.AgentEvent{
+		Type: agentruntime.ToolResultReceived,
+		ToolResult: &agentruntime.ToolResultEnvelope{Result: agentruntime.ToolResult{
+			CallID: callID, Name: TaskToolName,
+			Status: agentruntime.ToolResultSucceeded, Output: output,
+		}},
 	}
 }
 
