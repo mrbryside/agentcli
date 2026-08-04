@@ -55,12 +55,6 @@ export API_KEY='your-api-key'
 go run .
 ```
 
-You can also run one prompt without opening the interactive input loop:
-
-```sh
-go run . "Explain this project"
-```
-
 The generated project is intentionally small:
 
 ```text
@@ -70,7 +64,13 @@ my-agent/
 ├── tool_read.go
 └── .agentcli/
     ├── config.yaml
-    └── MAIN.md
+    ├── MAIN.md
+    ├── skill/
+    │   └── interview/
+    │       └── SKILL.md
+    └── agent/
+        └── researcher/
+            └── researcher.md
 ```
 
 See [Getting Started](https://mrbryside.github.io/agentcli/)

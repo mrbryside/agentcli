@@ -154,18 +154,20 @@ func TestInstallerGeneratedProjectLoadsStarterSkillAndTaskAgent(t *testing.T) {
 	}
 }
 
-func TestInstallerMatchesPlaygroundOneShotBehavior(t *testing.T) {
+func TestInstallerRunsInteractiveTerminalWithoutArgumentMode(t *testing.T) {
 	installer := readInstaller(t)
-	playgroundContent, err := os.ReadFile("playground/terminal/main.go")
-	if err != nil {
-		t.Fatalf("read terminal playground: %v", err)
+	for _, forbidden := range []string{
+		`"strings"`,
+		"initialPrompt",
+		"agentcli.WithNonInteractive",
+		"agentcli.WithTerminalInitialPrompt",
+	} {
+		if strings.Contains(installer, forbidden) {
+			t.Fatalf("installer still contains argument-mode code %q", forbidden)
+		}
 	}
-	const required = "agentcli.WithNonInteractive(initialPrompt != \"\")"
-	if !strings.Contains(installer, required) {
-		t.Fatalf("installer main.go does not contain %q", required)
-	}
-	if !strings.Contains(string(playgroundContent), required) {
-		t.Fatalf("terminal playground does not contain %q", required)
+	if !strings.Contains(installer, "return agent.RunTerminal()") {
+		t.Fatal("installer does not run the interactive terminal directly")
 	}
 }
 

@@ -59,12 +59,6 @@ aliases, model token limits, and the DeepSeek-compatible
 values published by your endpoint, and remove or replace `extra_body` when the
 endpoint does not accept it.
 
-Run one non-interactive prompt by passing it as an argument:
-
-```sh
-go run . "Summarize this project"
-```
-
 The starter exposes only bounded `glob` and `read` tools. It also includes an
 `interview` skill and a read-only `researcher` task agent. Their descriptions
 show the main model when to load the skill or spawn the task agent, so the user

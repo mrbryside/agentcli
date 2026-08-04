@@ -76,7 +76,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/mrbryside/agentcli"
 )
@@ -89,7 +88,6 @@ func main() {
 }
 
 func run() (runErr error) {
-	initialPrompt := strings.TrimSpace(strings.Join(os.Args[1:], " "))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -103,7 +101,6 @@ func run() (runErr error) {
 	}
 	agent, err := agentcli.New(ctx,
 		agentcli.WithProject(project),
-		agentcli.WithNonInteractive(initialPrompt != ""),
 		agentcli.WithTool(newGlobTool(projectRoot)),
 		agentcli.WithTool(newReadTool(projectRoot)),
 	)
@@ -112,7 +109,7 @@ func run() (runErr error) {
 	}
 	defer func() { runErr = errors.Join(runErr, agent.Close()) }()
 
-	return agent.RunTerminal(agentcli.WithTerminalInitialPrompt(initialPrompt))
+	return agent.RunTerminal()
 }
 EOF
 
