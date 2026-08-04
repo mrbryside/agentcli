@@ -8,6 +8,13 @@ sidebar_position: 3
 Every `Agent` can expose JSON commands, retained state, and Server-Sent Events
 through Echo.
 
+:::info Complete API reference
+
+See the generated [API documentation](/api-reference) for every endpoint,
+request/response schema, status code, and SSE operation.
+
+:::
+
 ```go
 agent, err := agentcli.New(ctx, options...)
 if err != nil {
@@ -56,9 +63,8 @@ owns and must close the `Agent`.
 | `POST` | `/v1/sessions/{sessionID}/turns/{turnID}/interrupt` | Interrupt active or queued work. |
 | `GET` / `PUT` | `/v1/permission-mode` | Read or change the live mode. |
 
-Host-side task-session, permission, and confirmation routes are also
-available. Use the generated [HTTP API reference](/api-reference) for every
-endpoint and schema.
+Host-side task-session, permission, and confirmation routes are also included
+in the generated reference.
 
 Start a turn:
 
